@@ -30,14 +30,22 @@ class BarFunction extends ASTFunctionNode {
     static deSugar(parser: CanonicalParser, exec: boolean) {
         const ctx = parser.context;
         const source = ctx.source;
-        let barCnt = 0;
         let pos = parser.cursor;
-        while (pos < parser.end && source[pos] === '|') {
-            barCnt++;
-            pos++;
+        let type = 0;
+        const slice2 = source.slice(pos, pos + 2);
+        if (slice2 === "||") type = 1, pos += 2;
+        else if (slice2 === "|:") type = 2, pos += 2;
+        else if (slice2 === ":|") {
+            if (source[pos + 2] === ":") type = 4, pos += 3;
+            else type = 3, pos += 2;
+        } else if (source[pos] === "|") type = 0, pos += 1;
+        else return null;
+        if (exec) {
+            const argMap = new Map();
+            argMap.set("type", type);
+            const barNode = new BarFunction({ start: parser.cursor, end: pos }, argMap, ctx, null);
+            ctx.pushNewNode(barNode);
         }
-        // 后面还有内容，不能收割前面的
-        if (barCnt === 0) return null;
         return {
             next: pos,
             canConsumeNumber: 0,

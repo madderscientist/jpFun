@@ -6,7 +6,7 @@ import { ASTBraceNode } from "../functions/types";
 const testInput = `
 @.(@n(F#,,4,"#00f"))
 @voice(
-    {@note(C4,4) #5,,},
+    {@note(C4,4)/ #5,,. | {4b4}//},
     男 = ha ha,
     女 = la la
 )`;
