@@ -58,8 +58,8 @@ L: ...
             }
             if (source[pos] !== ':') return null;   // `:` 之前不允许有空格
             // 开始正式解析后面内容 头插一个遇到换行符就结束的语法糖 后面不允许 return null 了
-            let realEnd = pos + 1;
-            const subparser = new CanonicalParser(ctx, realEnd, parser.end);
+            let realEnd = parser.end;
+            const subparser = new CanonicalParser(parser, pos + 1, parser.end);
             const subDesugar: deSugarFunction = (p, e) => {
                 const s = p.context.source;
                 if (s[p.cursor] === '\n') {
@@ -106,8 +106,9 @@ L: ...
             // 后面不允许 return null 了
             // 检查上一个是不是 VoiceFunction
             let voiceNode: VoiceFunction | null = null;
-            for (let k = ctx.toConsume.length - 1; k >= 0; k--) {
-                const n = ctx.toConsume[k];
+            let voiceNodeAt = ctx.toConsume.length - 1;
+            for (; voiceNodeAt >= 0; voiceNodeAt--) {
+                const n = ctx.toConsume[voiceNodeAt];
                 if (n instanceof TokenNode) continue;   // 跳过空白等无意义节点
                 if (n instanceof VoiceFunction) voiceNode = n;
                 break;
@@ -164,6 +165,8 @@ L: ...
             voiceNode.addLyric(name, source.slice(lystart, lyend).trim(), {
                 start: lystart, end: lyend
             }, parser.context);
+            // 清除voiceNodeAt之后的TokenNode 因为被夹在N和L之间
+            ctx.toConsume.length = voiceNodeAt + 1;
         } else return null;
         return {
             next: pos,

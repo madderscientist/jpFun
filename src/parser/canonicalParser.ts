@@ -6,8 +6,8 @@ import { readBrace } from "./parse-utils/brace-utils";
 import { readLabel } from "./parse-utils/label-utils";
 import { LabelNode } from "./labelNode";
 
-// bool 字面量
-const BOOL_RE = /^(true|false)$/i;
+// bool 字面量 严格要求小写
+const BOOL_RE = /^(true|false)$/;
 
 export class CanonicalParser {
     context: ParserContext;

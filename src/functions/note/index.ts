@@ -41,7 +41,7 @@ class NoteFunction extends ASTFunctionNode {
             {
                 name: "color",
                 type: "string",
-                default: "#000000",
+                default: "#000",
             }
         ]
     };

@@ -1,5 +1,12 @@
 import { SourceSpan } from "./types";
 
+export interface LineColRange {
+    startLine: number;
+    startColumn: number;
+    endLine: number;
+    endColumn: number;
+}
+
 export abstract class Diagnostic {
     /** 诊断代码 */
     code: string;
@@ -12,6 +19,41 @@ export abstract class Diagnostic {
         this.message = message;
         this.span = span;
     }
+
+    toLineCol(lineStarts: ArrayLike<number>): LineColRange {
+        const start = Diagnostic.offsetToLineCol(this.span.start, lineStarts);
+        const end = Diagnostic.offsetToLineCol(this.span.end, lineStarts);
+        return {
+            startLine: start.line,
+            startColumn: start.column,
+            endLine: end.line,
+            endColumn: end.column,
+        };
+    }
+
+    static offsetToLineCol(offset: number, lineStarts: ArrayLike<number>): { line: number; column: number } {
+        const count = lineStarts.length;
+        if (count === 0) {
+            return { line: 1, column: Math.max(0, offset) + 1 };
+        }
+        let target = offset;
+        if (target < 0) target = 0;
+
+        let lo = 0;
+        let hi = count - 1;
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            if (lineStarts[mid] <= target) lo = mid + 1;
+            else hi = mid - 1;
+        }
+        const lineIndex = Math.max(0, hi);
+        const lineStart = lineStarts[lineIndex] ?? 0;
+        return {
+            line: lineIndex + 1,
+            column: target - lineStart + 1,
+        };
+    }
+
     static error: any;
     static warning: any;
 }
