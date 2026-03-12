@@ -77,6 +77,7 @@ class OverFunction extends ASTFunctionNode {
 
     contents: ASTNodeBase[] = [];
     get children(): ASTNodeBase[] { return this.contents; }
+    get duration() { return Math.max(...this.contents.map(c => c.duration)); }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);

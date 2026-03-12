@@ -170,6 +170,7 @@ L: ...
         tokens: string[]   // 分词后的歌词内容
     }[];
     get children() { return [this.content]; }
+    get duration() { return this.content.duration; }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);

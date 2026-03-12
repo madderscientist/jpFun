@@ -76,6 +76,7 @@ class DivFunction extends ASTFunctionNode {
     content: ASTNodeBase;
     n: number;
     get children() { return [this.content]; }
+    get duration() { return this.content.duration / (2 << this.n); }
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
