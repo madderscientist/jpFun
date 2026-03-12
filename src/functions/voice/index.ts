@@ -1,7 +1,9 @@
-import { FunctionDef, ASTNodeBase, TokenNode, ASTBraceNode, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass, deSugarFunction } from "../types";
+import { FunctionDef, ASTNodeBase, ASTBraceNode, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../types";
+import { ParserContext } from "../../parser/parserContext";
 import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../parser/diagnostic";
 import { findRightParen, removeQuote } from "../../parser/parse-utils/call-utils";
-import { CanonicalParser, skipSpaces } from "../../parser/canonicalParser";
+import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType";
+import { deSugarRelationFunction, skipSpaces } from "../../parser/parserContext";
 
 const WHITEPACE_RE = /\s/;
 
@@ -39,77 +41,84 @@ L: ...
         ],
     };
 
-    // 由于解析有些复杂 不管exec，总是执行，失败则报错
-    static deSugar(parser: CanonicalParser, exec: boolean) {
-        const ctx = parser.context;
-        const source = ctx.source;
-        let pos = parser.cursor;
-        if (pos >= parser.end - 1) return null;
+    // 去糖第一阶段识别两个标签
+    static deSugarAtom(source: string, start: number, end: number) {
+        if (source[start] !== 'N' && source[start] !== 'L') return null;
+        let pos = start + 1;
         let name = '';
-        // 识别音符参数
-        if (source[pos] === 'N') {
-            pos++;
-            if (source[pos] === '(') {
-                // `N(name)` 提取括号
-                const at = findRightParen(source, pos + 1, parser.end);
-                if (at < 0) return null;    // 没有找到匹配的右括号 不去糖
-                name = removeQuote(source.slice(pos + 1, at).trim());
-                pos = at + 1;
-            }
-            if (source[pos] !== ':') return null;   // `:` 之前不允许有空格
-            // 开始正式解析后面内容 头插一个遇到换行符就结束的语法糖 后面不允许 return null 了
-            let realEnd = parser.end;
-            const subparser = new CanonicalParser(parser, pos + 1, parser.end);
-            const subDesugar: deSugarFunction = (p, e) => {
-                const s = p.context.source;
-                if (s[p.cursor] === '\n') {
-                    realEnd = p.cursor;   // 记录实际结束位置
-                    return {
-                        next: p.end,   // 直接跳到末尾结束解析
-                        canConsumeNumber: p.context.toConsume.length,   // 直接消费掉所有之前解析的节点
+        if (source[pos] === '(') {
+            // `X(name)` 提取括号
+            const at = findRightParen(source, pos + 1, end);
+            if (at < 0) return null;    // 没有找到匹配的右括号 不去糖
+            name = removeQuote(source.slice(pos + 1, at).trim());
+            pos = at + 1;
+        }
+        if (source[pos++] !== ':') return null;   // `:` 之前不允许有空格
+        // 识别具体内容
+        if (source[start] === 'N') {
+            // 等到第二轮寻找该层级的终止符 \n 来确定内容范围
+            const node: GrammarSugarNode = {
+                kind: "sugar",
+                data: {
+                    class: VoiceFunction,
+                    name,
+                },
+                span: { start, end: pos },
+            }; return { next: pos, node };
+        } else {
+            // 字符串收集
+            let lystart = pos = skipSpaces(source, pos + 1, end);
+            if (pos >= end) return null;    // 没有内容了 不去糖
+            let lyend = end;
+            const quote = source[pos];
+            if (quote === '"' || quote === "'") {
+                // 有引号的 直接以引号为界切分
+                lystart = ++pos;
+                let escaped = false;
+                let q: "'" | '"' | null = null;
+                for (; pos < end; pos++) {
+                    const ch = source[pos];
+                    if (q) {
+                        if (escaped) escaped = false;
+                        else if (ch === "\\") escaped = true;
+                        else if (ch === q) q = null;
+                        continue;
                     }
-                } return null;
-            }
-            subparser.context.deSugarFns = [subDesugar, ...subparser.context.deSugarFns];
-            subparser.context.diagnostics = [];
-            const success = subparser.parse();
-            if (!success) { // 解析失败 理应不去糖 但是为了告诉用户错误，需要执行去糖并报错
-                ctx.diagnostics.push(...subparser.context.diagnostics);
-                throw void 0;   // throw能让外部的parser捕获并停止解析
-            } else {
-                let tc = subparser.context.toConsume;
-                if (tc.length === 0) {  // 什么都没有，直接报错
-                    const err = Diagnostic.error.EmptyContent("voice", "content", { start: pos + 1, end: realEnd });
-                    ctx.diagnostics.push(err);
-                    throw err;
+                    if (ch === quote) break;
+                    if (ch === '"' || ch === "'") q = ch;
                 }
-                if (tc.length === 1 && tc[0] instanceof ASTBraceNode) tc = tc[0].content;
-                const argMap: FunctionArgs = new Map();
-                argMap.set(0, new ASTBraceNode({ start: pos + 1, end: realEnd }, tc));
-                argMap.set(1, name);
-                const newVoice = new VoiceFunction(
-                    { start: parser.cursor, end: realEnd }, argMap, ctx, null
-                );
-                ctx.pushNewNode(newVoice);
-                pos = realEnd;
+                if (pos >= end) throw Diagnostic.error.UnterminatedString({
+                    start: lystart - 1, end
+                });
+                lyend = pos++;  // 跳过结尾引号
+            } else {
+                // 没有引号的 以换行符为界切分 预处理已经跳过了转义的换行符了
+                for (; pos < end; pos++) {
+                    if (source[pos] === '\n') break;
+                } lyend = pos;
             }
-        } else if (source[pos] === 'L') {
-            pos++;
-            if (source[pos] === '(') {
-                // `L(name)` 提取括号
-                const at = findRightParen(source, pos + 1, parser.end);
-                if (at < 0) return null;
-                name = removeQuote(source.slice(pos + 1, at).trim());
-                pos = at + 1;
-            }
-            if (source[pos] !== ':') return null;
-            // 后面不允许 return null 了
-            // 检查上一个是不是 VoiceFunction
+            const node: GrammarSugarNode = {
+                kind: "sugar",
+                data: {
+                    class: VoiceFunction,
+                    lyric: source.slice(lystart, lyend).trim(),
+                    name,
+                },
+                span: { start, end: pos },
+            }; return { next: pos, node };
+        }
+    }
+
+    static deSugarRelation: deSugarRelationFunction = (ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) => {
+        const n = nodes[at++] as GrammarSugarNode;
+        if (n.data?.class !== VoiceFunction) return null;
+        if (n.data?.lyric !== undefined) {
+            // 歌词 需要找到最近的voice节点并添加歌词
             let voiceNode: VoiceFunction | null = null;
-            let voiceNodeAt = ctx.toConsume.length - 1;
+            let voiceNodeAt = ctx.nodes.length - 1;
             for (; voiceNodeAt >= 0; voiceNodeAt--) {
-                const n = ctx.toConsume[voiceNodeAt];
-                if (n instanceof TokenNode) continue;   // 跳过空白等无意义节点
+                const n = ctx.nodes[voiceNodeAt];
+                if (n instanceof ASTTextNode) continue;   // 跳过空白等无意义节点
                 if (n instanceof VoiceFunction) voiceNode = n;
                 break;
             }
@@ -117,61 +126,41 @@ L: ...
                 const err = new ErrorDiagnostic(
                     "E_LYRICS_WITHOUT_VOICE_NOTES",
                     `语法糖 'L:' 或 'L(name)' 必须跟在 @voice 的音符之后，但没有找到符合要求的 voice；请检查语法或直接使用 @voice 函数`,
-                    { start: parser.cursor, end: pos }
+                    n.span
                 );
                 ctx.diagnostics.push(err);
                 throw err;
             }
-            // 跳过空格后查找引号
-            let lystart = pos = skipSpaces(source, pos + 1, parser.end);
-            let lyend = parser.end;
-            if (pos < parser.end) {
-                if (source[pos] === '"' || source[pos] === "'") {
-                    // 有引号的 直接以引号为界切分
-                    const quote = source[pos];
-                    lystart = ++pos;
-                    let escaped = false;
-                    let q: "'" | '"' | null = null;
-                    for (; pos < parser.end; pos++) {
-                        const ch = source[pos];
-                        if (q) {
-                            if (escaped) escaped = false;
-                            else if (ch === "\\") escaped = true;
-                            else if (ch === q) q = null;
-                            continue;
-                        }
-                        if (ch === quote) break;
-                        if (ch === '"' || ch === "'") q = ch;
-                    }
-                    if (pos >= parser.end) {
-                        const err = Diagnostic.error.UnterminatedString({
-                            start: lystart - 1, end: parser.end
-                        });
-                        ctx.diagnostics.push(err);
-                        throw err;
-                    }
-                    lyend = pos++;  // 跳过结尾引号
-                } else {
-                    // 没有引号的 以换行符为界切分 需要跳过转义后的换行符
-                    for (; pos < parser.end; pos++) {
-                        if (source[pos] === '\n') break;
-                        if (source[pos] === '\\') {
-                            pos++;
-                            if (pos >= parser.end) break;
-                        }
-                    } lyend = pos;
-                }
-            }
-            voiceNode.addLyric(name, source.slice(lystart, lyend).trim(), {
-                start: lystart, end: lyend
-            }, parser.context);
-            // 清除voiceNodeAt之后的TokenNode 因为被夹在N和L之间
-            ctx.toConsume.length = voiceNodeAt + 1;
-        } else return null;
-        return {
-            next: pos,
-            canConsumeNumber: 0,
+            voiceNode.addLyric(n.data.name, n.data.lyric, n.span, ctx);
+            ctx.nodes.length = voiceNodeAt + 1;   // 清除voiceNodeAt之后的TextNode 因为被夹在N和L之间
+            return at;
         }
+        // 音符 向后找到第一个 \n 或下一个 voice 组件
+        let breakAt = at;
+        for (; breakAt < nodes.length; breakAt++) {
+            const n = nodes[breakAt];
+            if (typeof n === "number") {
+                if (ctx.source[n] === '\n') break;
+            } else if (n.kind === "sugar" && n.data?.class === VoiceFunction) break;
+        }
+        // 解析后面的内容
+        const newCtx = new ParserContext(ctx);
+        newCtx.makeNodes(nodes, at, breakAt);
+        if (newCtx.nodes.length === 0) {
+            const e = Diagnostic.error.EmptyContent("voice", "content", n.span);
+            ctx.diagnostics.push(e);
+            throw e;
+        }
+        const argMap: FunctionArgs = new Map();
+        if (newCtx.nodes.length === 1 && newCtx.nodes[0] instanceof ASTBraceNode) argMap.set(0, newCtx.nodes[0]);
+        else argMap.set(0, new ASTBraceNode(n.span, newCtx.nodes));
+        argMap.set("name", n.data.name);
+        const newVoice = new VoiceFunction({
+            start: n.span.start,
+            end: breakAt < nodes.length ? (nodes[breakAt] as number) : ctx.source.length
+        }, argMap, ctx, null);
+        ctx.pushNode(newVoice);
+        return breakAt;
     }
 
     content: ASTBraceNode;   // 声部内容
@@ -242,11 +231,11 @@ L: ...
 
     toString(source: string): string {
         const notes = this.content.toString(source);
-        return `@voice(\n\t${notes},${this.name},\n\t${this.lyrics.map(lyric => {
+        return `@voice(\n  ${notes},${this.name},\n  ${this.lyrics.map(lyric => {
             let lyricstr = lyric.tokens.map(token => token.length === 0 ? "@" : token).join(" ");
             if (lyricstr.includes(",") || lyricstr.includes("\n")) lyricstr = `"${lyricstr.replace(/"/g, '\\"')}"`;
             return `${lyric.name ? `${lyric.name}=${lyricstr}` : lyricstr}`;
-        }).join(",\n\t")}\n)`;
+        }).join(",\n  ")}\n)`;
     }
 }
 

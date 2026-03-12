@@ -1,5 +1,7 @@
-import { FunctionDef, ASTNodeBase, ASTBraceNode, FunctionArgs, SourceSpan, ParserContext, CanonicalParser, ASTFunctionNode, ASTFunctionClass } from "../types";
+import { FunctionDef, ASTNodeBase, ASTBraceNode, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../types";
 import { ErrorDiagnostic } from "../../parser/diagnostic";
+import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType";
+import { deSugarRelationFunction } from "../../parser/parserContext";
 
 class DotFunction extends ASTFunctionNode {
     static def: FunctionDef = {
@@ -25,48 +27,51 @@ class DotFunction extends ASTFunctionNode {
         ]
     };
 
-    static deSugar(parser: CanonicalParser, exec: boolean) {
-        const ctx = parser.context;
-        const source = ctx.source;
+    static deSugarAtom(source: string, start: number, end: number) {
         // 检查 . 的数量
         let dotCnt = 0;
-        let pos = parser.cursor;
-        while (pos < parser.end && source[pos] === '.') {
+        let pos = start;
+        while (pos < end && source[pos] === '.') {
             dotCnt++;
             pos++;
         }
         if (dotCnt === 0) return null;
-        // 探查前一个节点是否可用 dot只探查前一个
-        const prevNode = ctx.toConsume[ctx.toConsume.length - 1];
-        if (!prevNode) return null;
-        if (prevNode instanceof DotFunction) {
-            if (exec) {
-                // 已经是dot了 继续加深
-                prevNode.n += dotCnt;
-            }
-        } else {
-            const contentJudge = DotFunction.judgePositiveDurationNum(prevNode);
-            if (contentJudge !== 1) return null;    // 只能有一个节点
-            if (exec) {
-                // 生成一个新的dot节点 包含这些内容并替换掉原来的内容
-                const argMap: FunctionArgs = new Map();
-                argMap.set(0, prevNode);
-                argMap.set("n", dotCnt);
-                const span = ASTBraceNode.getContentSpan(prevNode);
-                span.end = pos;    // 扩展到斜杠的末尾
-                const newDot = new DotFunction(
-                    span,
-                    argMap,
-                    ctx,
-                );
-                ctx.toConsume[ctx.toConsume.length - 1] = newDot;
-            }
-        }
-        return {
-            next: pos,
-            canConsumeNumber: 1,
+        // 对前一个节点的探查放到 deSugarRelation 中
+        const node: GrammarSugarNode = {
+            kind: "sugar",
+            data: {
+                class: DotFunction,
+                n: dotCnt,
+            },
+            span: { start, end: pos },
         };
+        return { next: pos, node };
     };
+
+    static deSugarRelation: deSugarRelationFunction = (ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) => {
+        const n = nodes[at++] as GrammarSugarNode;
+        if (n.data?.class !== DotFunction) return null;
+        // 向前找到第一个有效节点
+        const prev = ASTFunctionNode.findLastFuncContentNode(ctx.nodes, ctx.nodes.length - 1);
+        if (!prev) return at;   // 没有了 直接当作无效文本跳过
+        if (prev instanceof DotFunction) {
+            // 已经是dot了 继续加深
+            prev.n += n.data.n;
+            return at;
+        }
+        // 参数数量不校验 在构造函数里写
+        const argMap: FunctionArgs = new Map();
+        argMap.set(0, prev);
+        argMap.set("n", n.data.n);
+        const spanPrev = prev.sourceSpan;
+        const node = new DotFunction({
+            start: Math.min(spanPrev.start, n.span.start),
+            end: Math.max(spanPrev.end, n.span.end),
+        }, argMap, ctx, null);
+        ctx.nodes.pop();    // 消耗掉prev
+        ctx.pushNode(node);
+        return at;
+    }
 
     content: ASTNodeBase;
     n: number;

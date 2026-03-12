@@ -11,5 +11,5 @@
     "rootDir": "src",
     "declaration": false
   },
-  "include": ["src/**/*.ts", "src/parser"]
+  "include": ["src/**/*.ts"]
 }

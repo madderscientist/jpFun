@@ -1,9 +1,8 @@
 import type { SourceSpan } from "../parser/types";
-import type { ParserContext } from "../parser/parseContext";
-import type { CanonicalParser } from "../parser/canonicalParser";
+import type { ParserContext, deSugarAtomFunction, deSugarRelationFunction } from "../parser/parserContext";
 import { Diagnostic } from "../parser/diagnostic";
 
-export type { SourceSpan, ParserContext, CanonicalParser };
+export type { SourceSpan, ParserContext };
 export type paramType = "string" | "number" | "boolean" | "content" | "label";
 export type paramValue = string | number | boolean | ASTBraceNode | ASTNodeBase;
 
@@ -31,8 +30,23 @@ export class ASTNodeBase {
     }
 }
 
-// 用于存放无用文本 之所以不用基类是因为用基类时判断是否无用还需要排除其他派生类
-export class TokenNode extends ASTNodeBase {};
+export class ASTTextNode extends ASTNodeBase {}
+
+// label节点只负责语义标记，不参与渲染和其他逻辑
+// 绑定也在解析后完成 和本节点无关
+// 主要用途是高亮等编辑器功能
+export class ASTLabelNode extends ASTNodeBase {
+    label: string;
+    // parent 就是指向的节点
+    constructor(sourceSpan: SourceSpan, label: string, parent: ASTNodeBase) {
+        super(sourceSpan, parent);
+        this.label = label;
+    }
+
+    toString(source: string): string {
+        return `@${this.label} `;
+    }
+}
 
 // 表示`{}`
 // span.start 是 `{` 的位置; (span.end-1) 是 `}` 的位置
@@ -93,13 +107,6 @@ export interface FunctionDef {
 
 export type FunctionArgs = Map<string | number, paramValue>; // 参数值映射，key可以是位置索引（0,1,2...）或命名参数名
 
-// 之所以需要 CanonicalParser 而不仅仅是 ParserContext 是因为去糖可能向后搜索 需要解析器对象进行超前解析
-// 对于div/bar的语法糖是消费之前的，对于voice需要消费之后的，后者需要解析器
-export type deSugarFunction = (parser: CanonicalParser, exec: boolean) => {
-    next: number;   // 匹配到的文本结束位置
-    canConsumeNumber: number;   // 可以消费的节点数量
-} | null;
-
 // 所有函数节点的基类，提供通用的参数提取方法和标签功能
 // 非正常函数则实例化该函数 特征是getDef为undefined
 export class ASTFunctionNode extends ASTNodeBase {
@@ -123,15 +130,12 @@ export class ASTFunctionNode extends ASTNodeBase {
         return Array.isArray(names) ? names[0] : names;
     }
 
-    /**
-     * 去糖识别函数
-     * 返回匹配信息,null表示不匹配 exec为true时执行副作用修改ctx.toConsume等
-     * 应该先exec=false获取最终长度，再exec=true执行生成节点
-     * 语法糖不匹配时一般不执行 但有时也应该告诉用户语法糖错误，此时可以throw
-     * 需要注意此函数也被用于解析完成后的收尾去糖
-     */
-    static deSugar: deSugarFunction = () => null; // 默认没有去糖，子类只需要定义static deSugar方法即可
-    get deSugar(): deSugarFunction { return (this.constructor as typeof ASTFunctionNode).deSugar; }
+    // 去糖函数
+    static deSugarAtom: deSugarAtomFunction = () => null; // 默认没有去糖，子类只需要定义static deSugarAtom方法即可
+    get deSugarAtom(): deSugarAtomFunction { return (this.constructor as typeof ASTFunctionNode).deSugarAtom; }
+
+    static deSugarRelation: deSugarRelationFunction = () => null;
+    get deSugarRelation(): deSugarRelationFunction { return (this.constructor as typeof ASTFunctionNode).deSugarRelation; }
 
     // 通用的参数提取方法 从定义找传参
     getArgValue(args: FunctionArgs, ctx: ParserContext): (paramValue | null)[] {
@@ -152,6 +156,19 @@ export class ASTFunctionNode extends ASTNodeBase {
         const name = this.callName;
         if (!name) return super.toString(source);
         return `@${name} `;
+    }
+
+    /**
+     * 用于语法糖向前结合
+     * 一般向前结合都是寻找brace或者function
+     * 文本节点会打断连接 注意解析时已经跳过了空格 因此允许语法糖之间有空格
+     */
+    static findLastFuncContentNode(nodes: ASTNodeBase[], i: number): ASTNodeBase | null {
+        for (; i >= 0; i--) {
+            const n = nodes[i];
+            if (n instanceof ASTTextNode) return null;
+            if (n instanceof ASTFunctionNode || n instanceof ASTBraceNode) return n;
+        } return null;
     }
 }
 

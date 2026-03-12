@@ -1,7 +1,8 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, CanonicalParser, ASTFunctionNode, ASTFunctionClass } from "../types";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../types";
 import { Diagnostic, ErrorDiagnostic } from "../../parser/diagnostic";
 import { NoteNameMap } from "../../parser/parse-utils/note-utils";
 import { parseNoteName } from "./noteNameFSM";
+import { GrammarCallNodeTyped } from "../../parser/grammarType";
 
 class NoteFunction extends ASTFunctionNode {
     static def: FunctionDef = {
@@ -46,25 +47,21 @@ class NoteFunction extends ASTFunctionNode {
         ]
     };
 
-    static deSugar(parser: CanonicalParser, exec: boolean) {
-        const ctx = parser.context;
-        const parseResult = parseNoteName(ctx.source, parser.cursor, parser.end);
-        if (parseResult instanceof Diagnostic) return null;    // 解析失败 则不去糖
-        if (exec) {
-            const args: FunctionArgs = new Map();
-            args.set("name", parseResult.name);
-            if (parseResult.octave) args.set("octave", parseResult.octave);
-            if (parseResult.acc) args.set("acc", parseResult.acc);
-            const node = new NoteFunction(
-                { start: parser.cursor, end: parseResult.next },
-                args, ctx, null
-            );
-            ctx.pushNewNode(node);
-        }
-        return {
-            next: parseResult.next,
-            canConsumeNumber: 0,
+    static deSugarAtom(source: string, start: number, end: number) {
+        const parseResult = parseNoteName(source, start, end);
+        if (parseResult instanceof Diagnostic) return null;
+        const argMap: FunctionArgs = new Map();
+        argMap.set("name", parseResult.name);
+        if (parseResult.octave) argMap.set("octave", parseResult.octave);
+        if (parseResult.acc) argMap.set("acc", parseResult.acc);
+        const node: GrammarCallNodeTyped = {
+            kind: "call",
+            typed: true,
+            name: "note",
+            args: argMap,
+            span: { start, end: parseResult.next },
         };
+        return { next: parseResult.next, node };
     }
 
     get duration() { return 1; }
@@ -73,7 +70,7 @@ class NoteFunction extends ASTFunctionNode {
     octave: number; // 固化后相对于基准八度的八度偏移
     acc: string;
     color: string;
-    midi: number;   // 绝对的MIDI音高值 用于演奏 为了适应“无需还原号”的需求，此处的midi不管acc acc由演奏时动态确定
+    midi: number = NaN; // 绝对的MIDI音高值 用于演奏 为了适应“无需还原号”的需求，此处的midi不管acc acc由演奏时动态确定
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
         [this.name, this.acc, this.octave, this.color] = this.getArgValue(args, ctx) as [string, string, number, string];
@@ -84,6 +81,7 @@ class NoteFunction extends ASTFunctionNode {
             parseResult.span = sourceSpan;   // 定位到整个函数调用
             throw parseResult;
         }
+        this.name = parseResult.name;
         // 校验octave
         const inputOctave = args.get("octave") ?? args.get(2);
         if (inputOctave !== undefined) {
@@ -100,14 +98,15 @@ class NoteFunction extends ASTFunctionNode {
         if (parseResult.acc !== null) this.acc = parseResult.acc + this.acc;
 
         // 固化note name 为数字; 固化 octave 为相对于基准八度的偏移; 计算 MIDI 音高值（不包含acc信息）
-        const baseMidi = ctx.baseMidi;   // 基于调性的C4的MIDI值
-        if (parseResult.absOctave) {
-            this.midi = NoteNameMap[this.name] + (this.octave + 1) * 12;
-            const baseOctave = Math.floor(baseMidi / 12) - 1;   // 基准八度
-            this.octave -= baseOctave;
-        } else {
-            this.midi = baseMidi + NoteNameMap[this.name] + this.octave * 12;
-        }
+        // 固化操作在之后时间遍历时进行【还没做】
+        // const baseMidi = ctx.baseMidi;   // 基于调性的C4的MIDI值
+        // if (parseResult.absOctave) {
+        //     this.midi = NoteNameMap[this.name] + (this.octave + 1) * 12;
+        //     const baseOctave = Math.floor(baseMidi / 12) - 1;   // 基准八度
+        //     this.octave -= baseOctave;
+        // } else {
+        //     this.midi = baseMidi + NoteNameMap[this.name] + this.octave * 12;
+        // }
     }
 
     toString(source: string): string {

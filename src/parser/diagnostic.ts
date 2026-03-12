@@ -205,5 +205,12 @@ Diagnostic.warning = {
             `未匹配的大括号: 缺少右大括号'}'；将尝试自动修复`,
             span
         );
+    },
+    UnprocessedToken: (span: SourceSpan) => {
+        return new WarningDiagnostic(
+            "W_UNPROCESSED_TOKEN",
+            `未处理的文本，但不影响结果；大概是程序的错误，请联系开发者`,
+            span
+        );
     }
 };

@@ -1,5 +1,7 @@
-import { FunctionDef, ASTNodeBase, ASTBraceNode, FunctionArgs, SourceSpan, ParserContext, CanonicalParser, ASTFunctionNode, ASTFunctionClass } from "../types";
+import { FunctionDef, ASTNodeBase, ASTBraceNode, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../types";
 import { Diagnostic, ErrorDiagnostic } from "../../parser/diagnostic";
+import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType";
+import { deSugarRelationFunction } from "../../parser/parserContext";
 
 class DivFunction extends ASTFunctionNode {
     static def: FunctionDef = {
@@ -26,45 +28,50 @@ class DivFunction extends ASTFunctionNode {
         ]
     };
 
-    static deSugar(parser: CanonicalParser, exec: boolean) {
-        const ctx = parser.context;
-        const source = ctx.source;
+    static deSugarAtom(source: string, start: number, end: number) {
         // 检查 / 的数量
         let divCnt = 0;
-        let pos = parser.cursor;
-        while (pos < parser.end && source[pos] === '/') {
+        let pos = start;
+        while (pos < end && source[pos] === '/') {
             divCnt++;
             pos++;
         }
         if (divCnt === 0) return null;
-        // 探查前一个节点是否可用 div只探查前一个
-        const prevNode = ctx.toConsume.at(-1);
-        if (!prevNode) return null;
-        if (prevNode instanceof DivFunction) {
-            // 已经是div了 继续加深
-            if (exec) prevNode.n += divCnt;
-        } else {
-            if (prevNode.duration === 0) return null;   // 当作无效文本而不是强行去糖并报错
-            if (exec) {
-                // 生成一个新的div节点 包含这些内容并替换掉原来的内容
-                const argMap: FunctionArgs = new Map();
-                argMap.set(0, prevNode);
-                argMap.set("n", divCnt);
-                const span = ASTBraceNode.getContentSpan(prevNode);
-                span.end = pos;    // 扩展到斜杠的末尾
-                const newDiv = new DivFunction(
-                    span,
-                    argMap,
-                    ctx,
-                );
-                ctx.toConsume[ctx.toConsume.length - 1] = newDiv;
-            }
-        }
-        return {
-            next: pos,
-            canConsumeNumber: 1,
+        // 对前一个节点的探查放到 deSugarRelation 中
+        const node: GrammarSugarNode = {
+            kind: "sugar",
+            data: {
+                class: DivFunction,
+                n: divCnt,
+            },
+            span: { start, end: pos },
         };
+        return { next: pos, node };
     };
+
+    static deSugarRelation: deSugarRelationFunction = (ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) => {
+        const n = nodes[at++] as GrammarSugarNode;
+        if (n.data?.class !== DivFunction) return null;
+        // 向前找到第一个有效节点
+        const prev = ASTFunctionNode.findLastFuncContentNode(ctx.nodes, ctx.nodes.length - 1);
+        if (!prev) return at;   // 没有了 直接当作无效文本跳过
+        if (prev instanceof DivFunction) {
+            // 已经是div了 继续加深
+            prev.n += n.data.n;
+            return at;
+        }
+        const argMap: FunctionArgs = new Map();
+        argMap.set(0, prev);
+        argMap.set("n", n.data.n);
+        const spanPrev = prev.sourceSpan;
+        const node = new DivFunction({
+            start: Math.min(spanPrev.start, n.span.start),
+            end: Math.max(spanPrev.end, n.span.end),
+        }, argMap, ctx, null);
+        ctx.nodes.pop();    // 消耗掉prev
+        ctx.pushNode(node);
+        return at;
+    }
 
     content: ASTNodeBase;
     n: number;

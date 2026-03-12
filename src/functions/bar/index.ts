@@ -1,4 +1,5 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass, CanonicalParser } from "../types";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../types";
+import { GrammarCallNodeTyped } from "../../parser/grammarType";
 
 class BarFunction extends ASTFunctionNode {
     static def: FunctionDef = {
@@ -27,10 +28,8 @@ class BarFunction extends ASTFunctionNode {
         ]
     };
 
-    static deSugar(parser: CanonicalParser, exec: boolean) {
-        const ctx = parser.context;
-        const source = ctx.source;
-        let pos = parser.cursor;
+    static deSugarAtom(source: string, start: number, end: number) {
+        let pos = start;
         let type = 0;
         const slice2 = source.slice(pos, pos + 2);
         if (slice2 === "||") type = 1, pos += 2;
@@ -40,16 +39,17 @@ class BarFunction extends ASTFunctionNode {
             else type = 3, pos += 2;
         } else if (source[pos] === "|") type = 0, pos += 1;
         else return null;
-        if (exec) {
-            const argMap = new Map();
-            argMap.set("type", type);
-            const barNode = new BarFunction({ start: parser.cursor, end: pos }, argMap, ctx, null);
-            ctx.pushNewNode(barNode);
-        }
-        return {
-            next: pos,
-            canConsumeNumber: 0,
+
+        const argMap = new Map();
+        argMap.set("type", type);
+        const node: GrammarCallNodeTyped = {
+            kind: "call",
+            typed: true,
+            name: "bar",
+            args: argMap,
+            span: { start, end: pos },
         };
+        return { next: pos, node };
     };
 
     type: number;
