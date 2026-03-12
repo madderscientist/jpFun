@@ -101,11 +101,12 @@ export interface FunctionDef {
     name: string | string[]; // 函数名或别名列表
     description: string; // 函数描述
     example: string; // 使用示例
-    allowExtraArgs: boolean; // 是否允许传入定义中未声明的额外参数 额外参数都当作字符串处理
+    allowExtraArgs: boolean; // 是否允许传入定义中未声明的额外参数 额外参数都会得到 SourceSpan
     args: FunctionArgDef[]; // 参数定义列表
 }
 
-export type FunctionArgs = Map<string | number, paramValue>; // 参数值映射，key可以是位置索引（0,1,2...）或命名参数名
+// allowExtraArgs = true 时未知参数将保留 SourceSpan
+export type FunctionArgs = Map<string | number, paramValue | SourceSpan>; // 参数值映射，key可以是位置索引（0,1,2...）或命名参数名
 
 // 所有函数节点的基类，提供通用的参数提取方法和标签功能
 // 非正常函数则实例化该函数 特征是getDef为undefined

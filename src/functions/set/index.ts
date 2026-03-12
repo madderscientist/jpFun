@@ -21,13 +21,21 @@ class SetFunction extends ASTFunctionNode {
         super(sourceSpan, parent);
         for (const [key, value] of args) {
             if (typeof key === "string") {
-                ctx.variables.set(key, value);
-                this.args.set(key, value);
+                const v = ctx.parseArgWithType((value as SourceSpan).start, (value as SourceSpan).end, "string", sourceSpan.start);
+                if (v === null) {
+                    ctx.diagnostics.push(new WarningDiagnostic(
+                        "W_SET_INVALID_VALUE",
+                        `函数 @set 的参数值解析失败, 参数[${key}]将被忽略`,
+                        value as SourceSpan
+                    )); continue;
+                }
+                ctx.variables.set(key, v);
+                this.args.set(key, v);
             } else {
                 ctx.diagnostics.push(new WarningDiagnostic(
                     "W_SET_POSITIONAL_ARG",
                     `函数 @set 不接收位置参数, 位置参数[${key}]将被忽略`,
-                    sourceSpan
+                    value as SourceSpan
                 ));
             }
         }

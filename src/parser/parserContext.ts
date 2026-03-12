@@ -353,16 +353,14 @@ export class ParserContext {
                 if (typeof key === "number") type = defArgs[key]?.type;
                 else type = defArgs.find(defArg => defArg.name?.toLowerCase() === key)?.type ?? defArgs[i]?.type;
                 if (type === void 0) {
-                    if (def.allowExtraArgs) type = "string"; // 额外参数一律当字符串处理 交给函数内部处理
-                    else {
+                    if (!def.allowExtraArgs) {
                         this.diagnostics.push(
                             Diagnostic.warning.TooManyPosArgs(
                                 callNode.name, defArgs.length, i + 1, value
                             )
                         );
                         args.delete(key);
-                        continue;
-                    }
+                    } continue;
                 }
                 const v = this.parseArgWithType(value.start, value.end, type, callNode.span.start);
                 if (v !== null) (args as FunctionArgs).set(key, v);
@@ -370,7 +368,7 @@ export class ParserContext {
             } (callNode as unknown as GrammarCallNodeTyped).typed = true;
         }   // 完全信任 typed 时的 arg
         // 构造函数内用定义查询实际传参
-        return new callFNClass(callNode.span, args as FunctionArgs, this, null);
+        return new callFNClass(callNode.span, args, this, null);
     }
 
     /**

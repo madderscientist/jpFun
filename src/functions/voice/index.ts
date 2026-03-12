@@ -1,9 +1,8 @@
 import { FunctionDef, ASTNodeBase, ASTBraceNode, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../types";
-import { ParserContext } from "../../parser/parserContext";
 import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../parser/diagnostic";
 import { findRightParen, removeQuote } from "../../parser/parse-utils/call-utils";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType";
-import { deSugarRelationFunction, skipSpaces } from "../../parser/parserContext";
+import { ParserContext, deSugarRelationFunction, skipSpaces } from "../../parser/parserContext";
 
 const WHITEPACE_RE = /\s/;
 
@@ -145,7 +144,8 @@ L: ...
         }
         // 解析后面的内容
         const newCtx = new ParserContext(ctx);
-        newCtx.makeNodes(nodes, at, breakAt);
+        const slicedNodes = nodes.slice(at, breakAt);   // 防止子解析越界
+        newCtx.makeNodes(slicedNodes);
         if (newCtx.nodes.length === 0) {
             const e = Diagnostic.error.EmptyContent("voice", "content", n.span);
             ctx.diagnostics.push(e);
@@ -171,8 +171,8 @@ L: ...
     }[];
     get children() { return [this.content]; }
 
-    constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
-        super(sourceSpan, parent);
+    constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
+        super(span, parent);
         [this.content, this.name] = this.getArgValue(args, ctx) as [ASTBraceNode, string];
         this.content.parent = this;
         args.delete(0);
@@ -180,7 +180,20 @@ L: ...
         args.delete(1);
 
         this.lyrics = [];
-        for (const [key, value] of args) this.addLyric(key, value as string);
+        for (const [key, value] of args) {
+            if (typeof value === "string") {
+                this.addLyric(key, value);
+                continue;
+            }
+            const v = ctx.parseArgWithType((value as SourceSpan).start, (value as SourceSpan).end, "string", span.start);
+            if (v === null) {
+                ctx.diagnostics.push(new WarningDiagnostic(
+                    "W_VOICE_INVALID_LYRIC",
+                    `@voice 的歌词参数值解析失败, 参数[${key}]将被忽略`,
+                    value as SourceSpan
+                ));
+            } else this.addLyric(key, v as string);
+        }
     }
 
     addLyric(name: string | number, lyric: string, span: SourceSpan | null = null, ctx: ParserContext | null = null) {

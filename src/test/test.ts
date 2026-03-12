@@ -24,10 +24,10 @@ const testInput = `@set(text="100% ok") % 字符串内的%不触发注释
 @.(@n(F#,,4,"#00f")) @unknown(C4, 3); C4 . /
 @voice(
     {@note(C4,4)/ #5,,. | {4b4}//},
-    男 = ha ha, % 测试
+    男 = ha-ha, % 测试
     女 = la la
 )
-N(测试): A1 A2 D#/ :|| #1\\
+N(测试): A1& A2 &{D#/F} :|| #1\\
 b4
 L: 测试voice语法糖
 L(歌词2): 测试\\
@@ -35,6 +35,7 @@ L(歌词2): 测试\\
 法糖 \\\\
 @set(note.color=#f00)
 N: 123N:3
+@over({#4', | Eb//}, F#5..)
 `;
 
 const legacy = parseScript(testInput);

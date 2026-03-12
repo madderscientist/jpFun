@@ -6,7 +6,7 @@ export function readBrace(
 ): number {
     // 要求 source[lBracePos]==='{'（外部检验）
     let depth = 1;
-    let quote: "'" | "\"" | null = null;
+    let quote: '"' | null = null;
     let escaped = false;
     for (let i = lBracePos + 1; i < end; i++) {
         const ch = source[i];
@@ -16,7 +16,7 @@ export function readBrace(
             else if (ch === quote) quote = null;
             continue;
         }
-        if (ch === "\"" || ch === "'") quote = ch;
+        if (ch === '"') quote = ch;
         else if (ch === "{") depth++;
         else if (ch === "}") {
             depth--;

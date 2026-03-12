@@ -51,7 +51,7 @@ export function readCall(source: string, atPos: number): CallReadResult {
     const openPos = i;
     let parenDepth = 1;
     let braceDepth = 0;
-    let quote: "'" | "\"" | null = null;
+    let quote: '"' | null = null;
     let escaped = false;
 
     // 参数相关
@@ -67,7 +67,7 @@ export function readCall(source: string, atPos: number): CallReadResult {
             else if (ch === quote) quote = null;
             continue;
         }
-        if (ch === "\"" || ch === "'") {
+        if (ch === '"') {
             quote = ch;
             continue;
         }
@@ -118,7 +118,7 @@ export function trimRange(source: string, start: number, end: number): SourceSpa
 export function findTopLevelEquals(text: string, start: number = 0, end: number = text.length): number {
     let parenDepth = 0;
     let braceDepth = 0;
-    let quote: "'" | '"' | null = null;
+    let quote: '"' | null = null;
     let escaped = false;
     for (let i = start; i < end; i++) {
         const ch = text[i];
@@ -128,7 +128,7 @@ export function findTopLevelEquals(text: string, start: number = 0, end: number 
             else if (ch === quote) quote = null;
             continue;
         }
-        if (ch === '"' || ch === "'") quote = ch;
+        if (ch === '"') quote = ch;
         // 依旧忽略大括号里面的小括号
         else if (ch === "(" && braceDepth === 0) parenDepth++;
         else if (ch === ")" && braceDepth === 0) parenDepth = Math.max(0, parenDepth - 1);
@@ -141,7 +141,7 @@ export function findTopLevelEquals(text: string, start: number = 0, end: number 
 // 不管大括号 适用于小括号里传递字符串但没加引号的情况
 export function findRightParen(source: string, start: number, end: number): number {
     let parenDepth = 1;
-    let quote: "'" | '"' | null = null;
+    let quote: '"' | null = null;
     let escaped = false;
     for (let i = start; i < end; i++) {
         const ch = source[i];
@@ -151,7 +151,7 @@ export function findRightParen(source: string, start: number, end: number): numb
             else if (ch === quote) quote = null;
             continue;
         }
-        if (ch === '"' || ch === "'") quote = ch;
+        if (ch === '"') quote = ch;
         else if (ch === "(") parenDepth++;
         else if (ch === ")") {
             if (--parenDepth === 0) return i;
