@@ -65,6 +65,7 @@ class NoteFunction extends ASTFunctionNode {
     }
 
     get duration() { return 1; }
+    labelable(): boolean { return true; }
 
     name: string;   // 固化之后的数字 用于渲染
     octave: number; // 固化后相对于基准八度的八度偏移

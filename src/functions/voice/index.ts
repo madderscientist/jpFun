@@ -245,11 +245,12 @@ L: ...
 
     toString(source: string): string {
         const notes = this.content.toString(source);
-        return `@voice(\n  ${notes},${this.name},\n  ${this.lyrics.map(lyric => {
+        const lyricStrs = this.lyrics.map(lyric => {
             let lyricstr = lyric.tokens.map(token => token.length === 0 ? "@" : token).join(" ");
             if (lyricstr.includes(",") || lyricstr.includes("\n")) lyricstr = `"${lyricstr.replace(/"/g, '\\"')}"`;
             return `${lyric.name ? `${lyric.name}=${lyricstr}` : lyricstr}`;
-        }).join(",\n  ")}\n)`;
+        });
+        return `@voice(\n  ${notes},${this.name},\n  ${lyricStrs.join(",\n  ")}\n)`;
     }
 }
 

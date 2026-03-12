@@ -164,13 +164,6 @@ Diagnostic.warning = {
             span
         );
     },
-    LabelWithoutTarget: (labelName: string, span: SourceSpan) => {
-        return new WarningDiagnostic(
-            "W_LABEL_WITHOUT_TARGET",
-            `标签 "${labelName}" 没有找到可用绑定，标签将被忽略`,
-            span
-        );
-    },
     InvalidNumber: (value: string, span: SourceSpan) => {
         return new WarningDiagnostic(
             "W_INVALID_NUMBER",
@@ -206,11 +199,18 @@ Diagnostic.warning = {
             span
         );
     },
-    UnprocessedToken: (span: SourceSpan) => {
+    LabelWithoutTarget: (labelName: string, span: SourceSpan) => {
         return new WarningDiagnostic(
-            "W_UNPROCESSED_TOKEN",
-            `未处理的文本，但不影响结果；大概是程序的错误，请联系开发者`,
+            "W_LABEL_WITHOUT_TARGET",
+            `标签 "${labelName}" 没有可绑定的目标；标签将被忽略`,
             span
         );
-    }
+    },
+    LabelAlreadyExists: (newLabel: string, oldLabel: string, span: SourceSpan) => {
+        return new WarningDiagnostic(
+            "W_LABEL_ALREADY_EXISTS",
+            `标签 "${newLabel}" 已经存在(为 "${oldLabel}")；新标签将覆盖旧标签`,
+            span
+        );
+    },
 };

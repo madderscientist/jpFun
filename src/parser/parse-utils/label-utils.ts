@@ -10,7 +10,7 @@ export function readLabel(source: string, at: number, end: number): { label: str
     // 标签不能为空
     if (i <= at + 1) return null;
     return {
-        label: source.slice(at, i),
+        label: source.slice(at + 1, i),
         next: i,
     };
 }

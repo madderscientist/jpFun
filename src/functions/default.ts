@@ -7,6 +7,8 @@ import { DotNode } from "./dot";
 import { BarNode } from "./bar";
 import { VoiceNode } from "./voice";
 import { OverNode } from "./over";
+import { LineNode } from "./line";
+import { TieNode } from "./tie";
 
 export const defaultFunctions: ASTFunctionClass[] = [
     SetNode,
@@ -16,5 +18,7 @@ export const defaultFunctions: ASTFunctionClass[] = [
     DotNode,
     BarNode,
     VoiceNode,
-    OverNode
+    OverNode,
+    LineNode,
+    TieNode,
 ];

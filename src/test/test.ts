@@ -21,7 +21,7 @@ function parseScript(source: string) {
 }
 
 const testInput = `@set(text="100% ok") % 字符串内的%不触发注释
-@.(@n(F#,,4,"#00f")) @unknown(C4, 3); C4 . /
+@.(@n(F#,,4,"#00f"))@1 @unknown(C4, 3)C3/@2 ; @tie(1,2) C4 . /
 @voice(
     {@note(C4,4)/ #5,,. | {4b4}//},
     男 = ha-ha, % 测试
@@ -34,7 +34,10 @@ L(歌词2): 测试\\
 歌词语\\
 法糖 \\\\
 @set(note.color=#f00)
-N: 1-.23-N:3
+@line(
+    N: 1-.23-@tie(),
+    N:3
+)
 @over({#4', | Eb//}, F#5..)
 `;
 

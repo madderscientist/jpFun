@@ -1,4 +1,4 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../types";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode, ASTBraceNode } from "../types";
 import { ParserContext, deSugarRelationFunction } from "../../parser/parserContext";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType";
 import { ErrorDiagnostic } from "../../parser/diagnostic";

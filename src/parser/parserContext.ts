@@ -188,6 +188,8 @@ export class ParserContext {
                     const labelList = this.labelableNodes;
                     if (labelList.length > 0) {
                         const tgt = labelList[labelList.length - 1];
+                        if (tgt.label !== void 0)
+                            this.diagnostics.push(Diagnostic.warning.LabelAlreadyExists(node.label, tgt.label, node.span));
                         tgt.label = node.label;
                         // 同时创建一个LabelNode 供编辑器等工具使用
                         const labelNode = new ASTLabelNode(
@@ -197,9 +199,7 @@ export class ParserContext {
                         this.nodes.push(labelNode);
                     } else {
                         // 没有可标签化的节点，报错但继续解析
-                        this.diagnostics.push(
-                            Diagnostic.warning.LabelWithoutTarget(node.label, node.span)
-                        );
+                        this.diagnostics.push(Diagnostic.warning.LabelWithoutTarget(node.label, node.span));
                     } break;
                 case "sugar":
                     for (const fn of this.deSugarRelationFns) {
@@ -405,9 +405,8 @@ export class ParserContext {
                 // 开启新的局部解析器
                 try {
                     const subParser = new ParserContext(this);
-                    // 如果内容已经被大括号包裹则不再包裹
                     const n = subParser.parse(start, end);
-                    if (n.length === 1 && n[0] instanceof ASTBraceNode) return n[0];
+                    if (n.length === 1) return n[0];
                     return new ASTBraceNode(r, n, null);
                 } catch (e) {
                     // 具体报错信息已经记录了，这里会把该参数跳过
