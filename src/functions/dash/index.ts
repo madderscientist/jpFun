@@ -1,4 +1,4 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../types";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes";
 import { GrammarCallNodeTyped } from "../../parser/grammarType";
 
 class DashFunction extends ASTFunctionNode {
@@ -24,11 +24,11 @@ class DashFunction extends ASTFunctionNode {
         return { next: start + 1, node };
     };
 
-    get duration() { return 1; }
-
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
     }
+
+    get timeOffsetQN(): number { return 1; }
 
     toString(s: string) { return "-"; }
 }

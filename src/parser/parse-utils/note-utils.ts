@@ -21,7 +21,16 @@ export const NoteNameMap: Record<string, number> = {
     "5": 7,
     "6": 9,
     "7": 11
-};
+} as const;
+
+const LETTER_ORDER = ["C", "D", "E", "F", "G", "A", "B"] as const;
+const MAJOR_SCALE_OFFSETS = [0, 2, 4, 5, 7, 9, 11] as const;
+
+export interface RelativeJianpuPitch {
+    renderName: string;
+    renderAcc: string;
+    renderOctave: number;
+}
 
 // 输入 C4 D#3 B3b G, A 等音符字符串，输出 MIDI 数值
 // 要求非常严格：必须 [大写字母][升降号#bn只能一个][绝对八度]
@@ -54,4 +63,59 @@ export function acc2Offset(acc: string, ignoreNatural: boolean = true, initOffse
         else if (ch === "b") initOffset--;
         else if (ch === "n" && !ignoreNatural) initOffset = 0;
     } return initOffset;
+}
+
+export function resolveNoteMidi(name: string, acc: string, octave: number, keySignature: string): number | null {
+    const noteValue = NoteNameMap[name];
+    if (noteValue === undefined) return null;
+    const offset = acc2Offset(acc);
+    if (name >= "1" && name <= "7") {
+        return tonality2Midi(keySignature, 4) + noteValue + offset + octave * 12;
+    }
+    return (octave + 1) * 12 + noteValue + offset;
+}
+
+function wrapPitchClass(value: number): number {
+    return ((value % 12) + 12) % 12;
+}
+
+function normalizeAccidentalOffset(value: number): number {
+    const wrapped = wrapPitchClass(value);
+    return wrapped > 6 ? wrapped - 12 : wrapped;
+}
+
+function offsetToAccidental(offset: number): string {
+    if (offset === 0) return "";
+    if (offset > 0) return "#".repeat(offset);
+    return "b".repeat(-offset);
+}
+
+// 把绝对字母音高转换成“相对当前调性的简谱显示信息”。
+// 这里保留字母拼写带来的调内级数信息，因此像 key=D 时的 C 会被解释成 b7，而不是 #6。
+export function resolveLetterNameToJianpu(name: string, acc: string, octave: number, keySignature: string): RelativeJianpuPitch | null {
+    const tonicLetter = keySignature[0];
+    const tonicMidi = tonality2Midi(keySignature, 4);
+    const tonicPitchClass = wrapPitchClass(tonicMidi);
+    const notePitchClass = wrapPitchClass(resolveNoteMidi(name, acc, octave, keySignature) ?? NaN);
+
+    const tonicIndex = LETTER_ORDER.indexOf(tonicLetter as typeof LETTER_ORDER[number]);
+    const noteIndex = LETTER_ORDER.indexOf(name as typeof LETTER_ORDER[number]);
+    if (tonicIndex < 0 || noteIndex < 0 || Number.isNaN(notePitchClass)) {
+        return null;
+    }
+
+    const degreeIndex = (noteIndex - tonicIndex + LETTER_ORDER.length) % LETTER_ORDER.length;
+    const expectedPitchClass = wrapPitchClass(tonicPitchClass + MAJOR_SCALE_OFFSETS[degreeIndex]);
+    const accidentalOffset = normalizeAccidentalOffset(notePitchClass - expectedPitchClass);
+    const actualMidi = resolveNoteMidi(name, acc, octave, keySignature);
+    if (actualMidi === null) {
+        return null;
+    }
+
+    const octaveOffset = (actualMidi - tonicMidi - MAJOR_SCALE_OFFSETS[degreeIndex] - accidentalOffset) / 12;
+    return {
+        renderName: String(degreeIndex + 1),
+        renderAcc: offsetToAccidental(accidentalOffset),
+        renderOctave: octaveOffset,
+    };
 }

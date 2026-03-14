@@ -1,16 +1,17 @@
-import type { SourceSpan } from "../parser/types";
+﻿import type { SourceSpan, LengthValue } from "../parser/types";
 import type { ParserContext, deSugarAtomFunction, deSugarRelationFunction } from "../parser/parserContext";
 import { Diagnostic } from "../parser/diagnostic";
+import type { TimeFlowMode, TimeState } from "../semantic/contracts";
 
-export type { SourceSpan, ParserContext };
-export type paramType = "string" | "number" | "boolean" | "content" | "label";
-export type paramValue = string | number | boolean | ASTBraceNode | ASTNodeBase;
+export type { SourceSpan, ParserContext, LengthValue };
+export type paramType = "string" | "number" | "boolean" | "length" | "content" | "label";
+export type paramValue = string | number | boolean | LengthValue | ASTBraceNode | ASTNodeBase;
 
 // 以后考虑增加一个id字符串 但保留parent的引用
 export class ASTNodeBase {
     sourceSpan: SourceSpan; // 和源码的映射
     parent: ASTNodeBase | null;
-    // 空数组表示可以有 null表示自己就是叶子
+    // 空数组表示应该有 null表示自己就是叶子 和 timeFlowMode 的默认实现对应
     get children(): ASTNodeBase[] | null { return null; }
 
     constructor(
@@ -21,8 +22,31 @@ export class ASTNodeBase {
         this.parent = parent;
     }
 
-    // 关于时间修饰
-    get duration(): number { return 0; }    // 默认时间为0 时间为0的不可以被dot等修饰
+    /**
+     * _当前时空下_，自身会推进多少时间(不包括子元素)，单位QN（四分音符）
+     * “时空”会被 div dot 等函数拉伸
+     */
+    get timeOffsetQN(): number { return 0; }
+    /**
+     * 返回参与时间求解的子节点 用在semantic第一阶段:得到时间位置
+     * 默认直接复用 children；单独拉一个方法是为了后续某些节点需要过滤或重排 child 时，不用改通用 children 语义
+     */
+    timeChildren(): ASTNodeBase[] { return this.children ?? []; }
+
+    /**
+     * 指定当前节点在时间求解里的展开方式 用在semantic第一阶段: 得到时间位置
+     * 默认规则：有 child 就按串行，没有 child 就当叶子
+     */
+    timeFlowMode(): TimeFlowMode {
+        return (this.children === null) ? "leaf" : "sequence";
+    }
+
+    /**
+     * 时间状态 修改&冻结 入口
+     * 调用时机在时间位置已经确定之后，处理“调性、速度、拍号”等时间信息的固化
+     * 返回值代表是否修改了时间状态
+     */
+    onTimeState(state: TimeState): boolean { return false; }
 
     // 去糖后文本输出
     toString(source: string): string {
@@ -61,16 +85,6 @@ export class ASTBraceNode extends ASTNodeBase {
         this.content.forEach(item => item.parent = this);
     }
 
-    get duration(): number {
-        let total = 0;
-        for (const item of this.content) {
-            total += item.duration;
-        } return total;
-    }
-    positiveDurationNumber(): number {
-        return this.duration > 0 ? 1 : 0;
-    }
-
     innerSpan(): SourceSpan {
         return ASTBraceNode.getContentSpan(this.content);
     }
@@ -93,7 +107,7 @@ export class ASTBraceNode extends ASTNodeBase {
 export interface FunctionArgDef {
     name?: string;  // 参数名 (可选，位置参数可以没有)
     type: paramType;// 参数类型
-    /** 参数默认值 null表示必填 否则该函数跳过 */
+    /** 参数默认值 null表示必填 否则报错 */
     default: paramValue | null;
 }
 
@@ -123,15 +137,13 @@ export class ASTFunctionNode extends ASTNodeBase {
     // 实例访问: new ().def 或 new ().constructor.def
     // 静态访问: 类名.def 或 类名.prototype.def
 
-    // 判断函数定义是否有效（即是否为已注册的函数）
-    isValidFunc(): boolean { return !!this.def; }
     get callName(): string {
         const names = this.def?.name;
         if (!names) return "";
         return Array.isArray(names) ? names[0] : names;
     }
 
-    // 去糖函数
+    // 去糖函数 详见 ParserContext 中 deSugarAtomFns 和 deSugarRelationFns 的定义
     static deSugarAtom: deSugarAtomFunction = () => null; // 默认没有去糖，子类只需要定义static deSugarAtom方法即可
     get deSugarAtom(): deSugarAtomFunction { return (this.constructor as typeof ASTFunctionNode).deSugarAtom; }
 
@@ -139,15 +151,19 @@ export class ASTFunctionNode extends ASTNodeBase {
     get deSugarRelation(): deSugarRelationFunction { return (this.constructor as typeof ASTFunctionNode).deSugarRelation; }
 
     // 通用的参数提取方法 从定义找传参
-    getArgValue(args: FunctionArgs, ctx: ParserContext): (paramValue | null)[] {
+    getArgValue(args: FunctionArgs, ctx: ParserContext): paramValue[] {
         const def = this.def;
         if (!def) return [];
         const defArgs: FunctionArgDef[] = def.args;
         // 使用第一个名称作为前缀
         const prefix = Array.isArray(def.name) ? def.name[0] : def.name;
         return defArgs.map((argDef, index) => {
-            // 优先使用命名参数，否则使用位置参数
-            const argValue = (argDef.name ? args.get(argDef.name) : null) ?? args.get(index) ?? ctx.variables.get(`${prefix}.${argDef.name}`) ?? argDef.default;
+            let argNameL = argDef.name ? argDef.name.toLowerCase() : null; // 统一小写处理
+            // 先查询是否传递
+            let argValue = (argNameL ? args.get(argNameL) : null)
+                ?? args.get(index) // 优先使用命名参数，否则使用位置参数
+                ?? (argNameL ? ctx.variables[`${prefix}.${argNameL}`.toLowerCase()] : null)
+                ?? argDef.default;
             if (argValue === null) throw Diagnostic.error.MissingArg(prefix, argDef.name || index);
             return argValue; // 假设解析器已经保证了类型正确
         });

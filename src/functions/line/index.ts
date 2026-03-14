@@ -1,4 +1,4 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTBraceNode } from "../types";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes";
 import { ParserContext } from "../../parser/parserContext";
 
 class LineFunction extends ASTFunctionNode {
@@ -12,7 +12,7 @@ class LineFunction extends ASTFunctionNode {
 
     contents: ASTNodeBase[] = [];
     get children(): ASTNodeBase[] { return this.contents; }
-    get duration() { return Math.max(...this.contents.map(c => c.duration)); }
+    timeFlowMode() { return "parallel" as const; }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
@@ -29,7 +29,6 @@ class LineFunction extends ASTFunctionNode {
     addContent(node: ASTNodeBase) {
         if (node instanceof LineFunction) this.combine(node);
         else {
-            // if (node instanceof ASTBraceNode && node.content.length === 1) node = node.content[0];
             this.contents.push(node);
             node.parent = this;
             const s = node.sourceSpan;

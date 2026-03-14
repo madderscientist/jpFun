@@ -1,11 +1,12 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../types";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes";
 import { ErrorDiagnostic } from "../../parser/diagnostic";
 
 class TieFunction extends ASTFunctionNode {
     static def: FunctionDef = {
         name: ["tie"],
         description: "连音线",
-        example: `@tie(label1, label2, ...): 将对应元素之间用连音线相连；对于不在同一行的将使用水平跨行连接`,
+        example: `@tie(label1, label2, ...)
+将对应元素之间用连音线相连；对于不在同一行的将使用水平跨行连接；若不传参则找最近的`,
         allowExtraArgs: true,
         args: []
     };

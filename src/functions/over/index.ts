@@ -1,4 +1,4 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode, ASTBraceNode } from "../types";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../ASTtypes";
 import { ParserContext, deSugarRelationFunction } from "../../parser/parserContext";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType";
 import { ErrorDiagnostic } from "../../parser/diagnostic";
@@ -36,7 +36,7 @@ class OverFunction extends ASTFunctionNode {
             if (ctx.nodes[i] instanceof ASTTextNode) continue;
             break;
         }
-        let overNode = ctx.nodes[i];
+        let overNode: any = ctx.nodes[i];
         if (overNode === null) {
             const e = new ErrorDiagnostic(
                 "OVER_NO_TARGET",
@@ -77,7 +77,7 @@ class OverFunction extends ASTFunctionNode {
 
     contents: ASTNodeBase[] = [];
     get children(): ASTNodeBase[] { return this.contents; }
-    get duration() { return Math.max(...this.contents.map(c => c.duration)); }
+    timeFlowMode() { return "parallel" as const; }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);

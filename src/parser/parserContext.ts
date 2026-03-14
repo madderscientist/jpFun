@@ -1,10 +1,11 @@
-import { SourceSpan } from "./types";
+import { LengthValue, SourceSpan } from "./types";
 import { Diagnostic, ErrorDiagnostic } from "./diagnostic";
 import { GrammarBraceNode, GrammarCallNode, GrammarCallNodeRaw, GrammarCallNodeTyped, GrammarLabelNode, GrammarNode } from "./grammarType";
 import { readCall, trimRange, findTopLevelEquals, removeQuote } from "./parse-utils/call-utils";
 import { readBrace } from "./parse-utils/brace-utils";
 import { readLabel } from "./parse-utils/label-utils";
-import { ASTBraceNode, ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgDef, FunctionArgs, ASTLabelNode, paramType, paramValue, ASTTextNode } from "../functions/types";
+import { parseLength } from "./parse-utils/length-utils";
+import { ASTBraceNode, ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgDef, FunctionArgs, ASTLabelNode, paramType, paramValue, ASTTextNode } from "../functions/ASTtypes";
 
 // bool 字面量 严格要求小写
 const BOOL_RE = /^(true|false)$/;
@@ -41,7 +42,7 @@ export class ParserContext {
     /**
      * 变量表，存储 `@set` 定义的变量，供解析过程中查询和修改，具有局部作用域
      */
-    variables: Map<string, any>;
+    variables: Record<string, any>;
     /**
      * 函数定义查找表
      */
@@ -75,7 +76,7 @@ export class ParserContext {
             // 构建子上下文
             this.source = ctx.source;
             this.diagnostics = ctx.diagnostics; // 诊断信息全局共享
-            this.variables = new Map(ctx.variables);    // 继承但不修改父上下文的变量
+            this.variables = { ...ctx.variables };  // 继承但不修改父上下文的变量
             this.functions = ctx.functions; // 函数定义全局共享
             this.deSugarAtomFns = ctx.deSugarAtomFns; // 去糖方法全局共享
             this.deSugarRelationFns = ctx.deSugarRelationFns; // 去糖方法全局共享
@@ -84,7 +85,7 @@ export class ParserContext {
         } else {
             this.source = ctx.source;
             this.diagnostics = ctx.diagnostics ?? [];
-            this.variables = ctx.variables ?? new Map();
+            this.variables = ctx.variables ?? {};
             this.functions = ctx.functions ?? new Map();
             this.labelableNodes = ctx.labelableNodes ?? [];
             this.nodes = ctx.toConsume ?? [];
@@ -116,17 +117,21 @@ export class ParserContext {
     }
 
     get fontSize(): number {
-        return this.variables.get("fontsize") ?? DEFAULT_FONT_SIZE;
+        return this.variables["fontsize"] ?? DEFAULT_FONT_SIZE;
     }
-    set fontSize(size: number) {
-        this.variables.set("fontsize", size);
+    set fontSize(size: number | string) {
+        if (typeof size === "string") {
+            const l = parseLength(size);
+            if (l instanceof Diagnostic) throw l;
+            else this.variables["fontsize"] = this.length2px(l);
+        } else this.variables["fontsize"] = size;
     }
 
     get strict(): boolean {
-        return this.variables.get("strict") ?? DEFAULT_STRICT_MODE;
+        return this.variables["strict"] ?? DEFAULT_STRICT_MODE;
     }
     set strict(value: boolean) {
-        this.variables.set("strict", value);
+        this.variables["strict"] = value;
     }
 
     registerFunctions(functionClasses: ASTFunctionClass[]) {
@@ -390,8 +395,7 @@ export class ParserContext {
                     this.diagnostics.push(
                         Diagnostic.warning.InvalidNumber(text, r)
                     ); return null;
-                }
-                return num;
+                } return num;
             case "boolean":
                 const boolText = text;
                 if (BOOL_RE.test(boolText)) {
@@ -427,12 +431,26 @@ export class ParserContext {
                 const e = Diagnostic.error.UnknownLabel(text, r);
                 this.diagnostics.push(e);
                 throw e;
+            case "length":
+                const l = parseLength(text);
+                if (l instanceof Diagnostic) {
+                    l.span.start += start;
+                    l.span.end += start;
+                    this.diagnostics.push(l);
+                    return null;
+                } return l;
             // 其他类型一律视为string
             default:
                 // 去除首尾引号（单引号或双引号），如果存在
                 let result: string | null = text;
                 return removeQuote(result);
         } return null;
+    }
+
+    length2px(length: LengthValue): number {
+        // 不进行错误判断了: 来自 parseArgWithType 的不会出问题
+        if (length.unit === "em") return length.value * this.fontSize;
+        else return length.value;
     }
 }
 

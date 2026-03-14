@@ -178,6 +178,20 @@ Diagnostic.warning = {
             span
         );
     },
+    InvalidLength: (value: string, span: SourceSpan) => {
+        return new WarningDiagnostic(
+            "W_INVALID_LENGTH",
+            `无效的长度值: "${value}"；请提供有效的长度值，例如 "10px" 或 "2em"；将使用默认值(若存在)`,
+            span
+        );
+    },
+    InvalidLengthUnit: (unit: string, span: SourceSpan) => {
+        return new WarningDiagnostic(
+            "W_INVALID_LENGTH_UNIT",
+            `无效的长度单位: "${unit}"；仅支持 "px" 和 "em"；请检查函数参数或变量定义；将使用默认值(若存在)`,
+            span
+        );
+    },
     InvalidContent: (span: SourceSpan) => {
         return new WarningDiagnostic(
             "W_INVALID_CONTENT",

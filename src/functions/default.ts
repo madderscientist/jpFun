@@ -1,24 +1,27 @@
-import { ASTFunctionClass } from "./types";
-import { SetNode } from "./set";
-import { DivNode } from "./div";
-import { DashNode } from "./dash";
-import { NoteNode } from "./note";
-import { DotNode } from "./dot";
+import { ASTFunctionClass } from "./ASTtypes";
 import { BarNode } from "./bar";
-import { VoiceNode } from "./voice";
-import { OverNode } from "./over";
+import { BeamNode } from "./beam";
+import { BoxNode } from "./box";
+import { DashNode } from "./dash";
+import { DivNode } from "./div";
+import { DotNode } from "./dot";
+import { KeyNode } from "./key";
 import { LineNode } from "./line";
+import { NoteNode } from "./note";
+import { OverNode } from "./over";
+import { SetNode } from "./set";
+import { TempoNode } from "./tempo";
+import { TextNode } from "./text";
 import { TieNode } from "./tie";
+import { VoiceNode } from "./voice";
 
 export const defaultFunctions: ASTFunctionClass[] = [
-    SetNode,
-    NoteNode,
-    DashNode,
-    DivNode,
-    DotNode,
-    BarNode,
-    VoiceNode,
-    OverNode,
-    LineNode,
-    TieNode,
+    NoteNode, DashNode, BarNode, // 有实体
+    DivNode, DotNode,   // 装饰性
+    VoiceNode,  // 歌词
+    LineNode, OverNode,   // 时间同步
+    TieNode, BeamNode,
+    BoxNode,
+    SetNode, KeyNode, TempoNode,    // 设置
+    TextNode,
 ];

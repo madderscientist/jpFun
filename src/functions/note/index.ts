@@ -1,8 +1,9 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../types";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes";
 import { Diagnostic, ErrorDiagnostic } from "../../parser/diagnostic";
-import { NoteNameMap } from "../../parser/parse-utils/note-utils";
+import { resolveLetterNameToJianpu, resolveNoteMidi } from "../../parser/parse-utils/note-utils";
 import { parseNoteName } from "./noteNameFSM";
 import { GrammarCallNodeTyped } from "../../parser/grammarType";
+import { TimeState } from "../../semantic/contracts";
 
 class NoteFunction extends ASTFunctionNode {
     static def: FunctionDef = {
@@ -64,17 +65,31 @@ class NoteFunction extends ASTFunctionNode {
         return { next: parseResult.next, node };
     }
 
-    get duration() { return 1; }
     labelable(): boolean { return true; }
+    get timeOffsetQN(): number { return 1; }
 
-    name: string;   // 固化之后的数字 用于渲染
-    octave: number; // 固化后相对于基准八度的八度偏移
+    // 原始输入
+    name: string;
+    octave: number;
     acc: string;
     color: string;
-    midi: number = NaN; // 绝对的MIDI音高值 用于演奏 为了适应“无需还原号”的需求，此处的midi不管acc acc由演奏时动态确定
+    size: number;
+
+    // 时间固化后的参数
+    activeKeySignature: string | null = null;
+    activeBpm: number | null = null;    // 用于播放的时候的速度
+    resolvedMidi: number | null = null; // MIDI音高 name是数字则需要在onTimeState中基于当前调性偏移
+    renderName: string;     // 数字
+    renderAcc: string;      // 升降号
+    renderOctave: number;   // 绝对值为点的个数
+
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
         [this.name, this.acc, this.octave, this.color] = this.getArgValue(args, ctx) as [string, string, number, string];
+        this.size = ctx.fontSize;
+        this.renderName = this.name;
+        this.renderAcc = this.acc;
+        this.renderOctave = this.octave;
         // 创建时就固化参数值
         // 校验 note name
         const parseResult = parseNoteName(this.name);
@@ -97,17 +112,31 @@ class NoteFunction extends ASTFunctionNode {
         }
         // 补充acc
         if (parseResult.acc !== null) this.acc = parseResult.acc + this.acc;
+    }
 
-        // 固化note name 为数字; 固化 octave 为相对于基准八度的偏移; 计算 MIDI 音高值（不包含acc信息）
-        // 固化操作在之后时间遍历时进行【还没做】
-        // const baseMidi = ctx.baseMidi;   // 基于调性的C4的MIDI值
-        // if (parseResult.absOctave) {
-        //     this.midi = NoteNameMap[this.name] + (this.octave + 1) * 12;
-        //     const baseOctave = Math.floor(baseMidi / 12) - 1;   // 基准八度
-        //     this.octave -= baseOctave;
-        // } else {
-        //     this.midi = baseMidi + NoteNameMap[this.name] + this.octave * 12;
-        // }
+    onTimeState(state: TimeState): boolean {
+        const keySignature = this.activeKeySignature = typeof state.keySignature === "string" ? state.keySignature : "C4";
+        this.activeBpm = Number(state.bpm) || 120;
+        this.resolvedMidi = resolveNoteMidi(this.name, this.acc, this.octave, keySignature);
+        // 数字音名本身就是简谱显示形式，直接保留原始数字和相对八度
+        if (this.name >= "0" && this.name <= "9") {
+            this.renderName = this.name;
+            if (this.name === "0" || this.name >= "8") {
+                this.renderOctave = 0;
+                this.renderAcc = ""; // 0和8、9不显示升降号
+            } else {
+                this.renderAcc = this.acc;
+                this.renderOctave = this.octave;
+            }
+        } else {
+            // 字母音名需要在当前调性下转换成简谱级数
+            const jianpuPitch = resolveLetterNameToJianpu(this.name, this.acc, this.octave, keySignature);
+            if (jianpuPitch) {
+                this.renderName = jianpuPitch.renderName;
+                this.renderAcc = jianpuPitch.renderAcc;
+                this.renderOctave = jianpuPitch.renderOctave;
+            }
+        } return false;
     }
 
     toString(source: string): string {

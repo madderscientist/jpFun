@@ -2,7 +2,7 @@ import { SourceSpan } from "../types";
 import { Diagnostic } from "../diagnostic";
 
 // 函数名：允许字母/下划线，以及符号别名（@/ @. @-）
-const CALL_NAME_CHAR_RE = /[A-Za-z_./-]/;
+const CALL_NAME_CHAR_RE = /[A-Za-z0-9_./-]/;
 
 /**
  * 表示解析到的函数/调用信息用于在源码中定位并提取调用体

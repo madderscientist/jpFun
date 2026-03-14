@@ -1,7 +1,7 @@
 import { ParserContext } from "../parser/parserContext";
 import { defaultFunctions } from "../functions/default";
 import { preprocessSource } from "../parser/preprocess";
-import { ASTBraceNode } from "../functions/types";
+import { ASTBraceNode } from "../functions/ASTtypes";
 
 function parseScript(source: string) {
     console.log("原始源码:");

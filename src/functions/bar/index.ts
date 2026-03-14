@@ -1,5 +1,6 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../types";
+import { LengthValue, FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes";
 import { GrammarCallNodeTyped } from "../../parser/grammarType";
+import { TimeState } from "../../semantic/contracts";
 
 class BarFunction extends ASTFunctionNode {
     static def: FunctionDef = {
@@ -21,9 +22,12 @@ class BarFunction extends ASTFunctionNode {
                 default: 0,
             },
             {
-                name: "lengthEM",
-                type: "number",
-                default: 1,
+                name: "length",
+                type: "length",
+                default: {
+                    value: 1,
+                    unit: "em",
+                } as LengthValue,
             },
         ]
     };
@@ -53,16 +57,23 @@ class BarFunction extends ASTFunctionNode {
     };
 
     type: number;
-    barLength: number; // 固化为像素
+    barLength: number;    // 固化值
+    activeBpm: number | null = null;
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
-        [this.type, this.barLength] = this.getArgValue(args, ctx) as [number, number];
-        this.barLength = this.barLength * ctx.fontSize;
+        const [type, barlen] = this.getArgValue(args, ctx) as [number, LengthValue];
+        this.type = type;
+        this.barLength = ctx.length2px(barlen);
+    }
+
+    onTimeState(state: TimeState): boolean {
+        this.activeBpm = Number(state.bpm) || 120;
+        return false;
     }
 
     toString(source: string): string {
-        return `@bar(${this.type}, ${this.barLength})`;
+        return `@bar(${this.type}, ${this.barLength}px)`;
     }
 }
 

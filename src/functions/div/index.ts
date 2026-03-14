@@ -1,7 +1,16 @@
-import { FunctionDef, ASTNodeBase, ASTBraceNode, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../types";
-import { Diagnostic, ErrorDiagnostic } from "../../parser/diagnostic";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType";
 import { deSugarRelationFunction } from "../../parser/parserContext";
+
+function parseAutoBeamFlag(raw: unknown, fallback: boolean): boolean {
+    if (typeof raw === "boolean") return raw;
+    if (typeof raw === "number") return raw !== 0;
+    if (typeof raw === "string") {
+        const normalized = raw.trim().toLowerCase();
+        if (normalized === "true" || normalized === "1" || normalized === "on") return true;
+        if (normalized === "false" || normalized === "0" || normalized === "off") return false;
+    } return fallback;
+}
 
 class DivFunction extends ASTFunctionNode {
     static def: FunctionDef = {
@@ -75,19 +84,15 @@ class DivFunction extends ASTFunctionNode {
 
     content: ASTNodeBase;
     n: number;
+    autoBeamEnabled: boolean;   // 是否自动连接减时线
     get children() { return [this.content]; }
-    get duration() { return this.content.duration / (2 << this.n); }
+    timeFlowMode() { return "transparent" as const; }
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
         [this.content, this.n] = this.getArgValue(args, ctx) as [ASTNodeBase, number];
-        if (this.content.duration === 0) {    // 没有符合要求的节点 必须有
-            throw new ErrorDiagnostic(
-                "E_DIV_INVALID_CONTENT",
-                `函数 @div 至少需要接收1个有时长的元素，但找到了0个`,
-                sourceSpan
-            );
-        }
+        this.autoBeamEnabled = parseAutoBeamFlag(ctx.variables["autobeam"], true);
+        // div 允许修饰任意 都会加下划线
         this.content.parent = this;
     }
 

@@ -1,4 +1,4 @@
-import { FunctionDef, ASTNodeBase, ASTBraceNode, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../types";
+import { FunctionDef, ASTNodeBase, ASTBraceNode, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../ASTtypes";
 import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../parser/diagnostic";
 import { findRightParen, removeQuote } from "../../parser/parse-utils/call-utils";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType";
@@ -170,7 +170,6 @@ L: ...
         tokens: string[]   // 分词后的歌词内容
     }[];
     get children() { return [this.content]; }
-    get duration() { return this.content.duration; }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);

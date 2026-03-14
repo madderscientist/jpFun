@@ -1,5 +1,5 @@
 import { SourceSpan } from "./types";
-import { FunctionArgs } from "../functions/types";
+import { FunctionArgs } from "../functions/ASTtypes";
 
 // 仅仅是数据传递，所以没用 class
 

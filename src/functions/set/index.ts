@@ -1,5 +1,5 @@
-import { FunctionDef, ASTNodeBase, ASTBraceNode, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../types";
-import { WarningDiagnostic } from "../../parser/diagnostic";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes";
+import { Diagnostic, WarningDiagnostic } from "../../parser/diagnostic";
 
 class SetFunction extends ASTFunctionNode {
     static def: FunctionDef = {
@@ -21,6 +21,7 @@ class SetFunction extends ASTFunctionNode {
         super(sourceSpan, parent);
         for (const [key, value] of args) {
             if (typeof key === "string") {
+                // 先用string提取出raw text
                 const v = ctx.parseArgWithType((value as SourceSpan).start, (value as SourceSpan).end, "string", sourceSpan.start);
                 if (v === null) {
                     ctx.diagnostics.push(new WarningDiagnostic(
@@ -29,8 +30,18 @@ class SetFunction extends ASTFunctionNode {
                         value as SourceSpan
                     )); continue;
                 }
-                ctx.variables.set(key, v);
-                this.args.set(key, v);
+                let k = key.toLowerCase(); // 统一小写处理
+                try {
+                    // ctx内置的setter可能报错
+                    ctx.variables[k] = v;
+                    this.args.set(k, v);
+                } catch(e) {
+                    if (e instanceof Diagnostic) {
+                        e.span = value as SourceSpan;
+                        ctx.diagnostics.push(e);
+                        if (e.code[0] === "E") throw e;
+                    }
+                }
             } else {
                 ctx.diagnostics.push(new WarningDiagnostic(
                     "W_SET_POSITIONAL_ARG",
