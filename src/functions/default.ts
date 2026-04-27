@@ -1,19 +1,19 @@
-import { ASTFunctionClass } from "./ASTtypes";
-import { BarNode } from "./bar";
-import { BeamNode } from "./beam";
-import { BoxNode } from "./box";
-import { DashNode } from "./dash";
-import { DivNode } from "./div";
-import { DotNode } from "./dot";
-import { KeyNode } from "./key";
-import { LineNode } from "./line";
-import { NoteNode } from "./note";
-import { OverNode } from "./over";
-import { SetNode } from "./set";
-import { TempoNode } from "./tempo";
-import { TextNode } from "./text";
-import { TieNode } from "./tie";
-import { VoiceNode } from "./voice";
+import { ASTFunctionClass } from "./ASTtypes.js";
+import { BarNode } from "./bar/index.js";
+import { BeamNode } from "./beam/index.js";
+import { BoxNode } from "./box/index.js";
+import { DashNode } from "./dash/index.js";
+import { DivNode } from "./div/index.js";
+import { DotNode } from "./dot/index.js";
+import { KeyNode } from "./key/index.js";
+import { LineNode } from "./line/index.js";
+import { NoteNode } from "./note/index.js";
+import { OverNode } from "./over/index.js";
+import { SetNode } from "./set/index.js";
+import { TempoNode } from "./tempo/index.js";
+import { TextNode } from "./text/index.js";
+import { TieNode } from "./tie/index.js";
+import { VoiceNode } from "./voice/index.js";
 
 export const defaultFunctions: ASTFunctionClass[] = [
     NoteNode, DashNode, BarNode, // 有实体

@@ -1,5 +1,5 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes";
-import { ErrorDiagnostic } from "../../parser/diagnostic";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { ErrorDiagnostic } from "../../parser/diagnostic.js";
 
 class TieFunction extends ASTFunctionNode {
     static def: FunctionDef = {

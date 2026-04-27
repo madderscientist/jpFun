@@ -1,5 +1,5 @@
-import { Diagnostic } from "../diagnostic";
-import { LengthValue } from "../types";
+import { Diagnostic } from "../diagnostic.js";
+import { LengthValue } from "../types.js";
 
 const LENGTH_RE = /^([\d.]+)([a-z%]+)?$/i;
 const availableUnits = ["em", "px"];

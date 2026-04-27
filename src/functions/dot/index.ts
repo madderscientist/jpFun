@@ -1,7 +1,7 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes";
-import { ErrorDiagnostic } from "../../parser/diagnostic";
-import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType";
-import { deSugarRelationFunction } from "../../parser/parserContext";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { ErrorDiagnostic } from "../../parser/diagnostic.js";
+import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
+import { deSugarRelationFunction } from "../../parser/parserContext.js";
 
 class DotFunction extends ASTFunctionNode {
     static def: FunctionDef = {

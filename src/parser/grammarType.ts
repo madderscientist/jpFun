@@ -1,5 +1,5 @@
-import { SourceSpan } from "./types";
-import { FunctionArgs } from "../functions/ASTtypes";
+import { SourceSpan } from "./types.js";
+import { FunctionArgs } from "../functions/ASTtypes.js";
 
 // 仅仅是数据传递，所以没用 class
 

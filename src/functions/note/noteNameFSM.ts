@@ -1,4 +1,4 @@
-import { Diagnostic, ErrorDiagnostic } from "../../parser/diagnostic";
+import { Diagnostic, ErrorDiagnostic } from "../../parser/diagnostic.js";
 
 const LETTER_NOTE_START_RE = /^[A-G]/;
 const NUM_NOTE_START_RE = /^[0-9]/;

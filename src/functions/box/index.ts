@@ -1,4 +1,4 @@
-﻿import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, FunctionDef, ParserContext, SourceSpan, LengthValue } from "../ASTtypes";
+﻿import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, FunctionDef, ParserContext, SourceSpan, LengthValue } from "../ASTtypes.js";
 
 class BoxFunction extends ASTFunctionNode {
     static def: FunctionDef = {

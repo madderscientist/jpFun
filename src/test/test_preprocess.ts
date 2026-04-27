@@ -1,4 +1,4 @@
-import { preprocessSource } from "../parser/preprocess";
+import { preprocessSource } from "../parser/preprocess.js";
 
 const source = [
     "line-a \\\\",

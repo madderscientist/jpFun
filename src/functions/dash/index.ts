@@ -1,5 +1,5 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes";
-import { GrammarCallNodeTyped } from "../../parser/grammarType";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
 
 class DashFunction extends ASTFunctionNode {
     static def: FunctionDef = {

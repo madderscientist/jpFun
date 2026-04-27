@@ -1,5 +1,5 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes";
-import { Diagnostic, WarningDiagnostic } from "../../parser/diagnostic";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { Diagnostic, WarningDiagnostic } from "../../parser/diagnostic.js";
 
 class SetFunction extends ASTFunctionNode {
     static def: FunctionDef = {

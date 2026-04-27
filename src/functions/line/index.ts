@@ -1,5 +1,5 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes";
-import { ParserContext } from "../../parser/parserContext";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { ParserContext } from "../../parser/parserContext.js";
 
 class LineFunction extends ASTFunctionNode {
     static def: FunctionDef = {

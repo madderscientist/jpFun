@@ -1,4 +1,4 @@
-import { SourceSpan } from "./types";
+import { SourceSpan } from "./types.js";
 
 export interface LineColRange {
     startLine: number;

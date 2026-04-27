@@ -1,4 +1,4 @@
-import { Diagnostic } from "../diagnostic";
+import { Diagnostic } from "../diagnostic.js";
 
 export const NoteNameMap: Record<string, number> = {
     "C": 0,

@@ -1,7 +1,7 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../ASTtypes";
-import { ParserContext, deSugarRelationFunction } from "../../parser/parserContext";
-import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType";
-import { ErrorDiagnostic } from "../../parser/diagnostic";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../ASTtypes.js";
+import { ParserContext, deSugarRelationFunction } from "../../parser/parserContext.js";
+import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
+import { ErrorDiagnostic } from "../../parser/diagnostic.js";
 
 class OverFunction extends ASTFunctionNode {
     static def: FunctionDef = {

@@ -1,8 +1,8 @@
-import { ASTFunctionNode, ASTNodeBase } from "../functions/ASTtypes";
+import { ASTFunctionNode, ASTNodeBase } from "../functions/ASTtypes.js";
 import {
     TimeState,
     TemporalNodeRecord,
-} from "./contracts";
+} from "./contracts.js";
 
 // 默认时间状态
 // semantic 层不内置函数特化键，默认从空状态开始。

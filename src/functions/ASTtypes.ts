@@ -1,7 +1,7 @@
-﻿import type { SourceSpan, LengthValue } from "../parser/types";
-import type { ParserContext, deSugarAtomFunction, deSugarRelationFunction } from "../parser/parserContext";
-import { Diagnostic } from "../parser/diagnostic";
-import type { TimeFlowMode, TimeState } from "../semantic/contracts";
+﻿import type { SourceSpan, LengthValue } from "../parser/types.js";
+import type { ParserContext, deSugarAtomFunction, deSugarRelationFunction } from "../parser/parserContext.js";
+import { Diagnostic } from "../parser/diagnostic.js";
+import type { TimeFlowMode, TimeState } from "../semantic/contracts.js";
 
 export type { SourceSpan, ParserContext, LengthValue };
 export type paramType = "string" | "number" | "boolean" | "length" | "content" | "label";

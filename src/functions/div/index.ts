@@ -1,6 +1,6 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes";
-import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType";
-import { deSugarRelationFunction } from "../../parser/parserContext";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
+import { deSugarRelationFunction } from "../../parser/parserContext.js";
 
 function parseAutoBeamFlag(raw: unknown, fallback: boolean): boolean {
     if (typeof raw === "boolean") return raw;

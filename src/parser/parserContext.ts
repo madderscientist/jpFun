@@ -1,11 +1,11 @@
-import { LengthValue, SourceSpan } from "./types";
-import { Diagnostic, ErrorDiagnostic } from "./diagnostic";
-import { GrammarBraceNode, GrammarCallNode, GrammarCallNodeRaw, GrammarCallNodeTyped, GrammarLabelNode, GrammarNode } from "./grammarType";
-import { readCall, trimRange, findTopLevelEquals, removeQuote } from "./parse-utils/call-utils";
-import { readBrace } from "./parse-utils/brace-utils";
-import { readLabel } from "./parse-utils/label-utils";
-import { parseLength } from "./parse-utils/length-utils";
-import { ASTBraceNode, ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgDef, FunctionArgs, ASTLabelNode, paramType, paramValue, ASTTextNode } from "../functions/ASTtypes";
+import { LengthValue, SourceSpan } from "./types.js";
+import { Diagnostic, ErrorDiagnostic } from "./diagnostic.js";
+import { GrammarBraceNode, GrammarCallNode, GrammarCallNodeRaw, GrammarCallNodeTyped, GrammarLabelNode, GrammarNode } from "./grammarType.js";
+import { readCall, trimRange, findTopLevelEquals, removeQuote } from "./parse-utils/call-utils.js";
+import { readBrace } from "./parse-utils/brace-utils.js";
+import { readLabel } from "./parse-utils/label-utils.js";
+import { parseLength } from "./parse-utils/length-utils.js";
+import { ASTBraceNode, ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgDef, FunctionArgs, ASTLabelNode, paramType, paramValue, ASTTextNode } from "../functions/ASTtypes.js";
 
 // bool 字面量 严格要求小写
 const BOOL_RE = /^(true|false)$/;

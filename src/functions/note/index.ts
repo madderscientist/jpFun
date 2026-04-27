@@ -1,9 +1,9 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes";
-import { Diagnostic, ErrorDiagnostic } from "../../parser/diagnostic";
-import { resolveLetterNameToJianpu, resolveNoteMidi } from "../../parser/parse-utils/note-utils";
-import { parseNoteName } from "./noteNameFSM";
-import { GrammarCallNodeTyped } from "../../parser/grammarType";
-import { TimeState } from "../../semantic/contracts";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { Diagnostic, ErrorDiagnostic } from "../../parser/diagnostic.js";
+import { resolveLetterNameToJianpu, resolveNoteMidi } from "../../parser/parse-utils/note-utils.js";
+import { parseNoteName } from "./noteNameFSM.js";
+import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
+import { TimeState } from "../../semantic/contracts.js";
 
 class NoteFunction extends ASTFunctionNode {
     static def: FunctionDef = {

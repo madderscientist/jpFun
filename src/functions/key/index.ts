@@ -1,5 +1,5 @@
-import { TimeState } from "../../semantic/contracts";
-import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, FunctionDef, ParserContext, SourceSpan } from "../ASTtypes";
+import { TimeState } from "../../semantic/contracts.js";
+import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, FunctionDef, ParserContext, SourceSpan } from "../ASTtypes.js";
 
 class KeyFunction extends ASTFunctionNode {
     static def: FunctionDef = {

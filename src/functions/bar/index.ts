@@ -1,6 +1,6 @@
-import { LengthValue, FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes";
-import { GrammarCallNodeTyped } from "../../parser/grammarType";
-import { TimeState } from "../../semantic/contracts";
+import { LengthValue, FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
+import { TimeState } from "../../semantic/contracts.js";
 
 class BarFunction extends ASTFunctionNode {
     static def: FunctionDef = {

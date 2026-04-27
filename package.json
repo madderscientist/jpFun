@@ -1,20 +1,20 @@
 {
   "name": "jpfun",
+  "private": true,
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "ts-node src/test/test.ts",
-    "test_preprocess": "ts-node src/test/test_preprocess.ts"
+    "test": "node --import tsx src/test/test.ts",
+    "test_preprocess": "node --import tsx src/test/test_preprocess.ts"
   },
   "keywords": [],
-  "author": "",
+  "author": "madderscientist",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "devDependencies": {
-    "esbuild": "^0.25.0",
-    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
 }
