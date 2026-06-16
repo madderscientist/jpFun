@@ -353,7 +353,7 @@
             }
             return {
                 elements: column,
-                X: x,
+                X: x,   // 要确定的横坐标
             };
         });
         let x0 = row_x.reduce((a, b) => Math.max(a, b), 0);
@@ -367,18 +367,17 @@
 
         // 迭代求解平衡位置
         let turn = 0, f_max = 0;
-        let log = [];
-        const hist_f_max = new Float32Array(columns.length).fill(lr);
         for (; turn < maxIter; turn++) {
+            // 由于力只有横向有，因此每一行算每个元素的力
             for (const r of rows) {
                 for (const _ of r) _._force = 0;
-                for (let i = 0; i <= r.length; i++) {
-                    if (i == 0) {
+                for (let i = 0; i <= r.length; i++) {   // 遍历每个空隙
+                    if (i == 0) {   // 最左边和墙壁
                         const dis = columns[r[i]._column_idx].X - r[i].W / 2;
                         let force = r[i].force(r[i].margin0() - dis);
                         if (dis < 0) force *= crossPunish; // 减少穿墙
                         r[i]._force += force;
-                    } else if (i == r.length) {
+                    } else if (i == r.length) { // 最右边和墙壁
                         const dis = limit - (columns[r[i - 1]._column_idx].X + r[i - 1].W / 2);
                         let force = r[i - 1].force(r[i - 1].margin0() - dis);
                         if (dis < 0) force *= crossPunish;
@@ -393,26 +392,22 @@
                     }
                 }
             }
-            // 梯度下降
+            // 梯度下降 力是能量的梯度
             f_max = 0;
             // let _lr = (1 - turn / maxIter) * lr;
             let _lr = lr * (Math.cos(Math.PI * turn / maxIter) + 1) / 2; // 余弦更快
             for (let i = 0; i < columns.length; i++) {
                 const column = columns[i];
-                let f = column.elements.reduce((f, element) => f + element._force, 0);
+                let f = column.elements.reduce((f, element) => f + element._force, 0);  // 该列的总力
                 let absf = Math.abs(f);
                 f_max = Math.max(f_max, absf);
-
+                // 限制最大步长不超过_lr 数值容易爆炸
                 let step = f * _lr / (1 + absf);
-                hist_f_max[i] = absf;
                 column.X += step;
             }
-
-            log.push(f_max);
             if (f_max < eps) break;
         }
-        // console.log(JSON.stringify(log));
-        console.log(`迭代${turn}次后收敛，最大梯度${f_max.toExponential(2)}`);
+        console.log(`迭代${turn}次，最大梯度${f_max.toExponential(2)}`);
         // 返回元素位置映射
         let res = new WeakMap();
         for (const column of columns) {
