@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>弹簧布局系统</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+            background: #eef0f2;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 8px;
+        }
+
+        #app {
+            width: 1300px;
+            max-width: 100%;
+            height: 100%;
+            max-height: 900px;
+            background: #ffffff;
+            border: 1px solid #c0c6ce;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        #render-area {
+            flex: 1;
+            min-height: 150px;
+            background: #fafbfc;
+            border-bottom: 1px solid #c0c6ce;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #render-area canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            background: #ffffff;
+        }
+
+        #settings-area {
+            flex: 0 0 auto;
+            max-height: 60%;
+            background: #ffffff;
+            padding: 10px 14px 14px 14px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        #settings-area::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        #settings-area::-webkit-scrollbar-thumb {
+            background: #c1c7d0;
+            border-radius: 3px;
+        }
+
+        .params-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px 18px;
+            padding: 4px 0 6px 0;
+            border-bottom: 1px solid #e4e7ed;
+        }
+
+        .param-group {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            font-size: 13px;
+            color: #2c3e50;
+        }
+
+        .param-group label {
+            font-weight: 600;
+            min-width: 14px;
+        }
+
+        .param-group input[type="number"] {
+            width: 44px;
+            padding: 2px 3px;
+            border: 1px solid #ccd1d9;
+            border-radius: 2px;
+            font-size: 12px;
+            text-align: center;
+            background: #fff;
+        }
+
+        .param-group input[type="range"] {
+            width: 100px;
+            cursor: pointer;
+            accent-color: #4a6a8f;
+        }
+
+        .param-group .range-value {
+            font-weight: 600;
+            color: #1a2634;
+            min-width: 28px;
+            text-align: center;
+            font-size: 13px;
+        }
+
+        .row-count-display {
+            font-weight: 700;
+            font-size: 14px;
+            color: #1a2634;
+            min-width: 20px;
+            text-align: center;
+        }
+
+        .rows-container {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-top: 2px;
+        }
+
+        .row-item {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 3px 6px;
+            background: #f7f8fa;
+            padding: 3px 6px 3px 8px;
+            border-left: 3px solid #9aa8b9;
+        }
+
+        .row-label {
+            font-weight: 600;
+            font-size: 12px;
+            color: #2c3e50;
+            min-width: 32px;
+            white-space: nowrap;
+        }
+
+        .row-elements {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 3px 4px;
+            flex: 1;
+        }
+
+        .elem-card {
+            display: flex;
+            align-items: center;
+            gap: 1px;
+            background: #ffffff;
+            padding: 1px 3px 1px 4px;
+            border: 1px solid #dce1e8;
+            border-radius: 2px;
+            font-size: 11px;
+        }
+
+        .elem-card .sub {
+            color: #7a8a9e;
+            font-size: 9px;
+            font-weight: 600;
+        }
+
+        .elem-card input[type="number"] {
+            width: 40px;
+            border: none;
+            font-size: 10px;
+            text-align: left;
+            background: #fafbfc;
+        }
+
+        .elem-del {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 14px;
+            height: 14px;
+            border: none;
+            background: transparent;
+            color: #b0b8c4;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .row-actions {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            flex-shrink: 0;
+        }
+
+        .btn-sm {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1px 6px;
+            border: 1px solid #ccd1d9;
+            border-radius: 2px;
+            background: #ffffff;
+            font-size: 10px;
+            font-weight: 500;
+            color: #2c3e50;
+            cursor: pointer;
+            height: 20px;
+            white-space: nowrap;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app">
+        <div id="render-area"><canvas id="canvas"></canvas></div>
+        <div id="settings-area">
+            <div class="params-row" id="paramsRow">
+                <div class="param-group"><label>α</label><input type="number" id="inputAlpha" step="0.1" min="0.1"
+                        value="5" /></div>
+                <div class="param-group"><label>β</label><input type="number" id="inputBeta" step="0.1" min="0.1"
+                        value="1" /></div>
+                <div class="param-group"><label>μ</label><input type="number" id="inputMu" step="1" min="1"
+                        value="50" /></div>
+                <div class="param-group">
+                    <label>行数</label>
+                    <button class="btn-icon" id="rowDec">−</button>
+                    <span class="row-count-display" id="rowCountDisplay">2</span>
+                    <button class="btn-icon" id="rowInc">+</button>
+                </div>
+                <div class="param-group" style="flex:1; min-width:120px;">
+                    <label>limit</label>
+                    <input type="range" id="limitSlider" min="100" max="1500" value="700" step="10" />
+                    <span class="range-value" id="limitValue">700</span>
+                </div>
+                <div class="param-group">
+                    <input type="checkbox" id="render_margin" checked />
+                    <label for="render_margin">渲染边距</label>
+                </div>
+            </div>
+            <div class="rows-container" id="rowsContainer"></div>
+        </div>
+    </div>
+</body>
+<script>
+    // ================================================================
+    //  1. 算法部分
+    // ================================================================
+    class Element {
+        static alpha = 3;   // 弹簧长度
+        static beta = 1;    // 劲度系数
+        static mu = 50;
+        constructor(W, T, X) {
+            this.W = W; // 固有宽度
+            this.T = T; // 固有时长
+            this.X = X; // 时刻
+            // 下面的量是算法要用的
+            this._force = 0;
+            this._column_idx = -1;
+            this._row_idx = -1;
+        }
+        // 无约束是弹簧原长
+        margin0() {
+            return this.T * Element.alpha;
+        }
+        // 给出压缩量算力
+        force(dl) {
+            if (dl <= 0) return 0;
+            const m0 = this.margin0();
+            if (dl <= m0) return Element.beta * dl / this.T;
+            return Element.alpha * Element.beta + Element.mu * (dl - m0);
+        }
+        // 给出两个元素和它们的距离，算出相对作用力和两个元素的margin
+        // 公式从 force 中可以推导
+        margin_calc(e, dis) {
+            let my_m0 = this.margin0();
+            let e_m0 = e.margin0();
+            dis -= (this.W + e.W) / 2;
+            if (dis >= my_m0 + e_m0) return [0, my_m0, e_m0];
+            if (dis <= 0) {
+                const half = dis / 2;
+                return [Element.alpha * Element.beta - Element.mu * half, half, half];
+            }
+            const k = dis / (this.T + e.T);
+            return [(Element.alpha - k) * Element.beta, k * this.T, k * e.T];
+        }
+    }
+
+    /** 核心算法：给定行元素，迭代求解平衡位置
+     * rows: 二维数组，每行是一个元素数组，元素包含W、T、X属性
+     * limit: 布局宽度限制
+     * lr: 学习率，控制每次迭代移动的距离
+     * maxIter: 最大迭代次数
+     * eps: 收敛阈值，当最大梯度小于该值时停止迭代
+     * crossPunish: 穿墙惩罚系数，当元素被压到边界外时增加的惩罚力度，减少穿墙程度
+     */
+    function calc(rows, limit, lr = 2, maxIter = 300, eps = 1e-2, crossPunish = 16) {
+        rows = [...rows];
+        // 形成列
+        let columns = {};
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            for (let j = 0; j < row.length; j++) {
+                const element = row[j];
+                element._row_idx = i;
+                if (!columns[element.X]) columns[element.X] = [];
+                columns[element.X].push(element);
+            }
+        }
+
+        // 如果某列没有所有行的元素，插入占位元素
+        for (const colX in columns) {
+            const col = columns[colX];
+            const rowSet = new Set(col.map(e => e._row_idx));
+            const meanhalfW = col.reduce((s, e) => Math.max(s, e.W), 0) * 0.5;
+            for (let i = 0; i < rows.length; i++) {
+                if (!rowSet.has(i)) {
+                    // 用margin代替width更符合简谱排版
+                    const placeholder = new Element(0, meanhalfW / Element.alpha, parseFloat(colX));
+                    placeholder._row_idx = i;
+                    placeholder._fake = true;
+                    col.push(placeholder);
+                    rows[i].push(placeholder);
+                }
+            }
+        }
+        for (const r of rows) r.sort((a, b) => a.X - b.X);
+
+        // 预排列
+        // 无约束排列
+        const row_x = new Float32Array(rows.length);
+        columns = Object.values(columns).sort((a, b) => a[0].X - b[0].X).map((column, idx) => {
+            const halfW = new Float32Array(column.length);
+            let x = 0;
+            for (let i = 0; i < column.length; i++) {
+                halfW[i] = column[i].W / 2 + column[i].margin0();
+                x = Math.max(x, row_x[column[i]._row_idx] + halfW[i]);
+            }
+            for (let i = 0; i < column.length; i++) {
+                row_x[column[i]._row_idx] = x + halfW[i];
+                column[i]._column_idx = idx;
+            }
+            return {
+                elements: column,
+                X: x,
+            };
+        });
+        let x0 = row_x.reduce((a, b) => Math.max(a, b), 0);
+        if (x0 > limit) {
+            // 压缩到中间，减少迭代次数
+            const r = limit / x0;
+            for (const column of columns) column.X *= r;
+        } else {
+            maxIter = -1;   // 不用迭代
+        }
+
+        // 迭代求解平衡位置
+        let turn = 0, f_max = 0;
+        let log = [];
+        const hist_f_max = new Float32Array(columns.length).fill(lr);
+        for (; turn < maxIter; turn++) {
+            for (const r of rows) {
+                for (const _ of r) _._force = 0;
+                for (let i = 0; i <= r.length; i++) {
+                    if (i == 0) {
+                        const dis = columns[r[i]._column_idx].X - r[i].W / 2;
+                        let force = r[i].force(r[i].margin0() - dis);
+                        if (dis < 0) force *= crossPunish; // 减少穿墙
+                        r[i]._force += force;
+                    } else if (i == r.length) {
+                        const dis = limit - (columns[r[i - 1]._column_idx].X + r[i - 1].W / 2);
+                        let force = r[i - 1].force(r[i - 1].margin0() - dis);
+                        if (dis < 0) force *= crossPunish;
+                        r[i - 1]._force -= force;
+                    } else {
+                        const column_l = columns[r[i - 1]._column_idx];
+                        const column_r = columns[r[i]._column_idx];
+                        const dis = column_r.X - column_l.X;
+                        const [f, margin_l, margin_r] = r[i - 1].margin_calc(r[i], dis);
+                        r[i - 1]._force -= f;
+                        r[i]._force += f;
+                    }
+                }
+            }
+            // 梯度下降
+            f_max = 0;
+            // let _lr = (1 - turn / maxIter) * lr;
+            let _lr = lr * (Math.cos(Math.PI * turn / maxIter) + 1) / 2; // 余弦更快
+            for (let i = 0; i < columns.length; i++) {
+                const column = columns[i];
+                let f = column.elements.reduce((f, element) => f + element._force, 0);
+                let absf = Math.abs(f);
+                f_max = Math.max(f_max, absf);
+
+                let step = f * _lr / (1 + absf);
+                hist_f_max[i] = absf;
+                column.X += step;
+            }
+
+            log.push(f_max);
+            if (f_max < eps) break;
+        }
+        // console.log(JSON.stringify(log));
+        console.log(`迭代${turn}次后收敛，最大梯度${f_max.toExponential(2)}`);
+        // 返回元素位置映射
+        let res = new WeakMap();
+        for (const column of columns) {
+            for (const element of column.elements) res.set(element, column.X);
+        } return res;
+    }
+</script>
+<script>
+    // ================================================================
+    //  2. 数据管理 (初始W调整到合理范围)
+    // ================================================================
+    let data = {
+        rows: [
+            [
+                { W: 150, T: 10, X: 0 },
+                { W: 220, T: 20, X: 1 },
+                { W: 180, T: 15, X: 2 }
+            ],
+            [
+                { W: 120, T: 10, X: 0 },
+                { W: 250, T: 20, X: 1 },
+                { W: 160, T: 15, X: 2 }
+            ],
+            [
+                { W: 100, T: 10, X: 0.5 },
+                { W: 100, T: 18, X: 1.5 },
+                { W: 140, T: 12, X: 2 }
+            ]
+        ],
+        limit: 700,
+        alpha: 3,
+        beta: 1,
+        mu: 50
+    };
+    // data = { "rows": [[{ "W": 100, "T": 10, "X": 0 }, { "W": 100, "T": 10, "X": 10 }, { "W": 100, "T": 10, "X": 20 }], [{ "W": 100, "T": 5, "X": 0 }, { "W": 100, "T": 10, "X": 5 }, { "W": 100, "T": 10, "X": 15 }, { "W": 100, "T": 5, "X": 25 }]], "limit": 400, "alpha": 3, "beta": 1, "mu": 50 };
+    function buildElements(rowsData) {
+        return rowsData.map(row => row.map(item => new Element(item.W, item.T, item.X)));
+    }
+
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    const inputAlpha = document.getElementById('inputAlpha');
+    const inputBeta = document.getElementById('inputBeta');
+    const inputMu = document.getElementById('inputMu');
+    const limitSlider = document.getElementById('limitSlider');
+    const limitValue = document.getElementById('limitValue');
+    const renderMarginCheckbox = document.getElementById('render_margin');
+    const rowCountDisplay = document.getElementById('rowCountDisplay');
+    const rowsContainer = document.getElementById('rowsContainer');
+
+
+
+    // ================================================================
+    //  3. Canvas 渲染
+    // ================================================================
+
+    function renderCanvas() {
+        const rect = canvas.parentElement.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        canvas.style.width = rect.width + 'px';
+        canvas.style.height = rect.height + 'px';
+        ctx.scale(dpr, dpr);
+
+        const W = rect.width;
+        const H = rect.height;
+
+        ctx.clearRect(0, 0, W, H);
+
+        const alpha = parseFloat(inputAlpha.value) || 5;
+        const beta = parseFloat(inputBeta.value) || 1;
+        const mu = parseFloat(inputMu.value) || 50;
+        const limit = parseFloat(limitSlider.value) || 700;
+
+        Element.alpha = alpha;
+        Element.beta = beta;
+        Element.mu = mu;
+
+        const elemRows = buildElements(data.rows);
+        const posMap = calc(elemRows, limit);
+
+        const rowCount = elemRows.length;
+        if (rowCount === 0) {
+            ctx.fillStyle = '#9aa8b9';
+            ctx.font = '13px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('请添加行和元素', W / 2, H / 2);
+            return;
+        }
+
+        const elemHeight = Math.min(42, (H - 16) / rowCount - 6);
+        const h = Math.max(16, elemHeight);
+        const rowGap = Math.min(5, (H - rowCount * h) / (rowCount + 1));
+        const topPad = Math.max(6, (H - rowCount * h - (rowCount - 1) * rowGap) / 2);
+
+        // 绘制每行
+        for (let ri = 0; ri < rowCount; ri++) {
+            const row = elemRows[ri];
+            if (row.length === 0) continue;
+            const y = topPad + ri * (h + rowGap);
+
+            const items = [];
+            for (const el of row) {
+                const xPos = posMap.get(el);
+                if (xPos === undefined) continue;
+                items.push({
+                    el: el,
+                    x: xPos,
+                    w: el.W,
+                    margin0: el.margin0(),
+                    fake: el._fake,
+                });
+            }
+            if (items.length === 0) continue;
+
+            // ---- 计算每个元素的左右margin ----
+            const n = items.length;
+            const elemMargins = items.map(() => ({ left: 0, right: 0 }));
+
+            // 首元素的左margin
+            elemMargins[0].left = Math.min(items[0].margin0, items[0].x - items[0].w / 2);
+            // 尾元素的右margin
+            elemMargins[n - 1].right = Math.min(items[n - 1].margin0, limit - (items[n - 1].x + items[n - 1].w / 2));
+
+            // 中间元素的左右margin通过margin_calc计算
+            for (let i = 0; i < n - 1; i++) {
+                const leftEl = items[i].el;
+                const rightEl = items[i + 1].el;
+                const dis = items[i + 1].x - items[i].x;
+                const [f, margin_l, margin_r] = leftEl.margin_calc(rightEl, dis);
+                elemMargins[i].right = margin_l;    // 左侧元素的右margin
+                elemMargins[i + 1].left = margin_r;   // 右侧元素的左margin
+            }
+
+            // ---- 绘制每个元素的左右margin ----
+            if (renderMarginCheckbox.checked)
+                for (let i = 0; i < n; i++) {
+                    const item = items[i];
+                    const cx = item.x;
+                    const half = item.w / 2;
+                    const leftEdge = cx - half;
+                    const rightEdge = cx + half;
+                    const leftM = elemMargins[i].left;
+                    const rightM = elemMargins[i].right;
+
+                    // 绘制左margin区域：从 leftEdge - leftM 到 leftEdge
+                    if (Math.abs(leftM) > 0.01) {
+                        const x1 = leftEdge - leftM;
+                        const x2 = leftEdge;
+                        const width = x2 - x1;
+                        ctx.save();
+                        if (width > 0.5) {
+                            ctx.strokeStyle = 'rgba(40, 80, 180, 0.6)';
+                            ctx.lineWidth = 1;
+                            ctx.setLineDash([3, 4]);
+                            ctx.strokeRect(Math.min(x1, x2), y + 2, Math.abs(width), h - 4);
+                            ctx.fillStyle = 'rgba(40, 80, 180, 0.7)';
+                            ctx.font = '9px sans-serif';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'bottom';
+                            ctx.fillText(`Lm ${leftM.toFixed(1)}`, (x1 + x2) / 2, y + h - 4);
+                        } else if (width < -0.5) {
+                            // 负margin，绘制红色竖线表示溢出
+                            ctx.strokeStyle = 'rgba(200, 60, 60, 0.7)';
+                            ctx.lineWidth = 1.5;
+                            ctx.setLineDash([2, 3]);
+                            ctx.beginPath();
+                            ctx.moveTo(leftEdge, y + 4);
+                            ctx.lineTo(leftEdge, y + h - 4);
+                            ctx.stroke();
+                            ctx.fillStyle = 'rgba(200, 60, 60, 0.8)';
+                            ctx.font = '9px sans-serif';
+                            ctx.textAlign = 'left';
+                            ctx.textBaseline = 'bottom';
+                            ctx.fillText(`溢出 ${(-leftM).toFixed(1)}`, leftEdge + 2, y + h - 4);
+                        }
+                        ctx.restore();
+                    }
+
+                    // 绘制右margin区域：从 rightEdge 到 rightEdge + rightM
+                    if (Math.abs(rightM) > 0.01) {
+                        const x1 = rightEdge;
+                        const x2 = rightEdge + rightM;
+                        const width = x2 - x1;
+                        ctx.save();
+                        if (width > 0.5) {
+                            ctx.strokeStyle = 'rgba(40, 160, 80, 0.6)';
+                            ctx.lineWidth = 1;
+                            ctx.setLineDash([3, 4]);
+                            ctx.strokeRect(Math.min(x1, x2), y + 2, Math.abs(width), h - 4);
+                            ctx.fillStyle = 'rgba(40, 160, 80, 0.7)';
+                            ctx.font = '9px sans-serif';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'bottom';
+                            ctx.fillText(`Rm ${rightM.toFixed(1)}`, (x1 + x2) / 2, y + h - 4);
+                        } else if (width < -0.5) {
+                            ctx.strokeStyle = 'rgba(200, 60, 60, 0.7)';
+                            ctx.lineWidth = 1.5;
+                            ctx.setLineDash([2, 3]);
+                            ctx.beginPath();
+                            ctx.moveTo(rightEdge, y + 4);
+                            ctx.lineTo(rightEdge, y + h - 4);
+                            ctx.stroke();
+                            ctx.fillStyle = 'rgba(200, 60, 60, 0.8)';
+                            ctx.font = '9px sans-serif';
+                            ctx.textAlign = 'right';
+                            ctx.textBaseline = 'bottom';
+                            ctx.fillText(`溢出 ${(-rightM).toFixed(1)}`, rightEdge - 2, y + h - 4);
+                        }
+                        ctx.restore();
+                    }
+                }
+
+            // ---- 绘制元素（填充浅色，边框） ----
+            for (const item of items) {
+                const cx = item.x;
+                const cy = y + h / 2;
+                const half = item.w / 2;
+                const x1 = cx - half;
+                const y1 = cy - h / 2 + 1;
+                const w2 = item.w;
+                const h2 = h - 2;
+
+                ctx.fillStyle = "transparent";
+                ctx.fillRect(x1, y1, w2, h2);
+                ctx.strokeStyle = '#8a9aaa';
+                ctx.lineWidth = 1;
+                if (item.fake) {
+                    ctx.setLineDash([4, 6]);
+                } else {
+                    ctx.setLineDash([]);
+                }
+                ctx.strokeRect(x1, y1, w2, h2);
+                if (item.fake) continue;    // 占位元素不绘制文本
+
+                ctx.fillStyle = '#1a2634';
+                ctx.font = 'bold 11px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(`W=${item.w}`, cx, cy - 1);
+
+                ctx.fillStyle = 'rgba(60,80,110,0.7)';
+                ctx.font = '8px sans-serif';
+                ctx.textBaseline = 'top';
+                ctx.fillText(`T=${item.el.T.toFixed(1)}`, cx, cy + h / 2 - 12);
+            }
+        }
+
+        // 绘制limit边界线
+        ctx.save();
+        ctx.strokeStyle = 'rgba(200, 60, 60, 0.25)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(limit, 4);
+        ctx.lineTo(limit, H - 4);
+        ctx.stroke();
+        ctx.restore();
+        ctx.fillStyle = 'rgba(200, 60, 60, 0.5)';
+        ctx.font = '9px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText(`limit = ${limit}`, limit + 4, 4);
+    }
+
+    // ================================================================
+    //  4. UI 生成
+    // ================================================================
+    function renderUI() {
+        inputAlpha.value = data.alpha;
+        inputBeta.value = data.beta;
+        inputMu.value = data.mu;
+        limitSlider.value = data.limit;
+        limitValue.textContent = data.limit;
+        rowCountDisplay.textContent = data.rows.length;
+
+        let html = '';
+        for (let ri = 0; ri < data.rows.length; ri++) {
+            const row = data.rows[ri];
+            html += `<div class="row-item" data-row="${ri}">`;
+            html += `<span class="row-label">行 ${ri + 1}</span>`;
+            html += `<div class="row-elements">`;
+            for (let ei = 0; ei < row.length; ei++) {
+                const el = row[ei];
+                html += `<div class="elem-card" data-row="${ri}" data-idx="${ei}">`;
+                html += `<span class="sub">W</span><input type="number" step="0.5" min="1" value="${el.W}" data-attr="W" />`;
+                html += `<span class="sub">T</span><input type="number" step="0.1" min="0.1" value="${el.T}" data-attr="T" />`;
+                html += `<span class="sub">X</span><input type="number" step="1" min="0" value="${el.X}" data-attr="X" />`;
+                html += `<button class="elem-del" data-action="delElem">×</button>`;
+                html += `</div>`;
+            }
+            html += `</div>`;
+            html += `<div class="row-actions">`;
+            html += `<button class="btn-sm primary" data-action="addElem">+ 添加</button>`;
+            html += `<button class="btn-sm danger" data-action="delRow">删除行</button>`;
+            html += `</div></div>`;
+        }
+        if (data.rows.length === 0) html = `<div class="empty-hint">暂无行，点击上方「+」添加行</div>`;
+        rowsContainer.innerHTML = html;
+        bindUIEvents();
+    }
+
+    function bindUIEvents() {
+        document.querySelectorAll('.elem-card input[type="number"]').forEach(inp => inp.addEventListener('input', onElemInput));
+        document.querySelectorAll('[data-action="delElem"]').forEach(btn => btn.addEventListener('click', onDelElem));
+        document.querySelectorAll('[data-action="addElem"]').forEach(btn => btn.addEventListener('click', onAddElem));
+        document.querySelectorAll('[data-action="delRow"]').forEach(btn => btn.addEventListener('click', onDelRow));
+    }
+
+    function onElemInput(e) {
+        const inp = e.currentTarget;
+        const card = inp.closest('.elem-card');
+        if (!card) return;
+        const rowIdx = parseInt(card.dataset.row);
+        const elemIdx = parseInt(card.dataset.idx);
+        const attr = inp.dataset.attr;
+        const val = parseFloat(inp.value);
+        if (isNaN(val) || val < 0) return;
+        const row = data.rows[rowIdx];
+        if (!row || elemIdx >= row.length) return;
+        const el = row[elemIdx];
+        if (attr === 'W') el.W = Math.max(1, val);
+        else if (attr === 'T') el.T = Math.max(0.1, val);
+        else if (attr === 'X') el.X = Math.max(0, Math.round(val));
+        renderCanvas();
+    }
+
+    function onDelElem(e) {
+        const btn = e.currentTarget;
+        const card = btn.closest('.elem-card');
+        if (!card) return;
+        const rowIdx = parseInt(card.dataset.row);
+        const elemIdx = parseInt(card.dataset.idx);
+        const row = data.rows[rowIdx];
+        if (!row || elemIdx >= row.length) return;
+        if (row.length <= 1) data.rows.splice(rowIdx, 1);
+        else row.splice(elemIdx, 1);
+        fullRefresh();
+    }
+
+    function onAddElem(e) {
+        const btn = e.currentTarget;
+        const rowItem = btn.closest('.row-item');
+        if (!rowItem) return;
+        const rowIdx = parseInt(rowItem.dataset.row);
+        const row = data.rows[rowIdx];
+        if (!row) return;
+        let maxX = 0;
+        for (const el of row) if (el.X > maxX) maxX = el.X;
+        row.push({ W: 14, T: 1, X: maxX + 1 });
+        fullRefresh();
+    }
+
+    function onDelRow(e) {
+        const btn = e.currentTarget;
+        const rowItem = btn.closest('.row-item');
+        if (!rowItem) return;
+        const rowIdx = parseInt(rowItem.dataset.row);
+        if (data.rows.length <= 1) { alert('至少保留一行'); return; }
+        data.rows.splice(rowIdx, 1);
+        fullRefresh();
+    }
+
+    // ---- 全局参数 ----
+    inputAlpha.addEventListener('input', function () {
+        data.alpha = parseFloat(this.value) || 5;
+        Element.alpha = data.alpha;
+        renderCanvas();
+    });
+    inputBeta.addEventListener('input', function () {
+        data.beta = parseFloat(this.value) || 1;
+        Element.beta = data.beta;
+        renderCanvas();
+    });
+    inputMu.addEventListener('input', function () {
+        data.mu = parseFloat(this.value) || 50;
+        Element.mu = data.mu;
+        renderCanvas();
+    });
+    limitSlider.addEventListener('input', function () {
+        const val = parseFloat(this.value) || 100;
+        data.limit = val;
+        limitValue.textContent = val;
+        renderCanvas();
+    });
+    renderMarginCheckbox.addEventListener('change', function () {
+        renderCanvas();
+    });
+
+    document.getElementById('rowInc').addEventListener('click', function () {
+        const lastRow = data.rows[data.rows.length - 1];
+        let baseX = 0,
+            baseW = 14,
+            baseT = 1;
+        if (lastRow && lastRow.length > 0) {
+            baseX = Math.max(...lastRow.map(el => el.X)) + 1;
+            baseW = lastRow[0].W || 14;
+            baseT = lastRow[0].T || 1;
+        }
+        data.rows.push([
+            { W: baseW, T: baseT, X: baseX },
+            { W: baseW * 1.5, T: baseT * 1.4, X: baseX + 1 },
+            { W: baseW * 1.2, T: baseT * 1.2, X: baseX + 2 }
+        ]);
+        fullRefresh();
+    });
+
+    document.getElementById('rowDec').addEventListener('click', function () {
+        if (data.rows.length <= 1) { alert('至少保留一行'); return; }
+        data.rows.pop();
+        fullRefresh();
+    });
+
+    function fullRefresh() {
+        Element.alpha = data.alpha;
+        Element.beta = data.beta;
+        Element.mu = data.mu;
+        renderUI();
+        renderCanvas();
+    }
+
+    let resizeTimer = null;
+    function onResize() {
+        if (resizeTimer) cancelAnimationFrame(resizeTimer);
+        resizeTimer = requestAnimationFrame(() => {
+            renderCanvas();
+            resizeTimer = null;
+        });
+    }
+    window.addEventListener('resize', onResize);
+    if (window.ResizeObserver) {
+        const ro = new ResizeObserver(() => onResize());
+        ro.observe(canvas.parentElement);
+    }
+
+    Element.alpha = data.alpha;
+    Element.beta = data.beta;
+    Element.mu = data.mu;
+    renderUI();
+    renderCanvas();
+</script>
+
+</html>
