@@ -305,7 +305,7 @@
      * eps: 收敛阈值，当最大梯度小于该值时停止迭代
      * crossPunish: 穿墙惩罚系数，当元素被压到边界外时增加的惩罚力度，减少穿墙程度
      */
-    function calc(rows, limit, lr = 2, maxIter = 300, eps = 1e-2, crossPunish = 16) {
+    function calc(rows, limit, lr = 2, maxIter = 300, eps = 1e-2, crossPunish = 32) {
         rows = [...rows];
         // 形成列
         let columns = {};
@@ -373,14 +373,14 @@
                 for (const _ of r) _._force = 0;
                 for (let i = 0; i <= r.length; i++) {   // 遍历每个空隙
                     if (i == 0) {   // 最左边和墙壁
-                        const dis = columns[r[i]._column_idx].X - r[i].W / 2;
+                        let dis = columns[r[i]._column_idx].X - r[i].W / 2;
+                        if (dis < 0) dis *= crossPunish; // 减少穿墙 在这里乘保持连续性
                         let force = r[i].force(r[i].margin0() - dis);
-                        if (dis < 0) force *= crossPunish; // 减少穿墙
                         r[i]._force += force;
                     } else if (i == r.length) { // 最右边和墙壁
-                        const dis = limit - (columns[r[i - 1]._column_idx].X + r[i - 1].W / 2);
+                        let dis = limit - (columns[r[i - 1]._column_idx].X + r[i - 1].W / 2);
+                        if (dis < 0) dis *= crossPunish;
                         let force = r[i - 1].force(r[i - 1].margin0() - dis);
-                        if (dis < 0) force *= crossPunish;
                         r[i - 1]._force -= force;
                     } else {
                         const column_l = columns[r[i - 1]._column_idx];
