@@ -3,13 +3,13 @@ import { ParserContext, deSugarRelationFunction } from "../../parser/parserConte
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { ErrorDiagnostic } from "../../parser/diagnostic.js";
 
-class OverFunction extends ASTFunctionNode {
+class StackFunction extends ASTFunctionNode {
     static def: FunctionDef = {
-        name: ["over"],
-        description: "时间不对齐的上下层叠，总时长以第一个元素为准",
-        example: `@over(content1, content2, ...)
-语法糖: ^
-{content1} ^ {content2} ^ ...
+        name: ["stack"],
+        description: "时间对齐的上下层叠",
+        example: `@stack(content1, content2, ...)
+语法糖: &
+{content1} & {content2} & ...
 表示content1和content2在时间上完全重叠，通常用于和声等需要对齐的场景。可以有任意多个参数，至少需要两个参数。
 `,
         allowExtraArgs: true,
@@ -17,10 +17,10 @@ class OverFunction extends ASTFunctionNode {
     };
 
     static deSugarAtom(source: string, start: number, end: number) {
-        if (source[start] === '^') {
+        if (source[start] === '&') {
             const node: GrammarSugarNode = {
                 kind: "sugar",
-                data: OverFunction,
+                data: StackFunction,
                 span: { start, end: start + 1 },
             }; return { next: start + 1, node };
         } return null;
@@ -28,7 +28,7 @@ class OverFunction extends ASTFunctionNode {
 
     static deSugarRelation: deSugarRelationFunction = (ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) => {
         const n = nodes[at++] as GrammarSugarNode;
-        if (!(n.kind === "sugar" && n.data === OverFunction)) return null;
+        if (!(n.kind === "sugar" && n.data === StackFunction)) return null;
         // 找上一个非文本节点 实现忽略中间内容的作用
         // 另一个做法是如果上一个不是可用节点就报错
         let i = ctx.nodes.length - 1;
@@ -39,15 +39,15 @@ class OverFunction extends ASTFunctionNode {
         let overNode: any = ctx.nodes[i];
         if (overNode === null) {
             const e = new ErrorDiagnostic(
-                "OVER_NO_TARGET",
-                "@over语法糖错误: 左边没有找到可叠加的目标",
+                "STACK_NO_TARGET",
+                "@stack语法糖错误: 左边没有找到可叠加的目标",
                 n.span
             );
             ctx.diagnostics.push(e);
             throw e;
         }
-        if (!(overNode instanceof OverFunction)) {
-            const newNode = new OverFunction(n.span, new Map(), ctx);
+        if (!(overNode instanceof StackFunction)) {
+            const newNode = new StackFunction(n.span, new Map(), ctx);
             newNode.addContent(overNode);
             overNode = newNode;
         }
@@ -59,7 +59,7 @@ class OverFunction extends ASTFunctionNode {
             // 后向跳过文本节点 和上面保持一致
             const n = ctx.nodes[i];
             if (n instanceof ASTTextNode) continue;
-            (overNode as OverFunction).addContent(n);
+            (overNode as StackFunction).addContent(n);
             storage.length = i;
             storage.push(overNode);
             while (++i < ctx.nodes.length) storage.push(ctx.nodes[i]);
@@ -67,8 +67,8 @@ class OverFunction extends ASTFunctionNode {
             return nodes.length;
         }
         const e = new ErrorDiagnostic(
-            "OVER_NO_TARGET",
-            "@over语法糖错误: 右边没有找到可叠加的目标",
+            "STACK_NO_TARGET",
+            "@stack语法糖错误: 右边没有找到可叠加的目标",
             n.span
         );
         ctx.diagnostics.push(e);
@@ -77,7 +77,7 @@ class OverFunction extends ASTFunctionNode {
 
     contents: ASTNodeBase[] = [];
     get children(): ASTNodeBase[] { return this.contents; }
-    // timeFlowMode() { return "parallel" as const; }
+    timeFlowMode() { return "parallel" as const; }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
@@ -94,7 +94,7 @@ class OverFunction extends ASTFunctionNode {
     }
 
     addContent(node: ASTNodeBase) {
-        if (node instanceof OverFunction) this.combine(node);
+        if (node instanceof StackFunction) this.combine(node);
         else {
             this.contents.push(node);
             node.parent = this;
@@ -105,10 +105,11 @@ class OverFunction extends ASTFunctionNode {
     }
 
     toString(source: string): string {
-        return `@over(${this.contents.map(c => c.toString(source)).join(", ")})`;
+        const contentStrs = this.contents.map(c => c.toString(source)).join(',\n');
+        return `@stack(\n  ${contentStrs.split('\n').join('\n  ')}\n)`;
     }
 
-    combine(ano: OverFunction): OverFunction {
+    combine(ano: StackFunction): StackFunction {
         this.sourceSpan.start = Math.min(this.sourceSpan.start, ano.sourceSpan.start);
         this.sourceSpan.end = Math.max(this.sourceSpan.end, ano.sourceSpan.end);
         for (const c of ano.contents) c.parent = this;
@@ -118,4 +119,4 @@ class OverFunction extends ASTFunctionNode {
     }
 }
 
-export const OverNode: ASTFunctionClass = OverFunction;
+export const StackNode: ASTFunctionClass = StackFunction;

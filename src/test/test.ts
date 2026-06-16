@@ -5,10 +5,10 @@ import { ASTBraceNode } from "../functions/ASTtypes.js";
 
 function parseScript(source: string) {
     console.log("原始源码:");
-    console.log(source);
+    console.log(source.replace(/ /g, '·'));
     const { maskedSource, lineStarts } = preprocessSource(source);
     console.log("预处理后的源码:");
-    console.log(maskedSource);
+    console.log(maskedSource.replace(/ /g, '·'));
     const ctx = new ParserContext({ source: maskedSource });
     ctx.registerFunctions(defaultFunctions);
     let success = true;
@@ -20,7 +20,7 @@ function parseScript(source: string) {
     return { ctx, success, lineStarts, maskedSource };
 }
 
-const testInput = `@set(text="100% ok") % 字符串内的%不触发注释
+const testInput = `@set(text="100% ok")   % 字符串内的%不触发注释
 @.(@n(F#,,4,"#00f"))@1 @unknown(C4, 3)C3/@2 ; @tie(1,2) C4 . /
 @voice(
     {@note(C4,4)/ #5,,. | {4b4}//},
@@ -34,10 +34,10 @@ L(歌词2): 测试\\
 歌词语\\
 法糖 \\\\
 @set(note.color=#f00)
-@line(
+@stack(
     N: 1-.23-@tie(),
     N:3
-)
+) @br()
 @over({#4', | Eb//}, F#5..)
 `;
 
