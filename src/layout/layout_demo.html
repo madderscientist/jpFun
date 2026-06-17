@@ -305,7 +305,7 @@
      * eps: 收敛阈值，当最大梯度小于该值时停止迭代
      * crossPunish: 穿墙惩罚系数，当元素被压到边界外时增加的惩罚力度，减少穿墙程度
      */
-    function calc(rows, limit, lr = 2, maxIter = 300, eps = 1e-2, crossPunish = 32) {
+    function calc_base(rows, limit, lr = 2, maxIter = 300, eps = 1e-2, crossPunish = 32) {
         rows = [...rows];
         // 形成列
         let columns = {};
@@ -416,6 +416,251 @@
     }
 </script>
 <script>
+    /** 
+     * 核心算法：基于无矩阵共轭梯度牛顿法（Matrix-Free CG-Newton）与双向扫掠投影的排版求解器
+     * 【未优化，仅仅是思路】
+     * 
+     * rows: 二维数组，每行是一个元素数组，元素包含 W、T、X 属性
+     * limit: 布局宽度限制
+     * damping: 牛顿步衰减系数（相当于学习率，Newton法默认步长为1，0.6~0.8的阻尼能极好地稳定分段边界的突变）
+     * maxIter: 最大迭代次数
+     * eps: 收敛阈值，当最大梯度小于该值时停止迭代
+     * crossPunish: 穿墙惩罚系数（由于有投影兜底，此值不需要设得过大，1~5 即可保持良好的受力平衡）
+     */
+    function calc(rows, limit, damping = 0.6, maxIter = 100, eps = 1e-2, crossPunish = 32) {
+        rows = [...rows];
+
+        // 1. 形成列
+        let columns = {};
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            for (let j = 0; j < row.length; j++) {
+                const element = row[j];
+                element._row_idx = i;
+                if (!columns[element.X]) columns[element.X] = [];
+                columns[element.X].push(element);
+            }
+        }
+
+        // 2. 如果某列没有所有行的元素，插入占位元素
+        for (const colX in columns) {
+            const col = columns[colX];
+            const rowSet = new Set(col.map(e => e._row_idx));
+            const meanhalfW = col.reduce((s, e) => Math.max(s, e.W), 0) * 0.5;
+            for (let i = 0; i < rows.length; i++) {
+                if (!rowSet.has(i)) {
+                    const placeholder = new Element(0, meanhalfW / Element.alpha, parseFloat(colX));
+                    placeholder._row_idx = i;
+                    placeholder._fake = true;
+                    col.push(placeholder);
+                    rows[i].push(placeholder);
+                }
+            }
+        }
+        for (const r of rows) r.sort((a, b) => a.X - b.X);
+
+        // 3. 预排列
+        const row_x = new Float32Array(rows.length);
+        const sortedColumns = Object.values(columns).sort((a, b) => a[0].X - b[0].X).map((column, idx) => {
+            const halfW = new Float32Array(column.length);
+            let x = 0;
+            for (let i = 0; i < column.length; i++) {
+                halfW[i] = column[i].W / 2 + column[i].margin0();
+                x = Math.max(x, row_x[column[i]._row_idx] + halfW[i]);
+            }
+            for (let i = 0; i < column.length; i++) {
+                row_x[column[i]._row_idx] = x + halfW[i];
+                column[i]._column_idx = idx;
+            }
+            return {
+                elements: column,
+                X: x,   // 要确定的横坐标
+            };
+        });
+
+        let x0 = row_x.reduce((a, b) => Math.max(a, b), 0);
+        if (x0 > limit) {
+            // 压缩到中间，减少迭代次数
+            const r = limit / x0;
+            for (const column of sortedColumns) column.X *= r;
+        } else {
+            maxIter = -1; // 空间充足，无需迭代
+        }
+
+        // 计算各列受到的合力
+        function computeForces(cols, limit) {
+            for (const r of rows) {
+                for (const el of r) el._force = 0;
+                for (let i = 0; i <= r.length; i++) {   // 遍历每个空隙
+                    if (i === 0) { // 最左边和墙壁
+                        let dis = cols[r[i]._column_idx].X - r[i].W / 2;
+                        if (dis < 0) dis *= crossPunish; // 减少穿墙 在这里乘保持连续性
+                        let force = r[i].force(r[i].margin0() - dis);
+                        r[i]._force += force;
+                    } else if (i === r.length) { // 最右边和墙壁
+                        let dis = limit - (cols[r[i - 1]._column_idx].X + r[i - 1].W / 2);
+                        if (dis < 0) dis *= crossPunish;
+                        let force = r[i - 1].force(r[i - 1].margin0() - dis);
+                        r[i - 1]._force -= force;
+                    } else { // 内部相邻弹簧
+                        const col_l = cols[r[i - 1]._column_idx];
+                        const col_r = cols[r[i]._column_idx];
+                        const dis = col_r.X - col_l.X;
+                        const [f, margin_l, margin_r] = r[i - 1].margin_calc(r[i], dis);
+                        r[i - 1]._force -= f;
+                        r[i]._force += f;
+                    }
+                }
+            }
+
+            // 汇总为每列的合力
+            const F = new Float32Array(cols.length);
+            for (let i = 0; i < cols.length; i++) {
+                F[i] = cols[i].elements.reduce((sum, el) => sum + el._force, 0);
+            }
+            return F;
+        }
+
+        // 无矩阵 Hessian 乘法器：计算 H * p 的值
+        function multiplyH(p, cols, limit) {
+            const Hp = new Float32Array(p.length);
+
+            // 1. 内部弹簧的二阶刚度贡献
+            for (const r of rows) {
+                for (let i = 1; i < r.length; i++) {
+                    const el_l = r[i - 1];
+                    const el_r = r[i];
+                    const col_l = el_l._column_idx;
+                    const col_r = el_r._column_idx;
+
+                    const x_l = cols[col_l].X;
+                    const x_r = cols[col_r].X;
+                    const dis_eff = (x_r - x_l) - (el_l.W + el_r.W) / 2;
+                    const m0_total = el_l.margin0() + el_r.margin0();
+
+                    let K = 0; // 局部切线劲度系数
+                    if (dis_eff <= 0) {
+                        K = Element.mu / 2; // 进入重叠区域，刚度为 mu/2
+                    } else if (dis_eff < m0_total) {
+                        K = Element.beta / (el_l.T + el_r.T); // 正常压缩区域
+                    }
+
+                    const dp = p[col_r] - p[col_l];
+                    Hp[col_l] -= K * dp;
+                    Hp[col_r] += K * dp;
+                }
+            }
+
+            // 2. 边界墙壁的二阶刚度贡献
+            for (const r of rows) {
+                if (r.length === 0) continue;
+
+                // 左墙
+                const el_l = r[0];
+                const col_l = el_l._column_idx;
+                const dis_l = cols[col_l].X - el_l.W / 2;
+                let K_l = 0;
+                if (dis_l < 0) {
+                    K_l = Element.mu * crossPunish;
+                } else if (dis_l < el_l.margin0()) {
+                    K_l = Element.beta / el_l.T;
+                }
+                Hp[col_l] += K_l * p[col_l];
+
+                // 右墙
+                const el_r = r[r.length - 1];
+                const col_r = el_r._column_idx;
+                const dis_r = limit - (cols[col_r].X + el_r.W / 2);
+                let K_r = 0;
+                if (dis_r < 0) {
+                    K_r = Element.mu * crossPunish;
+                } else if (dis_r < el_r.margin0()) {
+                    K_r = Element.beta / el_r.T;
+                }
+                Hp[col_r] += K_r * p[col_r];
+            }
+
+            // 3. 阻尼正则项（Levenberg-Marquardt），保证矩阵严格正定，避免奇异性
+            const lambda = 1e-4;
+            for (let i = 0; i < p.length; i++) {
+                Hp[i] += lambda * p[i];
+            }
+
+            return Hp;
+        }
+
+        // 向量点积
+        function dot(a, b) {
+            let sum = 0;
+            for (let i = 0; i < a.length; i++) sum += a[i] * b[i];
+            return sum;
+        }
+
+        // 共轭梯度法（CG）求解器：在不显式存储大型矩阵的情况下计算 H * dx = F
+        function solveCG(cols, F, maxCGIter = 8) {
+            const n = F.length;
+            const dx = new Float32Array(n);
+            const r = new Float32Array(F); // 初始残差 r = F - H * dx = F
+            const p = new Float32Array(r);
+
+            let rsold = dot(r, r);
+            if (rsold < 1e-12) return dx;
+
+            for (let iter = 0; iter < maxCGIter; iter++) {
+                const Hp = multiplyH(p, cols, limit);
+                const p_Hp = dot(p, Hp);
+                if (Math.abs(p_Hp) < 1e-12) break;
+
+                const alpha = rsold / p_Hp;
+                for (let i = 0; i < n; i++) {
+                    dx[i] += alpha * p[i];
+                    r[i] -= alpha * Hp[i];
+                }
+
+                const rsnew = dot(r, r);
+                if (Math.sqrt(rsnew) < 1e-6) break;
+
+                const beta = rsnew / rsold;
+                for (let i = 0; i < n; i++) {
+                    p[i] = r[i] + beta * p[i];
+                }
+                rsold = rsnew;
+            }
+            return dx;
+        }
+
+        // 主循环：牛顿步迭代
+        let turn = 0, f_max = 0;
+        for (; turn < maxIter; turn++) {
+            // 计算当前受力
+            const F = computeForces(sortedColumns, limit);
+            // 检查收敛条件
+            f_max = 0;
+            for (let i = 0; i < F.length; i++) {
+                const absf = Math.abs(F[i]);
+                if (absf > f_max) f_max = absf;
+            }
+            if (f_max < eps) break;
+
+            // 求解牛顿方向
+            const dx = solveCG(sortedColumns, F);
+
+            // 应用阻尼更新位置
+            for (let i = 0; i < sortedColumns.length; i++) {
+                sortedColumns[i].X += damping * dx[i];
+            }
+        }
+
+        console.log(`[Newton-CG] 迭代 ${turn} 次，最大梯度 ${f_max.toExponential(2)}`);
+
+        // 返回元素位置映射
+        let res = new WeakMap();
+        for (const column of sortedColumns) {
+            for (const element of column.elements) res.set(element, column.X);
+        } return res;
+    }
+</script>
+<script>
     // ================================================================
     //  2. 数据管理 (初始W调整到合理范围)
     // ================================================================
@@ -437,10 +682,10 @@
                 { W: 140, T: 12, X: 2 }
             ]
         ],
-        limit: 700,
+        limit: 540,
         alpha: 3,
         beta: 1,
-        mu: 50
+        mu: 10
     };
     // data = { "rows": [[{ "W": 100, "T": 10, "X": 0 }, { "W": 100, "T": 10, "X": 10 }, { "W": 100, "T": 10, "X": 20 }], [{ "W": 100, "T": 5, "X": 0 }, { "W": 100, "T": 10, "X": 5 }, { "W": 100, "T": 10, "X": 15 }, { "W": 100, "T": 5, "X": 25 }]], "limit": 400, "alpha": 3, "beta": 1, "mu": 50 };
     function buildElements(rowsData) {
