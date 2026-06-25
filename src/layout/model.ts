@@ -2,7 +2,8 @@
  * 基于弹簧的有时长物体排版模型 原理参考 docs/layout.md
  * 基本使用: 借助 layoutElement() 构建 LayoutElement[][]，调用 layout() 函数进行排版
  */
-import { type LayoutBox, type TimeLineEvent } from "./types.js";
+import { type LayoutBox } from "./types.js";
+import { type TimeLineEvent } from "../lowering/types.js";
 
 const DEFAULT_F = 1.0;  // 多大力让一行的 margin 全变为 0
 const DEFAULT_ALPHA = 1.0;
@@ -14,7 +15,6 @@ const DEFAULT_CROSS_PUNISH = 32;
  */
 export interface ElementConfig {
     anchor: number;     // 对齐点到盒子左边界的距离
-    row_id?: any;       // 行标识，可以是任意标识符
     // 下面是物理属性
     alpha_L?: number;   // 左侧固有弹性间距系数
     alpha_R?: number;   // 增加该值会增加弹簧长度
@@ -29,6 +29,7 @@ export interface LayoutElement {
     config: Required<ElementConfig>;
     box: _LayoutBox;
     time: TimeLineEvent;
+    duration: number;  // 求解实际使用的时长
     // 求解器内部使用的状态属性
     WL: number;     // 左物理宽度
     WR: number;     // 右物理宽度
@@ -36,6 +37,8 @@ export interface LayoutElement {
     margin_R: number;
     fake?: boolean; // 占位符标记
 }
+
+const MIN_DURATION = 0.01;
 
 // 有副作用：会修改 config
 export function layoutElement(
@@ -55,13 +58,16 @@ export function layoutElement(
     config.beta_L ??= F / config.alpha_L;
     config.beta_R ??= F / config.alpha_R;
 
+    // 最小时长限制，与非线性变换（美观）
+    const duration = Math.pow(Math.max(time.T, MIN_DURATION), 0.6);
+
     return {
         config: config as Required<ElementConfig>,
-        box, time,
+        box, time, duration,
         WL: config.anchor,
         WR: box.w - config.anchor,
-        margin_L: time.T * config.alpha_L,
-        margin_R: time.T * config.alpha_R,
+        margin_L: duration * config.alpha_L,
+        margin_R: duration * config.alpha_R,
     };
 }
 
@@ -78,8 +84,8 @@ function fillPlaceholders(columns: LayoutElement[][], F: number = DEFAULT_F): {
     for (const col of columns) {
         for (const el of col) {
             // undefined 和 null 都算有效的 id
-            if (idOrderMap.has(el.config.row_id)) continue;
-            idOrderMap.set(el.config.row_id, rows++);
+            if (idOrderMap.has(el.time.track)) continue;
+            idOrderMap.set(el.time.track, rows++);
         }
     }
 
@@ -97,7 +103,7 @@ function fillPlaceholders(columns: LayoutElement[][], F: number = DEFAULT_F): {
         for (const el of col) {
             if (el.WL > maxLeft) maxLeft = el.WL;
             if (el.WR > maxRight) maxRight = el.WR;
-            const rIdx = idOrderMap.get(el.config.row_id) as number;
+            const rIdx = idOrderMap.get(el.time.track) as number;
             if (sortedCol[rIdx]) {
                 // 出现了同一行同一时刻的多个元素，则优先时长更大的
                 // 重复的元素放到最后，不参与后续的元素比较
@@ -119,13 +125,12 @@ function fillPlaceholders(columns: LayoutElement[][], F: number = DEFAULT_F): {
                 // 保证 margin_L = mexLeft, margin_R = maxRight, 实际宽度为0
                 const elPlaceholder = layoutElement({
                     anchor: 0,
-                    row_id: rowId[0],
                     alpha_L: maxLeft,
                     alpha_R: maxRight,
                 } as ElementConfig, {
                     x: 0, w: 0
                 } as _LayoutBox, {
-                    t: colTime, T: 1
+                    t: colTime, T: 1, track: rowId[0]
                 } as TimeLineEvent, F);
                 elPlaceholder.fake = true;
                 sortedCol[rIdx] = elPlaceholder;
@@ -147,8 +152,8 @@ function calcPairForceAndStiffness(el: LayoutElement, er: LayoutElement, xl: num
     if (dis_eff >= m0_total) return { force: 0, stiffness: 0 };
 
     // 计算等效弹簧参数
-    const k_R1 = el.config.beta_R / el.time.T;
-    const k_L2 = er.config.beta_L / er.time.T;
+    const k_R1 = el.config.beta_R / el.duration;
+    const k_L2 = er.config.beta_L / er.duration;
     const K_normal = (k_R1 * k_L2) / (k_R1 + k_L2);
 
     let force, stiffness;
@@ -168,7 +173,7 @@ function calcLeftWall(e: LayoutElement, x: number, crossPunish: number = DEFAULT
     const m0 = e.margin_L;
     if (dis >= m0) return { force: 0, stiffness: 0 };
 
-    const k = e.config.beta_L / e.time.T;
+    const k = e.config.beta_L / e.duration;
     if (dis >= 0) return { force: k * (m0 - dis), stiffness: k };
 
     const stiffness = e.config.mu_L * crossPunish;
@@ -181,7 +186,7 @@ function calcRightWall(e: LayoutElement, x: number, limit: number, crossPunish: 
     const m0 = e.margin_R;
     if (dis >= m0) return { force: 0, stiffness: 0 };
 
-    const k = e.config.beta_R / e.time.T;
+    const k = e.config.beta_R / e.duration;
     if (dis >= 0) return { force: k * (m0 - dis), stiffness: k };
 
     const stiffness = e.config.mu_R * crossPunish;
@@ -213,7 +218,7 @@ export function layout(
     limit: number,
     options: SolverOptions = {}
 ): LayoutElement[][] {
-    const {mat, rows} = fillPlaceholders(columns, options.globalC);
+    const { mat, rows } = fillPlaceholders(columns, options.globalC);
 
     const damping = options.damping ?? 0.6;
     const maxIter = options.maxIter ?? 100;
@@ -293,7 +298,7 @@ export function layout(
     const Hp = new Float64Array(numCols);
     // Hessian 矩阵切向刚度乘以位移向量 p (精简参数，移除了无用的 cols_X)
     function multiplyH(p: Float64Array): Float64Array {
-        Hp.fill(0); 
+        Hp.fill(0);
         for (let r = 0, rowOffset = 0; r < rows; r++, rowOffset += (numCols + 1)) {
             // 左墙刚度
             Hp[0] += stiffnessCache[rowOffset] * p[0];

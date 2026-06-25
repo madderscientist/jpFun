@@ -1,6 +1,5 @@
 import { LengthValue, FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
-import { TimeState } from "../../semantic/contracts.js";
 
 class BarFunction extends ASTFunctionNode {
     static def: FunctionDef = {
@@ -67,7 +66,7 @@ class BarFunction extends ASTFunctionNode {
         this.barLength = ctx.length2px(barlen);
     }
 
-    onTimeState(state: TimeState): boolean {
+    onTimeState(state: Record<string, any>): boolean {
         this.activeBpm = Number(state.bpm) || 120;
         return false;
     }

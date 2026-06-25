@@ -73,38 +73,44 @@ class DotFunction extends ASTFunctionNode {
         return at;
     }
 
+    static timeWrapConfig = {
+        priority: 1,
+        func: (vars: Record<string, any>, dt: number) => {
+            const dotCnt = vars["dot"] ?? 0;
+            if (dotCnt) return dt * (2 - Math.pow(2, -dotCnt));
+            return dt;
+        }
+    }
+
     content: ASTNodeBase;
     n: number;
     get children() { return [this.content]; }
-    timeFlowMode() { return "transparent" as const; }
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
         [this.content, this.n] = this.getArgValue(args, ctx) as [ASTNodeBase, number];
-        const contentJudge = DotFunction.judgeTimeLeafNum(this.content);
+        const contentJudge = DotFunction.leafNum(this.content);
         if (contentJudge !== 1) {
             throw new ErrorDiagnostic(
                 "E_DOT_INVALID_CONTENT",
-                `函数 @dot 只能接收 1个 有时长的元素，但找到了 ${contentJudge} 个`,
+                `函数 @dot 只能接收 1个元素，但找到了 ${contentJudge} 个`,
                 sourceSpan
             );
         }
         this.content.parent = this;
-        // 由于dot不满足多层叠加性，现在处理时间是在 src/semantic/build.ts 统计dot的数目进行的（有耦合）
-        // 另一个思路是这里搜索子节点是否有dot，有则将自己的n加入进去并，本层换成braceNode，不耦合但破坏了AST原本的结构
     }
 
     toString(source: string): string {
         return `@dot(${this.content.toString(source)}, ${this.n})`;
     }
 
-    // 判断有时长的叶节点数量
-    static judgeTimeLeafNum(node: ASTNodeBase): number {
+    // 判断叶节点数量
+    static leafNum(node: ASTNodeBase): number {
         let count = 0;
         const chs = node.children;
         if (chs) {  // 不是叶节点
-            for (const child of chs) count += DotFunction.judgeTimeLeafNum(child);
-        } else count += node.timeOffsetQN > 0 ? 1 : 0;
+            for (const child of chs) count += DotFunction.leafNum(child);
+        } else count ++;
         return count;
     }
 }

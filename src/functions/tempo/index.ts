@@ -1,4 +1,3 @@
-import { TimeState } from "../../semantic/contracts.js";
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, FunctionDef, ParserContext, SourceSpan } from "../ASTtypes.js";
 
 class TempoFunction extends ASTFunctionNode {
@@ -23,7 +22,7 @@ class TempoFunction extends ASTFunctionNode {
         [this.bpm] = this.getArgValue(args, ctx) as [number];
     }
 
-    onTimeState(state: TimeState) {
+    onTimeState(state: Record<string, any>) {
         state.bpm = this.bpm;
         return true;
     }

@@ -82,6 +82,15 @@ class DivFunction extends ASTFunctionNode {
         return at;
     }
 
+    static timeWrapConfig = {
+        priority: 2,
+        func: (vars: Record<string, any>, dt: number) => {
+            const divCnt = vars["div"] ?? 0;
+            if (divCnt) return dt / (1 << divCnt);
+            return dt;
+        }
+    }
+
     content: ASTNodeBase;
     n: number;
     autoBeamEnabled: boolean;   // 是否自动连接减时线

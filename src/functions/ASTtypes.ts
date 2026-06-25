@@ -1,7 +1,8 @@
 ﻿import type { SourceSpan, LengthValue } from "../parser/types.js";
 import type { ParserContext, deSugarAtomFunction, deSugarRelationFunction } from "../parser/parserContext.js";
 import { Diagnostic } from "../parser/diagnostic.js";
-import type { TimeFlowMode, TimeState } from "../semantic/contracts.js";
+import type { TimeFlowMode } from "../lowering/types.js";
+import { LoweringContext, TimeWrapConfig, tmpTemporalNodeRecord } from "../lowering/loweringContext.js";
 
 export type { SourceSpan, ParserContext, LengthValue };
 export type paramType = "string" | "number" | "boolean" | "length" | "content" | "label";
@@ -23,22 +24,33 @@ export class ASTNodeBase {
     }
 
     /**
-     * _当前时空下_，自身会推进多少时间(不包括子元素)，单位QN（四分音符）
-     * “时空”会被 div dot 等函数拉伸
+     * 时间变换 如`dot` `div`这一类函数根据自己注册的变量进行时间变换
      */
-    get timeOffsetQN(): number { return 0; }
-    /**
-     * 返回参与时间求解的子节点 用在semantic第一阶段:得到时间位置
-     * 默认直接复用 children；单独拉一个方法是为了后续某些节点需要过滤或重排 child 时，不用改通用 children 语义
-     */
-    timeChildren(): ASTNodeBase[] { return this.children ?? []; }
+    static timeWrapConfig?: TimeWrapConfig;
 
     /**
-     * 指定当前节点在时间求解里的展开方式 用在semantic第一阶段: 得到时间位置
-     * 默认规则：有 child 就按串行，没有 child 就当叶子
+     * 进入当前层级的回调
+     * @returns 事件 时长会自动进行变形
      */
-    timeFlowMode(): TimeFlowMode {
-        return (this.children === null) ? "leaf" : "sequence";
+    loweringEnter(ctx: LoweringContext, vars: Record<string, any>): tmpTemporalNodeRecord[] {
+        return [];
+    }
+
+    /**
+     * 时间求解模式
+     * 由 loweringContext 调用，决定当前节点在时间求解阶段的展开方式
+     * @returns 返回 null 表示没有子元素，返回对象表示参与时间求解
+     */
+    timeFlowModel(): {
+        children: ASTNodeBase[],
+        mode: TimeFlowMode  // 指定当前节点在时间求解里的展开方式
+    } | null { return null; }
+
+    /**
+     * 离开当前层级的回调 同 loweringEnter
+     */
+    loweringExit(ctx: LoweringContext, vars: Record<string, any>): tmpTemporalNodeRecord[] {
+        return [];
     }
 
     /**
@@ -46,7 +58,7 @@ export class ASTNodeBase {
      * 调用时机在时间位置已经确定之后，处理“调性、速度、拍号”等时间信息的固化
      * 返回值代表是否修改了时间状态
      */
-    onTimeState(state: TimeState): boolean { return false; }
+    onTimeState(state: Record<string, any>): boolean { return false; }
 
     // 去糖后文本输出
     toString(source: string): string {

@@ -3,7 +3,6 @@ import { Diagnostic, ErrorDiagnostic } from "../../parser/diagnostic.js";
 import { resolveLetterNameToJianpu, resolveNoteMidi } from "../../parser/parse-utils/note-utils.js";
 import { parseNoteName } from "./noteNameFSM.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
-import { TimeState } from "../../semantic/contracts.js";
 
 class NoteFunction extends ASTFunctionNode {
     static def: FunctionDef = {
@@ -114,7 +113,7 @@ class NoteFunction extends ASTFunctionNode {
         if (parseResult.acc !== null) this.acc = parseResult.acc + this.acc;
     }
 
-    onTimeState(state: TimeState): boolean {
+    onTimeState(state: Record<string, any>): boolean {
         const keySignature = this.activeKeySignature = typeof state.keySignature === "string" ? state.keySignature : "C4";
         this.activeBpm = Number(state.bpm) || 120;
         this.resolvedMidi = resolveNoteMidi(this.name, this.acc, this.octave, keySignature);

@@ -1,4 +1,3 @@
-import { TimeState } from "../../semantic/contracts.js";
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, FunctionDef, ParserContext, SourceSpan } from "../ASTtypes.js";
 
 class KeyFunction extends ASTFunctionNode {
@@ -24,7 +23,7 @@ class KeyFunction extends ASTFunctionNode {
         [this.tonality] = this.getArgValue(args, ctx) as [string];
     }
 
-    onTimeState(state: TimeState): boolean {
+    onTimeState(state: Record<string, any>): boolean {
         state.keySignature = this.tonality;
         return true;
     }
