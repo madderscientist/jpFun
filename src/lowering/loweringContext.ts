@@ -46,6 +46,15 @@ export class LoweringContext {
         return base + String.fromCharCode(newOffset);
     }
 
+    // 以 @ 开头的属性会被认为要加入子节点中
+    // 命名规则：@${函数名}
+    // 未来会被用于反向查找函数
+    static attachDecoration(vars: Record<string, any>, addon: Record<string, any> = {}) {
+        for (const key in vars) {
+            if (key[0] === "@" && vars[key] !== void 0) addon[key] = vars[key];
+        } return addon;
+    }
+
     lowering(node: ASTNodeBase) {
         // 获取时间列
         const { columns } = this.trackedEvents(node);
@@ -88,8 +97,7 @@ export class LoweringContext {
             (b as TemporalNodeRecord).track = LoweringContext.getTrackId(track, b.track);
             b.ast = b.ast ?? node;
             b.order = this.cnt++;
-            b.addon = b.addon ?? {};
-            Object.assign(b.addon, vars);   // 存储如 div dot 个数这种
+            b.addon = LoweringContext.attachDecoration(vars, b.addon);
             b.type ??= b.T === 0 ? ColType.SINGLE : ColType.DEFAULT;    // T=0 一般也不会绘制，放在前面
             timeOffset = Math.max(timeOffset, b.t + b.T);
             columns.push(new TimeColumn(b as TemporalNodeRecord));
@@ -130,8 +138,7 @@ export class LoweringContext {
             (b as TemporalNodeRecord).track = LoweringContext.getTrackId(track, b.track);
             b.ast = b.ast ?? node;
             b.order = this.cnt++;
-            b.addon = b.addon ?? {};
-            Object.assign(b.addon, vars);
+            b.addon = LoweringContext.attachDecoration(vars, b.addon);
             b.type ??= b.T === 0 ? ColType.SINGLE : ColType.DEFAULT;
             timeOffset = Math.max(timeOffset, b.t + b.T);
             columns.push(new TimeColumn(b as TemporalNodeRecord));
