@@ -1,5 +1,6 @@
 import { LengthValue, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
+import { ColType } from "../../lowering/types.js";
 
 class BarFunction extends ASTFunctionNode {
     static override def = {
@@ -63,6 +64,12 @@ class BarFunction extends ASTFunctionNode {
         const [type, barlen] = this.getArgValue(args, ctx) as [number, LengthValue];
         this.type = type;
         this.barLength = ctx.length2px(barlen);
+    }
+
+    override loweringEnter(ctx: unknown, vars: Record<string, any>) {
+        return [{
+            type: ColType.ANCHOR
+        }];
     }
 
     override toString(source: string) {

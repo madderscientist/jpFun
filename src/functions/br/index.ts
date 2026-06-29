@@ -1,5 +1,6 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { ParserContext } from "../../parser/parserContext.js";
+import { ColType } from "../../lowering/types.js";
 
 class BrFunction extends ASTFunctionNode {
     static override def = {
@@ -9,6 +10,12 @@ class BrFunction extends ASTFunctionNode {
         allowExtraArgs: true,
         args: [],
     };
+
+    override loweringEnter(ctx: unknown, vars: Record<string, any>) {
+        return [{
+            type: ColType.SINGLE
+        }];
+    }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);

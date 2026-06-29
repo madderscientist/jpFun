@@ -84,10 +84,20 @@ class DivFunction extends ASTFunctionNode {
     static override timeWrapConfig = {
         priority: 2,
         func: (vars: Record<string, any>, dt: number) => {
-            const divCnt = vars["div"] ?? 0;
+            const divCnt = vars["@div"] ?? 0;
             if (divCnt) return dt / (1 << divCnt);
             return dt;
         }
+    }
+    override loweringEnter(ctx: unknown, vars: Record<string, any> & { "@div"?: number }) {
+        vars["@div"] = (vars["@div"] ?? 0) + this.n;
+        return [];
+    }
+    override loweringExit(ctx: unknown, vars: Record<string, any> & { "@div"?: number }) {
+        const divCnt = (vars["@div"] ?? 0) - this.n;
+        if (divCnt <= 0) delete vars["@div"];
+        else vars["@div"] = divCnt;
+        return [];
     }
 
     content: ASTNodeBase;

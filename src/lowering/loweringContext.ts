@@ -53,7 +53,7 @@ export class LoweringContext {
         const vars: Record<string, any> = {};
         for (const col of columns) {
             for (const n of col) {
-                node.onTimeState?.(vars, n);
+                n.ast.onTimeState?.(vars, n);
             }
         }
         return columns;

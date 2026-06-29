@@ -31,7 +31,7 @@ export class ASTNodeBase {
      * 进入当前层级的回调
      * @returns 事件 时长会自动进行变形
      */
-    loweringEnter(ctx: LoweringContext, vars: Record<string, any>): tmpTemporalNodeRecord[] {
+    loweringEnter(ctx: LoweringContext, vars: Record<string, any>): Iterable<tmpTemporalNodeRecord> {
         return [];
     }
 
@@ -48,7 +48,7 @@ export class ASTNodeBase {
     /**
      * 离开当前层级的回调 同 loweringEnter
      */
-    loweringExit(ctx: LoweringContext, vars: Record<string, any>): tmpTemporalNodeRecord[] {
+    loweringExit(ctx: LoweringContext, vars: Record<string, any>): Iterable<tmpTemporalNodeRecord> {
         return [];
     }
 

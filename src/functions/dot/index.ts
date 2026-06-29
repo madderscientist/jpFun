@@ -75,10 +75,20 @@ class DotFunction extends ASTFunctionNode {
     static override timeWrapConfig = {
         priority: 1,
         func: (vars: Record<string, any>, dt: number) => {
-            const dotCnt = vars["dot"] ?? 0;
+            const dotCnt = vars["@dot"] ?? 0;
             if (dotCnt) return dt * (2 - Math.pow(2, -dotCnt));
             return dt;
         }
+    }
+    override loweringEnter(ctx: unknown, vars: Record<string, any> & { "@dot"?: number }) {
+        vars["@dot"] = (vars["@dot"] ?? 0) + this.n;
+        return [];
+    }
+    override loweringExit(ctx: unknown, vars: Record<string, any> & { "@dot"?: number }) {
+        const dotCnt = (vars["@dot"] ?? 0) - this.n;
+        if (dotCnt <= 0) delete vars["@dot"];
+        else vars["@dot"] = dotCnt;
+        return [];
     }
 
     content: ASTNodeBase;
