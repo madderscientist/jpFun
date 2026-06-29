@@ -1,14 +1,13 @@
 ﻿import type { SourceSpan, LengthValue } from "../parser/types.js";
 import type { ParserContext, deSugarAtomFunction, deSugarRelationFunction } from "../parser/parserContext.js";
 import { Diagnostic } from "../parser/diagnostic.js";
-import type { TimeFlowMode } from "../lowering/types.js";
+import type { TemporalNodeRecord, TimeFlowMode } from "../lowering/types.js";
 import { LoweringContext, TimeWrapConfig, tmpTemporalNodeRecord } from "../lowering/loweringContext.js";
 
 export type { SourceSpan, ParserContext, LengthValue };
 export type paramType = "string" | "number" | "boolean" | "length" | "content" | "label";
 export type paramValue = string | number | boolean | LengthValue | ASTBraceNode | ASTNodeBase;
 
-// 以后考虑增加一个id字符串 但保留parent的引用
 export class ASTNodeBase {
     sourceSpan: SourceSpan; // 和源码的映射
     parent: ASTNodeBase | null;
@@ -56,9 +55,8 @@ export class ASTNodeBase {
     /**
      * 时间状态 修改&冻结 入口
      * 调用时机在时间位置已经确定之后，处理“调性、速度、拍号”等时间信息的固化
-     * 返回值代表是否修改了时间状态
      */
-    onTimeState(state: Record<string, any>): boolean { return false; }
+    onTimeState?(state: Record<string, any>, timeNode: TemporalNodeRecord): void;
 
     // 去糖后文本输出
     toString(source: string): string {
@@ -79,7 +77,7 @@ export class ASTLabelNode extends ASTNodeBase {
         this.label = label;
     }
 
-    toString(source: string): string {
+    override toString(source: string): string {
         return `@${this.label} `;
     }
 }
@@ -111,7 +109,7 @@ export class ASTBraceNode extends ASTNodeBase {
         } else return { start: content.sourceSpan.start, end: content.sourceSpan.end };
     }
 
-    toString(source: string): string {
+    override toString(source: string): string {
         return `{${this.content.map(item => item.toString(source)).join("")}}`;
     }
 }
@@ -181,7 +179,7 @@ export class ASTFunctionNode extends ASTNodeBase {
         });
     }
 
-    toString(source: string): string {
+    override toString(source: string): string {
         const name = this.callName;
         if (!name) return super.toString(source);
         return `@${name} `;

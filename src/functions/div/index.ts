@@ -1,6 +1,5 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
-import { deSugarRelationFunction } from "../../parser/parserContext.js";
 
 function parseAutoBeamFlag(raw: unknown, fallback: boolean): boolean {
     if (typeof raw === "boolean") return raw;
@@ -13,7 +12,7 @@ function parseAutoBeamFlag(raw: unknown, fallback: boolean): boolean {
 }
 
 class DivFunction extends ASTFunctionNode {
-    static def: FunctionDef = {
+    static override def = {
         name: ["div", "/"],
         description: "减时线",
         example: `@div(C1, 2): C1下方创建2根减时线
@@ -26,18 +25,18 @@ class DivFunction extends ASTFunctionNode {
         allowExtraArgs: false,
         args: [
             {
-                type: "content",
+                type: "content" as const,
                 default: null,
             },
             {
                 name: "n",
-                type: "number",
+                type: "number" as const,
                 default: 1,
             },
         ]
     };
 
-    static deSugarAtom(source: string, start: number, end: number) {
+    static override deSugarAtom(source: string, start: number, end: number) {
         // 检查 / 的数量
         let divCnt = 0;
         let pos = start;
@@ -58,7 +57,7 @@ class DivFunction extends ASTFunctionNode {
         return { next: pos, node };
     };
 
-    static deSugarRelation: deSugarRelationFunction = (ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) => {
+    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
         const n = nodes[at++] as GrammarSugarNode;
         if (n.data?.class !== DivFunction) return null;
         // 向前找到第一个有效节点
@@ -82,7 +81,7 @@ class DivFunction extends ASTFunctionNode {
         return at;
     }
 
-    static timeWrapConfig = {
+    static override timeWrapConfig = {
         priority: 2,
         func: (vars: Record<string, any>, dt: number) => {
             const divCnt = vars["div"] ?? 0;
@@ -94,8 +93,13 @@ class DivFunction extends ASTFunctionNode {
     content: ASTNodeBase;
     n: number;
     autoBeamEnabled: boolean;   // 是否自动连接减时线
-    get children() { return [this.content]; }
-    timeFlowMode() { return "transparent" as const; }
+    override get children() { return [this.content]; }
+    override timeFlowModel() {
+        return {
+            children: [this.content],
+            mode: "sequence" as const,
+        }
+    }
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
@@ -105,7 +109,7 @@ class DivFunction extends ASTFunctionNode {
         this.content.parent = this;
     }
 
-    toString(source: string): string {
+    override toString(source: string) {
         return `@div(${this.content.toString(source)}, ${this.n})`;
     }
 }

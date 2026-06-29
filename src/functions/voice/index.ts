@@ -1,13 +1,13 @@
-import { FunctionDef, ASTNodeBase, ASTBraceNode, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../ASTtypes.js";
+import { ASTNodeBase, ASTBraceNode, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../ASTtypes.js";
 import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../parser/diagnostic.js";
 import { findRightParen, removeQuote } from "../../parser/parse-utils/call-utils.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
-import { ParserContext, deSugarRelationFunction, skipSpaces } from "../../parser/parserContext.js";
+import { ParserContext, skipSpaces } from "../../parser/parserContext.js";
 
 const WHITEPACE_RE = /\s/;
 
 class VoiceFunction extends ASTFunctionNode {
-    static def: FunctionDef = {
+    static override def = {
         name: ["voice", "v"],
         description: "声部",
         example: `@voice({}, name, 歌词1名=歌词1, 歌词2名=歌词2, ...)
@@ -28,12 +28,12 @@ L: ...
         allowExtraArgs: true,
         args: [
             {
-                type: "content",
+                type: "content" as const,
                 default: null,
             },
             {
                 name: "name",
-                type: "string",
+                type: "string" as const,
                 default: "",
             },
             // 之后的参数都当作歌词参数
@@ -41,7 +41,7 @@ L: ...
     };
 
     // 去糖第一阶段识别两个标签
-    static deSugarAtom(source: string, start: number, end: number) {
+    static override deSugarAtom(source: string, start: number, end: number) {
         if (source[start] !== 'N' && source[start] !== 'L') return null;
         let pos = start + 1;
         let name = '';
@@ -108,7 +108,7 @@ L: ...
         }
     }
 
-    static deSugarRelation: deSugarRelationFunction = (ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) => {
+    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
         const n = nodes[at++] as GrammarSugarNode;
         if (n.data?.class !== VoiceFunction) return null;
         if (n.data?.lyric !== undefined) {
@@ -169,7 +169,7 @@ L: ...
         name: string,
         tokens: string[]   // 分词后的歌词内容
     }[];
-    get children() { return [this.content]; }
+    override get children() { return [this.content]; }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
@@ -242,7 +242,7 @@ L: ...
         return result;
     }
 
-    toString(source: string): string {
+    override toString(source: string) {
         const notes = this.content.toString(source);
         const lyricStrs = this.lyrics.map(lyric => {
             let lyricstr = lyric.tokens.map(token => token.length === 0 ? "@" : token).join(" ");

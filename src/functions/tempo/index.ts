@@ -1,7 +1,7 @@
-import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, FunctionDef, ParserContext, SourceSpan } from "../ASTtypes.js";
+import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, ParserContext, SourceSpan } from "../ASTtypes.js";
 
 class TempoFunction extends ASTFunctionNode {
-    static def: FunctionDef = {
+    static override def = {
         name: ["tempo"],
         description: "设置时间线上的速度",
         example: `@tempo(96) 将其后的时间状态速度设置为 96 BPM`,
@@ -9,7 +9,7 @@ class TempoFunction extends ASTFunctionNode {
         args: [
             {
                 name: "bpm",
-                type: "number",
+                type: "number" as const,
                 default: null,
             },
         ],
@@ -22,12 +22,11 @@ class TempoFunction extends ASTFunctionNode {
         [this.bpm] = this.getArgValue(args, ctx) as [number];
     }
 
-    onTimeState(state: Record<string, any>) {
+    override onTimeState(state: Record<string, any>, node: Record<string, any>) {
         state.bpm = this.bpm;
-        return true;
     }
 
-    toString(): string {
+    override toString(s: string) {
         return `@tempo(${this.bpm})`;
     }
 }

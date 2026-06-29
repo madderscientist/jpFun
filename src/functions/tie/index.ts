@@ -1,8 +1,8 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { ErrorDiagnostic } from "../../parser/diagnostic.js";
 
 class TieFunction extends ASTFunctionNode {
-    static def: FunctionDef = {
+    static override def = {
         name: ["tie"],
         description: "连音线",
         example: `@tie(label1, label2, ...)
@@ -29,7 +29,7 @@ class TieFunction extends ASTFunctionNode {
         if (this.endPoints.length < 2) throw new ErrorDiagnostic("E_NOT_ENOUGH_ARGS", "@tie 连音线需要至少两个端点", sourceSpan);
     }
 
-    toString(source: string): string {
+    override toString(source: string) {
         return `@tie(${this.endPoints.map(p => `${(p as ASTFunctionNode).label ?? 'anon'}:[${p.toString(source)}]`).join(", ")})`;
     }
 }

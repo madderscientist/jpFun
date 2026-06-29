@@ -1,10 +1,9 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { ErrorDiagnostic } from "../../parser/diagnostic.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
-import { deSugarRelationFunction } from "../../parser/parserContext.js";
 
 class DotFunction extends ASTFunctionNode {
-    static def: FunctionDef = {
+    static override def = {
         name: ["dot", "."],
         description: "附点",
         example: `@dot(C1, 2): C1右侧创建2个点 仅接收一个可接收元素
@@ -16,18 +15,18 @@ class DotFunction extends ASTFunctionNode {
         allowExtraArgs: false,
         args: [
             {
-                type: "content",
+                type: "content" as const,
                 default: null,
             },
             {
                 name: "n",
-                type: "number",
+                type: "number" as const,
                 default: 1,
             },
         ]
     };
 
-    static deSugarAtom(source: string, start: number, end: number) {
+    static override deSugarAtom(source: string, start: number, end: number) {
         // 检查 . 的数量
         let dotCnt = 0;
         let pos = start;
@@ -48,7 +47,7 @@ class DotFunction extends ASTFunctionNode {
         return { next: pos, node };
     };
 
-    static deSugarRelation: deSugarRelationFunction = (ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) => {
+    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
         const n = nodes[at++] as GrammarSugarNode;
         if (n.data?.class !== DotFunction) return null;
         // 向前找到第一个有效节点
@@ -73,7 +72,7 @@ class DotFunction extends ASTFunctionNode {
         return at;
     }
 
-    static timeWrapConfig = {
+    static override timeWrapConfig = {
         priority: 1,
         func: (vars: Record<string, any>, dt: number) => {
             const dotCnt = vars["dot"] ?? 0;
@@ -84,7 +83,7 @@ class DotFunction extends ASTFunctionNode {
 
     content: ASTNodeBase;
     n: number;
-    get children() { return [this.content]; }
+    override get children() { return [this.content]; }
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
@@ -100,7 +99,7 @@ class DotFunction extends ASTFunctionNode {
         this.content.parent = this;
     }
 
-    toString(source: string): string {
+    override toString(source: string) {
         return `@dot(${this.content.toString(source)}, ${this.n})`;
     }
 

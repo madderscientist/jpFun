@@ -1,8 +1,8 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { Diagnostic, WarningDiagnostic } from "../../parser/diagnostic.js";
 
 class SetFunction extends ASTFunctionNode {
-    static def: FunctionDef = {
+    static override def = {
         name: ["set"],
         description: "设置局部默认值",
         example: `@set(fontSize=20) 则当前块内默认字体变为20px
@@ -52,7 +52,7 @@ class SetFunction extends ASTFunctionNode {
         }
     }
 
-    toString(source: string): string {
+    override toString(source: string) {
         return `@set(${Array.from(this.args.entries()).map(([k, v]) => `${k}=${v}`).join(", ")})`;
     }
 }

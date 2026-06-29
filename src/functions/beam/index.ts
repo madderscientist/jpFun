@@ -1,9 +1,9 @@
-import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, FunctionDef, SourceSpan } from "../ASTtypes.js";
+import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, SourceSpan } from "../ASTtypes.js";
 import { ParserContext } from "../ASTtypes.js";
 import { ErrorDiagnostic } from "../../parser/diagnostic.js";
 
 class BeamFunction extends ASTFunctionNode {
-    static def: FunctionDef = {
+    static override def = {
         name: ["beam"],
         description: "减时线连接",
         example: "@beam(label1, label2, ...): 将多个已标记音符按顺序连接为减时线组",

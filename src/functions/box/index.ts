@@ -1,19 +1,19 @@
-﻿import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, FunctionDef, ParserContext, SourceSpan, LengthValue } from "../ASTtypes.js";
+﻿import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, ParserContext, SourceSpan, LengthValue } from "../ASTtypes.js";
 
 class BoxFunction extends ASTFunctionNode {
-    static def: FunctionDef = {
+    static override def = {
         name: ["box"],
         description: "给目标结构或对象加外框",
         example: `@box(content, padding=0.2, stroke=0.08)`,
         allowExtraArgs: false,
         args: [
             {
-                type: "content",
+                type: "content" as const,
                 default: null,
             },
             {
                 name: "padding",
-                type: "length",
+                type: "length" as const,
                 default: {
                     value: 0,
                     unit: "em",
@@ -21,7 +21,7 @@ class BoxFunction extends ASTFunctionNode {
             },
             {
                 name: "stroke",
-                type: "length",
+                type: "length" as const,
                 default: {
                     value: 1,
                     unit: "em",
@@ -33,8 +33,13 @@ class BoxFunction extends ASTFunctionNode {
     target: ASTNodeBase;
     padding: number;
     stroke: number;
-    get children(): ASTNodeBase[] { return [this.target]; }
-    timeFlowMode() { return "transparent" as const; }
+    override get children() { return [this.target]; }
+    override timeFlowModel() {
+        return {
+            children: [this.target],
+            mode: "sequence" as const,
+        };
+    }
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);

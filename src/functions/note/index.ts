@@ -1,11 +1,12 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { Diagnostic, ErrorDiagnostic } from "../../parser/diagnostic.js";
 import { resolveLetterNameToJianpu, resolveNoteMidi } from "../../parser/parse-utils/note-utils.js";
 import { parseNoteName } from "./noteNameFSM.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
+import { TemporalNodeRecord } from "../../lowering/types.js";
 
 class NoteFunction extends ASTFunctionNode {
-    static def: FunctionDef = {
+    static override def = {
         name: ["note", "n"],
         description: "创建音符",
         example: `@note(name, acc, octave, color)
@@ -26,28 +27,28 @@ class NoteFunction extends ASTFunctionNode {
         args: [
             {
                 name: "name",
-                type: "string",
+                type: "string" as const,
                 default: null,
             },
             {
                 name: "acc",
-                type: "string",
+                type: "string" as const,
                 default: "",
             },
             {   // 传递了就使用绝对音高
                 name: "octave",
-                type: "number",
+                type: "number" as const,
                 default: 4, // 如果是数字则默认值为0 需要代码中区分
             },
             {
                 name: "color",
-                type: "string",
+                type: "string" as const,
                 default: "#000",
             }
         ]
     };
 
-    static deSugarAtom(source: string, start: number, end: number) {
+    static override deSugarAtom(source: string, start: number, end: number) {
         const parseResult = parseNoteName(source, start, end);
         if (parseResult instanceof Diagnostic) return null;
         const argMap: FunctionArgs = new Map();
@@ -64,8 +65,7 @@ class NoteFunction extends ASTFunctionNode {
         return { next: parseResult.next, node };
     }
 
-    labelable(): boolean { return true; }
-    get timeOffsetQN(): number { return 1; }
+    override labelable() { return true; }
 
     // 原始输入
     name: string;
@@ -113,7 +113,7 @@ class NoteFunction extends ASTFunctionNode {
         if (parseResult.acc !== null) this.acc = parseResult.acc + this.acc;
     }
 
-    onTimeState(state: Record<string, any>): boolean {
+    override onTimeState(state: Record<string, any>, node: TemporalNodeRecord): void {
         const keySignature = this.activeKeySignature = typeof state.keySignature === "string" ? state.keySignature : "C4";
         this.activeBpm = Number(state.bpm) || 120;
         this.resolvedMidi = resolveNoteMidi(this.name, this.acc, this.octave, keySignature);
@@ -135,11 +135,11 @@ class NoteFunction extends ASTFunctionNode {
                 this.renderAcc = jianpuPitch.renderAcc;
                 this.renderOctave = jianpuPitch.renderOctave;
             }
-        } return false;
+        }
     }
 
-    toString(source: string): string {
-        return `@note(${this.name}, ${this.acc}, ${this.octave}, ${this.color})`;
+    override toString(s: string) {
+        return `@n(${this.name}, ${this.acc}, ${this.octave}, ${this.color})`;
     }
 }
 

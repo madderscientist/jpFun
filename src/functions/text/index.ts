@@ -1,19 +1,19 @@
-import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, FunctionDef, ParserContext, SourceSpan, LengthValue } from "../ASTtypes.js";
+import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, ParserContext, SourceSpan, LengthValue } from "../ASTtypes.js";
 
 class TextFunction extends ASTFunctionNode {
-    static def: FunctionDef = {
+    static override def = {
         name: ["text"],
         description: "文本标记。单独写在谱中是文本对象；写在 over 里会由 over 的层叠逻辑放到上层",
         example: `@text(进入主题)`,
         allowExtraArgs: false,
         args: [
             {
-                type: "string",
+                type: "string" as const,
                 default: null,
             },
             {
                 name: "size",
-                type: "length",
+                type: "length" as const,
                 default: {
                     value: 1,
                     unit: "em",
@@ -31,7 +31,7 @@ class TextFunction extends ASTFunctionNode {
         this.size = ctx.length2px(sz);
     }
 
-    toString(): string { return `@text(${this.text})`; }
+    override toString(s: string) { return `@text(${this.text})`; }
 }
 
 export const TextNode: ASTFunctionClass = TextFunction;

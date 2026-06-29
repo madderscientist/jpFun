@@ -21,8 +21,10 @@ export type TimeFlowMode = "sequence" | "parallel";
  * - anchor: 时间对齐点，比如 bar
  * - single: 需要单独成列 一般是设置类，目的是不影响后面音符和其他轨道的对齐
  * - default: 其他所有希望被分到同一个时间列的
+ * 
+ * 由于有优先级别（需要可比），所以用了枚举
  */
-export enum ColType {
+export const enum ColType {
     ANCHOR, // anchor 最优先
     SINGLE,
     DEFAULT // 普通事件必须最后

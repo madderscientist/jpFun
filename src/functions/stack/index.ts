@@ -1,10 +1,10 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../ASTtypes.js";
-import { ParserContext, deSugarRelationFunction } from "../../parser/parserContext.js";
+import { ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../ASTtypes.js";
+import { ParserContext } from "../../parser/parserContext.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { ErrorDiagnostic } from "../../parser/diagnostic.js";
 
 class StackFunction extends ASTFunctionNode {
-    static def: FunctionDef = {
+    static override def = {
         name: ["stack"],
         description: "时间对齐的上下层叠",
         example: `@stack(content1, content2, ...)
@@ -16,7 +16,7 @@ class StackFunction extends ASTFunctionNode {
         args: [],
     };
 
-    static deSugarAtom(source: string, start: number, end: number) {
+    static override deSugarAtom(source: string, start: number, end: number) {
         if (source[start] === '&') {
             const node: GrammarSugarNode = {
                 kind: "sugar",
@@ -26,7 +26,7 @@ class StackFunction extends ASTFunctionNode {
         } return null;
     }
 
-    static deSugarRelation: deSugarRelationFunction = (ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) => {
+    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
         const n = nodes[at++] as GrammarSugarNode;
         if (!(n.kind === "sugar" && n.data === StackFunction)) return null;
         // 找上一个非文本节点 实现忽略中间内容的作用
@@ -76,8 +76,13 @@ class StackFunction extends ASTFunctionNode {
     }
 
     contents: ASTNodeBase[] = [];
-    get children(): ASTNodeBase[] { return this.contents; }
-    timeFlowMode() { return "parallel" as const; }
+    override get children() { return this.contents; }
+    override timeFlowModel() {
+        return {
+            children: this.contents,
+            mode: "parallel" as const
+        };
+    }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
@@ -104,7 +109,7 @@ class StackFunction extends ASTFunctionNode {
         }
     }
 
-    toString(source: string): string {
+    override toString(source: string) {
         const contentStrs = this.contents.map(c => c.toString(source)).join(',\n');
         return `@stack(\n  ${contentStrs.split('\n').join('\n  ')}\n)`;
     }

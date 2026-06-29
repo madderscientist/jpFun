@@ -1,8 +1,8 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
 
 class DashFunction extends ASTFunctionNode {
-    static def: FunctionDef = {
+    static override def = {
         name: ["dash", "-"],
         description: "增时线",
         example: `@dash() 创建一根增时线
@@ -28,9 +28,7 @@ class DashFunction extends ASTFunctionNode {
         super(span, parent);
     }
 
-    get timeOffsetQN(): number { return 1; }
-
-    toString(s: string) { return "-"; }
+    override toString(s: string) { return "-"; }
 }
 
 export const DashNode: ASTFunctionClass = DashFunction;

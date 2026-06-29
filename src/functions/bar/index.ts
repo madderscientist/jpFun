@@ -1,8 +1,8 @@
-import { LengthValue, FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { LengthValue, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
 
 class BarFunction extends ASTFunctionNode {
-    static def: FunctionDef = {
+    static override def = {
         name: ["bar", "|"],
         description: "小节线",
         example: `@bar(type, lengthEM) 创建一个小节线
@@ -17,12 +17,12 @@ class BarFunction extends ASTFunctionNode {
         args: [
             {   // 末尾小节线的样式类型 预留参数 目前无实际效果
                 name: "type",
-                type: "number",
+                type: "number" as const,
                 default: 0,
             },
             {
                 name: "length",
-                type: "length",
+                type: "length" as const,
                 default: {
                     value: 1,
                     unit: "em",
@@ -57,7 +57,6 @@ class BarFunction extends ASTFunctionNode {
 
     type: number;
     barLength: number;    // 固化值
-    activeBpm: number | null = null;
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
@@ -66,12 +65,7 @@ class BarFunction extends ASTFunctionNode {
         this.barLength = ctx.length2px(barlen);
     }
 
-    onTimeState(state: Record<string, any>): boolean {
-        this.activeBpm = Number(state.bpm) || 120;
-        return false;
-    }
-
-    toString(source: string): string {
+    override toString(source: string) {
         return `@bar(${this.type}, ${this.barLength}px)`;
     }
 }

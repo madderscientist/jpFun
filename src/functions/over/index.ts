@@ -16,7 +16,7 @@ class OverFunction extends ASTFunctionNode {
         args: [],
     };
 
-    static deSugarAtom(source: string, start: number, end: number) {
+    static override deSugarAtom(source: string, start: number, end: number) {
         if (source[start] === '^') {
             const node: GrammarSugarNode = {
                 kind: "sugar",
@@ -26,7 +26,7 @@ class OverFunction extends ASTFunctionNode {
         } return null;
     }
 
-    static deSugarRelation: deSugarRelationFunction = (ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) => {
+    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
         const n = nodes[at++] as GrammarSugarNode;
         if (!(n.kind === "sugar" && n.data === OverFunction)) return null;
         // 找上一个非文本节点 实现忽略中间内容的作用
@@ -76,7 +76,7 @@ class OverFunction extends ASTFunctionNode {
     }
 
     contents: ASTNodeBase[] = [];
-    get children(): ASTNodeBase[] { return this.contents; }
+    override get children(): ASTNodeBase[] { return this.contents; }
     // timeFlowMode() { return "parallel" as const; }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
@@ -104,7 +104,7 @@ class OverFunction extends ASTFunctionNode {
         }
     }
 
-    toString(source: string): string {
+    override toString(source: string) {
         return `@over(${this.contents.map(c => c.toString(source)).join(", ")})`;
     }
 

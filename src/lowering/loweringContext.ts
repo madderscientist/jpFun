@@ -15,7 +15,6 @@ export type tmpTemporalNodeRecord = Partial<TemporalNodeRecord> & { track?: numb
 
 export class LoweringContext {
     private timeWrapFuncs: TimeWrapFunc[] = [];
-    public variables: Record<string, any> = {};  // 记录任意变量 比如当前的时间变换
     private cnt = 0;  // 生成唯一id的计数器
 
     registerTimeWrapFunc(functionClasses: ASTFunctionClass[]) {
@@ -47,14 +46,27 @@ export class LoweringContext {
         return base + String.fromCharCode(newOffset);
     }
 
+    lowering(node: ASTNodeBase) {
+        // 获取时间列
+        const { columns } = this.trackedEvents(node);
+        // 时间固化
+        const vars: Record<string, any> = {};
+        for (const col of columns) {
+            for (const n of col) {
+                node.onTimeState?.(vars, n);
+            }
+        }
+        return columns;
+    }
+
     /**
-     * 得到每个轨道的事件
+     * 获取时间列 用于时间固化和计算布局
      * @param node 需要 timeFlowMode 方法
      * @param tracks_events 每个轨的所有事件
      * @param vars 存储如 div dot 这种时间变换方法
      * @param timeOffset 当前节点的时间偏移量（单位QN） 由父节点传入
      * @param track 父轨道的id
-     * @returns 时间偏移，列；列是用于时间固化和计算布局的
+     * @returns 时间偏移,列
      */
     trackedEvents(
         node: ASTNodeBase,
@@ -104,7 +116,7 @@ export class LoweringContext {
                         endTime = Math.max(endTime, result.timeOffset);
                         cols.push(result.columns);
                     }
-                    // 归并
+                    // 归并 局部归并以限制对齐作用域
                     columns.push(...LoweringContext.anchorAlign(cols));
                     timeOffset = endTime;
                 } break;
@@ -127,6 +139,11 @@ export class LoweringContext {
         return { timeOffset, columns };
     }
 
+    /**
+     * 多轨时间上的 ANCHOR 对齐形成列，被 trackedEvents 在中间使用。会修改时间
+     * @param tracks 多个 trackedEvents 的结果
+     * @returns 锚点对齐后的 tracks，多轨道相同时间的会被合并为一个列
+     */
     static anchorAlign(tracks: TimeColumn[][]): TimeColumn[] {
         const l = tracks.length;
         if (l === 1) return tracks[0];
@@ -149,7 +166,7 @@ export class LoweringContext {
                         result.push(b);
                         b = track1[++j];
                         while (j < l1 && b.type !== ColType.ANCHOR) {
-                            if (jdt) b.t += jdt;
+                            if (jdt) b.t += jdt;    // setter 比较重，能避免尽量避免
                             result.push(b);
                             b = track1[++j];
                         }
