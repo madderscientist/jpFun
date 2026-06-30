@@ -1,8 +1,7 @@
 ﻿import type { SourceSpan, LengthValue } from "../parser/types.js";
 import type { ParserContext, deSugarAtomFunction, deSugarRelationFunction } from "../parser/parserContext.js";
 import { Diagnostic } from "../parser/diagnostic.js";
-import type { TemporalNodeRecord, TimeFlowMode } from "../lowering/types.js";
-import { LoweringContext, TimeWrapConfig, tmpTemporalNodeRecord } from "../lowering/loweringContext.js";
+import type { TemporalNodeBase, TimeFlowMode, TimeWrapConfig } from "../lowering/types.js";
 
 export type { SourceSpan, ParserContext, LengthValue };
 export type paramType = "string" | "number" | "boolean" | "length" | "content" | "label";
@@ -31,7 +30,7 @@ export class ASTNodeBase {
      * 进入当前层级的回调
      * @returns 事件 时长会自动进行变形
      */
-    loweringEnter(ctx: LoweringContext, vars: Record<string, any>): Iterable<tmpTemporalNodeRecord> {
+    loweringEnter(vars: Record<string, any>): Iterable<TemporalNodeBase> {
         return [];
     }
 
@@ -48,15 +47,9 @@ export class ASTNodeBase {
     /**
      * 离开当前层级的回调 同 loweringEnter
      */
-    loweringExit(ctx: LoweringContext, vars: Record<string, any>): Iterable<tmpTemporalNodeRecord> {
+    loweringExit(vars: Record<string, any>): Iterable<TemporalNodeBase> {
         return [];
     }
-
-    /**
-     * 时间状态 修改&冻结 入口
-     * 调用时机在时间位置已经确定之后，处理“调性、速度、拍号”等时间信息的固化
-     */
-    onTimeState?(state: Record<string, any>, timeNode: TemporalNodeRecord): void;
 
     // 去糖后文本输出
     toString(source: string): string {
@@ -77,7 +70,7 @@ export class ASTLabelNode extends ASTNodeBase {
         this.label = label;
     }
 
-    override toString(source: string): string {
+    override toString(source: string) {
         return `@${this.label} `;
     }
 }
@@ -109,7 +102,14 @@ export class ASTBraceNode extends ASTNodeBase {
         } else return { start: content.sourceSpan.start, end: content.sourceSpan.end };
     }
 
-    override toString(source: string): string {
+    override timeFlowModel() {
+        return {
+            children: this.content,
+            mode: "sequence" as const,
+        };
+    }
+
+    override toString(source: string) {
         return `{${this.content.map(item => item.toString(source)).join("")}}`;
     }
 }

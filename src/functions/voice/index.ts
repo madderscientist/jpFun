@@ -170,6 +170,12 @@ L: ...
         tokens: string[]   // 分词后的歌词内容
     }[];
     override get children() { return [this.content]; }
+    override timeFlowModel() {
+        return {
+            children: this.children,
+            mode: "sequence" as const,
+        };
+    }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);

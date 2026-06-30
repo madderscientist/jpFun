@@ -1,17 +1,5 @@
 import { ASTFunctionClass, ASTNodeBase } from "../functions/ASTtypes.js";
-import { ColType, TemporalNodeRecord } from "./types.js";
-
-export type TimeWrapFunc = (vars: Record<string, any>, dt: number) => number;
-export type TimeWrapConfig = {
-    priority: number;  // 优先级 越大越后执行
-    func: TimeWrapFunc;
-}
-
-/**
- * AST 节点返回的类型，算法需要补全其他属性
- * 这里 track 表示相对偏移，只能是正整数
- */
-export type tmpTemporalNodeRecord = Partial<TemporalNodeRecord> & { track?: number };
+import { ColType, TemporalNodeBase, TimeWrapFunc, TimeWrapConfig } from "./types.js";
 
 export class LoweringContext {
     private timeWrapFuncs: TimeWrapFunc[] = [];
@@ -40,8 +28,9 @@ export class LoweringContext {
         } return dt;
     }
 
-    static getTrackId(base: string, newOffset?: number): string {
+    static getTrackId(base: string, newOffset?: number | string): string {
         if (newOffset === void 0 || newOffset === 0) return base;
+        if (typeof newOffset === "string") return base + newOffset;
         if (newOffset < 0) throw new Error(`Track offset must be non-negative, got ${newOffset}`);
         return base + String.fromCharCode(newOffset);
     }
@@ -55,6 +44,7 @@ export class LoweringContext {
         } return addon;
     }
 
+    // 主函数
     lowering(node: ASTNodeBase) {
         // 获取时间列
         const { columns } = this.trackedEvents(node);
@@ -62,7 +52,7 @@ export class LoweringContext {
         const vars: Record<string, any> = {};
         for (const col of columns) {
             for (const n of col) {
-                n.ast.onTimeState?.(vars, n);
+                n.onTimeState?.(vars);
             }
         }
         return columns;
@@ -88,19 +78,18 @@ export class LoweringContext {
     } {
         const columns: TimeColumn[] = [];
         // 如果是叶节点，可以在这里处理
-        const beforeEvents = node.loweringEnter(this, vars);
+        const beforeEvents = node.loweringEnter(vars);
         for (const b of beforeEvents) {
-            // 直接修改，防止引用关系改变
-            // 比如允许 addon 中存储对象供后续使用
+            // 直接修改，防止引用关系改变; 比如允许 addon 中存储对象供后续使用
             b.t = timeOffset + (b.t ?? 0);
             b.T = b.T === void 0 ? 0 : this.applyTimeWrap(vars, b.T);
-            (b as TemporalNodeRecord).track = LoweringContext.getTrackId(track, b.track);
+            b.track = LoweringContext.getTrackId(track, b.track);
             b.ast = b.ast ?? node;
             b.order = this.cnt++;
             b.addon = LoweringContext.attachDecoration(vars, b.addon);
             b.type ??= b.T === 0 ? ColType.SINGLE : ColType.DEFAULT;    // T=0 一般也不会绘制，放在前面
             timeOffset = Math.max(timeOffset, b.t + b.T);
-            columns.push(new TimeColumn(b as TemporalNodeRecord));
+            columns.push(new TimeColumn(b));
         }
         // 处理子元素
         const model = node.timeFlowModel();
@@ -114,34 +103,33 @@ export class LoweringContext {
                     }
                 } break;
                 case "parallel": {
-                    let endTime = timeOffset;
                     const cols = [];
                     for (let i = 0; i < model.children.length; i++) {
                         const c = model.children[i];
                         const trackId = LoweringContext.getTrackId(track, i);
                         // 每个分支从头开始
                         const result = this.trackedEvents(c, vars, timeOffset, trackId);
-                        endTime = Math.max(endTime, result.timeOffset);
                         cols.push(result.columns);
                     }
                     // 归并 局部归并以限制对齐作用域
                     columns.push(...LoweringContext.anchorAlign(cols));
-                    timeOffset = endTime;
+                    const lastCol = columns[columns.length - 1];
+                    if (lastCol) timeOffset = lastCol.t + lastCol.reduce((maxT, n) => Math.max(maxT, n.T), 0);
                 } break;
             }
         }
         // 如果是叶节点，可以在这里处理
-        const afterEvents = node.loweringExit(this, vars);
+        const afterEvents = node.loweringExit(vars);
         for (const b of afterEvents) {
             b.t = timeOffset + (b.t ?? 0);
             b.T = b.T === void 0 ? 0 : this.applyTimeWrap(vars, b.T);
-            (b as TemporalNodeRecord).track = LoweringContext.getTrackId(track, b.track);
+            b.track = LoweringContext.getTrackId(track, b.track);
             b.ast = b.ast ?? node;
             b.order = this.cnt++;
             b.addon = LoweringContext.attachDecoration(vars, b.addon);
             b.type ??= b.T === 0 ? ColType.SINGLE : ColType.DEFAULT;
             timeOffset = Math.max(timeOffset, b.t + b.T);
-            columns.push(new TimeColumn(b as TemporalNodeRecord));
+            columns.push(new TimeColumn(b));
         }
         return { timeOffset, columns };
     }
@@ -152,7 +140,12 @@ export class LoweringContext {
      * @returns 锚点对齐后的 tracks，多轨道相同时间的会被合并为一个列
      */
     static anchorAlign(tracks: TimeColumn[][]): TimeColumn[] {
+        // 删去长度为0的轨道
+        for (let i = tracks.length - 1; i >= 0; i--) {
+            if (tracks[i].length === 0) tracks.splice(i, 1);
+        }
         const l = tracks.length;
+        if (l === 0) throw new Error("No tracks to align");
         if (l === 1) return tracks[0];
 
         const result: TimeColumn[] = [];
@@ -308,6 +301,7 @@ export class LoweringContext {
                 }
                 anchorBuffer.length = 0;
                 container.t = maxT;
+                container.sort((a, b) => a.order - b.order);    // 保证同一列的顺序和原来一致; 插入顺序和原来的时间有关
                 result.push(container);
                 continue;
             }
@@ -335,15 +329,14 @@ export class LoweringContext {
                     // 最后再加新的，使得只合并每个轨道最前面的，防止把后面同时刻的都合并了
                     // 这也是引入 SINGLE 的原因
                     for (const i of consumed) fetchNext(i);
-                    break;
             }
         } return result;
     }
 }
 
-class TimeColumn extends Array<TemporalNodeRecord> {
-    type: TemporalNodeRecord["type"];
-    constructor(n: TemporalNodeRecord) {
+class TimeColumn extends Array<TemporalNodeBase> {
+    type: TemporalNodeBase["type"];
+    constructor(n: TemporalNodeBase) {
         super(1);
         this.type = n.type;
         this[0] = n;
@@ -374,6 +367,7 @@ class HeapSort extends Array<heapItem> {
         super(n);
     }
     front(): heapItem | undefined {
+        if (this.validLen === 0) return void 0;
         return this[0];
     }
     push(item: heapItem) {
@@ -385,6 +379,7 @@ class HeapSort extends Array<heapItem> {
         if (this.validLen === 0) return void 0;
         const item = this[0];
         this[0] = this[--this.validLen];
+        this[this.validLen] = void 0 as any;
         this.down(0);
         return item;
     }
@@ -395,7 +390,7 @@ class HeapSort extends Array<heapItem> {
             if (heapItemCmp(item, this[parent]) >= 0) break;
             this[i] = this[parent];
             i = parent;
-        }
+        } this[i] = item;
     }
     down(i: number) {
         const item = this[i];
@@ -408,6 +403,6 @@ class HeapSort extends Array<heapItem> {
             if (heapItemCmp(this[minChild], item) >= 0) break;
             this[i] = this[minChild];
             i = minChild;
-        }
+        } this[i] = item;
     }
 }

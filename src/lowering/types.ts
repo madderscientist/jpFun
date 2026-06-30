@@ -1,5 +1,11 @@
 import { ASTNodeBase } from "../functions/ASTtypes.js";
 
+export type TimeWrapFunc = (vars: Record<string, any>, dt: number) => number;
+export type TimeWrapConfig = {
+    priority: number;  // 优先级 越大越后执行
+    func: TimeWrapFunc;
+}
+
 export interface TimeLineEvent {
     t: number; // 事件发生的时间点
     T: number; // 事件的持续时间
@@ -30,11 +36,20 @@ export const enum ColType {
     DEFAULT // 普通事件必须最后
 }
 
-export interface TemporalNodeRecord extends TimeLineEvent {
-    track: string;  // 算法自动生成的是字符串
+export class TemporalNodeBase implements TimeLineEvent {
+    // 这些字段的填充高度靠 LoweringContext
+    t!: number;
+    T!: number;
+    track!: string | number;     // 算法自动生成的是字符串
 
-    ast: ASTNodeBase; // 对应的 AST 节点
-    order: number; // timeAllocation 创建顺序，作为id。可以用于区分同时发生的父子、排序同一时刻发生的事件
-    addon: Record<string, any>; // 其他任意字段
-    type: ColType; // 事件类型
+    ast!: ASTNodeBase;  // 对应的 AST 节点
+    order!: number;     // timeAllocation 创建顺序，作为id。可以用于区分同时发生的父子、排序同一时刻发生的事件
+    addon!: Record<string, any>; // 其他任意字段
+    type!: ColType; // 事件类型
+
+    /**
+     * 时间状态 修改&冻结 入口
+     * 调用时机在时间位置已经确定之后，处理“调性、速度、拍号”等时间信息的固化
+     */
+    onTimeState?(state: Record<string, any>): void;
 }

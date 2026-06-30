@@ -1,9 +1,7 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { Diagnostic, ErrorDiagnostic } from "../../parser/diagnostic.js";
-import { resolveLetterNameToJianpu, resolveNoteMidi } from "../../parser/parse-utils/note-utils.js";
 import { parseNoteName } from "./noteNameFSM.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
-import { TemporalNodeRecord } from "../../lowering/types.js";
 
 class NoteFunction extends ASTFunctionNode {
     static override def = {
@@ -66,6 +64,9 @@ class NoteFunction extends ASTFunctionNode {
     }
 
     override labelable() { return true; }
+    override loweringEnter(vars: unknown) {
+        return [new NoteTemporalNode(this)];
+    }
 
     // 原始输入
     name: string;
@@ -74,21 +75,10 @@ class NoteFunction extends ASTFunctionNode {
     color: string;
     size: number;
 
-    // 时间固化后的参数
-    activeKeySignature: string | null = null;
-    activeBpm: number | null = null;    // 用于播放的时候的速度
-    resolvedMidi: number | null = null; // MIDI音高 name是数字则需要在onTimeState中基于当前调性偏移
-    renderName: string;     // 数字
-    renderAcc: string;      // 升降号
-    renderOctave: number;   // 绝对值为点的个数
-
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
         [this.name, this.acc, this.octave, this.color] = this.getArgValue(args, ctx) as [string, string, number, string];
         this.size = ctx.fontSize;
-        this.renderName = this.name;
-        this.renderAcc = this.acc;
-        this.renderOctave = this.octave;
         // 创建时就固化参数值
         // 校验 note name
         const parseResult = parseNoteName(this.name);
@@ -113,34 +103,53 @@ class NoteFunction extends ASTFunctionNode {
         if (parseResult.acc !== null) this.acc = parseResult.acc + this.acc;
     }
 
-    override onTimeState(state: Record<string, any>, node: TemporalNodeRecord): void {
-        const keySignature = this.activeKeySignature = typeof state.keySignature === "string" ? state.keySignature : "C4";
-        this.activeBpm = Number(state.bpm) || 120;
-        this.resolvedMidi = resolveNoteMidi(this.name, this.acc, this.octave, keySignature);
-        // 数字音名本身就是简谱显示形式，直接保留原始数字和相对八度
-        if (this.name >= "0" && this.name <= "9") {
-            this.renderName = this.name;
-            if (this.name === "0" || this.name >= "8") {
-                this.renderOctave = 0;
-                this.renderAcc = ""; // 0和8、9不显示升降号
-            } else {
-                this.renderAcc = this.acc;
-                this.renderOctave = this.octave;
-            }
-        } else {
-            // 字母音名需要在当前调性下转换成简谱级数
-            const jianpuPitch = resolveLetterNameToJianpu(this.name, this.acc, this.octave, keySignature);
-            if (jianpuPitch) {
-                this.renderName = jianpuPitch.renderName;
-                this.renderAcc = jianpuPitch.renderAcc;
-                this.renderOctave = jianpuPitch.renderOctave;
-            }
-        }
-    }
-
     override toString(s: string) {
         return `@n(${this.name}, ${this.acc}, ${this.octave}, ${this.color})`;
     }
 }
 
 export const NoteNode: ASTFunctionClass = NoteFunction;
+
+import { ColType, TemporalNodeBase } from "../../lowering/types.js";
+import { resolveLetterNameToJianpu, resolveNoteMidi } from "../../parser/parse-utils/note-utils.js";
+
+class NoteTemporalNode extends TemporalNodeBase {
+    // 时间固化后的参数
+    activeBpm: number | null = null;    // 用于播放的时候的速度
+    resolvedMidi: number | null = null; // MIDI音高 name是数字则需要在onTimeState中基于当前调性偏移 播放的音高
+    name: string;     // 数字
+    acc: string;      // 升降号
+    octave: number;   // 绝对值为点的个数
+
+    constructor(ast: NoteFunction) {
+        super();
+        this.ast = ast;
+        this.T = 1;
+        this.t = 0;
+        this.type = ColType.DEFAULT;
+        this.name = ast.name;
+        this.acc = ast.acc;
+        this.octave = ast.octave;
+    }
+
+    override onTimeState(state: Record<string, any>) {
+        const keySignature = typeof state.keySignature === "string" ? state.keySignature : "C4";
+        this.activeBpm = Number(state.bpm) || 120;
+        this.resolvedMidi = resolveNoteMidi(this.name, this.acc, this.octave, keySignature);
+        // 数字音名本身就是简谱显示形式，直接保留原始数字和相对八度
+        if (this.name >= "0" && this.name <= "9") {
+            if (this.name === "0" || this.name >= "8") {
+                this.octave = 0;
+                this.acc = ""; // 0和8、9不显示升降号
+            }
+        } else {
+            // 字母音名需要在当前调性下转换成简谱级数
+            const jianpuPitch = resolveLetterNameToJianpu(this.name, this.acc, this.octave, keySignature);
+            if (jianpuPitch) {
+                this.name = jianpuPitch.renderName;
+                this.acc = jianpuPitch.renderAcc;
+                this.octave = jianpuPitch.renderOctave;
+            }
+        }
+    }
+}

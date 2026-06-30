@@ -89,11 +89,11 @@ class DivFunction extends ASTFunctionNode {
             return dt;
         }
     }
-    override loweringEnter(ctx: unknown, vars: Record<string, any> & { "@div"?: number }) {
+    override loweringEnter(vars: Record<string, any> & { "@div"?: number }) {
         vars["@div"] = (vars["@div"] ?? 0) + this.n;
         return [];
     }
-    override loweringExit(ctx: unknown, vars: Record<string, any> & { "@div"?: number }) {
+    override loweringExit(vars: Record<string, any> & { "@div"?: number }) {
         const divCnt = (vars["@div"] ?? 0) - this.n;
         if (divCnt <= 0) delete vars["@div"];
         else vars["@div"] = divCnt;

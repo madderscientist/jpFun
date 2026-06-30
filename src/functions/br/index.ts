@@ -1,6 +1,6 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { ParserContext } from "../../parser/parserContext.js";
-import { ColType } from "../../lowering/types.js";
+import { ColType, TemporalNodeBase } from "../../lowering/types.js";
 
 class BrFunction extends ASTFunctionNode {
     static override def = {
@@ -11,10 +11,10 @@ class BrFunction extends ASTFunctionNode {
         args: [],
     };
 
-    override loweringEnter(ctx: unknown, vars: Record<string, any>) {
-        return [{
-            type: ColType.SINGLE
-        }];
+    override loweringEnter(vars: Record<string, any>) {
+        const n = new TemporalNodeBase();
+        n.type = ColType.SINGLE;
+        return [n];
     }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {

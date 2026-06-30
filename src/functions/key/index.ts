@@ -1,4 +1,4 @@
-import { TemporalNodeRecord } from "../../lowering/types.js";
+import { ColType, TemporalNodeBase } from "../../lowering/types.js";
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, ParserContext, SourceSpan } from "../ASTtypes.js";
 
 class KeyFunction extends ASTFunctionNode {
@@ -24,8 +24,8 @@ class KeyFunction extends ASTFunctionNode {
         [this.tonality] = this.getArgValue(args, ctx) as [string];
     }
 
-    override onTimeState(state: Record<string, any>, node: TemporalNodeRecord) {
-        state.keySignature = this.tonality;
+    override loweringEnter(vars: unknown) {
+        return [new KeyTemporalNode(this)];
     }
 
     override toString() {
@@ -34,3 +34,14 @@ class KeyFunction extends ASTFunctionNode {
 }
 
 export const KeyNode: ASTFunctionClass = KeyFunction;
+
+class KeyTemporalNode extends TemporalNodeBase {
+    constructor(ast: KeyFunction) {
+        super();
+        this.ast = ast;
+        this.type = ColType.SINGLE;
+    }
+    override onTimeState(state: Record<string, any>) {
+        state.keySignature = (this.ast as KeyFunction).tonality;
+    }
+}

@@ -80,15 +80,21 @@ class DotFunction extends ASTFunctionNode {
             return dt;
         }
     }
-    override loweringEnter(ctx: unknown, vars: Record<string, any> & { "@dot"?: number }) {
+    override loweringEnter(vars: Record<string, any> & { "@dot"?: number }) {
         vars["@dot"] = (vars["@dot"] ?? 0) + this.n;
         return [];
     }
-    override loweringExit(ctx: unknown, vars: Record<string, any> & { "@dot"?: number }) {
+    override loweringExit(vars: Record<string, any> & { "@dot"?: number }) {
         const dotCnt = (vars["@dot"] ?? 0) - this.n;
         if (dotCnt <= 0) delete vars["@dot"];
         else vars["@dot"] = dotCnt;
         return [];
+    }
+    override timeFlowModel() {
+        return {
+            children: [this.content],
+            mode: "sequence" as const,
+        }
     }
 
     content: ASTNodeBase;

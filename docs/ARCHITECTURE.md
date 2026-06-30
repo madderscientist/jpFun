@@ -52,27 +52,14 @@
 
 ## 后续方向
 
-当前时间流层的 `TemporalNodeRecord` 是 interface，下游渲染需回调 AST 方法，耦合未完全消除。计划引入两层继承体系：
+### TemporalNode 继承体系
 
-- **TemporalNode 继承体系**：每个基础元素类型（note/bar/dash）有自己的子类，携带类型化字段和 `render()` 方法。AST 节点精简为 TemporalNode 的工厂，lowering 后不再被下游引用。
-- **Decoration 继承体系**：装饰性函数（div/dot）创建 Decoration 对象，携带 `applyTimeWrap()` 和 `render()` 方法，替代当前的 `addon` 无类型字典和 `timeWrapConfig` 静态注册。
-- **关系型函数后处理**：beam/tie 不参与时间流，lowering 后用 AST 引用匹配 endpoint，生成关系元数据。
+当前 `TemporalNodeRecord` 是 interface，下游渲染需回调 AST 方法，耦合未完全消除。计划将其改为抽象类，每个基础元素类型（note/bar/dash）有自己的子类，携带类型化字段和 `render()` / `getWidth()` 方法。`onTimeState` 从 AST 节点迁移到 TemporalNode 上，AST 保持不可变，lowering 后不再被下游引用。
 
-这两层继承使引擎只需调用 `node.render(ctx)` 和 `decoration.render(ctx, bounds)`，多态自动分发，无需 switch 或字符串查表。
+### 装饰信息传递：`@` 前缀约定
 
+装饰性函数（div/dot）通过现有 `vars` + `addon` 机制传递参数，`@` 前缀标记"需要快照到事件 addon 的装饰信息"。渲染时遍历 addon 中的 `@` 条目，去掉前缀后查函数注册表，调用对应函数类的 `renderDecoration` 静态方法。这一机制与 LilyPond 的属性表 + engraver 分发模式一致，无需引入额外的类层级。
 
-# 架构
-宗旨：框架实现基础机制，具体功能由函数类自己实现。函数之间松耦合。
+### 关系型函数后处理
 
-## 1. 语法解析
-[语法解析](parseAST.md)
-
-## 2. 时间流化
-[时间流化](lowering.md)
-
-之后的两个树是两个相对独立的分支。他们之间通过源码树进行链接。【我在想是不是要引入id、用Map进行索引？还是直接引用对象？感觉前者更好维护】
-## 音乐语义树
-从源码解析树中创建
-
-## 排版树
-从源码解析树中创建
+beam/tie 不参与时间流，lowering 后用 AST 引用匹配 endpoint，生成关系元数据传给渲染层。

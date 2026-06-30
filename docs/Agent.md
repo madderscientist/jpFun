@@ -197,13 +197,13 @@ TrackB: 1  2
 
 ### 9.1 TemporalNode 继承体系（替代 interface）
 
-将 `TemporalNodeRecord` 从 interface 改为抽象类，每个基础元素类型（note/bar/dash）有自己的子类，携带类型化字段和 `render()` 方法。
+将 `TemporalNodeRecord` 从 interface 改为抽象类，每个基础元素类型（note/bar/dash）有自己的子类，携带类型化字段和 `render()` / `getWidth()` 方法。
 
 ```
 TemporalNode (abstract)
 ├── t, T, track, order, type        // 引擎填充
 ├── source: ASTNodeBase             // 只读源映射
-├── decorations: Decoration[]        // 引擎从栈中附加
+├── addon: Record<string, any>      // @ 前缀装饰信息快照
 ├── abstract render(ctx): RenderBounds
 ├── onTimeState?(state): void      // 从AST迁移到此类
 │
@@ -215,30 +215,25 @@ TemporalNode (abstract)
 
 关键变化：`onTimeState` 从 AST 节点移到 TemporalNode 上。AST 节点在 lowering 后不再被下游引用（`source` 仅用于调试/高亮/关系匹配）。AST 保持不可变。
 
-### 9.2 Decoration 继承体系
+### 9.2 装饰信息传递：保持 `@` 前缀方案
 
-装饰性函数（div/dot）创建 `Decoration` 对象，携带时间变换和渲染行为：
+装饰性函数（div/dot）继续通过 `vars` + `addon` 机制传递参数，不引入 Decoration 类层级：
 
-```
-Decoration (abstract)
-├── priority: number
-├── applyTimeWrap?(dt): number    // 替代 timeWrapConfig
-├── abstract render(ctx, bounds)  // 装饰渲染
-│
-├── DivDecoration { count, applyTimeWrap, render() }
-└── DotDecoration { count, applyTimeWrap, render() }
-```
+- **写入**：`loweringEnter` 中 `vars["@dot"] = count`
+- **时间变换**：`timeWrapConfig.func` 读 `vars["@dot"]`（现有机制）
+- **快照**：引擎将 `@` 前缀的 vars 拷贝到事件 `addon`
+- **渲染分发**：遍历 addon 中 `@` 条目 → 去前缀 → 查函数注册表 → 调 `renderDecoration(ctx, value, bounds)`
 
-引擎维护 `decorationStack`：`loweringEnter` 压栈、`loweringExit` 弹出。每个新生成的 TemporalNode 自动附加栈中所有 Decoration。时间变换按 priority 排序后依次应用。
+该方案与 LilyPond 的属性表 + engraver 分发模式一致，无需引入额外的类层级。每个函数自管理键名，引擎零改动即可支持新装饰。
 
 ### 9.3 AST 节点职责精简为工厂
 
-AST 节点在 lowering 中的角色变为 TemporalNode/Decoration 的工厂：
+AST 节点在 lowering 中的角色变为 TemporalNode 的工厂：
 
-```typescript
-// NoteFunction.loweringEnter → new NoteTemporal({...})
-// DivFunction.loweringEnter  → ctx.pushDecoration(new DivDecoration(this.n))
-// BarFunction.loweringEnter  → new BarTemporal({ type: ANCHOR })
+```
+NoteFunction.loweringEnter → new NoteTemporal({...})
+DivFunction.loweringEnter  → vars["@div"] = this.n（现有机制不变）
+BarFunction.loweringEnter  → new BarTemporal({ type: ANCHOR })
 ```
 
 ### 9.4 关系型函数作为后处理 pass

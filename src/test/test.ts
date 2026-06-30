@@ -2,6 +2,7 @@ import { ParserContext } from "../parser/parserContext.js";
 import { defaultFunctions } from "../functions/default.js";
 import { preprocessSource } from "../parser/preprocess.js";
 import { ASTBraceNode } from "../functions/ASTtypes.js";
+import { LoweringContext } from "../lowering/loweringContext.js";
 
 function parseScript(source: string) {
     console.log("原始源码:");
@@ -20,14 +21,21 @@ function parseScript(source: string) {
     return { ctx, success, lineStarts, maskedSource };
 }
 
+function lowering(node: ASTBraceNode) {
+    const ctx = new LoweringContext();
+    ctx.registerTimeWrapFunc(defaultFunctions);
+    const columns = ctx.lowering(node);
+    return { ctx, columns };
+}
+
 const testInput = `@set(text="100% ok")   % 字符串内的%不触发注释
 @.(@n(F#,,4,"#00f"))@1 @unknown(C4, 3)C3/@2 ; @tie(1,2) C4 . /
 @voice(
-    {@note(C4,4)/ #5,,. | {4b4}//},
+    {@note(C4,,4)/ #5,,. | {4b4}//},
     男 = ha-ha, % 测试
     女 = la la
 )
-N(测试): A1& A2 &{D#/F} :|| #1\\
+N(测试): A1& B2 &{D#/F} :| #1\\
 b4
 L: 测试voice语法糖
 L(歌词2): 测试\\
@@ -41,6 +49,7 @@ L(歌词2): 测试\\
 @over({#4', | Eb//}, F#5..)
 `;
 
+console.log("========== test parser ==========");
 const legacy = parseScript(testInput);
 console.log("解析结果:");
 console.log(legacy.success);
@@ -51,3 +60,7 @@ console.log("诊断信息：");
 for (const diag of legacy.ctx.diagnostics) {
     console.log(diag.toLineCol(legacy.lineStarts), diag.message);
 }
+console.log("\n========== test time flow ==========");
+const timeflow = lowering(node);
+console.log("时间流结果:");
+console.log(timeflow.columns);

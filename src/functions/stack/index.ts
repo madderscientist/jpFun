@@ -78,6 +78,7 @@ class StackFunction extends ASTFunctionNode {
     contents: ASTNodeBase[] = [];
     override get children() { return this.contents; }
     override timeFlowModel() {
+        console.log("stack timeFlowModel", this.contents.length);
         return {
             children: this.contents,
             mode: "parallel" as const
