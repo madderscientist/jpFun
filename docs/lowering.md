@@ -25,7 +25,7 @@ function applyTimeWrap(base: number, dotCnt: number, divCnt: number): number {
 
 作用域在 `parse` 阶段是使用上下文的复制实现的，只需要在进入新作用域前复制一次、离开时自动弹出即可。但是这里，进入和离开其实都有操作。比如 `box`，需要标记开头和结尾的位置（这两个位置也要进入layout求解），因此这里的上下文维护引入了 `loweringEnter` 和 `loweringExit` 两个 hook，在里面修改/复原上下文，并增加时间事件。
 
-为了保证后续的解耦，上下文也要固化到每个节点中。目前的选择是放到 `addon` 中。
+为了保证后续的解耦，上下文也要固化到每个节点中。目前的选择是放到 `addon` 中。设置了一个机制：只加入上下文中以 `@` 开头的字段，所以比如附点的个数需要存储到 `@dot` 中。后面的字符预计用于绘制时查找回调。
 
 
 ## 锚点对齐和时间信息固化
@@ -55,9 +55,24 @@ TrackB: 1  2
 ## 总结
 为了完成这一步，需要给 AST 节点增加：
 - `timeWrapConfig`：注册时间变换函数，可选
-- `loweringEnter`：进入时的 hook，可选
-- `loweringExit`：离开时的 hook，可选
-- `onTimeState`：时间固化的 hook
+- `loweringEnter`：进入时的 hook
+- `loweringExit`：离开时的 hook
+
+为了让结构更加清晰，将时间固化的对象变成了一个新的类体系——`TemporalNode`，AST 的 `loweringEnter` 和 `loweringExit` 就返回这个类型的列表。在 AST 成型后，就不应该修改了，之后的所有操作都是对这个类的操作。
+
+为了完成时间分配与固化，这个类需要有以下属性：
+- `t` `T` 起始时间和时长
+- `type`：类型，普通事件、锚点事件、单独成列事件
+- `onTimeState`：时间固化的 hook，可选
+- `ast`：引用产生自己的 AST 节点，保证可以溯源到 `span`
+
+目前还加了一些属性给之后使用：
+- `track`：轨道标识符，给 layout 用
+- `order`：相当于 ID，暂时不知道有什么用
+- `addon`：附加属性，给 render 用
+
+每个子类还有自己的属性，比如音符在时间固化之后的音高、渲染信息等。
+
 
 ## 之前的想法
 将`div` `dot` 这类紧密修饰音符的元素合并到整个音符中，得到音符对象。
