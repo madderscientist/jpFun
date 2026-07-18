@@ -2,6 +2,7 @@
 import type { ParserContext, deSugarAtomFunction, deSugarRelationFunction } from "../parser/parserContext.js";
 import { Diagnostic } from "../parser/diagnostic.js";
 import type { TemporalNodeBase, TimeFlowMode, TimeWrapConfig } from "../lowering/types.js";
+import type { LoweringContext } from "../lowering/loweringContext.js";
 
 export type { SourceSpan, ParserContext, LengthValue };
 export type paramType = "string" | "number" | "boolean" | "length" | "content" | "label";
@@ -28,9 +29,11 @@ export class ASTNodeBase {
 
     /**
      * 进入当前层级的回调
+     * @param vars 当前的 lowering 上下文变量表
+     * @param ctx 当前的 lowering 上下文，用于执行某些不想对外暴露的展开；可空目的是允许别的函数调用该 hook
      * @returns 事件 时长会自动进行变形
      */
-    loweringEnter(vars: Record<string, any>): Iterable<TemporalNodeBase> {
+    loweringEnter(vars: Record<string, any>, ctx?: LoweringContext): Iterable<TemporalNodeBase> {
         return [];
     }
 
@@ -47,7 +50,7 @@ export class ASTNodeBase {
     /**
      * 离开当前层级的回调 同 loweringEnter
      */
-    loweringExit(vars: Record<string, any>): Iterable<TemporalNodeBase> {
+    loweringExit(vars: Record<string, any>, ctx?: LoweringContext): Iterable<TemporalNodeBase> {
         return [];
     }
 

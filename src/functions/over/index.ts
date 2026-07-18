@@ -2,6 +2,7 @@ import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, AS
 import { ParserContext, deSugarRelationFunction } from "../../parser/parserContext.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { ErrorDiagnostic } from "../../parser/diagnostic.js";
+import { ColType, TemporalNodeBase } from "../../lowering/types.js";
 
 class OverFunction extends ASTFunctionNode {
     static def: FunctionDef = {
@@ -119,3 +120,16 @@ class OverFunction extends ASTFunctionNode {
 }
 
 export const OverNode: ASTFunctionClass = OverFunction;
+
+// 到底应该当成一个节点、隐藏内部，还是暴露？
+// 暴露的话 layout model 是有机制的，但是在 lowering 的接口中返回不能是 columns，要这么做得修改机制
+// 隐藏的话在什么时候进行暴露？
+class OverNodeTemporal extends TemporalNodeBase {
+    constructor(ast: OverFunction) {
+        super();
+        this.ast = ast;
+        this.T = 1;
+        this.t = 0;
+        this.type = ColType.DEFAULT;
+    }
+}
