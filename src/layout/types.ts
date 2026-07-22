@@ -139,15 +139,6 @@ export type LayoutDecorationHandler = (
 ) => LayoutDecoration | null;
 
 /**
- * 函数类用于注册装饰排版行为的静态声明
- * key 与 lowering addon 中的字段完全一致
- */
-export interface LayoutDecorationConfig {
-    key: string;                         // 对应 Temporal addon 中的完整字段名
-    handler: LayoutDecorationHandler;    // 根据 addon 值创建当前对象的装饰
-}
-
-/**
  * 不占用时间、附着于一个或多个主体对象的独立排版对象
  *
  * tie、beam、box 和歌词都使用这个接口

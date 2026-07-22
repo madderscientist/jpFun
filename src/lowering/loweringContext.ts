@@ -104,7 +104,7 @@ export class LoweringContext {
     /**
      * 以 @ 开头的属性会被认为要加入子节点中
      * 命名规则：@${函数名}
-     * layout 根据完整 key 查询函数类注册的装饰 handler
+     * 后续 layout 用同样的规则查询 handler 来消费该属性
      */
     private static attachDecoration(vars: Record<string, any>, addon?: Record<string, any>) {
         let result = addon;

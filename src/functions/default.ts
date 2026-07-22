@@ -9,6 +9,7 @@ import { KeyNode } from "./key/index.js";
 import { BrNode } from "./br/index.js";
 import { NoteNode } from "./note/index.js";
 import { OverNode } from "./over/index.js";
+import { PageNode } from "./page/index.js";
 import { StackNode } from "./stack/index.js";
 import { SetNode } from "./set/index.js";
 import { TempoNode } from "./tempo/index.js";
@@ -21,6 +22,7 @@ export const defaultFunctions: ASTFunctionClass[] = [
     DivNode, DotNode,   // 装饰性
     VoiceNode,  // 歌词
     BrNode,     // 排版
+    PageNode,   // 文档页面
     StackNode,   // 时间同步
     OverNode,
     TieNode, BeamNode,

@@ -8,11 +8,16 @@ import type {
     TimeWrapConfig,
 } from "../lowering/types.js";
 import type { LoweringContext } from "../lowering/loweringContext.js";
-import type { LayoutDecorationConfig } from "../layout/types.js";
+import type { LayoutDecorationHandler } from "../layout/types.js";
 
 export type { SourceSpan, ParserContext, LengthValue };
 export type paramType = "string" | "number" | "boolean" | "length" | "content" | "label";
 export type paramValue = string | number | boolean | LengthValue | ASTBraceNode | ASTNodeBase;
+
+/** 函数作用域中需要固化到 Temporal.addon 的变量统一使用 `@主函数名` */
+export function functionAddonKey<const Name extends string>(name: Name): `@${Name}` {
+    return `@${name}`;
+}
 
 export class ASTNodeBase {
     sourceSpan: SourceSpan; // 和源码的映射
@@ -48,7 +53,7 @@ export class ASTNodeBase {
      * 装饰函数可选的排版声明
      * layout 引擎按 key 收集，不需要识别具体函数类
      */
-    static layoutDecorationConfig?: LayoutDecorationConfig;
+    static layoutDecorationHandler?: LayoutDecorationHandler;
 
     /**
      * 进入当前层级的回调

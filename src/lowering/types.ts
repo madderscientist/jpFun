@@ -111,7 +111,7 @@ export class TemporalNodeBase implements TimeLineEvent {
      * 生命周期：
      * 1. layout 的 prepareObject 开始时创建或清空数组；
      * 2. Temporal.prepareLayout 可先加入节点自身的装饰，例如下八度点；
-     * 3. 引擎再通过 addon 对应的 layoutDecorationConfig handler 加入函数装饰；
+     * 3. 引擎再通过 addon 对应的 layoutDecorationHandler 加入函数装饰；
      * 4. arrangeBelowDecorations 按 belowOrder 分配主体下方空间并调用 place；
      * 5. 最终 paintLayout 在主体 paint 后依次调用 decoration.paint。
      *

@@ -42,7 +42,7 @@ function applyTimeWrap(base: number, dotCnt: number, divCnt: number): number {
 
 作用域在 `parse` 阶段使用上下文复制，只需要在进入新作用域前复制一次。lowering 还需要在节点进入和离开时分别修改状态或管理排版分组，因此提供 `loweringEnter` 和 `loweringExit` 两个 hook。hook 可以生成时间事件，也可以只操作 `LoweringContext`，例如 box 用它们开始和结束成员收集。
 
-为了保证后续的解耦，需要把装饰上下文固化到对应事件的 `addon`。只有以 `@` 开头的字段会被快照，例如附点数量存储在 `@dot`。layout 使用完整 key 查询函数类注册的 `layoutDecorationConfig`，不判断具体装饰函数。
+为了保证后续的解耦，需要把装饰上下文固化到对应事件的 `addon`。只有以 `@` 开头的字段会被快照，例如附点数量存储在 `@dot`。layout 同样的命名规则，查询函数类注册的 `layoutDecorationHandler`。
 
 ## 锚点对齐和时间信息固化
 时间信息固化指的是根据时间上下文对属性进行固化。比如如果音符是简谱记法，则绝对音高和当前调性有关。固化 hook 位于 Temporal 节点上，AST 保持只读。Temporal 仍保留产生自己的 AST 引用，用于 SourceSpan、标签端点映射和编辑器定位。
