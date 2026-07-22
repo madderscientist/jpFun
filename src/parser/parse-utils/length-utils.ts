@@ -1,7 +1,7 @@
 import { Diagnostic } from "../diagnostic.js";
 import { LengthValue } from "../types.js";
 
-const LENGTH_RE = /^([\d.]+)([a-z%]+)?$/i;
+const LENGTH_RE = /^(-?(?:\d+(?:\.\d*)?|\.\d+))([a-z%]+)?$/i;
 const availableUnits = ["em", "px"];
 
 export function parseLength(value: string): LengthValue | Diagnostic {

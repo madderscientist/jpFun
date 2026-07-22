@@ -23,8 +23,8 @@ function parseScript(source: string) {
 
 function lowering(node: ASTBraceNode) {
     const ctx = new LoweringContext();
-    ctx.registerTimeWrapFunc(defaultFunctions);
-    const columns = ctx.lowering(node);
+    ctx.registerFunctions(defaultFunctions);
+    const columns = ctx.lowerDocument(node).columns;
     return { ctx, columns };
 }
 

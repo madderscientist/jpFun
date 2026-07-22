@@ -1,20 +1,86 @@
 import { ASTFunctionClass, ASTNodeBase } from "../functions/ASTtypes.js";
-import { ColType, TemporalNodeBase, TimeWrapFunc, TimeWrapConfig } from "./types.js";
+import type {
+    LayoutAttachment,
+    LayoutBox,
+    PageConfig,
+} from "../layout/types.js";
+import {
+    ColType,
+    TemporalNodeBase,
+    TimeWrapFunc,
+    TimeWrapConfig,
+    type LoweringFinalizer,
+    type LoweringResult,
+} from "./types.js";
 
+interface ActiveLayoutGroup {
+    owner: ASTNodeBase;                  // 用于验证分组严格按栈顺序结束
+    attachment: LayoutAttachment;        // 分组结束后注册的附属布局对象
+    boxes?: LayoutBox[];                 // box 等范围对象需要的成员盒 包括 attachment 的盒子
+    temporals?: TemporalNodeBase[];      // voice/div 等关系对象需要的成员事件
+}
+
+/**
+ * 把 AST 展开并固化为时间列、attachment 和页面配置
+ *
+ * 标准用法：
+ * 1. 创建 LoweringContext
+ * 2. 调用 registerFunctions，传入与 parser 相同的函数类列表
+ * 3. 调用 lowerDocument(root)，得到 LoweringResult
+ * 4. 把结果交给 layoutDocument
+ *
+ * 大多数 AST 函数通过以下入口参与 lowering（按时间顺序）：
+ * - [hook] loweringEnter/loweringExit：进入或离开节点时修改 vars、生成 TemporalNode
+ * - [API] LoweringContext.beginLayoutGroup/endLayoutGroup：通常在 enter/exit 中被调用，以栈方式收集当前子树产生的 box、TemporalNode 和嵌套 attachment；供 box、voice 使用
+ * - [API] LoweringContext.addLayoutAttachment：注册不推进时间的独立排版对象，供 tie、beam 等函数使用；若当前位于分组中，其 box 也会加入外层分组
+ * - [config] timeWrapConfig：注册 div、dot 等时长变换；被 LoweringContext 调用
+ * - [config] timeFlowModel：声明子节点按 sequence 或 parallel 推进时间
+ * - [hook] Temporal.onTimeState：锚点归并后固化调性、速度等状态
+ * - [hook] loweringFinalize：最终列和 layoutLine 固化后扫描结果并生成要追加的 attachment
+ */
 export class LoweringContext {
     private timeWrapFuncs: TimeWrapFunc[] = [];
+    private loweringFinalizers: LoweringFinalizer[] = [];
     private cnt = 0;  // 生成唯一id的计数器
 
-    registerTimeWrapFunc(functionClasses: ASTFunctionClass[]) {
+    /** 不推进时间的关系对象和分组对象 */
+    private attachments: LayoutAttachment[] = [];
+
+    /** 当前完整文档的页面配置；fragment 会暂时隔离 */
+    private page?: PageConfig;
+
+    /**
+     * 一个 AST 节点可能不产生 temporal，也可能产生多个 temporal
+     * 不包含子节点的 TemporalNode
+     */
+    private astToTemporal = new Map<ASTNodeBase, TemporalNodeBase[]>();
+
+    /**
+     * 当前递归路径上正在收集成员的分组，用 beginLayoutGroup 和 endLayoutGroup 管理
+     * 被 box 和 voice 等函数使用
+     */
+    private activeLayoutGroups: ActiveLayoutGroup[] = [];
+
+
+    /** 供外部调用: 初始化 hook */
+    registerFunctions(functionClasses: ASTFunctionClass[]) {
         const configs: TimeWrapConfig[] = [];
+        const finalizers: LoweringFinalizer[] = this.loweringFinalizers = [];
         for (const cls of functionClasses) {
-            const cfg = (cls as unknown as typeof ASTNodeBase).timeWrapConfig;
+            const functionClass = cls as unknown as typeof ASTNodeBase;
+            const cfg = functionClass.timeWrapConfig;
             if (cfg) configs.push(cfg);
+            if (functionClass.loweringFinalize) finalizers.push(functionClass.loweringFinalize);
         }
         // 按优先级排序
         configs.sort((a, b) => b.priority - a.priority);
         // 提取时间变换函数
         this.timeWrapFuncs = configs.map(config => config.func);
+    }
+
+    /** 供 page 函数调用 */
+    setPageConfig(page: PageConfig) {
+        this.page = page;
     }
 
     /**
@@ -35,27 +101,143 @@ export class LoweringContext {
         return base + String.fromCharCode(newOffset);
     }
 
-    // 以 @ 开头的属性会被认为要加入子节点中
-    // 命名规则：@${函数名}
-    // 未来会被用于反向查找函数
-    static attachDecoration(vars: Record<string, any>, addon: Record<string, any> = {}) {
+    /**
+     * 以 @ 开头的属性会被认为要加入子节点中
+     * 命名规则：@${函数名}
+     * layout 根据完整 key 查询函数类注册的装饰 handler
+     */
+    private static attachDecoration(vars: Record<string, any>, addon?: Record<string, any>) {
+        let result = addon;
+        // 只在发现需要快照的 @ 字段时创建 addon
         for (const key in vars) {
-            if (key[0] === "@" && vars[key] !== void 0) addon[key] = vars[key];
-        } return addon;
+            if (key[0] !== "@" || vars[key] === void 0) continue;
+            (result ??= {})[key] = vars[key];
+        } return result;
     }
 
-    // 主函数
-    lowering(node: ASTNodeBase) {
-        // 获取时间列
-        const { columns } = this.trackedEvents(node);
-        // 时间固化
-        const vars: Record<string, any> = {};
-        for (const col of columns) {
-            for (const n of col) {
-                n.onTimeState?.(vars);
+    /**
+     * 完整 lowering 入口
+     *
+     * 每次调用都会重置本轮产生的数据
+     * 已注册的时间变换函数会保留，可以复用同一个 LoweringContext
+     */
+    lowerDocument(node: ASTNodeBase): LoweringResult {
+        this.cnt = 0;
+        this.attachments = [];
+        this.page = undefined;
+        this.astToTemporal = new Map();
+        this.activeLayoutGroups = [];
+
+        const { columns, timeOffset } = this.trackedEvents(node);
+        this.solidifyColumns(columns, {});
+        return this.finalizeResult({
+            columns,
+            attachments: this.attachments,
+            astToTemporal: this.astToTemporal,
+            duration: timeOffset,
+            page: this.page,
+        });
+    }
+
+    /**
+     * 为 over 等复合节点执行隔离的局部 lowering
+     *
+     * 局部事件继续写入共享的 AST 映射，关系函数仍能找到它们
+    * 局部 attachment 和分组不会进入全局列表，避免被全局 layout 重复处理
+     * 本方法不执行 onTimeState，复合节点会在自己的时间点传入外层状态快照
+     */
+    lowerFragment(
+        node: ASTNodeBase,
+        vars: Record<string, any> = {},
+    ): LoweringResult {
+        const outerAttachments = this.attachments;
+        const outerGroups = this.activeLayoutGroups;
+        const outerPage = this.page;
+        this.attachments = [];
+        this.activeLayoutGroups = [];
+        this.page = undefined;
+
+        try {
+            const { columns, timeOffset } = this.trackedEvents(node, vars, 0, String.fromCharCode(0));
+            // 局部 fragment 不固化时间状态，但需要从 0 开始固化相对行号
+            this.solidifyColumns(columns);
+            return this.finalizeResult({
+                columns,
+                attachments: this.attachments,
+                astToTemporal: this.astToTemporal,
+                duration: timeOffset,
+                page: this.page,
+            });
+        } finally {
+            this.attachments = outerAttachments;
+            this.activeLayoutGroups = outerGroups;
+            this.page = outerPage;
+        }
+    }
+
+    /**
+     * 把 TimeColumn 中的临时偏移转换为实际行号，并进行时间固化
+     * state 仅在完整文档 lowering 时传入，局部 fragment 会跳过 onTimeState
+     */
+    private solidifyColumns(columns: TimeColumn[], state?: Record<string, any>) {
+        let line = 0;
+        for (const column of columns) {
+            const offset = column.maxLineOffset;
+            line += offset;
+            column.layoutLine = line;
+            if (state) {
+                for (const node of column) node.onTimeState?.(state);
             }
         }
-        return columns;
+    }
+
+    /**
+     * 开始收集一个分组作用域
+     * boxes 和 temporals 均按辅助对象需求可选，避免创建无用成员数组
+     */
+    beginLayoutGroup(
+        owner: ASTNodeBase,
+        attachment: LayoutAttachment,
+        boxes?: LayoutBox[],
+        temporals?: TemporalNodeBase[],
+    ) {
+        this.activeLayoutGroups.push({ owner, attachment, boxes, temporals });
+    }
+
+    /**
+     * 结束最近的分组并注册其辅助排版对象
+     * 嵌套分组按退出顺序注册，因此天然是由内向外计算边界
+     */
+    endLayoutGroup(owner: ASTNodeBase) {
+        const group = this.activeLayoutGroups.pop();
+        if (!group) throw new Error("No active layout group to end");
+        if (group.owner !== owner) throw new Error("Layout groups must end in reverse order");
+        this.addLayoutAttachment(group.attachment);
+    }
+
+    /** 函数自行解释固化后的事件流，LoweringContext 不识别具体关系规则 */
+    private finalizeResult(result: LoweringResult): LoweringResult {
+        for (const finalize of this.loweringFinalizers) {
+            for (const attachment of finalize(result)) this.addLayoutAttachment(attachment);
+        } return result;
+    }
+
+    /**
+     * 注册不推进时间的排版对象
+     * 被 tie、beam、box 等函数使用
+     */
+    addLayoutAttachment(attachment: LayoutAttachment) {
+        this.attachments.push(attachment);
+        for (const group of this.activeLayoutGroups) {
+            group.boxes?.push(attachment.box);
+        }
+    }
+
+    /**
+     * 查询 AST 节点在当前 lowering 中产生的所有 temporal 节点
+     */
+    getTemporalNodes(ast: ASTNodeBase): readonly TemporalNodeBase[] {
+        return this.astToTemporal.get(ast) ?? [];
     }
 
     /**
@@ -67,7 +249,7 @@ export class LoweringContext {
      * @param track 父轨道的id
      * @returns 时间偏移,列
      */
-    trackedEvents(
+    private trackedEvents(
         node: ASTNodeBase,
         vars: Record<string, any> = {},
         timeOffset: number = 0,
@@ -77,20 +259,12 @@ export class LoweringContext {
         columns: TimeColumn[]
     } {
         const columns: TimeColumn[] = [];
-        // 如果是叶节点，可以在这里处理
-        const beforeEvents = node.loweringEnter(vars);
-        for (const b of beforeEvents) {
-            // 直接修改，防止引用关系改变; 比如允许 addon 中存储对象供后续使用
-            b.t = timeOffset + (b.t ?? 0);
-            b.T = b.T === void 0 ? 0 : this.applyTimeWrap(vars, b.T);
-            b.track = LoweringContext.getTrackId(track, b.track);
-            b.ast = b.ast ?? node;
-            b.order = this.cnt++;
-            b.addon = LoweringContext.attachDecoration(vars, b.addon);
-            b.type ??= b.T === 0 ? ColType.SINGLE : ColType.DEFAULT;    // T=0 一般也不会绘制，放在前面
-            timeOffset = Math.max(timeOffset, b.t + b.T);
-            columns.push(new TimeColumn(b));
-        }
+        timeOffset = this.appendEvents(
+            node.loweringEnter(vars, this),
+            node, vars, timeOffset,
+            track, columns,
+        );
+
         // 处理子元素
         const model = node.timeFlowModel();
         if (model) {
@@ -99,7 +273,7 @@ export class LoweringContext {
                     for (const c of model.children) {
                         const result = this.trackedEvents(c, vars, timeOffset, track);
                         timeOffset = result.timeOffset;
-                        columns.push(...result.columns);
+                        for (const column of result.columns) columns.push(column);
                     }
                 } break;
                 case "parallel": {
@@ -112,26 +286,63 @@ export class LoweringContext {
                         cols.push(result.columns);
                     }
                     // 归并 局部归并以限制对齐作用域
-                    columns.push(...LoweringContext.anchorAlign(cols));
+                    for (const column of LoweringContext.anchorAlign(cols)) columns.push(column);
                     const lastCol = columns[columns.length - 1];
                     if (lastCol) timeOffset = lastCol.t + lastCol.reduce((maxT, n) => Math.max(maxT, n.T), 0);
                 } break;
             }
         }
-        // 如果是叶节点，可以在这里处理
-        const afterEvents = node.loweringExit(vars);
-        for (const b of afterEvents) {
-            b.t = timeOffset + (b.t ?? 0);
-            b.T = b.T === void 0 ? 0 : this.applyTimeWrap(vars, b.T);
-            b.track = LoweringContext.getTrackId(track, b.track);
-            b.ast = b.ast ?? node;
-            b.order = this.cnt++;
-            b.addon = LoweringContext.attachDecoration(vars, b.addon);
-            b.type ??= b.T === 0 ? ColType.SINGLE : ColType.DEFAULT;
-            timeOffset = Math.max(timeOffset, b.t + b.T);
-            columns.push(new TimeColumn(b));
-        }
+        timeOffset = this.appendEvents(
+            node.loweringExit(vars, this),
+            node, vars, timeOffset,
+            track, columns,
+        );
         return { timeOffset, columns };
+    }
+
+    /**
+     * 将 hook 返回的事件规范化并追加到时间列
+     * enter 和 exit 必须共享完全相同的初始化顺序
+     */
+    private appendEvents(
+        events: Iterable<TemporalNodeBase>,
+        owner: ASTNodeBase,
+        vars: Record<string, any>,
+        timeOffset: number,
+        track: string,
+        columns: TimeColumn[],
+    ): number {
+        for (const event of events) {
+            // 原地补全字段，保留 addon 内部对象的引用关系
+            event.t = timeOffset + (event.t ?? 0);
+            event.T = event.T === void 0 ? 0 : this.applyTimeWrap(vars, event.T);
+            event.track = LoweringContext.getTrackId(track, event.track);
+            event.ast = event.ast ?? owner;
+            event.order = this.cnt++;
+            event.addon = LoweringContext.attachDecoration(vars, event.addon);
+            event.type ??= event.T === 0 ? ColType.SINGLE : ColType.DEFAULT;
+
+            this.registerTemporal(event);
+            timeOffset = Math.max(timeOffset, event.t + event.T);
+            columns.push(new TimeColumn(event));
+        } return timeOffset;
+    }
+
+    /**
+     * 记录事件来源并把它加入当前所有分组
+     * 同一个对象只会在创建时经过这里一次
+     */
+    private registerTemporal(node: TemporalNodeBase) {
+        // 记录 AST->TemporalNode 的映射
+        const existing = this.astToTemporal.get(node.ast);
+        if (existing) existing.push(node);
+        else this.astToTemporal.set(node.ast, [node]);
+
+        // 加入当前正在收集的分组
+        for (const group of this.activeLayoutGroups) {
+            if (node.box) group.boxes?.push(node.box);
+            group.temporals?.push(node);
+        }
     }
 
     /**
@@ -346,6 +557,18 @@ class TimeColumn extends Array<TemporalNodeBase> {
     }
     set t(value: number) {
         for (const n of this) n.t = value;
+    }
+
+    /** 当前列开始前的最大临时行偏移 */
+    get maxLineOffset() {
+        let offset = 0;
+        for (const node of this) offset = Math.max(offset, node.layoutLine);
+        return offset;
+    }
+
+    /** 将当前列所有事件的临时偏移覆盖为 lowering 后的实际行号 */
+    set layoutLine(value: number) {
+        for (const node of this) node.layoutLine = value;
     }
 }
 

@@ -31,6 +31,12 @@ export type deSugarRelationFunction = (ctx: ParserContext, nodes: (GrammarNode |
 
 // 解析上下文
 export class ParserContext {
+    /** 根解析器为 0，内容参数和大括号子解析器依次加一 */
+    readonly scopeDepth: number;
+
+    /** 文档级声明（只准有一个）在所有子解析器之间共享 */
+    private documentDeclarations: Set<string>;
+
     /**
      * 源代码
      */
@@ -74,6 +80,8 @@ export class ParserContext {
     }) {
         if (ctx instanceof ParserContext) {
             // 构建子上下文
+            this.scopeDepth = ctx.scopeDepth + 1;
+            this.documentDeclarations = ctx.documentDeclarations;
             this.source = ctx.source;
             this.diagnostics = ctx.diagnostics; // 诊断信息全局共享
             this.variables = { ...ctx.variables };  // 继承但不修改父上下文的变量
@@ -83,6 +91,8 @@ export class ParserContext {
             this.labelableNodes = ctx.labelableNodes;   // 标签是全局属性
             this.nodes = [];    // 待消费节点不共享，每个上下文单独维护
         } else {
+            this.scopeDepth = 0;
+            this.documentDeclarations = new Set();
             this.source = ctx.source;
             this.diagnostics = ctx.diagnostics ?? [];
             this.variables = ctx.variables ?? {};
@@ -92,6 +102,13 @@ export class ParserContext {
             if (ctx.functions) [this.deSugarAtomFns, this.deSugarRelationFns] = ParserContext.getDeSugarFns(this.functions.values());
             else this.deSugarAtomFns = [], this.deSugarRelationFns = [];
         }
+    }
+
+    /** 用于保证同类声明只出现一次 */
+    claimDocumentDeclaration(name: string): boolean {
+        if (this.documentDeclarations.has(name)) return false;
+        this.documentDeclarations.add(name);
+        return true;
     }
 
     static getDeSugarFns(classes: Iterable<ASTFunctionClass>): [

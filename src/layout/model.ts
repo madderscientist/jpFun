@@ -2,29 +2,15 @@
  * 基于弹簧的有时长物体排版模型 原理参考 docs/layout.md
  * 基本使用: 借助 layoutElement() 构建 LayoutElement[][]，调用 layout() 函数进行排版
  */
-import { type LayoutBox } from "./types.js";
-import { type TimeLineEvent } from "../lowering/types.js";
+import type { LayoutBox, ElementConfig } from "./types.js";
+import { type TimeLineEvent } from "./types.js";
 
 const DEFAULT_F = 1.0;  // 多大力让一行的 margin 全变为 0
-const DEFAULT_ALPHA = 1.0;
+const DEFAULT_ALPHA = 6;    // 控制无约束时元素的margin
 const DEFAULT_MU = 16;
 const DEFAULT_CROSS_PUNISH = 32;
 
-/**
- * 元素弹簧物理配置接口
- */
-export interface ElementConfig {
-    anchor: number;     // 对齐点到盒子左边界的距离
-    // 下面是物理属性
-    alpha_L?: number;   // 左侧固有弹性间距系数
-    alpha_R?: number;   // 增加该值会增加弹簧长度
-    mu_L?: number;      // 左侧重叠阻尼惩罚系数
-    mu_R?: number;      // 增加该值可以减少“穿模”
-    beta_L?: number;    // 左侧弹性系数
-    beta_R?: number;    // 建议不设置beta 依赖 layoutElement() 自动计算
-}
-
-type _LayoutBox = Pick<LayoutBox, 'w' | 'x'>;
+type _LayoutBox = Pick<LayoutBox, 'w' | 'x' | 'anchor'>;
 export interface LayoutElement {
     config: Required<ElementConfig>;
     box: _LayoutBox;
@@ -59,13 +45,13 @@ export function layoutElement(
     config.beta_R ??= F / config.alpha_R;
 
     // 最小时长限制，与非线性变换（美观）
-    const duration = Math.pow(Math.max(time.T, MIN_DURATION), 0.6);
+    const duration = Math.pow(Math.max(time.T, MIN_DURATION), 0.5);
 
     return {
         config: config as Required<ElementConfig>,
         box, time, duration,
-        WL: config.anchor,
-        WR: box.w - config.anchor,
+        WL: box.anchor,
+        WR: box.w - box.anchor,
         margin_L: duration * config.alpha_L,
         margin_R: duration * config.alpha_R,
     };
@@ -128,7 +114,7 @@ function fillPlaceholders(columns: LayoutElement[][], F: number = DEFAULT_F): {
                     alpha_L: maxLeft,
                     alpha_R: maxRight,
                 } as ElementConfig, {
-                    x: 0, w: 0
+                    x: 0, w: 0, anchor: 0
                 } as _LayoutBox, {
                     t: colTime, T: 1, track: rowId[0]
                 } as TimeLineEvent, F);
@@ -233,7 +219,7 @@ export function layout(
     function backfillX() {
         for (let c = 0; c < numCols; c++) {
             for (const el of mat[c]) {
-                el.box.x = X[c] - el.config.anchor;
+                el.box.x = X[c] - el.box.anchor;
             }
         }
     }

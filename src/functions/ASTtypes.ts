@@ -1,8 +1,14 @@
 ﻿import type { SourceSpan, LengthValue } from "../parser/types.js";
 import type { ParserContext, deSugarAtomFunction, deSugarRelationFunction } from "../parser/parserContext.js";
 import { Diagnostic } from "../parser/diagnostic.js";
-import type { TemporalNodeBase, TimeFlowMode, TimeWrapConfig } from "../lowering/types.js";
+import type {
+    LoweringFinalizer,
+    TemporalNodeBase,
+    TimeFlowMode,
+    TimeWrapConfig,
+} from "../lowering/types.js";
 import type { LoweringContext } from "../lowering/loweringContext.js";
+import type { LayoutDecorationConfig } from "../layout/types.js";
 
 export type { SourceSpan, ParserContext, LengthValue };
 export type paramType = "string" | "number" | "boolean" | "length" | "content" | "label";
@@ -28,12 +34,29 @@ export class ASTNodeBase {
     static timeWrapConfig?: TimeWrapConfig;
 
     /**
+     * lowering 完成后的 attachment 生成钩子
+     *
+     * 普通 loweringEnter/loweringExit 在递归遍历 AST 时执行，
+     * 此时尚未完成锚点归并，事件的 t、track 和 layoutLine 不可用，因此需要观察完整事件流的功能不能在普通 hook 中可靠决定分组。
+     * 该 hook 读取 LoweringResult 并返回新建的 LayoutAttachment，LoweringContext 将返回值追加到当前文档或 fragment 的 attachments，不会把它们放入时间列或推进时间。
+     *
+     * 例：autobeam 扫描最终列，按轨道、谱面行、拍点和显式 @beam 端点决定分组，再生成 BeamLayoutAttachment
+     */
+    static loweringFinalize?: LoweringFinalizer;
+
+    /**
+     * 装饰函数可选的排版声明
+     * layout 引擎按 key 收集，不需要识别具体函数类
+     */
+    static layoutDecorationConfig?: LayoutDecorationConfig;
+
+    /**
      * 进入当前层级的回调
      * @param vars 当前的 lowering 上下文变量表
      * @param ctx 当前的 lowering 上下文，用于执行某些不想对外暴露的展开；可空目的是允许别的函数调用该 hook
      * @returns 事件 时长会自动进行变形
      */
-    loweringEnter(vars: Record<string, any>, ctx?: LoweringContext): Iterable<TemporalNodeBase> {
+    loweringEnter(_vars: Record<string, any>, _ctx?: LoweringContext): Iterable<TemporalNodeBase> {
         return [];
     }
 
@@ -50,7 +73,7 @@ export class ASTNodeBase {
     /**
      * 离开当前层级的回调 同 loweringEnter
      */
-    loweringExit(vars: Record<string, any>, ctx?: LoweringContext): Iterable<TemporalNodeBase> {
+    loweringExit(_vars: Record<string, any>, _ctx?: LoweringContext): Iterable<TemporalNodeBase> {
         return [];
     }
 
@@ -73,7 +96,7 @@ export class ASTLabelNode extends ASTNodeBase {
         this.label = label;
     }
 
-    override toString(source: string) {
+    override toString(_: string) {
         return `@${this.label} `;
     }
 }
