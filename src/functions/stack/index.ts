@@ -1,4 +1,4 @@
-import { ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../ASTtypes.js";
+import { ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode, ASTBraceNode, ASTLabelNode } from "../ASTtypes.js";
 import { ParserContext } from "../../parser/parserContext.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { ErrorDiagnostic } from "../../parser/diagnostic.js";
@@ -16,7 +16,7 @@ class StackFunction extends ASTFunctionNode {
         args: [],
     };
 
-    static override deSugarAtom(source: string, start: number, end: number) {
+    static override deSugarAtom(source: string, start: number, _end: number) {
         if (source[start] === '&') {
             const node: GrammarSugarNode = {
                 kind: "sugar",
@@ -45,6 +45,19 @@ class StackFunction extends ASTFunctionNode {
             );
             ctx.diagnostics.push(e);
             throw e;
+        }
+        // 对 label 的特判: 目标变为label到被标记的节点范围内的所有节点
+        if (overNode instanceof ASTLabelNode) {
+            const tgt = overNode.parent;
+            for (let j = i - 1; j >= 0; j--) {
+                if (ctx.nodes[j] === tgt) {
+                    overNode = new ASTBraceNode({
+                        start: tgt.sourceSpan.start,
+                        end: overNode.sourceSpan.end,
+                    }, ctx.nodes.slice(j, i + 1), null);
+                    break;
+                }
+            }
         }
         if (!(overNode instanceof StackFunction)) {
             const newNode = new StackFunction(n.span, new Map(), ctx);
@@ -78,7 +91,6 @@ class StackFunction extends ASTFunctionNode {
     contents: ASTNodeBase[] = [];
     override get children() { return this.contents; }
     override timeFlowModel() {
-        console.log("stack timeFlowModel", this.contents.length);
         return {
             children: this.contents,
             mode: "parallel" as const
@@ -87,7 +99,7 @@ class StackFunction extends ASTFunctionNode {
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
-        for (const [key, value] of args) {
+        for (const [, value] of args) {
             if (value instanceof ASTNodeBase) {
                 this.addContent(value);
                 continue;

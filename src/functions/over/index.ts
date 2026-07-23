@@ -1,8 +1,16 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../ASTtypes.js";
-import { ParserContext, deSugarRelationFunction } from "../../parser/parserContext.js";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode, ASTLabelNode, ASTBraceNode } from "../ASTtypes.js";
+import { ParserContext } from "../../parser/parserContext.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { ErrorDiagnostic } from "../../parser/diagnostic.js";
-import { ColType, TemporalNodeBase } from "../../lowering/types.js";
+import {
+    ColType,
+    TemporalNodeBase,
+    type LoweringResult,
+} from "../../lowering/types.js";
+import type { LoweringContext } from "../../lowering/loweringContext.js";
+import { layoutFragment, paintLayout, unionLayoutBoxes, type DocumentLayoutResult } from "../../layout/engine.js";
+import type { LayoutBox, LayoutPassContext, LayoutPrepareContext } from "../../layout/types.js";
+import type { Painter } from "../../render/types.js";
 
 class OverFunction extends ASTFunctionNode {
     static def: FunctionDef = {
@@ -17,7 +25,7 @@ class OverFunction extends ASTFunctionNode {
         args: [],
     };
 
-    static override deSugarAtom(source: string, start: number, end: number) {
+    static override deSugarAtom(source: string, start: number, _end: number) {
         if (source[start] === '^') {
             const node: GrammarSugarNode = {
                 kind: "sugar",
@@ -27,6 +35,7 @@ class OverFunction extends ASTFunctionNode {
         } return null;
     }
 
+    // 这段代码同 stack
     static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
         const n = nodes[at++] as GrammarSugarNode;
         if (!(n.kind === "sugar" && n.data === OverFunction)) return null;
@@ -46,6 +55,19 @@ class OverFunction extends ASTFunctionNode {
             );
             ctx.diagnostics.push(e);
             throw e;
+        }
+        // 对 label 的特判: 目标变为label到被标记的节点范围内的所有节点
+        if (overNode instanceof ASTLabelNode) {
+            const tgt = overNode.parent;
+            for (let j = i - 1; j >= 0; j--) {
+                if (ctx.nodes[j] === tgt) {
+                    overNode = new ASTBraceNode({
+                        start: tgt.sourceSpan.start,
+                        end: overNode.sourceSpan.end,
+                    }, ctx.nodes.slice(j, i + 1), null);
+                    break;
+                }
+            }
         }
         if (!(overNode instanceof OverFunction)) {
             const newNode = new OverFunction(n.span, new Map(), ctx);
@@ -78,11 +100,31 @@ class OverFunction extends ASTFunctionNode {
 
     contents: ASTNodeBase[] = [];
     override get children(): ASTNodeBase[] { return this.contents; }
-    // timeFlowMode() { return "parallel" as const; }
+
+    /**
+     * over 对全局 lowering 表现为一个叶节点
+     *
+     * 每个参数在隔离作用域中独立 lowering
+     * 子事件不会进入全局横向弹簧模型
+     */
+    override loweringEnter(vars: Record<string, any>, ctx?: LoweringContext) {
+        if (!ctx) return [];
+
+        // 外层 dot 和 div 应修饰 over 合并后的整体
+        // 其他非装饰状态继续传入局部 lowering
+        const localVars: Record<string, any> = {};
+        for (const [key, value] of Object.entries(vars)) {
+            if (key.startsWith("@")) continue;
+            localVars[key] = value;
+        }
+
+        const layers = this.contents.map(content => ctx.lowerFragment(content, { ...localVars }));
+        return [new OverNodeTemporal(this, layers)];
+    }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
-        for (const [key, value] of args) {
+        for (const [, value] of args) {
             if (value instanceof ASTNodeBase) {
                 this.addContent(value);
                 continue;

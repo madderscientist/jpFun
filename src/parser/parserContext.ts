@@ -176,7 +176,6 @@ export class ParserContext {
     /**
      * 第二轮去糖 & 函数节点创建
      * 有副作用 会修改 nodes 和 labelableNodes 等上下文属性
-     * 返回值是 this.nodes 的引用
      * 对于需要后面Node的语法糖(没有终止符)，可以调用此函数，具体做法为：
      * 1. 先用构造函数开启子上下文
      * 2. 再用新的上下文解析剩余的nodes
