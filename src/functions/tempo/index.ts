@@ -23,24 +23,24 @@ class TempoFunction extends ASTFunctionNode {
         [this.bpm] = this.getArgValue(args, ctx) as [number];
     }
 
-    override loweringEnter(vars: unknown) {
+    override loweringEnter() {
         return [new TempoTemporalNode(this)];
     }
 
-    override toString(s: string) {
-        return `@tempo(${this.bpm})`;
-    }
+    override toString() { return `@tempo(${this.bpm})`; }
 }
 
 export const TempoNode: ASTFunctionClass = TempoFunction;
 
 class TempoTemporalNode extends TemporalNodeBase {
+    declare ast: TempoFunction;
+
     constructor(ast: TempoFunction) {
         super();
         this.ast = ast;
         this.type = ColType.SINGLE;
     }
     override onTimeState(state: Record<string, any>) {
-        state.bpm = (this.ast as TempoFunction).bpm;
+        state.bpm = this.ast.bpm;
     }
 }

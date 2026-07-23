@@ -24,7 +24,7 @@ class KeyFunction extends ASTFunctionNode {
         [this.tonality] = this.getArgValue(args, ctx) as [string];
     }
 
-    override loweringEnter(vars: unknown) {
+    override loweringEnter() {
         return [new KeyTemporalNode(this)];
     }
 
@@ -36,12 +36,14 @@ class KeyFunction extends ASTFunctionNode {
 export const KeyNode: ASTFunctionClass = KeyFunction;
 
 class KeyTemporalNode extends TemporalNodeBase {
+    declare ast: KeyFunction;
+
     constructor(ast: KeyFunction) {
         super();
         this.ast = ast;
         this.type = ColType.SINGLE;
     }
     override onTimeState(state: Record<string, any>) {
-        state.keySignature = (this.ast as KeyFunction).tonality;
+        state.keySignature = this.ast.tonality;
     }
 }

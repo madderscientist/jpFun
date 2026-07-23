@@ -10,7 +10,7 @@ import { ASTBraceNode, ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionA
 // bool 字面量 严格要求小写
 const BOOL_RE = /^(true|false)$/;
 
-const DEFAULT_FONT_SIZE = 22;
+export const DEFAULT_FONT_SIZE = 22;
 const DEFAULT_STRICT_MODE = false;
 export const DEFAULT_OCTAVE = 4;
 
@@ -140,7 +140,7 @@ export class ParserContext {
         if (typeof size === "string") {
             const l = parseLength(size);
             if (l instanceof Diagnostic) throw l;
-            else this.variables["fontsize"] = this.length2px(l);
+            this.variables["fontsize"] = this.length2px(l);
         } else this.variables["fontsize"] = size;
     }
 
