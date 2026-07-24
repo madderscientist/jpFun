@@ -1,7 +1,8 @@
-﻿import type { SourceSpan, LengthValue } from "../parser/types.js";
-import type { ParserContext, deSugarAtomFunction, deSugarRelationFunction } from "../parser/parserContext.js";
-import { Diagnostic } from "../parser/diagnostic.js";
+﻿import type { SourceSpan, LengthValue, deSugarAtomFunction, deSugarRelationFunction } from "../parser/types.js";
+import type { ParserContext } from "../parser/parserContext.js";
+import { Diagnostic } from "../diagnostic.js";
 import type {
+    LoweringAugmenter,
     LoweringFinalizer,
     TemporalNodeBase,
     TimeFlowMode,
@@ -39,13 +40,19 @@ export class ASTNodeBase {
     static timeWrapConfig?: TimeWrapConfig;
 
     /**
-     * lowering 完成后的 attachment 生成钩子
+     * lowering 固化后的 attachment 生成钩子
      *
      * 普通 loweringEnter/loweringExit 在递归遍历 AST 时执行，
      * 此时尚未完成锚点归并，事件的 t、track 和 layoutLine 不可用，因此需要观察完整事件流的功能不能在普通 hook 中可靠决定分组。
      * 该 hook 读取 LoweringResult 并返回新建的 LayoutAttachment，LoweringContext 将返回值追加到当前文档或 fragment 的 attachments，不会把它们放入时间列或推进时间。
      *
-     * 例：autobeam 扫描最终列，按轨道、谱面行、拍点和显式 @beam 端点决定分组，再生成 BeamLayoutAttachment
+     * 例：autobeam 扫描最终列，按轨道、谱面行、拍点和显式 beam 端点决定分组，再生成 BeamLayoutAttachment
+     */
+    static loweringAugment?: LoweringAugmenter;
+
+    /**
+     * 所有 loweringAugment 结果追加完成后的最终处理；此时已经得到了完整的 lowering 语义
+     * 可以进行校验（如 beam 和 tie）或者修改某些值
      */
     static loweringFinalize?: LoweringFinalizer;
 

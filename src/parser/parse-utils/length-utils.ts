@@ -1,4 +1,4 @@
-import { Diagnostic } from "../diagnostic.js";
+import { Diagnostic } from "../../diagnostic.js";
 import { LengthValue } from "../types.js";
 
 const LENGTH_RE = /^(-?(?:\d+(?:\.\d*)?|\.\d+))([a-z%]+)?$/i;

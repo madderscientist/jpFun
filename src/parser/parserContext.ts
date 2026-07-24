@@ -1,5 +1,5 @@
-import { LengthValue, SourceSpan } from "./types.js";
-import { Diagnostic, ErrorDiagnostic } from "./diagnostic.js";
+import { deSugarAtomFunction, deSugarRelationFunction, LengthValue, SourceSpan } from "./types.js";
+import { Diagnostic, ErrorDiagnostic } from "../diagnostic.js";
 import { GrammarBraceNode, GrammarCallNode, GrammarCallNodeRaw, GrammarCallNodeTyped, GrammarLabelNode, GrammarNode } from "./grammarType.js";
 import { readCall, trimRange, findTopLevelEquals, removeQuote } from "./parse-utils/call-utils.js";
 import { readBrace } from "./parse-utils/brace-utils.js";
@@ -14,20 +14,6 @@ export const DEFAULT_FONT_SIZE = 22;
 const DEFAULT_STRICT_MODE = false;
 export const DEFAULT_OCTAVE = 4;
 
-// 原子去糖 只消耗后向的文本 不允许改动ctx
-interface deSugarAtomFunctionResult {
-    next: number;   // 下一个位置 指文本
-    node: GrammarNode;
-}
-// 内部一般不报错；实在有就 throw
-export type deSugarAtomFunction = (source: string, start: number, end: number) => deSugarAtomFunctionResult | null;
-
-/**
- * 传入的列表已经被拆为单字符了 会修改 ctx
- * 返回值是下一个位置 指 nodes 数组；若为null则表示不匹配，需要继续尝试
- * 内部报错需要push到ctx再throw
- */
-export type deSugarRelationFunction = (ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) => number | null;
 
 // 解析上下文
 export class ParserContext {
@@ -322,7 +308,7 @@ export class ParserContext {
             // 在当前位置尝试所有原子去糖函数 匹配到就立即停止
             for (const fn of this.deSugarAtomFns) {
                 try {
-                    const r = fn(this.source, p, end);
+                    const r = fn(this.source, p, end, this.scopeDepth);
                     if (r) {
                         nodes.push(r.node); // 一般是 kind="sugar" 的特殊node
                         p = r.next;

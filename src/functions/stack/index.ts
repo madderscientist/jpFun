@@ -1,7 +1,7 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode, ASTBraceNode, ASTLabelNode } from "../ASTtypes.js";
 import { ParserContext } from "../../parser/parserContext.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
-import { ErrorDiagnostic } from "../../parser/diagnostic.js";
+import { ErrorDiagnostic } from "../../diagnostic.js";
 
 class StackFunction extends ASTFunctionNode {
     static override def = {

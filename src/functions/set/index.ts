@@ -1,5 +1,5 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
-import { Diagnostic, WarningDiagnostic } from "../../parser/diagnostic.js";
+import { Diagnostic, WarningDiagnostic } from "../../diagnostic.js";
 
 class SetFunction extends ASTFunctionNode {
     static override def = {
@@ -52,7 +52,7 @@ class SetFunction extends ASTFunctionNode {
         }
     }
 
-    override toString(source: string) {
+    override toString() {
         return `@set(${Array.from(this.args.entries()).map(([k, v]) => `${k}=${v}`).join(", ")})`;
     }
 }

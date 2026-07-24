@@ -1,5 +1,5 @@
 import { SourceSpan } from "../types.js";
-import { Diagnostic } from "../diagnostic.js";
+import { Diagnostic } from "../../diagnostic.js";
 
 // 函数名：允许字母/下划线，以及符号别名（@/ @. @-）
 const CALL_NAME_CHAR_RE = /[A-Za-z0-9_./-]/;

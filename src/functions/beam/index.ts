@@ -1,6 +1,6 @@
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, SourceSpan } from "../ASTtypes.js";
 import { ParserContext } from "../ASTtypes.js";
-import { ErrorDiagnostic } from "../../parser/diagnostic.js";
+import { ErrorDiagnostic } from "../../diagnostic.js";
 
 class BeamFunction extends ASTFunctionNode {
     static override def = {

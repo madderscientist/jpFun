@@ -1,5 +1,5 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
-import { ErrorDiagnostic } from "../../parser/diagnostic.js";
+import { ErrorDiagnostic } from "../../diagnostic.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 
 class DotFunction extends ASTFunctionNode {

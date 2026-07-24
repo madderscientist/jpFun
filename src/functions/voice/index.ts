@@ -1,5 +1,5 @@
 import { ASTNodeBase, ASTBraceNode, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../ASTtypes.js";
-import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../parser/diagnostic.js";
+import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { findRightParen, removeQuote } from "../../parser/parse-utils/call-utils.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { ParserContext, skipSpaces } from "../../parser/parserContext.js";

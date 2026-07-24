@@ -1,3 +1,4 @@
+import { Diagnostic } from "../diagnostic.js";
 import { ASTFunctionClass, ASTNodeBase } from "../functions/ASTtypes.js";
 import type {
     LayoutAttachment,

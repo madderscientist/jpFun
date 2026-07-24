@@ -1,7 +1,7 @@
 import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode, ASTLabelNode, ASTBraceNode } from "../ASTtypes.js";
 import { ParserContext } from "../../parser/parserContext.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
-import { ErrorDiagnostic } from "../../parser/diagnostic.js";
+import { ErrorDiagnostic } from "../../diagnostic.js";
 import {
     ColType,
     TemporalNodeBase,

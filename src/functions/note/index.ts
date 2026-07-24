@@ -1,5 +1,5 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
-import { Diagnostic, ErrorDiagnostic } from "../../parser/diagnostic.js";
+import { Diagnostic, ErrorDiagnostic } from "../../diagnostic.js";
 import { parseNoteName } from "./noteNameFSM.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
 

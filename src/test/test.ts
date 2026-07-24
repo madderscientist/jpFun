@@ -35,6 +35,7 @@ const testInput = `@set(text="100% ok")   % 字符串内的%不触发注释
     男 = ha-ha, % 测试
     女 = la la
 )
+
 N(测试): A1& B2 &{D#/F} :| #1\\
 b4
 L: 测试voice语法糖

@@ -4,7 +4,7 @@ import {
     normalizePageConfig,
 } from "../../layout/page.js";
 import type { PageConfig } from "../../layout/types.js";
-import { WarningDiagnostic } from "../../parser/diagnostic.js";
+import { WarningDiagnostic } from "../../diagnostic.js";
 import {
     ASTFunctionNode,
     type ASTFunctionClass,
