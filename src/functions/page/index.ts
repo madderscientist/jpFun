@@ -67,7 +67,7 @@ export class PageFunction extends ASTFunctionNode {
             return;
         }
 
-        if (!ctx.claimDocumentDeclaration("page")) {
+        if (ctx.documentDeclarations["page"]) {
             ctx.diagnostics.push(new WarningDiagnostic(
                 "W_DUPLICATE_PAGE",
                 "文档只能声明一个 @page；后续声明已忽略",
@@ -76,6 +76,7 @@ export class PageFunction extends ASTFunctionNode {
             this.active = false;
             return;
         }
+        ctx.documentDeclarations["page"] = true;
 
         this.active = true;
     }

@@ -34,13 +34,10 @@ export class ParserContext {
     /** 根解析器为 0，内容参数和大括号子解析器依次加一 */
     readonly scopeDepth: number;
 
-    /** 文档级声明（只准有一个）在所有子解析器之间共享 */
-    private documentDeclarations: Set<string>;
-
     /**
      * 源代码
      */
-    source: string;
+    readonly source: string;
     /**
      * 解析过程中产生的诊断信息，包含错误和警告
      */
@@ -49,6 +46,10 @@ export class ParserContext {
      * 变量表，存储 `@set` 定义的变量，供解析过程中查询和修改，具有局部作用域
      */
     variables: Record<string, any>;
+    /**
+     * 文档级声明（只准有一个）在所有子解析器之间共享的变量
+     */
+    documentDeclarations: Record<string, any>;
     /**
      * 函数定义查找表
      */
@@ -92,7 +93,7 @@ export class ParserContext {
             this.nodes = [];    // 待消费节点不共享，每个上下文单独维护
         } else {
             this.scopeDepth = 0;
-            this.documentDeclarations = new Set();
+            this.documentDeclarations = {};
             this.source = ctx.source;
             this.diagnostics = ctx.diagnostics ?? [];
             this.variables = ctx.variables ?? {};
@@ -102,13 +103,6 @@ export class ParserContext {
             if (ctx.functions) [this.deSugarAtomFns, this.deSugarRelationFns] = ParserContext.getDeSugarFns(this.functions.values());
             else this.deSugarAtomFns = [], this.deSugarRelationFns = [];
         }
-    }
-
-    /** 用于保证同类声明只出现一次 */
-    claimDocumentDeclaration(name: string): boolean {
-        if (this.documentDeclarations.has(name)) return false;
-        this.documentDeclarations.add(name);
-        return true;
     }
 
     static getDeSugarFns(classes: Iterable<ASTFunctionClass>): [
