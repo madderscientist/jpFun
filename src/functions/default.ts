@@ -15,12 +15,12 @@ import { SetNode } from "./set/index.js";
 import { TempoNode } from "./tempo/index.js";
 import { TextNode } from "./text/index.js";
 import { TieNode } from "./tie/index.js";
-import { VoiceNode } from "./voice/index.js";
+import { VoiceNode, VoicesNode } from "./voice/index.js";
 
 export const defaultFunctions: ASTFunctionClass[] = [
     NoteNode, DashNode, BarNode, // 有实体
     DivNode, DotNode,   // 装饰性
-    VoiceNode,  // 歌词
+    VoiceNode, VoicesNode,  // 歌词和声部
     BrNode,     // 排版
     PageNode,   // 文档页面
     StackNode,   // 时间同步

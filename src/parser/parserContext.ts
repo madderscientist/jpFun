@@ -452,6 +452,22 @@ export class ParserContext {
 
 // 换行转义已经在预处理解决了，这里不用再跳过了
 export function skipSpaces(s: string, i: number, end: number): number {
-    while (i < end && (s[i] === ' ' || s[i] === '\t')) i++;
+    while (i < end && isWhitespaceButNotNewline(s[i])) i++;
     return i;
+}
+
+function isWhitespaceButNotNewline(ch: string): boolean {
+    switch (ch) {
+        case ' ':
+        case '\t':
+        case '\v':  // 垂直制表符
+        case '\f':  // 换页符
+        case '\u00A0':  // 不间断空格
+        case '\uFEFF':  // 零宽不连字空格
+        case '\u3000':  // 中文全角空格
+            return true;
+        default:
+            return false;
+        // \n 和 \r 不算
+    }
 }
