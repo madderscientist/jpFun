@@ -63,8 +63,8 @@ class NoteFunction extends ASTFunctionNode {
         return { next: parseResult.next, node };
     }
 
-    override labelable() { return true; }
-    override loweringEnter(vars: unknown) {
+    override labelable() { return this; }
+    override loweringEnter() {
         return [new NoteTemporalNode(this)];
     }
 
@@ -89,7 +89,7 @@ class NoteFunction extends ASTFunctionNode {
         this.name = parseResult.name;
         // 校验octave
         const inputOctave = args.get("octave") ?? args.get(2);
-        if (inputOctave !== undefined) {
+        if (inputOctave !== void 0) {
             if (parseResult.octave !== null && parseResult.octave != inputOctave) throw new ErrorDiagnostic(
                 "E_NOTE_OCTAVE_CONFLICT",
                 `函数 @note 的参数 "octave" 与音符名称中的八度信息冲突: ${inputOctave} != ${parseResult.octave}`,
@@ -103,7 +103,7 @@ class NoteFunction extends ASTFunctionNode {
         if (parseResult.acc !== null) this.acc = parseResult.acc + this.acc;
     }
 
-    override toString(s: string) {
+    override toString() {
         return `@n(${this.name}, ${this.acc}, ${this.octave}, ${this.color})`;
     }
 }

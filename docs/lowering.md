@@ -1,105 +1,225 @@
 # Lowering
-这一步发生在 AST 解析后。AST得到的是树形结构，而乐谱要求的是时间流形式；这一步的目标就是：从AST到事件流。
 
-下一步是 [layout](layout.md)，它的目标是：从事件流到最终的谱面。这一步核心步骤——横向布局算法，接收的是具有以下结构的事件，并得到横坐标：
+Lowering 位于“解析”和“排版”之间：
+```text
+源码 -> AST -> LoweringResult -> Layout -> Render
+```
+
+AST 适合表达嵌套语法，例如“这一组音符被二分”“两个声部并行”；排版器更关心每个对象在什么时间、哪条音轨上，以及哪些对象应排在同一列。Lowering 的任务，就是把前一种表示转换成后一种表示。
+
+简单地说：**把 AST 树展开成带时间的事件列，同时保留排版需要的关系和音轨结构。** 它不计算像素坐标，也不负责绘制。
+
+## 三个核心概念
+### Temporal：时间事件
+AST 节点可以在 `loweringEnter` 或 `loweringExit` 中产生 `TemporalNodeBase`。核心字段是：
 ```ts
-interface TimeLineEvent {
-    t: number; // 事件发生的时间点
-    T: number; // 事件的持续时间
-    track: any; // 事件所属轨道的任意标识符
+class TemporalNodeBase {
+    t: number;        // 开始时间，单位 QN（四分音符时值）
+    T: number;        // 持续时间
+    track: Track;     // 所在的纵向音轨
+    type: ColType;    // 进入时间列的方式
+    ast: ASTNodeBase; // 来源 AST，便于定位和查找关系端点
 }
 ```
-这一步就是要把这些属性得到。
 
-当前完整输出为：
+函数通常只需给出事件自身的时长和语义；`LoweringContext` 会补齐开始时间、音轨、创建顺序和来源 AST。AST 在解析完成后保持只读，后续信息都写入 Temporal。
+
+### Column：时间列
+`columns` 是排版器的横向输入。一个时间列包含应共享横向位置的事件，但“开始时间相同”不一定意味着“放进同一列”。`ColType` 用来区分：
+- `DEFAULT`：普通事件；并行音轨上同时发生时可以合列。
+- `SINGLE`：必须独占一列；常用于 `set`、`br` 等控制事件，避免遮断相邻主体的对齐。
+- `ANCHOR`：对齐锚点，例如小节线；并行分支会在对应锚点处会合。
+
+锚点对齐只发生在当前 `parallel` 子树内。某个分支先到锚点时会等待其他分支，较早分支后面的事件整体后移。这样临时多声部结束后，不会影响文档后面的时间。
+
+### Track：纵向基线
+`Track` 表示一条纵向基线及其静态父子关系，不保存最终的 y 坐标。真正的纵向位置由 layout 按谱面行求解。
+- `sequence` 子节点沿用当前 Track。
+- `parallel` 子节点通过 `track.group(...)` 获取各自的 Track。
+- 相同 `laneKey` 会复用一组基线，不同 `laneKey` 会创建独立基线。
+- `hostIndex` 指定哪个并行成员继续使用宿主 Track；传 `null` 表示所有成员都使用分支 Track。
+
+具体函数只声明如何分轨和纵向排列；Lowering 不需要知道它是 `stack` 还是 `voices`。
+
+## 实际处理流程
+入口是 `LoweringContext.lowerDocument(root)`。它创建根 Track，然后递归调用 `trackedEvents`：
+```text
+进入节点：调用 loweringEnter
+展开子节点：按 timeFlowModel 选择 sequence 或 parallel
+离开节点：调用 loweringExit
+```
+
+### 1. 产生并追加事件
+每个新事件会依次经历：
+1. 补齐 `t`、`T`、`track`、`ast`、`order` 和默认 `ColType`。
+2. 记录到 `astToTemporal`，供标签、tie、beam 等按 AST 查找端点。
+3. 交给当前所有 `LoweringGroup` 观察或修改。
+4. 加入时间列，并把时间游标推进到事件结束处。
+
+分组必须在推进游标前修改事件。以 `dot`、`div` 为例，它们会在进入节点时开启分组，在离开时关闭；组内每个事件的时长先被修饰，后续事件才从修饰后的结束时间开始。
+
+### 2. 展开子节点
+节点通过 `timeFlowModel()` 声明子节点如何流动：
+```ts
+type TimeFlowModel =
+    | { mode: "sequence"; children: ASTNodeBase[] }
+    | { mode: "parallel"; children: ASTNodeBase[]; tracks: TrackArrangement };
+```
+
+- `sequence`：依次展开；后一个子节点从前一个的结束时间开始。
+- `parallel`：所有分支从同一时间开始，各自在自己的 Track 上展开，再按时间和锚点局部归并；父节点结束时间取最晚的分支。
+- 返回 `null`：通用递归器不展开子节点，适合由函数自行折叠内容的复合符号。
+
+### 3. 固化行号和时间状态
+递归完成后，`solidifyColumns` 先处理 `br` 请求并写入最终 `layoutLine`，再按列调用 `onTimeState(state)`。
+
+时间状态不能更早固化，因为并行分支的锚点归并仍可能修改事件时间。调性、速度等依赖时间顺序的语义，应在 `onTimeState` 中从共享状态读取并冻结到 Temporal，而不是修改 AST。
+
+### 4. 生成跨事件关系
+时间列、Track 和行号全部稳定后，Lowering 才处理需要观察完整结果的关系：
+
+1. 所有 `loweringAugment` 读取同一份结果快照，生成额外 attachment。
+2. 新 attachment 统一加入结果。
+3. `loweringFinalize` 按函数注册顺序执行最终校验或收尾。
+
+例如自动 beam 需要先看到最终的事件顺序、Track 和谱面行；显式 beam 也要到此时才能检查端点是否相邻。
+
+## Temporal、Attachment 与 Decoration
+三者用途不同：
+- **Temporal**：占据时间流，进入 `columns`，例如音符、小节线和控制事件。
+- **LayoutAttachment**：不推进时间，连接或包围一个或多个主体，例如 tie、beam、box 和歌词。
+- **LayoutDecoration**：属于单个主体的局部装饰，例如附点和减时线；Lowering 只把已冻结的语义放进 Temporal 的 `addon`，layout 再据此创建装饰。
+
+`LoweringGroup` 是收集局部范围的通用工具：`onTemporal` 观察事件，`onAttachment` 观察嵌套 attachment，退出时还可以提交自己的 attachment。核心引擎因此不必认识 `dot`、`div`、`box` 等具体函数。
+
+## 输出
 ```ts
 interface LoweringResult {
     columns: TemporalNodeBase[][];
     attachments: LayoutAttachment[];
     astToTemporal: Map<ASTNodeBase, TemporalNodeBase[]>;
     duration: number;
+    rootTrack: Track;
     page?: PageConfig;
 }
 ```
+- `columns`：按时间和对齐规则组织的事件列。
+- `attachments`：不推进时间的排版关系。
+- `astToTemporal`：AST 到事件的一对多索引。
+- `duration`：整份文档的总时长。
+- `rootTrack`：纵向音轨树的根。
+- `page`：可选的页面配置。
 
-- `columns` 是参与时间对齐和横向弹簧布局的时间列
-- `attachments` 是 tie、beam、box、歌词等不推进时间、附着于主体的排版对象
-- `astToTemporal` 处理标签端点、源码定位和一个 AST 产生多个 temporal 的情况
-- `duration` 是整个 lowering 范围的总时长
-- `page` 是可选的文档页面配置；没有声明时 layout 使用默认页面
+## 如何把函数接入 Lowering
+一个函数通常由 AST 类表达语法，必要时再定义一个 Temporal 类表达它在时间流中的实例。函数类列表会依次注册给 parser、lowering 和 layout：parser 用它识别函数，lowering 收集静态后处理 hook，layout 收集装饰处理器。内置函数需要加入 `defaultFunctions`；调用 `compileScore(source, { functions })` 传入自定义列表时，该列表会替换默认列表。
 
-## 时间变换对机制的影响
-存在 `dot` `div` 这类变换时间的函数，具体计算过程如下：
+接入前先判断函数属于哪一类：
+
+| 函数行为 | 主要入口 |
+| --- | --- |
+| 自己产生事件 | `loweringEnter` / `loweringExit` 返回 Temporal |
+| 包裹并修饰一段内容 | `timeFlowModel` + `LoweringGroup` |
+| 让多个分支同时发生 | `timeFlowModel` 的 `parallel` 模式 |
+| 连接已有主体 | `LayoutAttachment` |
+| 必须观察最终事件流 | `loweringAugment` / `loweringFinalize` |
+
+下面的代码省略了解析和绘制部分，只展示当前实现中的 lowering 思路。
+
+### 例一：`note` 直接产生事件
+
+`note` 是叶子节点，进入时返回一个时长为 1 的 Temporal：
+
 ```ts
-function applyTimeWrap(base: number, dotCnt: number, divCnt: number): number {
-    return base * (2 - Math.pow(2, -dotCnt)) / (1 << divCnt);
+class NoteFunction extends ASTFunctionNode {
+    override loweringEnter() {
+        return [new NoteTemporalNode(this)];
+    }
+}
+
+class NoteTemporalNode extends TemporalNodeBase {
+    constructor(ast: NoteFunction) {
+        super();
+        this.ast = ast;
+        this.T = 1;
+        this.type = ColType.DEFAULT;
+    }
+
+    override onTimeState(state: Record<string, any>) {
+        // 最终时间确定后，再结合当前调性解析音高
+    }
 }
 ```
 
-这类函数的作用是独立且有先后顺序的。为了解耦，肯定不能用上面的方式实现，所以需要设计一个计算时间的机制。在解析前，每个函数先注册自己的时间变换函数，获取任意节点时长时，就依照优先级以此处理。由于本项目的 `div` 和 `dot` 是可以嵌套的，因此需要维护一个上下文，记录当前 `dot` 和 `div` 的数量，于是上下文需要 `variables: Record<string, any>` 记录这些信息；落实到音符上时，也要将这些信息刻画进去、供后续阶段使用（比如这个音符上有几个附点等），因此还需要给每个事件加上额外的属性，因此在 `TimeLineEvent` 的基础上增加了 `addon` 这个字段，按需使用。这种注册机制延续了函数的解耦性，函数自己决定如何处理时间变换，而不需要引擎去硬编码。
+这里没有手动填写 `t`、`track` 和 `order`，因为它们取决于事件出现的位置，应由 `LoweringContext` 统一补齐。AST 保存源码参数和位置，Temporal 保存时长、已解析音高等可固化信息；这样锚点对齐可以调整事件时间，而不必修改语法树。
 
-时间变换的注册通过 `ASTNodeBase.timeWrapConfig` 进行，返回函数和优先级，在解析前被 `loweringContext` 收集。
+### 例二：`div` 修饰整个子树
+`div` 自己不产生事件，而是在进入时开启分组，让组内每个事件的时长减半；离开时关闭分组：
+```ts
+override loweringEnter(ctx: LoweringContext) {
+    const count = this.n;
+    ctx.beginLoweringGroup(this, {
+        onTemporal(node) {
+            const addon = node.addon ??= {};
+            addon[DIV_ADDON_KEY] = (Number(addon[DIV_ADDON_KEY]) || 0) + count;
+            node.T /= 2 ** count;
+        },
+    }); return [];
+}
 
-作用域在 `parse` 阶段使用上下文复制，只需要在进入新作用域前复制一次。lowering 还需要在节点进入和离开时分别修改状态或管理排版分组，因此提供 `loweringEnter` 和 `loweringExit` 两个 hook。hook 可以生成时间事件，也可以只操作 `LoweringContext`，例如 box 用它们开始和结束成员收集。
+override timeFlowModel() {
+    return { mode: "sequence" as const, children: [this.content] };
+}
 
-为了保证后续的解耦，需要把装饰上下文固化到对应事件的 `addon`。只有以 `@` 开头的字段会被快照，例如附点数量存储在 `@dot`。layout 同样的命名规则，查询函数类注册的 `layoutDecorationHandler`。
-
-## 锚点对齐和时间信息固化
-时间信息固化指的是根据时间上下文对属性进行固化。比如如果音符是简谱记法，则绝对音高和当前调性有关。固化 hook 位于 Temporal 节点上，AST 保持只读。Temporal 仍保留产生自己的 AST 引用，用于 SourceSpan、标签端点映射和编辑器定位。
-
-这一步能做在遍历时吗？不行，因为还有“锚点对齐”。这一步指的是多声部之间按照小节线（这一类“时间锚点属性”）局部对齐时间。对于 `parallel` 类型的时间流式，不同track之间就依赖小节线同步时间；而对齐的实现最好是在获取了每个track的所有事件后、进行类似归并排序的方式。这一步会修改时间，所以“时间固化”必须在“锚点对齐”之后进行。
-
-锚点对齐不好做。有两个大方向：
-1. 自底而上，在扫AST的时候完成，局部归并。
-2. 先得到分轨，然后再从头开始归并
-
-第二种很优雅，但是有一个重大问题：假设主声部是A，是不是有临时多声部，且这些临时多声部之间不连续。这就会导致在没有临时多声部的地方如果有对齐锚点，会影响到后面的临时多声部。要用这个方案，要么得在临时多声部结束后加上隐形特殊锚点，要么判断时间是否连续。我感觉都不够优雅。
-
-只能选择第一种了，相当于多次局部进行方法二。
-
-关注一个问题：
+override loweringExit(ctx: LoweringContext) {
+    ctx.endLoweringGroup(this);
+    return [];
+}
 ```
-TrackA: 1  @set()  2
-TrackB: 1  2
+
+这样设计有三个原因：
+- `div` 不是时间主体，不应为了表达修饰而制造一个零时长列。
+- 内容可以是一个音符，也可以是整段序列；分组对两者使用同一套逻辑。
+- `onTemporal` 在时间游标推进前执行，所以后续事件会从减时后的结束位置开始。
+
+`addon` 保留“有几层减时线”这一排版语义，但核心 Lowering 只负责调用通用分组，并不认识 `div`。
+
+### 例三：`stack` 声明并行，不实现并行算法
+`stack` 只把子节点和分轨规则交给引擎：
+```ts
+const STACK_TRACKS = {
+    laneKey: "stack",
+    arrange: arrangeAbove,
+};
+
+override timeFlowModel() {
+    return {
+        mode: "parallel" as const,
+        children: this.contents,
+        tracks: STACK_TRACKS,
+    };
+}
 ```
-由于 `set` 的时长为0，导致第二列会变为 `[TrackA.set, TrackB.2]`（同一个轨道里起始时间相同不应合并所以不会有 `TrackA.2`），这就破坏了对齐（对齐最重要的目的是进行layout求解）。解决办法是把 `set` 设置为 `SINGLE` 类型，这种类型必须单独成列，就能保证两个 `2` 对齐了。于是 `SINGLE` 和 `ANCHOR` 成为了两个特殊类型，需要 AST 节点告知。
 
-## 轨道管理
-由于可以随时插入轨道（临时多声部），因此要对轨道编码。做法是后缀，表示派生分支。
-分支应该只有parallel类型可以派生。
+LoweringContext 会让所有分支从同一时间开始、分配 Track、归并锚点，并取最晚的分支作为结束时间。`stack` 固定使用 `laneKey: "stack"`，因此同一宿主上先后出现的临时伴奏可以复用基线；默认 `hostIndex: 0` 又让第一个成员延续主旋律的 Track。
 
-## 总结
-为了完成这一步，需要给 AST 节点增加：
-- `timeWrapConfig`：注册时间变换函数，可选
-- `loweringEnter`：进入时的 hook
-- `loweringExit`：离开时的 hook
-- `loweringFinalize`：时间列、状态和实际行号固化后的关系生成 hook，可选
+函数只声明“并行”和“怎么纵向排列”，而不自己实现递归与对齐。以后增加另一种并行结构时，只需更换 Track 声明和 `arrange`，无需复制时间算法，也无需让引擎硬编码函数名。
 
-为了让结构更加清晰，将时间固化的对象变成了一个新的类体系——`TemporalNode`，AST 的 `loweringEnter` 和 `loweringExit` 就返回这个类型的列表。在 AST 成型后，就不应该修改了，之后的所有操作都是对这个类的操作。
+### 何时使用全局后处理
+普通 enter/exit 执行时，锚点归并和谱面行号还未完成。像自动 beam 这样依赖最终相邻关系的功能，应注册静态 hook：
+```ts
+class BeamFunction extends ASTFunctionNode {
+    static override loweringAugment = createAutomaticBeamAttachments;
+    static override loweringFinalize = validateExplicitBeamAttachments;
+}
+```
 
-为了完成时间分配与固化，这个类需要有以下属性：
-- `t` `T` 起始时间和时长
-- `type`：类型，普通事件、锚点事件、单独成列事件
-- `onTimeState`：时间固化的 hook，可选
-- `ast`：引用产生自己的 AST 节点，保证可以溯源到 `span`
+`loweringAugment` 根据完整列生成 attachment；`loweringFinalize` 在所有新增关系就位后做校验。把这一步放到遍历之后，可以避免函数根据尚未稳定的 `t`、`track` 或 `layoutLine` 提前作出错误判断。
 
-下游阶段还会使用：
-- `track`：轨道标识符，给 layout 用
-- `order`：本轮 lowering 的稳定创建序号，用于同时刻事件和合并列的确定性排序
-- `addon`：附加属性，给 render 用
+### 最小接入步骤
+1. 将函数类放入传给 `compileScore` 的函数列表。
+2. 若函数产生时间主体，定义 Temporal，并从 `loweringEnter` 或 `loweringExit` 返回。
+3. 用 `timeFlowModel` 声明子节点是 `sequence`、`parallel`，还是不由通用引擎展开。
+4. 范围修饰使用 `LoweringGroup`，跨主体关系使用 `LayoutAttachment`。
+5. 依赖最终时间流的逻辑放入静态 augment/finalize hook。
 
-每个子类还有自己的属性，比如音符在时间固化之后的音高、渲染信息等。
-
-## 局部 lowering
-`LoweringContext.lowerFragment` 用于 `over` 这类不希望子事件进入全局时间列的复合函数。它复用当前时间变换注册表和 AST 映射，但隔离局部 attachment 与分组栈。局部状态由复合节点在自己的 `onTimeState` 中从外层时间点复制，每一层之间互不污染。
-
-## 分组与关系
-`beginLayoutGroup` / `endLayoutGroup` 收集递归范围内生成的 `LayoutBox` 和 Temporal 引用。`box` 用成员盒求总边界，`voice` 用成员端口对齐歌词。
-
-函数类可以注册 `loweringFinalize`，在最终时间列、时间状态和 `layoutLine` 都固化后生成关系对象。完整文档和 `lowerFragment` 都会执行该 hook，因此 over 的局部层也能生成自己的自动关系。beam 模块使用该 hook 扫描 div 事件：同一个 div 内按轨道始终连接；多个独立 div 仅在各自解析时冻结的 `autoBeamEnabled` 都为 true 时自动连接。
-
-自动分组参考 MuseScore 和 LilyPond 的 beat structure 模型。当前语言尚无拍号，因此暂用四分音符作为固定拍单位，并在轨道、逻辑行、拍边界、小节线、时间间隙、普通长事件或显式 beam 处断组。将来加入拍号后，只需替换 beam 模块的拍结构来源，LoweringContext 不需要识别规则。
-
-beam/tie 自身不产生时间事件。它们在 `loweringEnter` 中从 `astToTemporal` 查询端点并注册 `LayoutAttachment`。因此关系对象不会改变时间指针，也不会被塞入横向时间列。
-
-这种分离保证时间求解不理解具体关系函数，关系排版也不会反向修改时间结果。
+实现入口见 [`src/lowering/loweringContext.ts`](../src/lowering/loweringContext.ts)，数据结构见 [`src/lowering/types.ts`](../src/lowering/types.ts)，音轨模型见 [`src/lowering/track.ts`](../src/lowering/track.ts)。下一阶段参见 [Layout](layout.md)。

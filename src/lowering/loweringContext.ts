@@ -2,24 +2,17 @@ import { Diagnostic } from "../diagnostic.js";
 import { ASTFunctionClass, ASTNodeBase } from "../functions/ASTtypes.js";
 import type {
     LayoutAttachment,
-    LayoutBox,
     PageConfig,
 } from "../layout/types.js";
 import {
     ColType,
     TemporalNodeBase,
-    TimeWrapFunc,
-    TimeWrapConfig,
+    type LoweringAugmenter,
     type LoweringFinalizer,
+    type LoweringGroup,
     type LoweringResult,
 } from "./types.js";
-
-interface ActiveLayoutGroup {
-    owner: ASTNodeBase;                  // 用于验证分组严格按栈顺序结束
-    attachment: LayoutAttachment;        // 分组结束后注册的附属布局对象
-    boxes?: LayoutBox[];                 // box 等范围对象需要的成员盒 包括 attachment 的盒子
-    temporals?: TemporalNodeBase[];      // voice/div 等关系对象需要的成员事件
-}
+import { Track } from "./track.js";
 
 /**
  * 把 AST 展开并固化为时间列、attachment 和页面配置
@@ -31,23 +24,23 @@ interface ActiveLayoutGroup {
  * 4. 把结果交给 layoutDocument
  *
  * 大多数 AST 函数通过以下入口参与 lowering（按时间顺序）：
- * - [hook] loweringEnter/loweringExit：进入或离开节点时修改 vars、生成 TemporalNode
- * - [API] LoweringContext.beginLayoutGroup/endLayoutGroup：通常在 enter/exit 中被调用，以栈方式收集当前子树产生的 box、TemporalNode 和嵌套 attachment；供 box、voice 使用
+ * - [hook] loweringEnter/loweringExit：进入或离开节点时生成 TemporalNode、管理作用域
+ * - [API] LoweringContext.beginLoweringGroup/endLoweringGroup：通常在 enter/exit 中被调用，以栈方式观察当前子树产生的 TemporalNode 和 attachment
  * - [API] LoweringContext.addLayoutAttachment：注册不推进时间的独立排版对象，供 tie、beam 等函数使用；若当前位于分组中，其 box 也会加入外层分组
- * - [config] timeWrapConfig：注册 div、dot 等时长变换；被 LoweringContext 调用
- * - [config] timeFlowModel：声明子节点按 sequence 或 parallel 推进时间
+ * - [config] timeFlowModel：声明子节点按 sequence 或 parallel 推进时间；parallel 还要声明音轨复用键与纵向排列策略
  * - [hook] Temporal.onTimeState：锚点归并后固化调性、速度等状态
- * - [hook] loweringFinalize：最终列和 layoutLine 固化后扫描结果并生成要追加的 attachment
+ * - [hook] loweringAugment：最终列和 layoutLine 固化后扫描结果并生成要追加的 attachment
+ * - [hook] loweringFinalize：所有派生 attachment 追加完成后，按注册顺序处理完整结果
  */
 export class LoweringContext {
-    private timeWrapFuncs: TimeWrapFunc[] = [];
+    private loweringAugmenters: LoweringAugmenter[] = [];
     private loweringFinalizers: LoweringFinalizer[] = [];
     private cnt = 0;  // 生成唯一id的计数器
 
     /** 不推进时间的关系对象和分组对象 */
     private attachments: LayoutAttachment[] = [];
 
-    /** 当前完整文档的页面配置；fragment 会暂时隔离 */
+    /** 当前完整文档的页面配置 */
     private page?: PageConfig;
 
     /**
@@ -57,26 +50,26 @@ export class LoweringContext {
     private astToTemporal = new Map<ASTNodeBase, TemporalNodeBase[]>();
 
     /**
-     * 当前递归路径上正在收集成员的分组，用 beginLayoutGroup 和 endLayoutGroup 管理
-     * 被 box 和 voice 等函数使用
+     * 当前递归路径上正在收集成员的作用域 的栈
+     * 使用 beginLoweringGroup/endLoweringGroup 维护
      */
-    private activeLayoutGroups: ActiveLayoutGroup[] = [];
+    private activeLoweringGroups: {
+        owner: ASTNodeBase;  // 用于验证分组严格按栈顺序结束
+        group: LoweringGroup;
+    }[] = [];
 
+    /** 收集本轮 lowering 产生的诊断信息 */
+    diagnostics: Diagnostic[] = [];
 
     /** 供外部调用: 初始化 hook */
     registerFunctions(functionClasses: ASTFunctionClass[]) {
-        const configs: TimeWrapConfig[] = [];
+        const augmenters: LoweringAugmenter[] = this.loweringAugmenters = [];
         const finalizers: LoweringFinalizer[] = this.loweringFinalizers = [];
         for (const cls of functionClasses) {
             const functionClass = cls as unknown as typeof ASTNodeBase;
-            const cfg = functionClass.timeWrapConfig;
-            if (cfg) configs.push(cfg);
+            if (functionClass.loweringAugment) augmenters.push(functionClass.loweringAugment);
             if (functionClass.loweringFinalize) finalizers.push(functionClass.loweringFinalize);
         }
-        // 按优先级排序
-        configs.sort((a, b) => b.priority - a.priority);
-        // 提取时间变换函数
-        this.timeWrapFuncs = configs.map(config => config.func);
     }
 
     /** 供 page 函数调用 */
@@ -85,142 +78,118 @@ export class LoweringContext {
     }
 
     /**
-     * 调用注册的时间变换函数
-     * @param vars 环境变量
-     * @param dt 要变换的时长
-     */
-    applyTimeWrap(vars: Record<string, any>, dt: number): number {
-        for (const func of this.timeWrapFuncs) {
-            dt = func(vars, dt);
-        } return dt;
-    }
-
-    static getTrackId(base: string, newOffset?: number | string): string {
-        if (newOffset === void 0 || newOffset === 0) return base;
-        if (typeof newOffset === "string") return base + newOffset;
-        if (newOffset < 0) throw new Error(`Track offset must be non-negative, got ${newOffset}`);
-        return base + String.fromCharCode(newOffset);
-    }
-
-    /**
-     * 以 @ 开头的属性会被认为要加入子节点中
-     * 命名规则：@${函数名}
-     * 后续 layout 用同样的规则查询 handler 来消费该属性
-     */
-    private static attachDecoration(vars: Record<string, any>, addon?: Record<string, any>) {
-        let result = addon;
-        // 只在发现需要快照的 @ 字段时创建 addon
-        for (const key in vars) {
-            if (key[0] !== "@" || vars[key] === void 0) continue;
-            (result ??= {})[key] = vars[key];
-        } return result;
-    }
-
-    /**
      * 完整 lowering 入口
      *
      * 每次调用都会重置本轮产生的数据
-     * 已注册的时间变换函数会保留，可以复用同一个 LoweringContext
+     * 已注册的后处理 hook 会保留，可以复用同一个 LoweringContext
      */
     lowerDocument(node: ASTNodeBase): LoweringResult {
         this.cnt = 0;
         this.attachments = [];
-        this.page = undefined;
+        this.page = void 0;
         this.astToTemporal = new Map();
-        this.activeLayoutGroups = [];
+        this.activeLoweringGroups = [];
 
-        const { columns, timeOffset } = this.trackedEvents(node);
-        this.solidifyColumns(columns, {});
-        return this.finalizeResult({
+        const rootTrack = new Track();
+        const { columns, timeOffset } = this.trackedEvents(node, 0, rootTrack);
+        this.solidifyColumns(columns);
+        return this.postprocessResult({
             columns,
             attachments: this.attachments,
             astToTemporal: this.astToTemporal,
             duration: timeOffset,
+            rootTrack,
             page: this.page,
         });
     }
 
     /**
-     * 为 over 等复合节点执行隔离的局部 lowering
-     *
-     * 局部事件继续写入共享的 AST 映射，关系函数仍能找到它们
-    * 局部 attachment 和分组不会进入全局列表，避免被全局 layout 重复处理
-     * 本方法不执行 onTimeState，复合节点会在自己的时间点传入外层状态快照
+     * 固化谱面行号并进行时间状态固化
      */
-    lowerFragment(
-        node: ASTNodeBase,
-        vars: Record<string, any> = {},
-    ): LoweringResult {
-        const outerAttachments = this.attachments;
-        const outerGroups = this.activeLayoutGroups;
-        const outerPage = this.page;
-        this.attachments = [];
-        this.activeLayoutGroups = [];
-        this.page = undefined;
-
-        try {
-            const { columns, timeOffset } = this.trackedEvents(node, vars, 0, String.fromCharCode(0));
-            // 局部 fragment 不固化时间状态，但需要从 0 开始固化相对行号
-            this.solidifyColumns(columns);
-            return this.finalizeResult({
-                columns,
-                attachments: this.attachments,
-                astToTemporal: this.astToTemporal,
-                duration: timeOffset,
-                page: this.page,
-            });
-        } finally {
-            this.attachments = outerAttachments;
-            this.activeLayoutGroups = outerGroups;
-            this.page = outerPage;
-        }
-    }
-
-    /**
-     * 把 TimeColumn 中的临时偏移转换为实际行号，并进行时间固化
-     * state 仅在完整文档 lowering 时传入，局部 fragment 会跳过 onTimeState
-     */
-    private solidifyColumns(columns: TimeColumn[], state?: Record<string, any>) {
+    private solidifyColumns(columns: TimeColumn[]) {
+        // 同一轨的请求累加（`br br` 两行），不同轨的请求取最大（两轨同时 br 只换一行）
         let line = 0;
-        for (const column of columns) {
-            const offset = column.maxLineOffset;
+        let t = 0;  // 上一个br的时间点
+        let requests = new Map<Track, number>();
+        let pending: TimeColumn[] = [];
+
+        const applyBreak = () => {
+            if (requests.size === 0) return;
+            let offset = 0;
+            for (const value of requests.values()) offset = Math.max(offset, value);
             line += offset;
-            column.layoutLine = line;
-            if (state) {
-                for (const node of column) node.onTimeState?.(state);
+            // 换行列本身归属于换行之后的那一行
+            for (const column of pending as TimeColumn[]) column.layoutLine = line;
+            requests.clear();
+            pending.length = 0;
+        };
+
+        for (const column of columns) {
+            if (!column.breakRequested) {
+                applyBreak();
+                column.layoutLine = line;
+                continue;
             }
+            if (column.t !== t) {
+                applyBreak();   // 不在同一时刻，重启换行
+                t = column.t;
+            } else {
+                for (const node of column) {
+                    if (node.breakBefore <= 0) continue;
+                    if (requests.has(node.track)) {
+                        applyBreak();   // 同一轨重复出现，先把之前的换行列固化
+                        break;
+                    }
+                }
+            }
+            for (const node of column) {
+                if (node.breakBefore > 0) requests.set(node.track, node.breakBefore);
+            } pending.push(column);
+        }
+        applyBreak();
+
+        // 行号全部就位后再固化时间状态，up 等节点才能把行号转发给内部成员
+        const state: Record<string, any> = {};
+        for (const column of columns) {
+            for (const node of column) node.onTimeState?.(state);
         }
     }
 
     /**
-     * 开始收集一个分组作用域
-     * boxes 和 temporals 均按辅助对象需求可选，避免创建无用成员数组
+     * 开始一个 lowering 分组作用域
+     * group 可以收集并提交新增 temporal，也可以观察成员并携带一个 attachment
      */
-    beginLayoutGroup(
+    beginLoweringGroup(
         owner: ASTNodeBase,
-        attachment: LayoutAttachment,
-        boxes?: LayoutBox[],
-        temporals?: TemporalNodeBase[],
+        group: LoweringGroup,
     ) {
-        this.activeLayoutGroups.push({ owner, attachment, boxes, temporals });
+        this.activeLoweringGroups.push({ owner, group });
     }
 
     /**
      * 结束最近的分组并注册其辅助排版对象
      * 嵌套分组按退出顺序注册，因此天然是由内向外计算边界
      */
-    endLayoutGroup(owner: ASTNodeBase) {
-        const group = this.activeLayoutGroups.pop();
-        if (!group) throw new Error("No active layout group to end");
-        if (group.owner !== owner) throw new Error("Layout groups must end in reverse order");
-        this.addLayoutAttachment(group.attachment);
+    endLoweringGroup(owner: ASTNodeBase) {
+        const active = this.activeLoweringGroups.pop();
+        if (!active) throw new Error("No active lowering group to end");
+        if (active.owner !== owner) throw new Error("Lowering groups must end in reverse order");
+        if (active.group.attachment) this.addLayoutAttachment(active.group.attachment);
     }
 
-    /** 函数自行解释固化后的事件流，LoweringContext 不识别具体关系规则 */
-    private finalizeResult(result: LoweringResult): LoweringResult {
-        for (const finalize of this.loweringFinalizers) {
-            for (const attachment of finalize(result)) this.addLayoutAttachment(attachment);
-        } return result;
+    /** 先统一生成派生 attachment，再按注册顺序执行最终处理 */
+    private postprocessResult(result: LoweringResult): LoweringResult {
+        if (this.activeLoweringGroups.length > 0)
+            throw new Error("Lowering groups must be closed before post-processing");
+
+        const additions: LayoutAttachment[] = [];
+        for (const augment of this.loweringAugmenters) {
+            for (const attachment of augment(result)) additions.push(attachment);
+        }
+        for (const attachment of additions) this.addLayoutAttachment(attachment);
+        // 进行校验或者其他动作
+        for (const finalize of this.loweringFinalizers) finalize(result);
+        return result;
     }
 
     /**
@@ -229,40 +198,77 @@ export class LoweringContext {
      */
     addLayoutAttachment(attachment: LayoutAttachment) {
         this.attachments.push(attachment);
-        for (const group of this.activeLayoutGroups) {
-            group.boxes?.push(attachment.box);
+        for (const { group } of this.activeLoweringGroups) {
+            group.onAttachment?.(attachment);
         }
     }
 
     /**
      * 查询 AST 节点在当前 lowering 中产生的所有 temporal 节点
+     *
+     * 被折叠进别人盒子的成员没有独立的全局位置，统一上溯到宿主，
+     * 所以写在成员上的标签等价于写在整个复合节点上。
      */
     getTemporalNodes(ast: ASTNodeBase): readonly TemporalNodeBase[] {
-        return this.astToTemporal.get(ast) ?? [];
+        const nodes = this.astToTemporal.get(ast);
+        if (!nodes) return [];
+        return nodes.map(node => {
+            while (node.foldedInto) node = node.foldedInto;
+            return node;
+        });
     }
 
     /**
-     * 获取时间列 用于时间固化和计算布局
-     * @param node 需要 timeFlowMode 方法
-     * @param tracks_events 每个轨的所有事件
-     * @param vars 存储如 div dot 这种时间变换方法
-     * @param timeOffset 当前节点的时间偏移量（单位QN） 由父节点传入
-     * @param track 父轨道的id
-     * @returns 时间偏移,列
+     * 展开内容，但外层分组看不见它们
+     *
+     * 复合节点把子树折叠成一个符号时，成员不是外层分组的成员，宿主才是。
+     * 否则 voice 的歌词按下标配对时，一个和弦会占掉成员数加一个槽位，
+     * 而这些槽位都在同一个 x 上，后面的音符全部对不上歌词。
      */
-    private trackedEvents(
+    isolateFromLoweringGroups<T>(run: () => T): T {
+        const outer = this.activeLoweringGroups;
+        this.activeLoweringGroups = [];
+        try {
+            return run();
+        } finally {
+            this.activeLoweringGroups = outer;
+        }
+    }
+
+    /**
+     * 原地补全 hook: loweringEnter / loweringExit 返回的事件
+     */
+    private initEvent(
+        event: TemporalNodeBase,
+        owner: ASTNodeBase,
+        timeOffset: number,
+        track: Track,
+    ) {
+        event.t = timeOffset + (event.t ?? 0);
+        event.T ??= 0;
+        event.track = track;
+        event.ast ??= owner;
+        event.order = this.cnt++;
+        event.type ??= event.T === 0 ? ColType.SINGLE : ColType.DEFAULT;
+    }
+
+    /**
+     * 递归展开一棵子树，得到它的时间列与结束时间
+     * @param timeOffset 当前节点的时间偏移量（单位QN） 由父节点传入
+     * @param track 当前所在的纵向音轨
+     */
+    trackedEvents(
         node: ASTNodeBase,
-        vars: Record<string, any> = {},
-        timeOffset: number = 0,
-        track: string = String.fromCharCode(0),
+        timeOffset: number,
+        track: Track,
     ): {
         timeOffset: number,
         columns: TimeColumn[]
     } {
         const columns: TimeColumn[] = [];
         timeOffset = this.appendEvents(
-            node.loweringEnter(vars, this),
-            node, vars, timeOffset,
+            node.loweringEnter(this, track),
+            node, timeOffset,
             track, columns,
         );
 
@@ -272,78 +278,75 @@ export class LoweringContext {
             switch (model.mode) {
                 case "sequence": {
                     for (const c of model.children) {
-                        const result = this.trackedEvents(c, vars, timeOffset, track);
+                        const result = this.trackedEvents(c, timeOffset, track);
                         timeOffset = result.timeOffset;
                         for (const column of result.columns) columns.push(column);
                     }
                 } break;
                 case "parallel": {
-                    const cols = [];
-                    for (let i = 0; i < model.children.length; i++) {
-                        const c = model.children[i];
-                        const trackId = LoweringContext.getTrackId(track, i);
+                    // 具体函数只声明音轨复用方式和纵向排列策略
+                    const spec = model.tracks;
+                    const children = model.children;
+                    const hostIndex = spec.hostIndex === void 0 ? 0 : spec.hostIndex;
+                    const group = track.group(
+                        spec.laneKey,
+                        hostIndex === null ? children.length : children.length - 1,
+                        spec.arrange,
+                    );
+
+                    const branches: TimeColumn[][] = [];
+                    for (let i = 0; i < children.length; i++) {
+                        const c = children[i];
+                        // 宿主成员就地留在当前轨，其余成员按书写顺序拿分支音轨
+                        const branchTrack = i === hostIndex
+                            ? track
+                            : group.members[hostIndex === null || i < hostIndex ? i : i - 1];
                         // 每个分支从头开始
-                        const result = this.trackedEvents(c, vars, timeOffset, trackId);
-                        cols.push(result.columns);
+                        const result = this.trackedEvents(c, timeOffset, branchTrack);
+                        if (result.timeOffset <= timeOffset) {
+                            this.diagnostics.push(Diagnostic.warning.ZeroTimeTrack(c.sourceSpan, i + 1));
+                        }
+                        branches.push(result.columns);
                     }
                     // 归并 局部归并以限制对齐作用域
-                    for (const column of LoweringContext.anchorAlign(cols)) columns.push(column);
+                    for (const column of LoweringContext.anchorAlign(branches)) columns.push(column);
                     const lastCol = columns[columns.length - 1];
                     if (lastCol) timeOffset = lastCol.t + lastCol.reduce((maxT, n) => Math.max(maxT, n.T), 0);
                 } break;
             }
         }
         timeOffset = this.appendEvents(
-            node.loweringExit(vars, this),
-            node, vars, timeOffset,
+            node.loweringExit(this, track),
+            node, timeOffset,
             track, columns,
         );
         return { timeOffset, columns };
     }
 
-    /**
-     * 将 hook 返回的事件规范化并追加到时间列
-     * enter 和 exit 必须共享完全相同的初始化顺序
-     */
+    /** 将 hook 返回的事件规范化、加入索引与分组，再追加到时间列 */
     private appendEvents(
         events: Iterable<TemporalNodeBase>,
         owner: ASTNodeBase,
-        vars: Record<string, any>,
         timeOffset: number,
-        track: string,
+        track: Track,
         columns: TimeColumn[],
     ): number {
         for (const event of events) {
-            // 原地补全字段，保留 addon 内部对象的引用关系
-            event.t = timeOffset + (event.t ?? 0);
-            event.T = event.T === void 0 ? 0 : this.applyTimeWrap(vars, event.T);
-            event.track = LoweringContext.getTrackId(track, event.track);
-            event.ast = event.ast ?? owner;
-            event.order = this.cnt++;
-            event.addon = LoweringContext.attachDecoration(vars, event.addon);
-            event.type ??= event.T === 0 ? ColType.SINGLE : ColType.DEFAULT;
-
-            this.registerTemporal(event);
+            this.initEvent(event, owner, timeOffset, track);
+            this.indexTemporal(event);
+            for (const { group } of this.activeLoweringGroups) {
+                group.onTemporal?.(event);
+            }
             timeOffset = Math.max(timeOffset, event.t + event.T);
             columns.push(new TimeColumn(event));
         } return timeOffset;
     }
 
-    /**
-     * 记录事件来源并把它加入当前所有分组
-     * 同一个对象只会在创建时经过这里一次
-     */
-    private registerTemporal(node: TemporalNodeBase) {
-        // 记录 AST->TemporalNode 的映射
+    /** 记录 AST->TemporalNode 的映射 */
+    private indexTemporal(node: TemporalNodeBase) {
         const existing = this.astToTemporal.get(node.ast);
         if (existing) existing.push(node);
         else this.astToTemporal.set(node.ast, [node]);
-
-        // 加入当前正在收集的分组
-        for (const group of this.activeLayoutGroups) {
-            if (node.box) group.boxes?.push(node.box);
-            group.temporals?.push(node);
-        }
     }
 
     /**
@@ -517,7 +520,7 @@ export class LoweringContext {
                 result.push(container);
                 continue;
             }
-            switch(front.e.type) {
+            switch (front.e.type) {
                 case ColType.ANCHOR:
                     // 进入缓冲区 不补充本track的下一个元素
                     anchorBuffer.push(front);
@@ -560,14 +563,14 @@ class TimeColumn extends Array<TemporalNodeBase> {
         for (const n of this) n.t = value;
     }
 
-    /** 当前列开始前的最大临时行偏移 */
-    get maxLineOffset() {
-        let offset = 0;
-        for (const node of this) offset = Math.max(offset, node.layoutLine);
-        return offset;
+    /** 当前列是否携带换行请求 */
+    get breakRequested() {
+        for (const node of this) {
+            if (node.breakBefore > 0) return true;
+        } return false;
     }
 
-    /** 将当前列所有事件的临时偏移覆盖为 lowering 后的实际行号 */
+    /** 将当前列所有事件的行号固化为 lowering 后的实际行号 */
     set layoutLine(value: number) {
         for (const node of this) node.layoutLine = value;
     }

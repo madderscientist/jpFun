@@ -139,6 +139,13 @@ Diagnostic.error = {
             `无效的调性: "${tonality}"，请提供有效的调性名称，必须 [一个大写字母][变音记号#bn只能一个][绝对八度数字]，后二者可选`,
             span
         );
+    },
+    BreakInsideEvent: (span: SourceSpan) => {
+        return new ErrorDiagnostic(
+            "E_BREAK_INSIDE_EVENT",
+            `换行切断了一个仍在持续的事件；请把长音写成多个事件，或调整 @br 的位置`,
+            span
+        );
     }
 };
 
@@ -224,6 +231,13 @@ Diagnostic.warning = {
         return new WarningDiagnostic(
             "W_LABEL_ALREADY_EXISTS",
             `标签 "${newLabel}" 已经存在(为 "${oldLabel}")；新标签将覆盖旧标签`,
+            span
+        );
+    },
+    ZeroTimeTrack: (span: SourceSpan, trackOrder: number) => {
+        return new WarningDiagnostic(
+            "W_ZERO_TIME_TRACK",
+            `第${trackOrder}个子轨道的时长为0`,
             span
         );
     },

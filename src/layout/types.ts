@@ -1,9 +1,10 @@
 import type { GlyphProvider, Painter } from "../render/types.js";
+import type { Extent, Track } from "../lowering/track.js";
 
 /**
  * 一个排版对象的完整矩形和两个对齐基准
  *
- * prepareLayout 负责填写 w、h、anchor、baseline
+ * prepareLayout 负责填写 w、h、anchor、visualAxis
  * layout 负责原地修改 x、y
  * 所有字段保持扁平，布局器可以直接持有并修改这个对象的引用
  */
@@ -13,7 +14,7 @@ export interface LayoutBox {
     w: number;          // 对象需要占用的完整宽度
     h: number;          // 对象需要占用的完整高度
     anchor: number;     // 横向对齐点到盒子左边界的距离
-    baseline: number;   // 谱面行视觉对齐轴到盒子上边界的距离
+    visualAxis: number; // 垂直视觉对齐轴距盒顶的距离 通常为 h/2
     // 下面两个属性目的是让“#2./”只在2下绘制减时线，而不是绘制在整个box的底边
     leftExtent?: number; // 从 anchor 到核心有效左边界，缺省为 anchor
     rightExtent?: number;// 从 anchor 到核心有效右边界，缺省为 w-anchor
@@ -22,7 +23,7 @@ export interface LayoutBox {
 /**
  * 横向弹簧的物理属性 含义见排版模型的文档
  */
-export interface ElementConfig {
+export interface HorizontalSpringConfig {
     alpha_L?: number;   // 左侧固有弹性间距系数
     alpha_R?: number;   // 增加该值会增加弹簧长度
     mu_L?: number;      // 左侧重叠阻尼惩罚系数
@@ -35,7 +36,7 @@ export interface ElementConfig {
 export interface TimeLineEvent {
     t: number; // 事件发生的时间点
     T: number; // 事件的持续时间
-    track: any;// 事件所属轨道的任意标识符
+    track: Track; // 事件所在的纵向音轨
 }
 
 /** 文档页面的固化尺寸，所有值均为 px */
@@ -53,11 +54,10 @@ export interface PageConfig {
  * 排版前的共享资源
  *
  * glyphs 同时服务于固有尺寸计算和最终绘制
- * em 是没有显式字号时使用的基础尺寸
+ * 字号由具体视觉函数在 parse 时固化为 px，不属于布局上下文
  */
 export interface LayoutPrepareContext {
     glyphs: GlyphProvider;   // 测量固定 glyph 与任意文本的统一来源
-    em: number;              // 没有显式字号时使用的基础尺寸
     decorationHandlers: ReadonlyMap<string, LayoutDecorationHandler>; // addon key 到装饰 handler 的注册表
 }
 

@@ -1,19 +1,24 @@
-import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass, functionAddonKey } from "../ASTtypes.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
+import type { LayoutDecorationHandler, LayoutHost, LayoutPoint } from "../../layout/types.js";
+import type { LoweringContext } from "../../lowering/loweringContext.js";
 
-function parseAutoBeamFlag(raw: unknown, fallback: boolean): boolean {
+const DIV_FUNC_NAME = "div";
+export const DIV_ADDON_KEY = functionAddonKey(DIV_FUNC_NAME);
+
+function parseAutoBeamFlag(raw: unknown): boolean {
     if (typeof raw === "boolean") return raw;
     if (typeof raw === "number") return raw !== 0;
     if (typeof raw === "string") {
         const normalized = raw.trim().toLowerCase();
         if (normalized === "true" || normalized === "1" || normalized === "on") return true;
         if (normalized === "false" || normalized === "0" || normalized === "off") return false;
-    } return fallback;
+    } return true;
 }
 
 class DivFunction extends ASTFunctionNode {
     static override def = {
-        name: ["div", "/"],
+        name: [DIV_FUNC_NAME, "/"],
         description: "减时线",
         example: `@div(C1, 2): C1下方创建2根减时线
 @/({C1 C2 @dash()}, 3): C1、C2和增时线下方创建3根减时线并连接
@@ -81,28 +86,28 @@ class DivFunction extends ASTFunctionNode {
         return at;
     }
 
-    static override timeWrapConfig = {
-        priority: 2,
-        func: (vars: Record<string, any>, dt: number) => {
-            const divCnt = vars["@div"] ?? 0;
-            if (divCnt) return dt / (1 << divCnt);
-            return dt;
-        }
-    }
-    override loweringEnter(vars: Record<string, any> & { "@div"?: number }) {
-        vars["@div"] = (vars["@div"] ?? 0) + this.n;
+    override loweringEnter(ctx: LoweringContext) {
+        const count = this.n;
+        ctx.beginLoweringGroup(this, {
+            onTemporal(node) {
+                if (count === 0) return;
+                const addon = node.addon ??= {};
+                addon[DIV_ADDON_KEY] = (Number(addon[DIV_ADDON_KEY]) || 0) + count;
+                node.T /= 2 ** count;
+            },
+        });
         return [];
     }
-    override loweringExit(vars: Record<string, any> & { "@div"?: number }) {
-        const divCnt = (vars["@div"] ?? 0) - this.n;
-        if (divCnt <= 0) delete vars["@div"];
-        else vars["@div"] = divCnt;
+    override loweringExit(ctx: LoweringContext) {
+        ctx.endLoweringGroup(this);
         return [];
     }
 
     content: ASTNodeBase;
     n: number;
-    autoBeamEnabled: boolean;   // 是否自动连接减时线
+
+    /** parse 时冻结；只控制不同 div 之间的自动连接，不影响当前 div 内部连接 */
+    autoBeamEnabled: boolean;
     override get children() { return [this.content]; }
     override timeFlowModel() {
         return {
@@ -114,7 +119,8 @@ class DivFunction extends ASTFunctionNode {
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
         [this.content, this.n] = this.getArgValue(args, ctx) as [ASTNodeBase, number];
-        this.autoBeamEnabled = parseAutoBeamFlag(ctx.variables["autobeam"], true);
+        // beam loweringAugment 只读取这个快照，不读取之后可能已经变化的 ParserContext
+        this.autoBeamEnabled = parseAutoBeamFlag(ctx.variables["autobeam"]);
         // div 允许修饰任意 都会加下划线
         this.content.parent = this;
     }
@@ -124,4 +130,4 @@ class DivFunction extends ASTFunctionNode {
     }
 }
 
-export const DivNode: ASTFunctionClass = DivFunction;
+export const DivNode = DivFunction satisfies ASTFunctionClass;

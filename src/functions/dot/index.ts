@@ -1,10 +1,19 @@
-import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass, functionAddonKey } from "../ASTtypes.js";
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
+import type { LayoutDecorationHandler } from "../../layout/types.js";
+import type { LoweringContext } from "../../lowering/loweringContext.js";
+
+const DOT_FUNC_NAME = "dot";
+const DOT_ADDON_KEY = functionAddonKey(DOT_FUNC_NAME);
+
+function durationFactor(count: number) {
+    return 2 - Math.pow(2, -count);
+}
 
 class DotFunction extends ASTFunctionNode {
     static override def = {
-        name: ["dot", "."],
+        name: [DOT_FUNC_NAME, "."],
         description: "附点",
         example: `@dot(C1, 2): C1右侧创建2个点 仅接收一个可接收元素
 语法糖：在音符后加斜杠'.'，可以多个
@@ -72,22 +81,56 @@ class DotFunction extends ASTFunctionNode {
         return at;
     }
 
-    static override timeWrapConfig = {
-        priority: 1,
-        func: (vars: Record<string, any>, dt: number) => {
-            const dotCnt = vars["@dot"] ?? 0;
-            if (dotCnt) return dt * (2 - Math.pow(2, -dotCnt));
-            return dt;
-        }
-    }
-    override loweringEnter(vars: Record<string, any> & { "@dot"?: number }) {
-        vars["@dot"] = (vars["@dot"] ?? 0) + this.n;
+    /**
+     * 附点是目标对象右侧的通用装饰
+     * 默认从目标右边界、视觉轴开始排列；目标可用 ports["dot"] 覆盖锚点
+     */
+    static override layoutDecorationHandler: LayoutDecorationHandler = (host, value) => {
+        const count = Math.max(0, Math.floor(Number(value) || 0));
+        if (count === 0) return null;
+
+        const radius = host.ast.size * 0.075;
+        const gap = host.ast.size * 0.12;
+        const anchor = host.ports["dot"] ?? {
+            x: host.box.w,
+            y: host.box.visualAxis,
+        };
+        const start = anchor.x + gap + radius;
+        const step = radius * 2 + gap;
+        const right = start + (count - 1) * step + radius;
+        // 自定义锚点可能已经位于扩张后的盒内，也可能在盒外
+        host.box.w = Math.max(host.box.w, right);
+
+        return {
+            paint(painter, currentHost) {
+                const centerY = currentHost.box.y + anchor.y;
+                for (let i = 0; i < count; i++) {
+                    painter.drawCircle(
+                        currentHost.box.x + start + i * step,
+                        centerY,
+                        radius,
+                        { fill: "#000" },
+                    );
+                }
+            },
+        };
+    };
+    override loweringEnter(ctx: LoweringContext) {
+        const count = this.n;
+        ctx.beginLoweringGroup(this, {
+            onTemporal(node) {
+                if (count === 0) return;
+                const addon = node.addon ??= {};
+                const current = Number(addon[DOT_ADDON_KEY]) || 0;
+                const total = current + count;
+                node.T *= durationFactor(total) / durationFactor(current);
+                addon[DOT_ADDON_KEY] = total;
+            },
+        });
         return [];
     }
-    override loweringExit(vars: Record<string, any> & { "@dot"?: number }) {
-        const dotCnt = (vars["@dot"] ?? 0) - this.n;
-        if (dotCnt <= 0) delete vars["@dot"];
-        else vars["@dot"] = dotCnt;
+    override loweringExit(ctx: LoweringContext) {
+        ctx.endLoweringGroup(this);
         return [];
     }
     override timeFlowModel() {

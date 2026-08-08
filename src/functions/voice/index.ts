@@ -66,7 +66,7 @@ L: ...
             }; return { next: pos, node };
         } else {
             // 字符串收集
-            let lystart = pos = skipSpaces(source, pos + 1, end);
+            let lystart = pos = skipSpaces(source, pos, end);
             if (pos >= end) return null;    // 没有内容了 不去糖
             let lyend = end;
             const quote = source[pos];
@@ -369,13 +369,13 @@ L: la la la
             const v = ctx.parseArgWithType((value as SourceSpan).start, (value as SourceSpan).end, "content", span.start);
             if (v instanceof VoiceFunction) this.addVoice(v);
             else {
-            const err = new ErrorDiagnostic(
-                "E_VOICES_INVALID_CHILD",
-                `@voices 的参数必须是 @voice 函数，但发现了其他类型 ${v?.constructor.name}`,
-                value as SourceSpan
-            );
-            ctx.diagnostics.push(err);
-            throw err;
+                const err = new ErrorDiagnostic(
+                    "E_VOICES_INVALID_CHILD",
+                    `@voices 的参数必须是 @voice 函数，但发现了其他类型 ${v?.constructor.name}`,
+                    value as SourceSpan
+                );
+                ctx.diagnostics.push(err);
+                throw err;
             }
         }
         if (this.voices.length === 0) {

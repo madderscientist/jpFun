@@ -3,7 +3,7 @@ import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, ParserCon
 class TextFunction extends ASTFunctionNode {
     static override def = {
         name: ["text"],
-        description: "文本标记。单独写在谱中是文本对象；写在 over 里会由 over 的层叠逻辑放到上层",
+        description: "文本标记。单独写在谱中是文本对象；也可作为 up 的单个可见成员",
         example: `@text(进入主题)`,
         allowExtraArgs: false,
         args: [

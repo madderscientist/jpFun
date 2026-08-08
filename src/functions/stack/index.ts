@@ -31,12 +31,12 @@ class StackFunction extends ASTFunctionNode {
         if (!(n.kind === "sugar" && n.data === StackFunction)) return null;
         // 找上一个非文本节点 实现忽略中间内容的作用
         // 另一个做法是如果上一个不是可用节点就报错
-        let i = ctx.nodes.length - 1;
-        for (; i >= 0; i--) {
-            if (ctx.nodes[i] instanceof ASTTextNode) continue;
+        let left = ctx.nodes.length - 1;
+        for (; left >= 0; left--) {
+            if (ctx.nodes[left] instanceof ASTTextNode) continue;
             break;
         }
-        let overNode: any = ctx.nodes[i];
+        let overNode: any = left >= 0 ? ctx.nodes[left] : null;
         if (overNode === null) {
             const e = new ErrorDiagnostic(
                 "STACK_NO_TARGET",
@@ -46,15 +46,18 @@ class StackFunction extends ASTFunctionNode {
             ctx.diagnostics.push(e);
             throw e;
         }
+        /** 左操作数在 ctx.nodes 中的起点；只有这一段会被 stack 吞并，更早的节点必须保留 */
+        let replaceFrom = left;
         // 对 label 的特判: 目标变为label到被标记的节点范围内的所有节点
         if (overNode instanceof ASTLabelNode) {
             const tgt = overNode.parent;
-            for (let j = i - 1; j >= 0; j--) {
+            for (let j = left - 1; j >= 0; j--) {
                 if (ctx.nodes[j] === tgt) {
                     overNode = new ASTBraceNode({
                         start: tgt.sourceSpan.start,
                         end: overNode.sourceSpan.end,
-                    }, ctx.nodes.slice(j, i + 1), null);
+                    }, ctx.nodes.slice(j, left + 1), null);
+                    replaceFrom = j;
                     break;
                 }
             }
@@ -70,10 +73,10 @@ class StackFunction extends ASTFunctionNode {
         ctx.makeNodes(nodes, at);
         for (let i = 0; i < ctx.nodes.length; i++) {
             // 后向跳过文本节点 和上面保持一致
-            const n = ctx.nodes[i];
-            if (n instanceof ASTTextNode) continue;
-            (overNode as StackFunction).addContent(n);
-            storage.length = i;
+            const right = ctx.nodes[i];
+            if (right instanceof ASTTextNode) continue;
+            (overNode as StackFunction).addContent(right);
+            storage.length = replaceFrom;
             storage.push(overNode);
             while (++i < ctx.nodes.length) storage.push(ctx.nodes[i]);
             ctx.nodes = storage;

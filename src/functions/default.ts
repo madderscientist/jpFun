@@ -8,7 +8,7 @@ import { DotNode } from "./dot/index.js";
 import { KeyNode } from "./key/index.js";
 import { BrNode } from "./br/index.js";
 import { NoteNode } from "./note/index.js";
-import { OverNode } from "./over/index.js";
+import { UpNode } from "./over/index.js";
 import { PageNode } from "./page/index.js";
 import { StackNode } from "./stack/index.js";
 import { SetNode } from "./set/index.js";
@@ -23,8 +23,8 @@ export const defaultFunctions: ASTFunctionClass[] = [
     VoiceNode, VoicesNode,  // 歌词和声部
     BrNode,     // 排版
     PageNode,   // 文档页面
-    StackNode,   // 时间同步
-    OverNode,
+    StackNode,  // 时间同步
+    UpNode,
     TieNode, BeamNode,
     BoxNode,
     SetNode, KeyNode, TempoNode,    // 设置

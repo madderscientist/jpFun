@@ -51,7 +51,7 @@ export class ParserContext {
     deSugarRelationFns: deSugarRelationFunction[];
 
     /**
-     * .labelable() 为 true 的节点会被加入其中，供标签绑定使用
+     * .labelable() 返回的承载节点会被加入其中，供标签绑定使用
      */
     labelableNodes: ASTFunctionNode[];
 
@@ -108,8 +108,10 @@ export class ParserContext {
 
     pushNode(node: ASTNodeBase) {
         this.nodes.push(node);
-        if (node instanceof ASTFunctionNode && node.labelable()) {
-            this.labelableNodes.push(node);
+        if (node instanceof ASTFunctionNode) {
+            // 标签绑到节点自己指定的承载者上
+            const target = node.labelable();
+            if (target) this.labelableNodes.push(target);
         }
     }
 
@@ -455,7 +457,11 @@ export function skipSpaces(s: string, i: number, end: number): number {
     while (i < end && isWhitespaceButNotNewline(s[i])) i++;
     return i;
 }
-
+/** 反向跳过非换行空白，越界返回 -1 */
+export function skipSpacesBack(s: string, i: number, start: number = 0): number {
+    while (i >= start && isWhitespaceButNotNewline(s[i])) i--;
+    return i;
+}
 function isWhitespaceButNotNewline(ch: string): boolean {
     switch (ch) {
         case ' ':

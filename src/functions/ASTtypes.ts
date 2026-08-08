@@ -5,17 +5,17 @@ import type {
     LoweringAugmenter,
     LoweringFinalizer,
     TemporalNodeBase,
-    TimeFlowMode,
-    TimeWrapConfig,
+    TimeFlowModel,
 } from "../lowering/types.js";
 import type { LoweringContext } from "../lowering/loweringContext.js";
+import type { Track } from "../lowering/track.js";
 import type { LayoutDecorationHandler } from "../layout/types.js";
 
 export type { SourceSpan, ParserContext, LengthValue };
 export type paramType = "string" | "number" | "boolean" | "length" | "content" | "label";
 export type paramValue = string | number | boolean | LengthValue | ASTBraceNode | ASTNodeBase;
 
-/** 函数作用域中需要固化到 Temporal.addon 的变量统一使用 `@主函数名` */
+/** 固化到 Temporal.addon 的函数语义统一使用 `@主函数名` */
 export function functionAddonKey<const Name extends string>(name: Name): `@${Name}` {
     return `@${name}`;
 }
@@ -33,11 +33,6 @@ export class ASTNodeBase {
         this.sourceSpan = sourceSpan;
         this.parent = parent;
     }
-
-    /**
-     * 时间变换 如`dot` `div`这一类函数根据自己注册的变量进行时间变换
-     */
-    static timeWrapConfig?: TimeWrapConfig;
 
     /**
      * lowering 固化后的 attachment 生成钩子
@@ -59,16 +54,20 @@ export class ASTNodeBase {
     /**
      * 装饰函数可选的排版声明
      * layout 引擎按 key 收集，不需要识别具体函数类
+     * addon 中的 `@key` 标志会使用该装饰
      */
     static layoutDecorationHandler?: LayoutDecorationHandler;
 
     /**
      * 进入当前层级的回调
-     * @param vars 当前的 lowering 上下文变量表
-     * @param ctx 当前的 lowering 上下文，用于执行某些不想对外暴露的展开；可空目的是允许别的函数调用该 hook
-     * @returns 事件 时长会自动进行变形
+     * @param ctx 当前的 lowering 上下文
+     * @param track 当前事件所在的纵向音轨
+     * @returns 当前节点产生的事件
      */
-    loweringEnter(_vars: Record<string, any>, _ctx?: LoweringContext): Iterable<TemporalNodeBase> {
+    loweringEnter(
+        _ctx: LoweringContext,
+        _track: Track,
+    ): Iterable<TemporalNodeBase> {
         return [];
     }
 
@@ -77,15 +76,15 @@ export class ASTNodeBase {
      * 由 loweringContext 调用，决定当前节点在时间求解阶段的展开方式
      * @returns 返回 null 表示没有子元素，返回对象表示参与时间求解
      */
-    timeFlowModel(): {
-        children: ASTNodeBase[],
-        mode: TimeFlowMode  // 指定当前节点在时间求解里的展开方式
-    } | null { return null; }
+    timeFlowModel(): TimeFlowModel | null { return null; }
 
     /**
      * 离开当前层级的回调 同 loweringEnter
      */
-    loweringExit(_vars: Record<string, any>, _ctx?: LoweringContext): Iterable<TemporalNodeBase> {
+    loweringExit(
+        _ctx: LoweringContext,
+        _track: Track,
+    ): Iterable<TemporalNodeBase> {
         return [];
     }
 
@@ -173,9 +172,11 @@ export type FunctionArgs = Map<string | number, paramValue | SourceSpan>; // 参
 // 所有函数节点的基类，提供通用的参数提取方法和标签功能
 // 非正常函数则实例化该函数 特征是getDef为undefined
 export class ASTFunctionNode extends ASTNodeBase {
-    // 默认不可被标签引用，具体函数可重写
-    labelable(): boolean { return false; }
-    label?: string; // 可选的标签名，只有当 labelable() 返回 true 时才有效; 或者是label节点
+    /**
+     * 返回真正承载标签的 AST 节点，null 表示不可被标注
+     */
+    labelable(): ASTFunctionNode | null { return null; }
+    label?: string; // 可选的标签名，只对 labelable() 选中的节点有效; 或者是label节点
 
     // 获取函数定义 对于未知函数，不定义def
     static def?: FunctionDef;
