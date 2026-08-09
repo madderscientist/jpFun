@@ -95,6 +95,7 @@ type TimeFlowModel =
 ## 输出
 ```ts
 interface LoweringResult {
+    diagnostics: Diagnostic[];
     columns: TemporalNodeBase[][];
     attachments: LayoutAttachment[];
     astToTemporal: Map<ASTNodeBase, TemporalNodeBase[]>;
@@ -103,6 +104,7 @@ interface LoweringResult {
     page?: PageConfig;
 }
 ```
+- `diagnostics`：与 parser 及后续 layout 共享的诊断数组。
 - `columns`：按时间和对齐规则组织的事件列。
 - `attachments`：不推进时间的排版关系。
 - `astToTemporal`：AST 到事件的一对多索引。

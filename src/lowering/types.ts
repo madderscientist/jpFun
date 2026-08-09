@@ -1,4 +1,5 @@
 import { ASTNodeBase } from "../functions/ASTtypes.js";
+import type { Diagnostic } from "../diagnostic.js";
 import type {
     LayoutAttachment,
     HorizontalSpringConfig,
@@ -28,6 +29,7 @@ export type LoweringFinalizer = (result: LoweringResult) => void;
  * rootTrack 纵向音轨树的根，layout 沿它递归求解每行的纵向轴
  */
 export interface LoweringResult {
+    diagnostics: Diagnostic[];       // parser 与 lowering 共享的诊断信息
     columns: TemporalNodeBase[][];  // 按时间和对齐规则归并的事件列
     attachments: LayoutAttachment[]; // 不推进时间的关系与分组对象
     astToTemporal: Map<ASTNodeBase, TemporalNodeBase[]>; // 关系函数和编辑器使用的 AST 到本轮事件索引

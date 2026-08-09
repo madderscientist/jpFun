@@ -12,6 +12,8 @@
 
 三个阶段各自独立，通过数据结构传递：
 
+各阶段共享同一个 `Diagnostic[]`：parser 创建并记录解析诊断，pipeline 将其交给 `LoweringContext`，`LoweringResult` 再传给 `DocumentLayoutResult`。warning 不阻断流水线；`ErrorDiagnostic` 在 parser 或 lowering 的阶段边界确保入队后立即重新抛出，后续阶段不会在错误结果上继续运行。
+
 ### 1. 解析
 将源码解析为 AST 树。解析器只负责基础语法（函数调用、大括号、标签）和调度，函数自行处理参数和语法糖。  
 → 详见 [parseAST.md](parseAST.md) · 代码：`src/parser/` · AST 类型：`src/functions/ASTtypes.ts`

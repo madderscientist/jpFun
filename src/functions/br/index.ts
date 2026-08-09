@@ -2,7 +2,7 @@ import { ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClas
 import { ParserContext, skipSpaces, skipSpacesBack } from "../../parser/parserContext.js";
 import { ColType, TemporalNodeBase, type LoweringResult } from "../../lowering/types.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
-import { Diagnostic, ErrorDiagnostic } from "../../diagnostic.js";
+import { Diagnostic, WarningDiagnostic } from "../../diagnostic.js";
 
 class BrFunction extends ASTFunctionNode {
     static override def = {
@@ -81,7 +81,7 @@ class BrFunction extends ASTFunctionNode {
         const [offset] = this.getArgValue(args, ctx) as [number];
         this.offset = Number.isFinite(offset) ? Math.max(1, Math.floor(offset)) : 1;
         if (this.offset !== offset) {
-            ctx.diagnostics.push(new ErrorDiagnostic(
+            ctx.diagnostics.push(new WarningDiagnostic(
                 "W_BR_OFFSET",
                 `@br 的 offset 必须是大于等于 1 的整数，已被修正为 ${this.offset}`,
                 this.sourceSpan

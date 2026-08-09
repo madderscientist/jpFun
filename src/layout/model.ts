@@ -2,7 +2,7 @@
  * 基于弹簧的有时长物体排版模型 原理参考 docs/layout.md
  * 基本使用: 借助 layoutElement() 构建 LayoutElement[][]，调用 layout() 函数进行排版
  */
-import type { LayoutBox, ElementConfig } from "./types.js";
+import type { LayoutBox, HorizontalSpringConfig } from "./types.js";
 import { type TimeLineEvent } from "./types.js";
 
 const DEFAULT_F = 1.0;  // 多大力让一行的 margin 全变为 0
@@ -12,7 +12,7 @@ const DEFAULT_CROSS_PUNISH = 32;
 
 type _LayoutBox = Pick<LayoutBox, 'w' | 'x' | 'anchor'>;
 export interface LayoutElement {
-    config: Required<ElementConfig>;
+    config: Required<HorizontalSpringConfig>;
     box: _LayoutBox;
     time: TimeLineEvent;
     duration: number;  // 求解实际使用的时长
@@ -26,13 +26,16 @@ export interface LayoutElement {
 
 const MIN_DURATION = 0.01;
 
-// 有副作用：会修改 config
-export function layoutElement(
-    config: ElementConfig,
-    box: _LayoutBox,
-    time: TimeLineEvent,
+/**
+ * 原地补齐全部弹簧属性
+ *
+ * 关系修饰在完整配置上只修改自己声明的属性：
+ * beam 缩短 alpha 时不会隐式重算 beta，anchor 增大 mu 时也不会影响其他参数。
+ */
+export function completeSpringConfig(
+    config: HorizontalSpringConfig,
     F: number = DEFAULT_F,
-): LayoutElement {
+): asserts config is Required<HorizontalSpringConfig> {
     const defaultAlpha = config.alpha_L ?? config.alpha_R ?? DEFAULT_ALPHA;
     config.alpha_L ??= defaultAlpha;
     config.alpha_R ??= defaultAlpha;
@@ -43,13 +46,22 @@ export function layoutElement(
 
     config.beta_L ??= F / config.alpha_L;
     config.beta_R ??= F / config.alpha_R;
+}
+
+// 有副作用：确保直接调用时也能消费尚未补齐的配置
+export function layoutElement(
+    config: HorizontalSpringConfig,
+    box: _LayoutBox,
+    time: TimeLineEvent,
+    F: number = DEFAULT_F,
+): LayoutElement {
+    completeSpringConfig(config, F);
 
     // 最小时长限制，与非线性变换（美观）
     const duration = Math.pow(Math.max(time.T, MIN_DURATION), 0.5);
 
     return {
-        config: config as Required<ElementConfig>,
-        box, time, duration,
+        config, box, time, duration,
         WL: box.anchor,
         WR: box.w - box.anchor,
         margin_L: duration * config.alpha_L,
@@ -113,7 +125,7 @@ function fillPlaceholders(columns: LayoutElement[][], F: number = DEFAULT_F): {
                     anchor: 0,
                     alpha_L: maxLeft,
                     alpha_R: maxRight,
-                } as ElementConfig, {
+                } as HorizontalSpringConfig, {
                     x: 0, w: 0, anchor: 0
                 } as _LayoutBox, {
                     t: colTime, T: 1, track: rowId[0]
@@ -199,7 +211,7 @@ export interface SolverOptions {
  * @param options 排版物理配置
  * @returns 同一个解算完成的二维矩阵，所有盒子的绝对 box.x (左侧x坐标) 已就地更新
  */
-export function layout(
+export function layoutHorizontal(
     columns: LayoutElement[][],
     limit: number,
     options: SolverOptions = {}

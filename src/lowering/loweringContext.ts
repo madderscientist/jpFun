@@ -59,7 +59,11 @@ export class LoweringContext {
     }[] = [];
 
     /** 收集本轮 lowering 产生的诊断信息 */
-    diagnostics: Diagnostic[] = [];
+    readonly diagnostics: Diagnostic[];
+
+    constructor(diagnostics: Diagnostic[] = []) {
+        this.diagnostics = diagnostics;
+    }
 
     /** 供外部调用: 初始化 hook */
     registerFunctions(functionClasses: ASTFunctionClass[]) {
@@ -94,6 +98,7 @@ export class LoweringContext {
         const { columns, timeOffset } = this.trackedEvents(node, 0, rootTrack);
         this.solidifyColumns(columns);
         return this.postprocessResult({
+            diagnostics: this.diagnostics,
             columns,
             attachments: this.attachments,
             astToTemporal: this.astToTemporal,
