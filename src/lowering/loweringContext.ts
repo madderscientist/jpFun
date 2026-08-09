@@ -433,14 +433,14 @@ export class LoweringContext {
                 if (Math.abs(t0 - t1) < 1e-6) {
                     if (a.type === ColType.SINGLE) {
                         result.push(a);
-                        if (++i < l0) {
-                            a = track0[i];
+                        a = track0[++i];
+                        if (a) {
                             a.t = t0 = a.t + idt;
                         } else break;
                     } else if (b.type === ColType.SINGLE) {
                         result.push(b);
-                        if (++j < l1) {
-                            b = track1[j];
+                        b = track1[++j];
+                        if (b) {
                             b.t = t1 = b.t + jdt;
                         } else break;
                     } else {
@@ -455,16 +455,16 @@ export class LoweringContext {
                 }
                 if (t0 < t1) {
                     result.push(a);
-                    if (++i < l0) {
-                        a = track0[i];
+                    a = track0[++i];
+                    if (a) {
                         a.t = t0 = a.t + idt;
                         continue;
                     } else break;
                 }
                 if (t1 < t0) {
                     result.push(b);
-                    if (++j < l1) {
-                        b = track1[j];
+                    b = track1[++j];
+                    if (b) {
                         b.t = t1 = b.t + jdt;
                         continue;
                     } else break;

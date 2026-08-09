@@ -23,15 +23,15 @@ export type LoweringFinalizer = (result: LoweringResult) => void;
 /**
  * lowering 的输出
  *
- * columns 时间列，是横向弹簧模型的输入
- * attachments 保存 tie、beam、box 等不直接推进时间的附属布局对象
- * astToTemporal 从 AST 到 Temporal 的映射（一对多）
- * rootTrack 纵向音轨树的根，layout 沿它递归求解每行的纵向轴
+ * - columns 时间列，是横向弹簧模型的输入
+ * - attachments 保存 tie、beam、box 等不直接推进时间的附属布局对象
+ * - astToTemporal 从 AST 到 Temporal 的映射（一对多）
+ * - rootTrack 纵向音轨树的根，layout 沿它递归求解每行的纵向轴
  */
 export interface LoweringResult {
-    diagnostics: Diagnostic[];       // parser 与 lowering 共享的诊断信息
+    diagnostics: Diagnostic[];      // parser 与 lowering 共享的诊断信息
     columns: TemporalNodeBase[][];  // 按时间和对齐规则归并的事件列
-    attachments: LayoutAttachment[]; // 不推进时间的关系与分组对象
+    attachments: LayoutAttachment[];// 不推进时间的关系与分组对象
     astToTemporal: Map<ASTNodeBase, TemporalNodeBase[]>; // 关系函数和编辑器使用的 AST 到本轮事件索引
     duration: number;               // 当前 lowering 范围的总时长
     rootTrack: Track;               // 纵向音轨树的根
