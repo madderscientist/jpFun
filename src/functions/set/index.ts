@@ -35,6 +35,8 @@ class SetFunction extends ASTFunctionNode {
                     // ctx内置的setter可能报错
                     ctx.variables[k] = v;
                     this.args.set(k, v);
+                    if (k === "fontsize") ctx.fontSize = v as number | string;
+                    else if (k === "strict") ctx.strict = v as boolean;
                 } catch(e) {
                     if (e instanceof Diagnostic) {
                         e.span = value as SourceSpan;
