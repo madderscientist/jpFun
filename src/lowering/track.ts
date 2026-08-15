@@ -25,7 +25,7 @@ export interface TrackPlacement {
  *
  * @param host    宿主已占用的范围
  * @param members 每个成员的完整子树占用；null 表示该成员本行没有任何内容
- * @param gap     本行建议的最小基线间隙
+ * @param gap     本行建议的最小间隙，按占用边界算而不是基线（缺省为该行最大字号的 0.75 倍）
  * @returns       与 members 等长；null 表示该成员本行不占位
  */
 export type ArrangeFn = (
@@ -47,7 +47,7 @@ export interface TrackGroup {
  * 纵向音轨
  *
  * 一条 Track 就是谱面上的一条基线。它只描述“谁挂在谁上面/下面”的静态拓扑，不保存任何求解结果
- * 每一行的实际纵向轴由 layout 独立解出并存在自己的表里，所以同一份 lowering 结果可以被反复 layout，Track 本身是可以安全共享的不可变值
+ * 每一行的实际纵向轴由 layout 独立解出并存在自己的表里，因此 Track 本身是可以安全共享的不可变值
  *
  * “音乐上是不是同一条轨”与“视觉上是不是同一条基线”在这里被合并成同一个对象
  * 两次出现要不要共用基线，完全由申请音轨时给出的 laneKey 决定（见 group）

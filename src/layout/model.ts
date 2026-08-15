@@ -2,8 +2,7 @@
  * 基于弹簧的有时长物体排版模型 原理参考 docs/layout.md
  * 基本使用: 借助 layoutElement() 构建 LayoutElement[][]，调用 layout() 函数进行排版
  */
-import type { LayoutBox, HorizontalSpringConfig } from "./types.js";
-import { type TimeLineEvent } from "./types.js";
+import type { HorizontalSpringConfig, LayoutBox, TimeLineEvent } from "./types.js";
 
 const DEFAULT_F = 1.0;  // 多大力让一行的 margin 全变为 0
 const DEFAULT_ALPHA = 6;    // 控制无约束时元素的margin
@@ -15,7 +14,8 @@ export interface LayoutElement {
     config: Required<HorizontalSpringConfig>;
     box: _LayoutBox;
     time: TimeLineEvent;
-    duration: number;  // 求解实际使用的时长
+    duration_L: number; // 左右边界分别保留时长，刚性合并时可继承首尾元素
+    duration_R: number; // 之所以有左右是因为合并列的时候最左边和最右边来自不同的元素
     // 求解器内部使用的状态属性
     WL: number;     // 左物理宽度
     WR: number;     // 右物理宽度
@@ -61,7 +61,9 @@ export function layoutElement(
     const duration = Math.pow(Math.max(time.T, MIN_DURATION), 0.5);
 
     return {
-        config, box, time, duration,
+        config, box, time,
+        duration_L: duration,
+        duration_R: duration,
         WL: box.anchor,
         WR: box.w - box.anchor,
         margin_L: duration * config.alpha_L,
@@ -75,7 +77,7 @@ export function layoutElement(
  */
 function fillPlaceholders(columns: LayoutElement[][], F: number = DEFAULT_F): {
     mat: LayoutElement[][]; // 二维矩阵，第一维为列，第二维为行，包含占位元素
-    rows: number;           // 行数
+    rows: number;           // 行数 不一定等于 colums[0].length，因为可能一个声部有多个
 } {
     const idOrderMap = new Map<any, number>();
     let rows = 0;
@@ -150,8 +152,8 @@ function calcPairForceAndStiffness(el: LayoutElement, er: LayoutElement, xl: num
     if (dis_eff >= m0_total) return { force: 0, stiffness: 0 };
 
     // 计算等效弹簧参数
-    const k_R1 = el.config.beta_R / el.duration;
-    const k_L2 = er.config.beta_L / er.duration;
+    const k_R1 = el.config.beta_R / el.duration_R;
+    const k_L2 = er.config.beta_L / er.duration_L;
     const K_normal = (k_R1 * k_L2) / (k_R1 + k_L2);
 
     let force, stiffness;
@@ -171,7 +173,7 @@ function calcLeftWall(e: LayoutElement, x: number, crossPunish: number = DEFAULT
     const m0 = e.margin_L;
     if (dis >= m0) return { force: 0, stiffness: 0 };
 
-    const k = e.config.beta_L / e.duration;
+    const k = e.config.beta_L / e.duration_L;
     if (dis >= 0) return { force: k * (m0 - dis), stiffness: k };
 
     const stiffness = e.config.mu_L * crossPunish;
@@ -184,7 +186,7 @@ function calcRightWall(e: LayoutElement, x: number, limit: number, crossPunish: 
     const m0 = e.margin_R;
     if (dis >= m0) return { force: 0, stiffness: 0 };
 
-    const k = e.config.beta_R / e.duration;
+    const k = e.config.beta_R / e.duration_R;
     if (dis >= 0) return { force: k * (m0 - dis), stiffness: k };
 
     const stiffness = e.config.mu_R * crossPunish;
@@ -203,40 +205,47 @@ export interface SolverOptions {
     globalC?: number;      // 全局临界力常数 C（默认 1.0）
 }
 
-/**
- * 纯扁平化物理排版解算器
- * 
- * @param columns 二维数组，第一维为列，第二维为行，元素包含物理属性和状态属性
- * @param limit 宽度约束
- * @param options 排版物理配置
- * @returns 同一个解算完成的二维矩阵，所有盒子的绝对 box.x (左侧x坐标) 已就地更新
- */
-export function layoutHorizontal(
-    columns: LayoutElement[][],
+function normalizeSolverOptions(options: SolverOptions): Required<SolverOptions> {
+    return {
+        damping: options.damping ?? 0.6,
+        maxIter: options.maxIter ?? 100,
+        eps: options.eps ?? 1e-2,
+        crossPunish: options.crossPunish ?? DEFAULT_CROSS_PUNISH,
+        globalC: options.globalC ?? DEFAULT_F,
+    };
+}
+
+export interface HorizontalLayoutHookContext {
+    readonly columns: LayoutElement[][]; // 完整归一化矩阵，用于查看区间外邻居
+    readonly rows: number;               // fillPlaceholders 得到的 Track 行数
+    readonly start: number;
+    readonly end: number;
+    readonly X: Float64Array;             // 全行列坐标
+    readonly fixed: Uint8Array;
+    readonly options: Required<SolverOptions>;
+}
+
+export type HorizontalLayoutHook = (context: HorizontalLayoutHookContext) => void;
+
+export interface HorizontalLayoutHookEntry {
+    readonly start: number;
+    readonly end: number;
+    readonly hook: HorizontalLayoutHook;
+}
+
+/** 不处理 fixed 和写回，只求一组普通列的 anchor 坐标；返回自然布局是否有余量 */
+function solveHorizontal(
+    mat: LayoutElement[][],
+    rows: number,
+    X: Float64Array,
     limit: number,
-    options: SolverOptions = {}
-): LayoutElement[][] {
-    const { mat, rows } = fillPlaceholders(columns, options.globalC);
-
-    const damping = options.damping ?? 0.6;
-    const maxIter = options.maxIter ?? 100;
-    const eps = options.eps ?? 1e-2;
-    const crossPunish = options.crossPunish ?? DEFAULT_CROSS_PUNISH;
-
+    options: Required<SolverOptions>,
+): boolean {
+    const { damping, maxIter, eps, crossPunish } = options;
     const numCols = mat.length;
-    if (numCols === 0 || rows === 0) return mat;
+    // if (numCols === 0 || rows === 0) return false; layoutHorizontalRegion 已经判断过了
 
-    // 1. 各列重心的平面绝对位置数组
-    const X = new Float64Array(numCols);
-    function backfillX() {
-        for (let c = 0; c < numCols; c++) {
-            for (const el of mat[c]) {
-                el.box.x = X[c] - el.box.anchor;
-            }
-        }
-    }
-
-    // 2. 预排列（仅用前 rows 个元素建立无约束时的位置）
+    // 预排列（仅用前 rows 个元素建立无约束时的位置）
     const row_x = new Float64Array(rows);
     for (let c = 0; c < numCols; c++) {
         let x = 0;
@@ -252,14 +261,10 @@ export function layoutHorizontal(
     }
     let x0 = row_x.reduce((a, b) => Math.max(a, b), 0); // 预排列后的总宽度
 
-    // 3. 如果预排列就已经超出限制了，则直接等比压缩到限制范围内
-    if (x0 > limit) {
-        const r = limit / x0;
-        for (let c = 0; c < numCols; c++) X[c] *= r;
-    } else {    // 空间充足，无需迭代
-        backfillX();
-        return mat;
-    }
+    if (x0 <= limit) return true;   // 空间充足，无需迭代
+    // 如果预排列就已经超出限制了，则直接等比压缩到限制范围内
+    x0 = limit / x0;
+    for (let c = 0; c < numCols; c++) X[c] *= x0;
 
     // --- 预分配物理引擎所需的全部静态缓存空间，杜绝主循环内的 GC 损耗 ---
     const F_vec = new Float64Array(numCols);
@@ -370,8 +375,149 @@ export function layoutHorizontal(
             X[i] += damping * dx[i];
         }
     }
+    return false;
+}
 
-    // console.log(`[Newton-CG] 迭代: ${turn} 次，最大力: ${f_max.toExponential(2)}`);
-    backfillX();
+/**
+ * 在一段已经归一化的列上排版
+ *
+ * @param columns 当前区间的归一化列矩阵，列数必须等于 X.length
+ * @param rows fillPlaceholders 得到的 Track 数；每列超出 rows 的元素不参与求解
+ * @param X 当前区间的 anchor 坐标；通常是全行 X 的 subarray。是求解结果
+ * @param fixed 当前区间的 gap 是否已经固定，长度必须为 X.length - 1；通常是全行 fixed 的 subarray。fixed[i]==1 表示第 i、i+1 列只能整体移动
+ * @param limit 当前区间左右墙之间的可用宽度
+ * @param options 已补齐默认值的求解参数
+ * @param fill 空间有余量时，是否让首尾贴墙并把余量平均分到自由间隙
+ */
+export function layoutHorizontalRegion(
+    columns: LayoutElement[][],
+    rows: number,
+    X: Float64Array,
+    fixed: Uint8Array,
+    limit: number,
+    options: Required<SolverOptions>,
+    fill = false,
+): void {
+    if (X.length !== columns.length || fixed.length !== Math.max(0, X.length - 1)) {
+        throw new Error("Horizontal region state does not match its columns");
+    }
+    if (X.length === 0 || rows === 0) return;
+
+    const hasFixed = fixed.some(value => value !== 0);
+    let groupOf, offsets;
+    let solvedColumns = columns;
+    let solvedX = X;
+
+    if (hasFixed) { // 先把连续的固定列合并为虚拟列，求解后再拆开
+        groupOf = new Uint32Array(X.length);    // 记录每个列属于哪一组
+        offsets = new Float64Array(X.length);   // 记录每个列相对于组首的偏移量
+        solvedColumns = [];
+        for (let start = 0; start < X.length;) {
+            // 找连续的固定列区间
+            let end = start;
+            while (end < fixed.length && fixed[end]) end++;
+            const groupIndex = solvedColumns.length;
+            for (let i = start; i <= end; i++) {
+                groupOf[i] = groupIndex;
+                offsets[i] = X[i] - X[start];
+            }
+
+            if (start === end) solvedColumns.push(columns[start]);
+            else {
+                const span = X[end] - X[start];
+                // 合并为虚拟的一列
+                solvedColumns.push(Array.from({ length: rows }, (_, row): LayoutElement => {
+                    const left = columns[start][row];
+                    const right = columns[end][row];
+                    return {
+                        config: {
+                            alpha_L: left.config.alpha_L,
+                            alpha_R: right.config.alpha_R,
+                            mu_L: left.config.mu_L,
+                            mu_R: right.config.mu_R,
+                            beta_L: left.config.beta_L,
+                            beta_R: right.config.beta_R,
+                        },
+                        box: left.box,  // 虚拟元素不写回，仅用于满足 LayoutElement，算法不会读取
+                        time: left.time,
+                        duration_L: left.duration_L,
+                        duration_R: right.duration_R,
+                        WL: left.WL,
+                        WR: span + right.WR,
+                        margin_L: left.margin_L,
+                        margin_R: right.margin_R,
+                        fake: left.fake && right.fake,
+                    };
+                }));
+            }
+            start = end + 1;
+        }
+        solvedX = new Float64Array(solvedColumns.length);
+    }
+
+    const hasRoom = solveHorizontal(solvedColumns, rows, solvedX, limit, options);
+    fixed.fill(1);
+
+    if (fill && hasRoom) {
+        // 让首尾贴墙，并把余量平均分到自由间隙
+        let leftWidth = 0;
+        let rightWidth = 0;
+        for (let row = 0; row < rows; row++) {
+            leftWidth = Math.max(leftWidth, solvedColumns[0][row].WL);
+            rightWidth = Math.max(rightWidth, solvedColumns[solvedColumns.length - 1][row].WR);
+        }
+        const shift = leftWidth - solvedX[0];
+        const extra = limit - rightWidth - solvedX[solvedX.length - 1] - shift;
+        for (let i = 0; i < solvedX.length; i++) {
+            solvedX[i] += shift + (extra > 0 && solvedX.length > 1
+                ? extra * i / (solvedX.length - 1)
+                : 0);
+        }
+    }
+
+    if (hasFixed) { // 把虚拟列的求解结果写回原始列
+        for (let i = 0; i < X.length; i++) X[i] = solvedX[groupOf![i]] + offsets![i];
+    }
+}
+
+/**
+ * 纯扁平化物理排版解算入口
+ *
+ * @param columns 二维数组，第一维为列，第二维为行，元素包含物理属性和状态属性
+ * @param limit 宽度约束
+ * @param options 排版物理配置
+ * @returns 同一个解算完成的二维矩阵，所有盒子的绝对 box.x (左侧x坐标) 已就地更新
+ */
+export function layoutHorizontal(
+    columns: LayoutElement[][],
+    limit: number,
+    options: SolverOptions = {},
+    horizontalLayoutHooks: readonly HorizontalLayoutHookEntry[] = [],
+): LayoutElement[][] {
+    const normalizedOptions = normalizeSolverOptions(options);
+    const { mat, rows } = fillPlaceholders(columns, normalizedOptions.globalC);
+    const X = new Float64Array(mat.length);
+    const fixed = new Uint8Array(Math.max(0, mat.length - 1));
+
+    const ordered = horizontalLayoutHooks.length > 1
+        ? [...horizontalLayoutHooks].sort((a, b) => (a.end - a.start) - (b.end - b.start))
+        : horizontalLayoutHooks;
+    for (const { start, end, hook } of ordered) {
+        if (start < 0 || end < start || end >= mat.length) {
+            throw new Error("Horizontal layout registration references invalid columns");
+        }
+        hook({
+            columns: mat, rows,
+            start, end,
+            X, fixed,
+            options: normalizedOptions,
+        });
+    }
+    layoutHorizontalRegion(mat, rows, X, fixed, limit, normalizedOptions);
+
+    // 坐标写回
+    for (let c = 0; c < mat.length; c++) {
+        for (const el of mat[c]) el.box.x = X[c] - el.box.anchor;
+    }
     return mat;
 }

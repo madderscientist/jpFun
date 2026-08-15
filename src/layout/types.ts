@@ -1,5 +1,14 @@
 import type { GlyphProvider, Painter } from "../render/types.js";
 import type { Extent, Track } from "../lowering/track.js";
+import type { HorizontalLayoutHook } from "./model.js";
+
+/** 轴对齐矩形，是所有排版几何的公共部分 */
+export interface Rect {
+    x: number;  // 左边界坐标
+    y: number;  // 上边界坐标
+    w: number;  // 完整占用宽度
+    h: number;  // 完整占用高度
+}
 
 /**
  * 一个排版对象的完整矩形和两个对齐基准
@@ -8,16 +17,9 @@ import type { Extent, Track } from "../lowering/track.js";
  * layout 负责原地修改 x、y
  * 所有字段保持扁平，布局器可以直接持有并修改这个对象的引用
  */
-export interface LayoutBox {
-    x: number;          // 最终左边界坐标
-    y: number;          // 最终上边界坐标
-    w: number;          // 对象需要占用的完整宽度
-    h: number;          // 对象需要占用的完整高度
+export interface LayoutBox extends Rect {
     anchor: number;     // 横向对齐点到盒子左边界的距离
     visualAxis: number; // 垂直视觉对齐轴距盒顶的距离 通常为 h/2
-    // 下面两个属性目的是让“#2./”只在2下绘制减时线，而不是绘制在整个box的底边
-    leftExtent?: number; // 从 anchor 到核心有效左边界，缺省为 anchor
-    rightExtent?: number;// 从 anchor 到核心有效右边界，缺省为 w-anchor
 }
 
 /**
@@ -29,7 +31,7 @@ export interface HorizontalSpringConfig {
     mu_L?: number;      // 左侧重叠阻尼惩罚系数
     mu_R?: number;      // 增加该值可以减少“穿模”
     beta_L?: number;    // 左侧弹性系数
-    beta_R?: number;    // 建议不设置beta 依赖 layoutElement() 自动计算
+    beta_R?: number;    // 建议不设置 beta，由 completeSpringConfig() 按 F/alpha 自动补齐
 }
 
 
@@ -61,35 +63,48 @@ export interface LayoutPrepareContext {
     decorationHandlers: ReadonlyMap<string, LayoutDecorationHandler>; // addon key 到装饰 handler 的注册表
 }
 
-/**
- * 辅助排版阶段额外需要的页面信息
- *
- * getBaseline 在横向阶段尚未求出结果时返回 undefined
- * 在最终纵向阶段返回指定谱面行和轨道的绝对 baseline
- */
-export interface LayoutPassContext extends LayoutPrepareContext {
-    width: number;       // 当前谱面行允许使用的横向宽度
-    originX: number;     // 当前页面坐标系的横向起点
-    getBaseline(line: number, track: unknown): number | undefined; // 查询谱面行和轨道的最终 baseline
+/** attachment 根据当前视觉轴生成几何时需要的完整页面信息 */
+export interface AttachmentLayoutContext extends LayoutPrepareContext {
+    width: number;      // 整篇可用的内容宽（页宽减左右边距），与行无关
+    originX: number;    // 内容区的左边界，即页面左边距
+    getVisualAxis(line: number, track: Track): number;
+    /** 只包含可见主体的轴局部占用（top 通常为负），不受 attachment 或最终分页坐标影响 */
+    getHostExtent(line: number, track: Track): Readonly<Extent> | undefined;
 }
 
 
 /**
- * 每个可以进入排版或绘制阶段的对象都满足这个接口
+ * 装饰所依附的主体
  *
- * TemporalNodeBase 会直接实现它
- * over 的内部节点也继续使用同一个接口，不需要另一套对象体系
+ * 属性含义参考 TemporalNodeBase
+ * 其他属性刻意不开放：
+ * - addon 的值会直接传递给 LayoutDecorationHandler
+ * - decorations 正是 LayoutDecorationHandler 的返回值构成的，也就是此时 LayoutHost 的 decorations 正在建立
+ * - prepareLayout/finalizeLayout/onPlaced/paint 是引擎调度的生命周期方法，不许私自调用
  */
-export interface LayoutObject {
-    box: LayoutBox;                         // 布局器原地读写的完整几何盒
-    elementConfig: ElementConfig;           // 独立于几何盒的横向弹簧参数
-    ports: Record<string, LayoutPoint>;      // 关系对象查询的命名局部坐标
-    /** prepare 阶段生成、place 后冻结、paint 后失效的本轮装饰实例 */
-    decorations: LayoutDecoration[];
-    prepareLayout(context: LayoutPrepareContext): void;   // 生成主体固有尺寸
-    finalizeLayout?(context: LayoutPrepareContext): void; // 装饰排完后发布最终几何
-    onPlaced?(): void;                      // x 或 y 改变后同步复合子对象
-    paint(painter: Painter): void;           // 只读最终几何并发出绘制命令
+export interface LayoutHost extends TimeLineEvent {
+    box: LayoutBox;
+    springConfig: HorizontalSpringConfig;
+    ports: Record<string, LayoutPoint>;
+    readonly layoutLine: number;
+    readonly ast: { readonly size: number }; // 具体视觉函数在 parse 时冻结 px 字号
+}
+
+/**
+ * 一条谱面行进入横向求解前的只读视图
+ *
+ * 时间列拓扑不可改变，但其中的 host 仍可写；
+ * 调用方可以调整 springConfig，也可以注册在 LayoutElement 归一化后执行的横向布局
+ */
+export interface HorizontalLineView {
+    /** 谱面行号，与 host.layoutLine 同一坐标系 */
+    readonly index: number;
+    /** 同一 Track 上按时间列顺序排好的主体，相邻两项即视觉上的前后邻居 */
+    readonly trackRuns: ReadonlyMap<Track, readonly LayoutHost[]>;
+    /** 主体所在时间列下标；不在本行时返回 -1 */
+    columnOf(host: LayoutHost): number;
+    /** 注册横向布局 hook；同一行内按跨度从小到大执行 */
+    registerHorizontalLayoutHook(from: LayoutHost, to: LayoutHost, hook: HorizontalLayoutHook): void;
 }
 
 /**
@@ -101,62 +116,99 @@ export interface LayoutPoint {
     y: number;          // 相对于所属 LayoutBox 上边界的纵坐标
 }
 
+/** 把 addon 字段变为可绘制的 LayoutDecoration；返回 null 表示本次不生成装饰 */
+export type LayoutDecorationHandler = (
+    host: LayoutHost,
+    value: unknown, // 存在 addon 中的值
+    context: LayoutPrepareContext,
+) => LayoutDecoration | null;
+
 /**
  * 一次 layout 中生成并保留到 paint 阶段的装饰对象
  *
- * 实例有两种来源：LayoutObject.prepareLayout 可以直接加入；addon 对应的 LayoutDecorationHandler 也可以在主体 prepareLayout 后创建
- * 它可以在返回实例前调整 target.box，例如 dot handler 先扩张主体宽度。
+ * 实例有两种来源：Temporal.prepareLayout 可以直接加入；addon 对应的 LayoutDecorationHandler 也可以在主体 prepareLayout 后创建
+ * 两者都在创建时就拿到了宿主，因此回调不再重复传入它；实例可以在返回前调整 host.box，例如 dot 先扩张主体宽度
+ * 被 arrangeBelowDecorations 使用
  *
  * 通用部分只有 paint：主体绘制完成后，引擎调用它绘制当前装饰。
  *
- * belowOrder/belowGap/belowHeight/place 组成可选的“主体下方空间”子协议。
- * 只有声明 belowOrder 才会进入下方空间管理。该协议只向下扩张 box.h，不管理主体上方空间
- * 上方内容若会改变主体 baseline 或内部绘制坐标，应由具体 LayoutObject 在 prepareLayout 中处理。
+ * below 是可选的“主体下方空间”子协议，只向下扩张 box.h，不管理主体上方空间
+ * 上方内容若会改变主体 visualAxis 或内部绘制坐标，应由具体 Temporal 在 prepareLayout 中处理。
  *
  * 当前内置示例：
- * - dot：handler 生成只负责横向扩宽和绘制的装饰，不声明 belowOrder；
- * - div：handler 生成减时线装饰，使用 belowOrder=0，排在主体下方最内层；
- * - note 下八度点：prepareLayout 直接加入装饰，使用 belowOrder=100，排在减时线之后；
+ * - dot：handler 生成只负责横向扩宽和绘制的装饰，不声明 below；
+ * - div：handler 生成减时线装饰，使用 order=0，排在主体下方最内层；
+ * - note 下八度点：prepareLayout 直接加入装饰，使用 order=100，排在减时线之后；
  * - note 上八度点不使用 LayoutDecoration，而是主体 prepareLayout 的一部分。
  *
- * LayoutDecoration 不是 addon 语义本身。实例可以用闭包保存本次测量参数和 place 结果，因此必须由 LayoutObject.decorations 持有到 paint 结束；下一次 layout 会重新创建。
+ * LayoutDecoration 不是 addon 语义本身。实例可以用闭包保存本次测量参数和 place 结果，因此必须由 Temporal.decorations 持有到当前 paint 结束。
  */
 export interface LayoutDecoration {
-    paint(painter: Painter, target: LayoutObject): void; // 只读取冻结几何
+    paint(painter: Painter): void; // 只读取冻结几何
 
-    // 可选：主体下方空间管理；只有 belowOrder 存在时生效
-    belowOrder?: number;    // 存在时加入主体下方空间管理 越小越靠近主体，相同值保持注册顺序
-    belowGap?: number;      // 与主体或前一个下方装饰的间隔，可以为负数
-    belowHeight?: number;   // 下方区域占用高度，布局时强制为非负数
-    place?(target: LayoutObject, y: number): void; // 接收相对于 target.box 顶部的下方区域起点
+    /** 声明后进入主体下方空间管理，引擎只理解这四个字段，不知道空间来自哪个函数 */
+    below?: {
+        order: number;      // 越小越靠近主体，相同值保持注册顺序
+        gap?: number;       // 与主体或前一个下方装饰的间隔，可以为负数
+        height?: number;    // 下方区域占用高度，布局时强制为非负数
+        /**
+         * 引擎分配好本装饰的下方区域后调用一次，y 是该区域 **顶边到 host.box 顶部** 的距离
+         *
+         * 该做的：把这一刻才确定的局部几何存进闭包供 paint 使用（note 存下八度点的 y），
+         * 以及发布依赖这个位置的端口（div 在这里建 div.N.left/right）。只占位不绘制时可以不实现。
+         *
+         * 不该做的：改 box.h（引擎会按 height 统一扩张）、读 box.y 或 box.h （前者尚未求解、后者正在向下累加）。
+         * 此时只有 box.w/anchor 和 ports 是最终值，因此一律记录相对盒顶的局部坐标，绘制时再加 host.box.x / host.box.y。
+         *
+         * 例（一条减时线）：
+         * ```ts
+         * let lineY = 0;   // 闭包保存本轮测量结果
+         * return {
+         *     below: {
+         *         order: 0,
+         *         height: strokeWidth,
+         *         place(y) {
+         *             lineY = y + strokeWidth / 2;
+         *             host.ports["div.0.left"] = { x: 0, y: lineY };
+         *         },
+         *     },
+         *     paint(painter) {
+         *         const y = host.box.y + lineY;    // 此时 box.y 才有意义
+         *         painter.drawLine(host.box.x, y, host.box.x + host.box.w, y, { stroke: "#000", strokeWidth });
+         *     },
+         * };
+         * ```
+         */
+        place?(y: number): void;
+    };
 }
-
-/** addon 装饰工厂；在主体 prepareLayout 后调用，可以先调整 target.box */
-export type LayoutDecorationHandler = (
-    target: LayoutObject,
-    value: unknown,
-    context: LayoutPrepareContext,
-) => LayoutDecoration | null;
 
 /**
  * 不占用时间、附着于一个或多个主体对象的独立排版对象
  *
  * tie、beam、box 和歌词都使用这个接口
- * 它们不进入时间列，但可以拥有自己的边界、申报纵向占用，并在主体横向或纵向位置确定后更新几何
+ * 它们不进入时间列，只需要报出自己占住的矩形，外接盒与纵向占用都由引擎从中导出
  */
 export interface LayoutAttachment {
-    box: LayoutBox; // attachment 自己的最终外接矩形
+    box: LayoutBox; // 由引擎写入：上一次 layout 返回区域的并集
     layer: "background" | "foreground"; // 相对于 Temporal 主体的绘制层 "background"比内容先绘制
-    verticalExtents?: LayoutVerticalExtent[];   // 向各轨道申报的纵向占用
-    layoutAfterHorizontal?(context: LayoutPassContext): void; // 横坐标确定后计算相对几何
-    layoutAfterVertical?(context: LayoutPassContext): void;   // baseline 确定后计算绝对几何
+    /** 横向求解前：调整弹簧参数或注册横向布局 hook，不得改变对象/列顺序 */
+    prepareHorizontal?(context: HorizontalLineView[]): void;
+    /**
+     * 根据当前视觉轴生成完整几何，并返回自己占住的区域
+     * 纵向迭代求解会调用多次，实现必须幂等（每次从主体几何重算，不能做累加）
+     */
+    layout?(context: AttachmentLayoutContext): readonly LayoutRegion[] | void;
     paint(painter: Painter): void;  // 只读最终几何并发出绘制命令
 }
 
-/** attachment 对某一谱面行中某一轨道提出的纵向占用范围 */
-export interface LayoutVerticalExtent {
-    line: number;   // 占用范围所属谱面行
-    track: unknown; // 占用范围所属轨道
-    top: number;    // 相对于该轨道 baseline 的最上边界
-    bottom: number; // 相对于该轨道 baseline 的最下边界
+/**
+ * attachment 报出的一块几何（全局坐标）
+ *
+ * 总是计入外接盒；同时声明 line 和 track 时，还会折算成该轨道的纵向占用
+ * 只想影响画布边界、不想撑高行的图形（括线、边框）省略归属即可
+ */
+export interface LayoutRegion extends Rect {
+    line?: number;
+    track?: Track;
 }

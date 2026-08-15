@@ -9,6 +9,7 @@ import type {
     PageConfig,
     LayoutPoint,
     LayoutPrepareContext,
+    HorizontalLineView,
     TimeLineEvent,
 } from "../layout/types.js";
 import type { Painter } from "../render/types.js";
@@ -110,7 +111,7 @@ export class TemporalNodeBase implements TimeLineEvent {
     track!: Track;  // 所在的纵向音轨；同轨判断使用引用相等
 
     ast!: ASTNodeBase;  // 对应的 AST 节点
-    order!: number;     // timeAllocation 创建顺序，作为id。可以用于区分同时发生的父子、排序同一时刻发生的事件
+    order!: number;     // 事件创建序号，作为id。可用于区分同时发生的父子、排序同一时刻发生的事件
     addon?: Record<string, any>; // 其他任意字段，仅在存在已固化的函数语义时创建，比如存储 div 和 dot 的数目
     type!: ColType;     // 事件类型
 
@@ -155,7 +156,7 @@ export class TemporalNodeBase implements TimeLineEvent {
      * 1. layout 的 prepareLayoutHost 开始时创建或清空数组；
      * 2. Temporal.prepareLayout 可先加入节点自身的装饰，例如下八度点；
      * 3. 引擎再通过 addon 对应的 layoutDecorationHandler 加入函数装饰；
-     * 4. arrangeBelowDecorations 按 belowOrder 分配主体下方空间并调用 place；
+     * 4. arrangeBelowDecorations 按 below.order 分配主体下方空间并调用 below.place；
      * 5. 最终 paintLayout 在主体 paint 后依次调用 decoration.paint。
      *
      * 数组必须保留到绘制结束，因为 decoration 通常以闭包保存本次测量得到的几何。它只属于当前 layout pass，不能跨 pass 复用。
@@ -188,9 +189,12 @@ export class TemporalNodeBase implements TimeLineEvent {
      */
     prepareLayout(_ctx: LayoutPrepareContext): void {}
 
+    /** 横向拓扑建立后调整弹簧参数或注册横向布局 hook */
+    prepareHorizontal?(_line: HorizontalLineView): void;
+
     /**
-     * 装饰完成纵向排列后调用（得到了最终的 box）
-     * 第三方节点可在这里发布依赖最终 box.w/box.h 的端口
+     * 得到了最终的 box 后被调用（和 prepareLayout 之间隔了 decoration 的布局计算）
+     * 可在这里发布依赖最终 box.w/box.h 的端口
      */
     finalizeLayout?(_ctx: LayoutPrepareContext): void;
 
