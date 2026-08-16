@@ -102,11 +102,11 @@ class DotFunction extends ASTFunctionNode {
         host.box.w = Math.max(host.box.w, right);
 
         return {
-            paint(painter, currentHost) {
-                const centerY = currentHost.box.y + anchor.y;
+            paint(painter) {
+                const centerY = host.box.y + anchor.y;
                 for (let i = 0; i < count; i++) {
                     painter.drawCircle(
-                        currentHost.box.x + start + i * step,
+                        host.box.x + start + i * step,
                         centerY,
                         radius,
                         { fill: "#000" },

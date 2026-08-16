@@ -67,13 +67,11 @@ class UpFunction extends ASTFunctionNode {
         }
         let overNode: any = left >= 0 ? ctx.nodes[left] : null;
         if (overNode === null) {
-            const e = new ErrorDiagnostic(
+            throw new ErrorDiagnostic(
                 "UP_NO_TARGET",
                 "@up语法糖错误: 左边没有找到可叠加的目标",
                 n.span
             );
-            ctx.diagnostics.push(e);
-            throw e;
         }
         /** 左操作数在 ctx.nodes 中的起点；只有这一段会被 up 吞并，更早的节点必须保留 */
         let replaceFrom = left;
@@ -111,38 +109,38 @@ class UpFunction extends ASTFunctionNode {
             ctx.nodes = storage;
             return nodes.length;
         }
-        const e = new ErrorDiagnostic(
+        throw new ErrorDiagnostic(
             "UP_NO_TARGET",
             "@up语法糖错误: 右边没有找到可叠加的目标",
             n.span
         );
-        ctx.diagnostics.push(e);
-        throw e;
     }
 
     contents: ASTNodeBase[] = [];
     size: number;
     override get children(): ASTNodeBase[] { return this.contents; }
 
-    /**
-     * over 对全局 lowering 表现为一个叶节点
-     *
-     * 每个参数在隔离作用域中独立 lowering
-     * 子事件不会进入全局横向弹簧模型
-     */
-    override loweringEnter(vars: Record<string, any>, ctx?: LoweringContext) {
-        if (!ctx) return [];
+    /** up 的参数复用普通 hook，并收敛为单个可见 Temporal 成员 */
+    override loweringEnter(ctx: LoweringContext, track: Track) {
 
-        // 外层 dot 和 div 应修饰 over 合并后的整体
-        // 其他非装饰状态继续传入局部 lowering
-        const localVars: Record<string, any> = {};
-        for (const [key, value] of Object.entries(vars)) {
-            if (key.startsWith("@")) continue;
-            localVars[key] = value;
-        }
+        const members: VisualTemporalNode[] = [];
+        // 成员不是外层分组的成员，和弦才是；否则 voice 的歌词会按下标错位
+        ctx.isolateFromLoweringGroups(() => {
+            for (const content of this.contents) {
+                // 摊平所有时间列取全部事件，和弦要求恰好一个
+                const [member, ...rest] = ctx.trackedEvents(content, 0, track).columns.flat();
+                if (!member || rest.length > 0 || !isVisualTemporalNode(member)) {
+                    throw new ErrorDiagnostic(
+                        "E_UP_INVALID_CHILD",
+                        "@up 的每个参数必须恰好产生一个可见 Temporal，且不能包含多声部结构",
+                        content.sourceSpan,
+                    );
+                }
+                members.push(member);
+            }
+        });
 
-        const layers = this.contents.map(content => ctx.lowerFragment(content, { ...localVars }));
-        return [new OverNodeTemporal(this, layers)];
+        return [new UpTemporal(this, members)];
     }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {

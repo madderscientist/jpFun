@@ -7,7 +7,7 @@ export interface DocumentLayoutPage {
     lineEnd: number;    // 不包含
 }
 
-/** 单条谱面行高于页面内容区时抛出；line 是 heights 中的下标 */
+/** 单条谱面行高于页面内容区时传给 engine 的结构化信号 */
 export class PageLayoutError extends Error {
     readonly line: number;
     readonly requiredHeight: number;

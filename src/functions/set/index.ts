@@ -40,8 +40,8 @@ class SetFunction extends ASTFunctionNode {
                 } catch(e) {
                     if (e instanceof Diagnostic) {
                         e.span = value as SourceSpan;
-                        ctx.diagnostics.push(e);
                         if (e.code[0] === "E") throw e;
+                        ctx.diagnostics.push(e);
                     }
                 }
             } else {

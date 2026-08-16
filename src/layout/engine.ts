@@ -1,4 +1,4 @@
-import type { Diagnostic } from "../diagnostic.js";
+import { Diagnostic } from "../diagnostic.js";
 import type { Extent, Track } from "../lowering/track.js";
 import {
     isVisualTemporalNode,
@@ -16,6 +16,7 @@ import {
 import {
     normalizePageConfig,
     paginateLayoutLines,
+    PageLayoutError,
     type DocumentLayoutPage,
 } from "./page.js";
 import type {
@@ -32,7 +33,7 @@ export interface DocumentLayoutOptions extends SolverOptions {
     rowGap?: number;    // 强制覆盖每行的轨道间距；缺省按该行最大字号推导
 }
 
-// 保留旧导入路径；实际分页类型和错误由 page.ts 所有
+// 兼容旧导入路径；布局入口会把正常页面溢出转换为 ErrorDiagnostic
 export { PageLayoutError } from "./page.js";
 export type { DocumentLayoutPage } from "./page.js";
 
@@ -172,7 +173,31 @@ export function layoutDocument(
             heights.push(solved.height);
             return solved.axes;
         });
-        const { pages, lineTops } = paginateLayoutLines(heights, page);
+        let pages: DocumentLayoutPage[];
+        let lineTops: number[];
+        try {
+            ({ pages, lineTops } = paginateLayoutLines(heights, page));
+        } catch (error) {
+            if (!(error instanceof PageLayoutError)) throw error;
+            // 用溢出的元素的 span 构成 Error
+            const line = lines[error.line];
+            let start = Infinity;
+            let end = -Infinity;
+            for (const column of line?.columns ?? []) {
+                for (const node of column) {
+                    start = Math.min(start, node.ast.sourceSpan.start);
+                    end = Math.max(end, node.ast.sourceSpan.end);
+                }
+            }
+            if (Number.isFinite(start)) {
+                throw Diagnostic.error.PageOverflow(
+                    error.requiredHeight,
+                    error.availableHeight,
+                    { start, end },
+                );
+            }
+            throw error;
+        }
         const visualAxisOf = (line: number, track: Track) => (lineTops[line] ?? 0) + (axes[line]?.get(track) ?? 0);
 
         for (const node of objects) {

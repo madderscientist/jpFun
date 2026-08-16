@@ -146,6 +146,16 @@ Diagnostic.error = {
             `换行切断了一个仍在持续的事件；请把长音写成多个事件，或调整 @br 的位置`,
             span
         );
+    },
+    InvalidPageConfig: (message: string, span: SourceSpan) => {
+        return new ErrorDiagnostic("E_INVALID_PAGE_CONFIG", message, span);
+    },
+    PageOverflow: (required: number, available: number, span: SourceSpan) => {
+        return new ErrorDiagnostic(
+            "E_PAGE_OVERFLOW",
+            `谱面行需要 ${required}px 高度，但页面内容区只有 ${available}px`,
+            span
+        );
     }
 };
 

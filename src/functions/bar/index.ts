@@ -16,7 +16,7 @@ class BarFunction extends ASTFunctionNode {
 `,
         allowExtraArgs: false,
         args: [
-            {   // 末尾小节线的样式类型 预留参数 目前无实际效果
+            {   // 小节线样式类型，对应普通、终止和反复线
                 name: "type",
                 type: "number" as const,
                 default: 0,
@@ -32,7 +32,7 @@ class BarFunction extends ASTFunctionNode {
         ]
     };
 
-    static deSugarAtom(source: string, start: number, end: number) {
+    static deSugarAtom(source: string, start: number, _end: number) {
         let pos = start;
         let type = 0;
         const slice2 = source.slice(pos, pos + 2);
@@ -70,7 +70,7 @@ class BarFunction extends ASTFunctionNode {
         return [new BarTemporalNode(this)];
     }
 
-    override toString(source: string) {
+    override toString() {
         return `@bar(${this.type}, ${this.barLength}px)`;
     }
 }

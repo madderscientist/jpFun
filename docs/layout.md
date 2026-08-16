@@ -1,11 +1,119 @@
-# 简谱音符布局算法
+# 简谱布局
+
+## 核心对象
+
+每个可见 Temporal 直接拥有一个扁平 `LayoutBox`：
+```ts
+interface Rect {
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+}
+interface LayoutBox extends Rect {
+	anchor: number;      // 横向对齐点到左边界
+	visualAxis: number;  // 轨道视觉轴到盒顶
+}
+```
+
+`prepareLayout` 写入固有的 `w/h/anchor/visualAxis`，布局器原地写回 `x/y`。全局横向对齐点是 `x + anchor`，全局视觉轴是 `y + visualAxis`。字号在 parse 时冻结为 AST 上的 px 值，布局只读取它。
+
+`layoutDocument` 会修改 Temporal、attachment 和 spring config，因此一份 `LoweringResult` 只布局一次；重新布局应重新 lowering。
+
+## 布局阶段
+
+`layoutDocument` 的固定顺序是：
+
+1. 按 `layoutLine` 切行，调用 `prepareLayout`，生成固有尺寸、端口和装饰；
+2. 排列下方装饰，调用 `finalizeLayout`；
+3. 补齐 spring config，调用主体和 attachment 的 `prepareHorizontal`；
+4. 每行独立进行横向求解，写回 `box.x`；
+5. 汇总主体纵向占用，沿 Track 树求轴和自然行高；
+6. 分页，写回 `box.y`，调用 `onPlaced`；
+7. 调用 attachment 的 `layout`，收集外接盒和轨道占用；
+8. attachment 扩张轨道占用时，再进行一次纵向放置和 attachment 布局；
+9. 合并页面、主体和 attachment 的最终边界。
+
+`prepareHorizontal` 每个对象只调用一次；`onPlaced` 和 `LayoutAttachment.layout` 必须幂等。第二次 attachment 布局只更新最终几何，不继续触发迭代。
+
+## 纵向布局与分页
+
+每轮把当前已知的主体和 attachment 占用折算为相对轨道视觉轴的 `Extent`，再沿 Track 树递归：
+```
+solve(track):
+	ext = 本轨占用
+	for group of track.groups:
+		members = group.members.map(solve)
+		if members 全为空: continue
+		placements = group.arrange(ext, members, gap)
+		把返回的偏移并回 ext
+place(root, -ext.top)
+```
+
+引擎只负责递归、调用 `arrange` 和合并占用；stack、voices 等具体排列策略由函数提供。行高取全行占用的并集，不做横向感知的二维压缩。attachment 即使位于空逻辑行，也可通过 `line + track` 引入纵向占用。
+
+`page.ts` 只消费自然行高，产出页面边界和每行全局顶部 `lineTops`；它不读取 Track 或具体对象。`@page` 的长度在 parse 时固化为 px，可用内容宽度是页宽减左右边距。`height=0` 表示无限高；有限页面至少容纳一行，完整非末页可拉伸行距。
+
+非法页面配置抛出 `E_INVALID_PAGE_CONFIG`。单行高于内容区时，有可见源码内容则抛出 `E_PAGE_OVERFLOW`；无法归因到源码的 attachment-only 空行保留分页器的结构化错误。
+
+## 横向求解前准备
+
+`HorizontalSpringConfig` 保存 `alpha_L/R`、`mu_L/R` 和 `beta_L/R`。引擎在固有尺寸完成后先通过 `completeSpringConfig` 补齐六个字段，然后才运行 hook，因此具体函数不需要判断缺省值。hook 修改 `alpha` 不会隐式重算已经补齐的 `beta`。
+
+`LayoutAttachment.prepareHorizontal` 接收 `HorizontalLineView[]`，整篇只调用一次，每个元素是每条谱面行的只读视图：
+- `index` 是谱面行号，与 `host.layoutLine` 同一坐标系；
+- `trackRuns` 是同一 Track 上按列序排好的主体，相邻两项即视觉上的前后邻居；
+- `columnOf(host)` 给出时间列下标，不在本行返回 -1；
+- `registerHorizontalLayoutHook(from, to, hook)` 注册横向布局 hook；同一行内按跨度从小到大执行。
+
+引擎随后创建归一化的 `LayoutElement` 矩阵。hook 按跨度从小到大稳定执行，共享同一组列坐标 `X` 和固定间隙标记 `fixed`。具体函数可以调整弹簧参数或调用区域布局，引擎不解释其业务含义。
+
+### 局部横向求解
+
+`layoutHorizontal` 每行只做一次占位补齐，随后创建共享的列坐标 `X` 和 gap 标记 `fixed`。局部 hook 和最终整行布局都调用 `layoutHorizontalRegion`：
+
+1. 连续 fixed 列先折叠成刚性虚拟列。虚拟列的左边界参数继承最左元素，右边界参数继承最右元素；普通元素的 `duration_L/R` 相同，虚拟列分别保留首尾时长。
+2. 私有自由求解器继续使用原来的预排列、墙力、CG 与阻尼迭代，不理解 hook 或 fixed。
+3. 求解后把虚拟列的整体位移展开回原列，fixed 内部坐标差保持不变。
+
+定宽 box 使用这套机制冻结内部间隙；固定区域可以嵌套，但不能部分交叉或对相同列声明冲突宽度。
+
+## 命名端口
+关系函数不判断端点类型，只读取相对于 `LayoutBox` 左上角的命名端口：
+- `body.left` / `body.right`：主体核心有效范围的左右边界；缺省为盒左右边界
+- `shoulder`：要在这个盒上方叠东西的人应该从哪条线开始；缺省为盒顶
+- `tie.top`：可选的连音线端点覆盖；缺省使用对象 anchor 顶部
+- `div.0.left` / `div.0.right`：各级减时线的左右端点
+- `dot`：附点锚点；缺省为目标右边界和视觉轴，目标可同时覆盖 x/y
+- `lyric`：歌词水平对齐点
+
+端口是可选覆盖：消费者必须定义缺省行为。装饰 handler 可以在扩张盒子的同时发布依赖最终几何的端口。
+
+## 下方装饰空间
+`LayoutDecoration.below` 声明主体下方空间：`order` 决定由近到远的顺序，`gap` 和 `height` 决定占用，`place(y)` 接收相对盒顶的位置。`place` 可以保存绘制几何和发布端口，但不应修改 `box.h` 或读取尚未确定的 `box.y`。
+
+below 只向下扩张；主体内部或上方几何由具体 Temporal 的 `prepareLayout` 处理，需要独立纵向占用的对象使用 attachment。所有装饰完成后才调用 `finalizeLayout`。
+
+## 纵向占用
+`LayoutAttachment.layout` 返回全局坐标中的 `LayoutRegion[]`。所有区域都计入 attachment 外接盒；同时提供 `line + track` 的区域还会折算为该轨道相对视觉轴的占用。
+
+`getHostExtent(line, track)` 只返回可见主体的稳定占用，不包含 attachment。当前 attachment 之间不互相避让，因此实现不应依赖注册顺序。
+
+### 写一个跨行 attachment
+
+1. 按 `layoutLine` 排序端点；
+2. 首末段连接端点与内容区边界；
+3. 为每个中间逻辑行生成一段，即使该行没有可见主体；
+4. 每段返回准确的 `line + track` 占用；
+5. `layout` 每次从主体几何重新计算，不累加上一次结果。
+
+## 一行元素的布局：弹簧模型
 基本理念：
 1. 简谱中，音符时长越大，边距越大
 2. 空间不足时，首先压缩边距。实在没空间了，才让元素重叠
 
-有一个简单的html实现：[demo](../src/layout/layout_demo.html)
+横向排版有一个简单的html实现：[demo](../src/layout/layout_demo.html)
 
-## 一行元素的布局：弹簧模型
 每个元素有自己的固有宽度 `W` 和固有时长 `T`，左右连着两根相同长度的弹簧，弹簧的原始长度为 `L`，固有时长越大弹簧越长：$ L = \alpha T $
 
 劲度系数 `k` 为弹簧实际长度和固有时长的函数：
@@ -40,10 +148,5 @@ $$
 1. 需要迭代求解。调了很多种优化算法，发现都不怎么适用：梯度变化极大。最后还是限制了每次的最大步长，并用余弦退火调整学习率，才勉强能稳定收敛。考虑到这是分段线性的凸优化，后来直接用了共轭梯度法（CG），效果非常好，不仅精度提升大幅减少了迭代次数。
 2. 穿墙有些难避免。当前的做法是给跨墙很大的弹性系数，但这又会导致数据不稳定（使用CG后倒是不存在数值问题了），穿墙仍然会存在。当然算法上是可以实现的，只要设置好初始条件不会穿墙，后面迭代注意边界就行了，但实现起来比较麻烦。还是倾向于用更大的 $\mu$ 来减少穿墙程度（这里要远大于）。
 
-## 拓展
-考虑音符 `#4`，升记号在左侧，而对齐位置仍然为数字重心，因此整个box左右不对称。所以需要抽象出左右两边的设置。但这里弹簧长度设置就有一些麻烦了，到底应该两边一样长、还是对齐位置到边界距离一样长？目前还是使用了前者，简单一些。由于 $\alpha\beta$ 的特性仍然存在，因此在空间不足时，仍然能保持 margin 比例不变、且优先缩减的特性。
-
-## 改进
-有的事件只有位置，不产生时间偏移，即时长为0，会导致分母为零。因此需要设置一个最小的时长，含义为最小边距。
-
-由于完全和时间成线性不是太好看，于是要引入非线性。目前的做法是对时间进行了幂次。
+## 实现说明
+零时长事件使用最小时长参与弹簧计算，避免刚度公式除零。实际时长会进行幂次变换，使视觉间距不与音乐时值保持生硬的线性比例。

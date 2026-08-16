@@ -4,7 +4,7 @@ import {
     normalizePageConfig,
 } from "../../layout/page.js";
 import type { PageConfig } from "../../layout/types.js";
-import { WarningDiagnostic } from "../../diagnostic.js";
+import { Diagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import {
     ASTFunctionNode,
     type ASTFunctionClass,
@@ -34,8 +34,7 @@ export class PageFunction extends ASTFunctionNode {
         ],
     };
 
-    readonly config: PageConfig;
-    private readonly active: boolean;
+    readonly config: PageConfig | null;
 
     constructor(
         sourceSpan: SourceSpan,
@@ -45,25 +44,13 @@ export class PageFunction extends ASTFunctionNode {
     ) {
         super(sourceSpan, parent);
 
-        const values = this.getArgValue(args, ctx) as LengthValue[];
-        const [width, height, top, bottom, left, right, gap] = values.map(value => ctx.length2px(value));
-        this.config = normalizePageConfig({
-            width,
-            height,
-            marginTop: top,
-            marginBottom: bottom,
-            marginLeft: left,
-            marginRight: right,
-            lineGap: gap,
-        });
-
         if (ctx.scopeDepth !== 0) {
             ctx.diagnostics.push(new WarningDiagnostic(
                 "W_PAGE_NOT_TOP_LEVEL",
                 "@page 只能在文档顶层声明；当前声明已忽略",
                 sourceSpan,
             ));
-            this.active = false;
+            this.config = null;
             return;
         }
 
@@ -73,16 +60,37 @@ export class PageFunction extends ASTFunctionNode {
                 "文档只能声明一个 @page；后续声明已忽略",
                 sourceSpan,
             ));
-            this.active = false;
+            this.config = null;
             return;
         }
         ctx.documentDeclarations["page"] = true;
 
-        this.active = true;
+        const values = this.getArgValue(args, ctx) as LengthValue[];
+        const [width, height, top, bottom, left, right, gap] = values.map(value => ctx.length2px(value));
+        if (!Number.isFinite(width) || width <= 0)
+            throw Diagnostic.error.InvalidPageConfig("@page 的 width 必须是正有限长度", sourceSpan);
+        if (!Number.isFinite(height) || height < 0)
+            throw Diagnostic.error.InvalidPageConfig("@page 的 height 必须是非负有限长度；0 表示不分页", sourceSpan);
+        if ([top, bottom, left, right, gap].some(value => !Number.isFinite(value) || value < 0))
+            throw Diagnostic.error.InvalidPageConfig("@page 的边距和 gap 必须是非负有限长度", sourceSpan);
+        if (left + right >= width)
+            throw Diagnostic.error.InvalidPageConfig("@page 的左右边距没有留下可用内容宽度", sourceSpan);
+        if (height > 0 && top + bottom >= height)
+            throw Diagnostic.error.InvalidPageConfig("@page 的上下边距没有留下可用内容高度", sourceSpan);
+
+        this.config = normalizePageConfig({
+            width,
+            height,
+            marginTop: top,
+            marginBottom: bottom,
+            marginLeft: left,
+            marginRight: right,
+            lineGap: gap,
+        });
     }
 
-    override loweringEnter(_vars: Record<string, any>, ctx?: LoweringContext) {
-        if (ctx && this.active) ctx.setPageConfig(this.config);
+    override loweringEnter(ctx: LoweringContext) {
+        if (ctx && this.config) ctx.setPageConfig(this.config);
         return [];
     }
 }

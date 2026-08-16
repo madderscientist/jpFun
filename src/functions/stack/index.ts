@@ -2,6 +2,44 @@ import { ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClas
 import { ParserContext } from "../../parser/parserContext.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { ErrorDiagnostic } from "../../diagnostic.js";
+import type { ArrangeFn, TrackPlacement } from "../../lowering/track.js";
+
+/**
+ * 临时伴奏紧贴主旋律，用比系统级行距更小的间隙
+ * 间隙作用在盒边界之间，因此即使很小也不会互相穿模
+ */
+const GAP_RATIO = 0.4;
+
+/**
+ * stack 的成员依次贴在宿主上方：书写顺序即自下而上
+ * cursor 从宿主已占用的最上沿开始，因此同一宿主上的多个分组会自内向外依次堆叠
+ */
+const arrangeAbove: ArrangeFn = (host, members, gap) => {
+    const step = gap * GAP_RATIO;
+    const placements: (TrackPlacement | null)[] = [];
+    let cursor = host.top;
+    for (const extent of members) {
+        // 临时伴奏在本行没有内容就不占位，避免共用音轨白白抬高行高
+        if (!extent) {
+            placements.push(null);
+            continue;
+        }
+        const offset = cursor - step - extent.bottom;
+        placements.push({ offset, extent });
+        cursor = offset + extent.top;
+    }
+    return placements;
+};
+
+/**
+ * 同一宿主上的所有 stack 共用同一批音轨（laneKey 固定），
+ * 因此一行里先后出现的多段临时伴奏落在同一条基线上，不会上下抖动。
+ * hostIndex 取默认的 0：第一个成员就地留在宿主轨，保证旋律主线不被 @stack 打断。
+ */
+const STACK_TRACKS = {
+    laneKey: "stack",
+    arrange: arrangeAbove,
+};
 
 class StackFunction extends ASTFunctionNode {
     static override def = {
@@ -38,13 +76,11 @@ class StackFunction extends ASTFunctionNode {
         }
         let overNode: any = left >= 0 ? ctx.nodes[left] : null;
         if (overNode === null) {
-            const e = new ErrorDiagnostic(
-                "STACK_NO_TARGET",
+            throw new ErrorDiagnostic(
+                "E_STACK_NO_TARGET",
                 "@stack语法糖错误: 左边没有找到可叠加的目标",
                 n.span
             );
-            ctx.diagnostics.push(e);
-            throw e;
         }
         /** 左操作数在 ctx.nodes 中的起点；只有这一段会被 stack 吞并，更早的节点必须保留 */
         let replaceFrom = left;
@@ -82,13 +118,11 @@ class StackFunction extends ASTFunctionNode {
             ctx.nodes = storage;
             return nodes.length;
         }
-        const e = new ErrorDiagnostic(
-            "STACK_NO_TARGET",
+        throw new ErrorDiagnostic(
+            "E_STACK_NO_TARGET",
             "@stack语法糖错误: 右边没有找到可叠加的目标",
             n.span
         );
-        ctx.diagnostics.push(e);
-        throw e;
     }
 
     contents: ASTNodeBase[] = [];
@@ -96,7 +130,8 @@ class StackFunction extends ASTFunctionNode {
     override timeFlowModel() {
         return {
             children: this.contents,
-            mode: "parallel" as const
+            mode: "parallel" as const,
+            tracks: STACK_TRACKS,
         };
     }
 

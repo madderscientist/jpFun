@@ -120,26 +120,22 @@ L: ...
                 if (n instanceof ASTTextNode) {
                     if (!ctx.strict) continue;   // 非严格模式下允许文本节点夹在N和L之间
                     // ParserContext.parseGrammar 处理后不会有空白字符
-                    const err = new ErrorDiagnostic(
+                    throw new ErrorDiagnostic(
                         "E_LYRICS_WITHOUT_VOICE_NOTES",
                         `strict 模式下，语法糖 'L:' 或 'L(name)' 必须跟在 @voice 的音符之后，但在其前面发现了未知文本`,
                         n.sourceSpan
                     );
-                    ctx.diagnostics.push(err);
-                    throw err;
                 }
                 if (n instanceof VoiceFunction) voiceNode = n;
                 else if (n instanceof VoicesFunction) voiceNode = n.voices.at(-1) ?? null;
                 break;
             }
             if (voiceNode === null) {
-                const err = new ErrorDiagnostic(
+                throw new ErrorDiagnostic(
                     "E_LYRICS_WITHOUT_VOICE_NOTES",
                     `语法糖 'L:' 或 'L(name):' 必须跟在 @voice（或 N:）之后，但没有找到符合要求的 voice；请检查语法或直接使用 @voice 函数`,
                     n.span
                 );
-                ctx.diagnostics.push(err);
-                throw err;
             }
             voiceNode.addLyric(n.data.name, n.data.lyric, n.span, ctx);
             ctx.nodes.length = voiceNodeAt + 1;   // 清除voiceNodeAt之后的TextNode 因为被夹在N和L之间
@@ -166,9 +162,7 @@ L: ...
         breakAt += endWithBr;   // 不让子内容有换行符
         newCtx.makeNodes(slicedNodes);
         if (newCtx.nodes.length === 0) {
-            const e = Diagnostic.error.EmptyContent("voice", "content", n.span);
-            ctx.diagnostics.push(e);
-            throw e;
+            throw Diagnostic.error.EmptyContent("voice", "content", n.span);
         }
         const argMap: FunctionArgs = new Map();
         if (newCtx.nodes.length === 1 && newCtx.nodes[0] instanceof ASTBraceNode) argMap.set(0, newCtx.nodes[0]);
@@ -356,36 +350,30 @@ L: la la la
             if (value instanceof ASTNodeBase) {
                 if (value instanceof VoiceFunction) this.addVoice(value);
                 else {
-                    const err = new ErrorDiagnostic(
+                    throw new ErrorDiagnostic(
                         "E_VOICES_INVALID_CHILD",
                         `@voices 的参数必须是 @voice 函数，但发现了其他类型 ${value.constructor.name}`,
                         value instanceof ASTNodeBase ? value.sourceSpan : span
                     );
-                    ctx.diagnostics.push(err);
-                    throw err;
                 } continue;
             }
             // 是用 SourceSpan 体现的原始参数
             const v = ctx.parseArgWithType((value as SourceSpan).start, (value as SourceSpan).end, "content", span.start);
             if (v instanceof VoiceFunction) this.addVoice(v);
             else {
-                const err = new ErrorDiagnostic(
+                throw new ErrorDiagnostic(
                     "E_VOICES_INVALID_CHILD",
                     `@voices 的参数必须是 @voice 函数，但发现了其他类型 ${v?.constructor.name}`,
                     value as SourceSpan
                 );
-                ctx.diagnostics.push(err);
-                throw err;
             }
         }
         if (this.voices.length === 0) {
-            const err = new ErrorDiagnostic(
+            throw new ErrorDiagnostic(
                 "E_VOICES_EMPTY",
                 `@voices 必须至少包含一个 @voice 函数`,
                 span
             );
-            ctx.diagnostics.push(err);
-            throw err;
         }
     }
 

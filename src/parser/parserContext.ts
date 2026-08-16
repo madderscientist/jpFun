@@ -234,8 +234,8 @@ export class ParserContext {
             if (ch === "@") {
                 const { call, fatal } = readCall(this.source, p);
                 if (fatal) {
-                    this.diagnostics.push(fatal);
                     if (fatal instanceof ErrorDiagnostic) throw fatal;
+                    this.diagnostics.push(fatal);
                 }
                 if (call && call.end <= end) {
                     // 获取参数名称或位置
@@ -334,9 +334,7 @@ export class ParserContext {
         const defArgs: FunctionArgDef[] | undefined = def?.args;
         if (!callFNClass || !defArgs) {
             if (this.strict) {
-                const e = Diagnostic.error.UnknownFunction(callNode.name, callNode.span);
-                this.diagnostics.push(e);
-                throw e;
+                throw Diagnostic.error.UnknownFunction(callNode.name, callNode.span);
             } else {
                 this.diagnostics.push(
                     Diagnostic.warning.UnknownFunction(callNode.name, callNode.span)
@@ -411,7 +409,9 @@ export class ParserContext {
                     if (n.length === 1) return n[0];
                     return new ASTBraceNode(r, n, null);
                 } catch (e) {
-                    // 具体报错信息已经记录了，这里会把该参数跳过
+                    if (this.strict) throw e;
+                    // 当前参数会被跳过，因此在恢复点记录被吞掉的具体错误
+                    if (e instanceof Diagnostic) this.diagnostics.push(e);
                     this.diagnostics.push(
                         Diagnostic.warning.InvalidContent(r)
                     ); return null;
@@ -426,9 +426,7 @@ export class ParserContext {
                     if (node.label == text) return node;   // 标签需要严格匹配
                 }
                 // 没找到标签，报错
-                const e = Diagnostic.error.UnknownLabel(text, r);
-                this.diagnostics.push(e);
-                throw e;
+                throw Diagnostic.error.UnknownLabel(text, r);
             case "length":
                 const l = parseLength(text);
                 if (l instanceof Diagnostic) {
