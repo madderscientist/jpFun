@@ -1,6 +1,8 @@
 import { LengthValue, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
 import { ColType, TemporalNodeBase } from "../../lowering/types.js";
+import type { HorizontalLineView, LayoutBox, LayoutHost } from "../../layout/types.js";
+import type { Painter } from "../../render/types.js";
 
 class BarFunction extends ASTFunctionNode {
     static override def = {
@@ -58,15 +60,17 @@ class BarFunction extends ASTFunctionNode {
 
     type: number;
     barLength: number;    // 固化值
+    size: number;
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
         const [type, barlen] = this.getArgValue(args, ctx) as [number, LengthValue];
         this.type = type;
         this.barLength = ctx.length2px(barlen);
+        this.size = ctx.fontSize;
     }
 
-    override loweringEnter(vars: unknown) {
+    override loweringEnter() {
         return [new BarTemporalNode(this)];
     }
 
@@ -78,10 +82,126 @@ class BarFunction extends ASTFunctionNode {
 export const BarNode: ASTFunctionClass = BarFunction;
 
 class BarTemporalNode extends TemporalNodeBase {
+    declare ast: BarFunction;
+    declare box: LayoutBox;
+
+    private lines: { x: number; w: number }[] = [];
+    private repeatDots: { x: number; y: number }[] = [];
+
     constructor(ast: BarFunction) {
         super();
         this.ast = ast;
         this.T = 0;
         this.type = ColType.ANCHOR;
+        this.initLayoutBox();
+        // 由于有最小时长，因此设置alpha依然有效
+        this.springConfig = {
+            alpha_L: 128,
+            alpha_R: 128,
+        }
+    }
+
+    /**
+     * 给 bar 两侧的相邻元素增加 mu，避免被压缩到一起
+     */
+    override prepareHorizontal(line: HorizontalLineView) {
+        const run = line.trackRuns.get(this.track);
+        const index = run?.indexOf(this) ?? -1;
+        if (!run || index < 0) return;
+
+        line.registerHorizontalLayoutHook(this, this, ({ columns, start }) => {
+            const current = columns[start].find(element => element.time === this);
+            if (!current) return;
+
+            const elementOf = (node: LayoutHost) => {
+                const column = line.columnOf(node);
+                return column < 0 ? undefined : columns[column].find(element => element.time === node);
+            };
+
+            const left = index > 0 ? elementOf(run[index - 1]) : undefined;
+            if (left) {
+                left.config.mu_R *= 4;
+                current.config.mu_L *= 4;
+            }
+
+            const rightNode = run[index + 1];
+            const right = rightNode ? elementOf(rightNode) : undefined;
+            // 相邻两个 bar 的中间 gap 由右侧 bar 处理，避免重复增强
+            if (right && !(rightNode instanceof BarTemporalNode)) {
+                current.config.mu_R *= 4;
+                right.config.mu_L *= 4;
+            }
+        });
+    }
+
+    override prepareLayout() {
+        const { type, barLength, size } = this.ast;
+        this.lines.length = 0;
+        this.repeatDots.length = 0;
+
+        const h = Math.max(barLength, size * 0.6);
+        const thin = Math.max(1, size * 0.065);
+        const thick = thin * 2.6;
+        const gap = thin * 1.8;
+        const dotRadius = thin * 0.8;
+        const dotGap = gap + dotRadius;
+        const hasLeftDots = type === 3 || type === 4;
+        const hasRightDots = type === 2 || type === 4;
+        let x = hasLeftDots ? dotRadius * 2 + dotGap : 0;
+
+        if (type === 1 || type === 3 || type === 4) {
+            this.lines.push({ x, w: thin });
+            x += thin + gap;
+            this.lines.push({ x, w: thick });
+            x += thick;
+        } else if (type === 2) {
+            this.lines.push({ x, w: thick });
+            x += thick + gap;
+            this.lines.push({ x, w: thin });
+            x += thin;
+        } else {
+            this.lines.push({ x, w: thin });
+            x += thin;
+        }
+
+        if (hasLeftDots) {
+            const dotX = dotRadius;
+            this.repeatDots.push({ x: dotX, y: h * 0.38 });
+            this.repeatDots.push({ x: dotX, y: h * 0.62 });
+        }
+
+        if (hasRightDots) {
+            const dotX = x + dotGap;
+            this.repeatDots.push({ x: dotX, y: h * 0.38 });
+            this.repeatDots.push({ x: dotX, y: h * 0.62 });
+            x = dotX + dotRadius;
+        }
+
+        this.box.w = x;
+        this.box.h = h;
+        this.box.anchor = x / 2;
+        this.box.visualAxis = h / 2;
+    }
+
+    override paint(painter: Painter) {
+        for (const line of this.lines) {
+            painter.drawRect(
+                this.box.x + line.x,
+                this.box.y,
+                line.w,
+                this.box.h,
+                { fill: "#000" },
+            );
+        }
+
+        const radius = Math.max(1, this.box.w * 0.06);
+        for (const dot of this.repeatDots) {
+            painter.drawCircle(
+                this.box.x + dot.x,
+                this.box.y + dot.y,
+                radius,
+                { fill: "#000" },
+            );
+        }
     }
 }

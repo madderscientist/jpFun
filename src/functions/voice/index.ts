@@ -3,8 +3,49 @@ import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic
 import { findRightParen, removeQuote } from "../../parser/parse-utils/call-utils.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { ParserContext, skipSpaces } from "../../parser/parserContext.js";
+import type { LoweringContext } from "../../lowering/loweringContext.js";
+import {
+    ColType,
+    isVisualTemporalNode,
+    TemporalNodeBase,
+} from "../../lowering/types.js";
+import type { ArrangeFn, Extent, Track } from "../../lowering/track.js";
+import type {
+    AttachmentLayoutContext,
+    LayoutAttachment,
+    LayoutBox,
+    LayoutPrepareContext,
+    Rect,
+} from "../../layout/types.js";
+import type { Painter, PathCommand, TextStyle } from "../../render/types.js";
 
 const WHITEPACE_RE = /\s/;
+
+/**
+ * voices 块在宿主基线上局部居中：首末两条 voice 基线的中点对齐宿主轴
+ *
+ * 居中只看**基线**，不看成员的整体视觉边界，也不取所有基线的算术平均值。
+ * 因此嵌套的 stack、歌词、装饰只会撑开相邻基线的间距和行高，
+ * 不会把整个块相对于主旋律的语义中心挪走。
+ *
+ * 本行没有实质高度的成员（空声部，或内容都在上一行）仍然占一个默认高度的槽位，
+ * 声部数量因而保持稳定，居中结果也不会因为某一声部没写东西而跳变。
+ */
+function makeVoicesArrange(emptySlotHeight: number): ArrangeFn {
+    const half = emptySlotHeight / 2;
+    return (_host, members, gap) => {
+        const extents: Extent[] = members.map(member =>
+            member && member.bottom - member.top > 1e-6 ? member : { top: -half, bottom: half });
+        const offsets: number[] = [];
+        let y = 0;
+        for (let i = 0; i < extents.length; i++) {
+            if (i > 0) y += extents[i - 1].bottom + gap - extents[i].top;
+            offsets.push(y);
+        }
+        const center = (offsets[0] + offsets[offsets.length - 1]) / 2;
+        return offsets.map((offset, i) => ({ offset: offset - center, extent: extents[i] }));
+    };
+}
 
 class VoiceFunction extends ASTFunctionNode {
     static override def = {
@@ -231,6 +272,36 @@ L: ...
         };
     }
 
+    /**
+     * voice 的音符内容仍按普通 sequence 进入全局时间列
+     * 此处只建立歌词作用域，并按需在内容前创建声部名对象
+     */
+    override loweringEnter(ctx: LoweringContext) {
+
+        // 收集范围内的
+        const temporalMembers: TemporalNodeBase[] = [];
+        ctx.beginLoweringGroup(this, {
+            attachment: new VoiceLyricsAttachment(temporalMembers, this),
+                onTemporal(node) {
+                    temporalMembers.push(node);
+                },
+        });
+
+        // 无名声部也要产出一个（不可见的）名称事件，才能保证同一个 voices 块内
+        // 每个成员的列结构完全一致，从而把所有声部名归并到同一列
+        const parent = this.parent;
+        // 多声部时同时在名称右侧预留大括号的横向空间
+        const braceSpace = parent instanceof VoicesFunction && parent.voices.length > 1
+            ? parent.braceSpace
+            : 0;
+        return [new VoiceNameTemporal(this, braceSpace)];
+    }
+
+    override loweringExit(ctx: LoweringContext) {
+        ctx.endLoweringGroup(this);
+        return [];
+    }
+
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
         this.size = ctx.fontSize;
@@ -335,17 +406,47 @@ L: la la la
 
     voices: VoiceFunction[];
     createdBySugar: boolean = false;    // 不同创建方式的不能合并
+    readonly size: number;              // parse 期冻结的字号，px
+    /** 声部名右侧为大括号预留的横向空间 */
+    readonly braceSpace: number;
+    /** 闭包捕获 parse 期冻结的字号，用来决定空声部槽位的默认高度（1em） */
+    private readonly arrange: ArrangeFn;
     override get children() { return this.voices; }
     override timeFlowModel() {
         return {
             children: this.children,
-            mode: "sequence" as const,
+            mode: "parallel" as const,
+            tracks: {
+                laneKey: `voices/${this.voices.length}`,
+                hostIndex: null,    // 宿主不是成员：第一个 voice 也必须拥有独立轨道
+                arrange: this.arrange,
+            },
         };
+    }
+
+    /** 收集本块产生的声部名事件，退出时注册左侧大括号 */
+    override loweringEnter(ctx: LoweringContext) {
+        const names: VoiceNameTemporal[] = [];
+        ctx.beginLoweringGroup(this, {
+            attachment: new VoicesBraceAttachment(names, this),
+            onTemporal(node) {
+                if (node instanceof VoiceNameTemporal) names.push(node);
+            },
+        });
+        return [];
+    }
+
+    override loweringExit(ctx: LoweringContext) {
+        ctx.endLoweringGroup(this);
+        return [];
     }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
         this.voices = [];
+        this.size = ctx.fontSize;
+        this.braceSpace = ctx.fontSize;
+        this.arrange = makeVoicesArrange(ctx.fontSize);
         for (const [, value] of args) {
             if (value instanceof ASTNodeBase) {
                 if (value instanceof VoiceFunction) this.addVoice(value);
@@ -396,3 +497,339 @@ L: la la la
 
 export const VoiceNode: ASTFunctionClass = VoiceFunction;
 export const VoicesNode: ASTFunctionClass = VoicesFunction;
+
+class VoiceNameTemporal extends TemporalNodeBase {
+    declare ast: VoiceFunction;
+    declare box: LayoutBox;
+
+    /** 名称右侧为大括号预留的横向空间，0 表示不需要 */
+    private readonly braceSpace: number;
+    private textBaselineY = 0;
+
+    constructor(ast: VoiceFunction, braceSpace: number) {
+        super();
+        this.ast = ast;
+        this.braceSpace = braceSpace;
+        this.T = 0;
+        // 同一个 voices 块里每个成员都会产生本事件，列结构对称，
+        // 因此可以安全地归并成一列并右对齐；
+        // 独立的 @voice 与相邻分支不对称，必须单独成列，否则会把同时刻的音符挤到下一列
+        this.type = ast.parent instanceof VoicesFunction ? ColType.DEFAULT : ColType.SINGLE;
+        // 既没有名称也不需要括号空间时只保留不可见的占位事件：
+        // 它不进入可见对象，也不让空声部失去默认槽位高度
+        if (ast.name || braceSpace > 0) this.initLayoutBox();
+    }
+
+    override prepareLayout(context: LayoutPrepareContext) {
+        const metrics = this.ast.name
+            ? context.textMeasurer.measureText(this.ast.name, this.style)
+            : { w: 0, h: 0, baseline: 0 };
+        // 对齐点放在名称右边界：同一列共享 `x + anchor`，因此长短不一的声部名会右对齐，
+        // 括号空间统一落在对齐点右侧
+        this.box.w = metrics.w + this.braceSpace;
+        this.box.h = metrics.h;
+        this.box.anchor = metrics.w;
+        this.box.visualAxis = metrics.h / 2;
+        this.textBaselineY = metrics.baseline;
+
+        // 声部名与第一个音符之间需要稳定但可压缩的横向间距
+        this.springConfig.alpha_R = 0.45;
+    }
+
+    private get style(): TextStyle {
+        return {
+            fontSize: this.ast.size * 0.85,
+            fill: "#000",
+            fontWeight: 600,
+        };
+    }
+
+    override paint(painter: Painter) {
+        if (!this.ast.name) return;
+        painter.drawText(this.ast.name, this.box.x, this.box.y + this.textBaselineY, this.style);
+    }
+}
+
+/**
+ * 括线端头的小钩
+ *
+ * 它是贴在粗竖线端点上的独立装饰，尺寸只跟字号有关，不随括线长度变化：
+ * 从端点几乎水平地探出，再向外侧一挑收成尖角，因此上沿是向内凹陷的。
+ *
+ * @param x    粗竖线的中心横坐标
+ * @param endY 粗竖线的端点纵坐标
+ * @param dir  +1 表示下端（向右下挑），-1 表示上端（向右上挑）
+ */
+function hookCommands(
+    x: number,
+    endY: number,
+    reach: number,
+    drop: number,
+    base: number,
+    dir: number,
+): PathCommand[] {
+    const y0 = endY - dir * base;          // 钩根靠内侧的一端
+    const at = (f: number) => y0 + dir * f;
+
+    return [
+        { op: "M", x, y: at(base) },
+        { op: "L", x, y: at(0) },
+        {
+            op: "C",
+            cx1: x + reach * 0.421, cy1: at(drop * 0.077),
+            cx2: x + reach * 0.733, cy2: at(drop * 0.346),
+            x: x + reach, y: at(drop),
+        },
+        { op: "L", x: x + reach * 0.929, y: at(drop) },
+        {
+            op: "C",
+            cx1: x + reach * 0.696, cy1: at(drop * 0.535),
+            cx2: x + reach * 0.328, cy2: at(drop * 0.352),
+            x, y: at(base),
+        },
+        { op: "Z" },
+    ];
+}
+
+/**
+ * 画在声部名与音符之间的多声部括线
+ *
+ * 由一条粗竖线、一条略向内收的细竖线和两端的小钩组成。
+ * 纵向跨度直接取首末声部名事件的视觉轴（无名声部的占位盒高度为 0，其 y 就是轨道视觉轴），
+ * 因此不需要反查任何轨道信息。
+ */
+class VoicesBraceAttachment implements LayoutAttachment {
+    box: Rect = { x: 0, y: 0, w: 0, h: 0 };
+    layer = "background" as const;
+
+    private readonly names: VoiceNameTemporal[];
+    private readonly ast: VoicesFunction;
+    private bars: { x: number; y: number; w: number; h: number }[] = [];
+    private hooks: PathCommand[][] = [];
+
+    constructor(names: VoiceNameTemporal[], ast: VoicesFunction) {
+        this.names = names;
+        this.ast = ast;
+    }
+
+    layout() {
+        this.bars = [];
+        this.hooks = [];
+        if (this.names.length < 2) return [];
+
+        const first = this.names[0].box;
+        const last = this.names[this.names.length - 1].box;
+        const em = this.ast.size;
+        const top = first.y + first.visualAxis - em * 0.5;
+        const bottom = last.y + last.visualAxis + em * 0.5;
+        if (bottom - top < 1e-6) return [];
+
+        // 各部分尺寸都以粗竖线宽度为单位，比例取自常见简谱软件的括线
+        const stem = Math.max(2.5, em * 0.19);
+        const reach = stem * 2.33;
+        const drop = stem * 1.17;
+        const base = stem * 0.34;
+        const x = first.x + first.anchor + this.ast.braceSpace * 0.3 + stem / 2;
+
+        this.bars = [
+            { x: x - stem / 2, y: top, w: stem, h: bottom - top },
+            {
+                x: x + stem * 1.33 - stem * 0.165,
+                y: top + stem * 0.67,
+                w: stem * 0.33,
+                h: bottom - top - stem * 1.34,
+            },
+        ];
+        this.hooks = [
+            hookCommands(x, top, reach, drop, base, -1),
+            hookCommands(x, bottom, reach, drop, base, 1),
+        ];
+
+        // 括线画在声部名左侧的空白里，只参与画布边界，不抢任何轨道的纵向空间
+        return [{
+            x: x - stem / 2,
+            y: top - drop,
+            w: reach + stem / 2,
+            h: bottom - top + drop * 2,
+        }];
+    }
+
+    paint(painter: Painter) {
+        for (const bar of this.bars) {
+            painter.drawRect(bar.x, bar.y, bar.w, bar.h, { fill: "#000" });
+        }
+        for (const hook of this.hooks) {
+            painter.drawPath(hook, { fill: "#000" });
+        }
+    }
+}
+
+interface PreparedLyricText {
+    text: string;       // 最终绘制的 token 或歌词行名称
+    style: TextStyle;   // 当前文本使用的字体和颜色
+    box: Rect;          // 已按共享歌词 baseline 定位的文本边界
+    textBaselineY: number; // 字体 baseline 距文本盒顶部的距离
+    line: number;       // 所属谱面行
+    track: Track;       // 所属音轨
+}
+
+interface LyricTargetGroup {
+    line: number;           // 当前歌词组所属谱面行
+    track: Track;           // 当前歌词组所属音轨
+    contentBottom: number;  // 该谱面行轨道所有歌词目标的最大下边界
+}
+
+class VoiceLyricsAttachment implements LayoutAttachment {
+    box: Rect = {
+        x: 0,
+        y: 0,
+        w: 0,
+        h: 0,
+    };
+    layer = "foreground" as const;
+
+    /** lowering 会持续向这个数组加入 voice 内容产生的 temporal */
+    private temporalMembers: TemporalNodeBase[];
+    private owner: VoiceFunction;
+    private preparedText: PreparedLyricText[] = [];
+
+    constructor(temporalMembers: TemporalNodeBase[], owner: VoiceFunction) {
+        this.temporalMembers = temporalMembers;
+        this.owner = owner;
+    }
+
+    layout(context: AttachmentLayoutContext) {
+        this.updateGeometry(context);
+        // 同一行同一轨的多行歌词由引擎合并成一段占用
+        return this.preparedText.map(item => ({
+            x: item.box.x,
+            y: item.box.y,
+            w: item.box.w,
+            h: item.box.h,
+            line: item.line,
+            track: item.track,
+        }));
+    }
+
+    paint(painter: Painter) {
+        for (const item of this.preparedText) {
+            painter.drawText(
+                item.text,
+                item.box.x,
+                item.box.y + item.textBaselineY,
+                item.style,
+            );
+        }
+    }
+
+    private updateGeometry(context: AttachmentLayoutContext) {
+        const { lyrics, size } = this.owner;
+        this.preparedText.length = 0;
+
+        const targets = this.temporalMembers
+            .filter(isVisualTemporalNode)
+            .filter(node => node.ports?.["lyric"]);
+        if (targets.length === 0 || lyrics.length === 0) return;
+
+        // 每个 system+track 只创建一个歌词组
+        // 装饰高度先汇总为 contentBottom，不进入单个 token 的 y 计算
+        const groupsByLine = new Map<number, Map<Track, LyricTargetGroup>>();
+        for (const target of targets) {
+            let lineGroups = groupsByLine.get(target.layoutLine);
+            if (!lineGroups) {
+                lineGroups = new Map();
+                groupsByLine.set(target.layoutLine, lineGroups);
+            }
+
+            let group = lineGroups.get(target.track);
+            if (!group) {
+                group = {
+                    line: target.layoutLine,
+                    track: target.track,
+                    contentBottom: -Infinity,
+                };
+                lineGroups.set(target.track, group);
+            }
+            group.contentBottom = Math.max(group.contentBottom, target.box.y + target.box.h);
+        }
+
+        const fontSize = size * 0.82;
+        const rowGap = size * 0.24;
+        const firstRowGap = size * 0.32;
+        const lyricStyle: TextStyle = {
+            fontSize,
+            fill: "#000",
+        };
+        const baselineMetrics = context.textMeasurer.measureText("M", lyricStyle);
+
+        for (let row = 0; row < lyrics.length; row++) {
+            const lyric = lyrics[row];
+            const firstTokenLeftByGroup = new Map<LyricTargetGroup, number>();
+
+            // 每个 token 使用所属组的同一个 rowBaseline
+            for (let i = 0; i < lyric.tokens.length && i < targets.length; i++) {
+                const text = lyric.tokens[i];
+                if (!text) continue;
+
+                const target = targets[i];
+                const port = target.ports["lyric"];
+                const group = groupsByLine.get(target.layoutLine)?.get(target.track);
+                if (!group) continue;
+
+                const metrics = context.textMeasurer.measureText(text, lyricStyle);
+                const centerX = target.box.x + port.x;
+                const rowBaseline = group.contentBottom
+                    + firstRowGap
+                    + baselineMetrics.baseline
+                    + row * (fontSize + rowGap);
+                const box: Rect = {
+                    x: centerX - metrics.w / 2,
+                    y: rowBaseline - metrics.baseline,
+                    w: metrics.w,
+                    h: metrics.h,
+                };
+                const previousLeft = firstTokenLeftByGroup.get(group) ?? Infinity;
+                firstTokenLeftByGroup.set(group, Math.min(previousLeft, box.x));
+                this.preparedText.push({
+                    text,
+                    style: lyricStyle,
+                    box,
+                    textBaselineY: metrics.baseline,
+                    line: group.line,
+                    track: group.track,
+                });
+            }
+
+            if (!lyric.name) continue;
+
+            const nameStyle: TextStyle = {
+                fontSize,
+                fill: "#000",
+                fontWeight: 600,
+            };
+            const metrics = context.textMeasurer.measureText(lyric.name, nameStyle);
+
+            // 每个 system+track 的歌词名称与该组 token 共用 baseline
+            for (const [group, firstTokenLeft] of firstTokenLeftByGroup) {
+                const rowBaseline = group.contentBottom
+                    + firstRowGap
+                    + baselineMetrics.baseline
+                    + row * (fontSize + rowGap);
+                const box: Rect = {
+                    x: firstTokenLeft - size * 0.35 - metrics.w,
+                    y: rowBaseline - metrics.baseline,
+                    w: metrics.w,
+                    h: metrics.h,
+                };
+                this.preparedText.push({
+                    text: lyric.name,
+                    style: nameStyle,
+                    box,
+                    textBaselineY: metrics.baseline,
+                    line: group.line,
+                    track: group.track,
+                });
+            }
+        }
+    }
+}

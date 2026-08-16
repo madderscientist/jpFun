@@ -1,7 +1,7 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
 import { ColType, TemporalNodeBase } from "../../lowering/types.js";
-import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
+import type { LayoutBox } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";
 
 class DashFunction extends ASTFunctionNode {
@@ -57,17 +57,15 @@ class DashTemporalNode extends TemporalNodeBase {
         this.initLayoutBox();
     }
 
-    override prepareLayout(context: LayoutPrepareContext) {
+    override prepareLayout() {
         const size = this.ast.size;
-        const metrics = context.glyphs.measureGlyph("dash", size);
+        const width = size * 0.7;
 
         // dash 与数字音符共享视觉中心和完整字号高度
         // 线本身位于数字视觉中心，不使用极小的 glyph 高度作为轨道高度
-        this.box.x = 0;
-        this.box.y = 0;
-        this.box.w = metrics.w;
+        this.box.w = width;
         this.box.h = size;
-        this.box.anchor = metrics.w / 2;
+        this.box.anchor = width / 2;
         this.lineY = size * 0.5;
         this.box.visualAxis = this.lineY;
     }

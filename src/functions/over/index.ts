@@ -4,12 +4,15 @@ import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import {
     ColType,
+    isVisualTemporalNode,
     TemporalNodeBase,
     type LoweringResult,
+    type VisualTemporalNode,
 } from "../../lowering/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
-import { layoutFragment, paintLayout, unionLayoutBoxes, type DocumentLayoutResult } from "../../layout/engine.js";
-import type { LayoutBox, LayoutPassContext, LayoutPrepareContext } from "../../layout/types.js";
+import type { Track } from "../../lowering/track.js";
+import { prepareLayoutHost } from "../../layout/engine.js";
+import type { LayoutBox, LayoutPoint, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";
 
 /**
@@ -43,6 +46,28 @@ class UpFunction extends ASTFunctionNode {
         allowExtraArgs: true,
         args: [],
     };
+
+    /**
+     * 语义确定后，把和弦的修饰交还给最下面的成员
+     *
+     * lowering 期间修饰必须挂在和弦上，自动连梁之类的 augmenter 才看得到它的节奏；
+     * 但渲染上「最下面的成员代表整个和弦」，由它按普通音符的规则承载修饰，
+     * 减时线才会落在数字与下八度点之间，而不是压在整个和弦盒的下面。
+     * 交还后和弦自身不再有 addon，排版阶段不必再动它。
+     */
+    static override loweringFinalize = (result: LoweringResult) => {
+        for (const column of result.columns) {
+            for (const node of column) {
+                // addon 非空就意味着当初从第一个成员提升过，成员必定存在
+                if (!(node instanceof UpTemporal) || !node.addon) continue;
+                node.members[0].addon = node.addon;
+                node.addon = void 0;
+            }
+        }
+    };
+
+    /** 和弦自己会产生 UpTemporal，标签直接指向整个和弦（内部没有 note 时也能标注） */
+    override labelable() { return this; }
 
     static override deSugarAtom(source: string, start: number, _end: number) {
         if (source[start] === '^') {
@@ -185,15 +210,139 @@ class UpFunction extends ASTFunctionNode {
 
 export const UpNode: ASTFunctionClass = UpFunction;
 
-// 到底应该当成一个节点、隐藏内部，还是暴露？
-// 暴露的话 layout model 是有机制的，但是在 lowering 的接口中返回不能是 columns，要这么做得修改机制
-// 隐藏的话在什么时候进行暴露？
-class OverNodeTemporal extends TemporalNodeBase {
-    constructor(ast: OverFunction) {
+class UpTemporal extends TemporalNodeBase {
+    declare ast: UpFunction;
+    declare box: LayoutBox;
+
+    readonly members: readonly VisualTemporalNode[];
+
+    /** 每个成员相对本盒左上角的局部偏移，onPlaced 时同步为绝对坐标 */
+    private readonly offsets: LayoutPoint[] = [];
+
+    constructor(ast: UpFunction, members: readonly VisualTemporalNode[]) {
         super();
         this.ast = ast;
-        this.T = 1;
-        this.t = 0;
+        this.members = members;
+
+        this.T = members[0]?.T ?? 0;
+            this.t = 0;
         this.type = ColType.DEFAULT;
+        this.initLayoutBox();
+
+        // 第一个成员决定和弦的时值，它的修饰语义也随之成为整个和弦的修饰，
+        // 自动连梁等语义处理才能看到这个和弦的节奏；
+        // 随后外层 LoweringGroup 会在同一 addon 上继续累加
+        const leadAddon = members[0]?.addon;
+        if (leadAddon) this.addon = { ...leadAddon };
+
+        for (const member of members) {
+            if (member.type < this.type) this.type = member.type;
+            // 堆叠在一起的成员共享同一个时值，由第一个成员决定；
+            // 本来就没有时长的成员（标注、小节线等）保持 0，不会被拉长
+            if (member.T !== 0) member.T = this.T;
+            // 修饰已经提升到和弦上，成员不再单独绘制，
+            // 否则和弦内部会出现多余的减时线或附点
+            member.addon = void 0;
+            // 成员不进入全局 columns，对外由和弦代表：
+            // 写在成员上的标签因此能直接做 @beam / @tie 的端点
+            member.foldedInto = this;
+        }
+    }
+
+    /** 所有成员属于 up 的同一个全局时间位置，但分别读取同一份状态快照。 */
+    override onTimeState(state: Record<string, any>) {
+        for (const member of this.members) {
+            member.t = this.t;
+            member.track = this.track;
+            member.layoutLine = this.layoutLine;
+            member.onTimeState?.({ ...state });
+        }
+    }
+
+    /**
+     * 第一个成员留在轨道基线上，其余成员按书写顺序依次向上叠放
+     *
+     * 成员不进入全局 columns，因此它们的准备、定位和绘制都由本节点负责；
+     * 准备直接复用引擎的 prepareLayoutHost，保证成员的装饰、端口与顶层对象完全一致。
+     */
+    override prepareLayout(context: LayoutPrepareContext) {
+        this.offsets.length = 0;
+        for (const member of this.members) prepareLayoutHost(member, context);
+
+        const first = this.members[0];
+        if (!first) {
+            this.box.w = this.box.h = 0;
+            this.box.anchor = this.box.visualAxis = 0;
+            return;
+        }
+
+        // 横向：所有成员共用一个对齐点，升降号不会把和弦推离时间列中心
+        let anchor = 0;
+        let right = 0;
+        let leftReach = 0;
+        let rightReach = 0;
+        for (const member of this.members) {
+            const box = member.box;
+            anchor = Math.max(anchor, box.anchor);
+            right = Math.max(right, box.w - box.anchor);
+            leftReach = Math.max(leftReach, box.anchor - (member.ports["body.left"]?.x ?? 0));
+            rightReach = Math.max(rightReach, (member.ports["body.right"]?.x ?? box.w) - box.anchor);
+        }
+
+        // 纵向：以第一个成员的盒顶为 0 向上堆叠得到负坐标，最后整体下移
+        const gap = this.ast.size * 0.12;
+        let cursor = 0;
+        for (const member of this.members) {
+            if (member !== first) cursor -= gap + member.box.h;
+            this.offsets.push({ x: anchor - member.box.anchor, y: cursor });
+        }
+        const top = cursor; // 堆叠严格向上，最后一个成员就是最高点
+        for (const offset of this.offsets) offset.y -= top;
+
+        this.box.w = anchor + right;
+        this.box.h = first.box.h - top;
+        this.box.anchor = anchor;
+        // 和弦用最下面的成员对齐轨道基线，上方成员只向上撑开行高
+        this.box.visualAxis = first.box.visualAxis - top;
+
+        // 端口：最下面的成员代表整个和弦，把它发布的端口原样上提，
+        // 减时线、歌词等端口于是与普通音符完全一致，关系函数不需要认识 up
+        const firstOffset = this.offsets[0];
+        for (const name in first.ports) {
+            const port = first.ports[name];
+            this.ports[name] = { x: firstOffset.x + port.x, y: firstOffset.y + port.y };
+        }
+
+        // 核心范围取全体成员的并集，减时线才能盖住最宽的数字
+        this.ports["body.left"] = { x: anchor - leftReach, y: this.box.visualAxis };
+        this.ports["body.right"] = { x: anchor + rightReach, y: this.box.visualAxis };
+
+        // 唯一的例外：连音线要接到和弦顶部
+        const last = this.members[this.members.length - 1];
+        const lastOffset = this.offsets[this.members.length - 1];
+        const lastTiePort = last.ports["tie.top"];
+        this.ports["tie.top"] = {
+            x: anchor,
+            y: lastOffset.y + (lastTiePort ? lastTiePort.y : 0),
+        };
+    }
+
+    /** 引擎每次改变本节点坐标后，按准备阶段保存的局部偏移重算成员绝对坐标 */
+    override onPlaced() {
+        for (let i = 0; i < this.members.length; i++) {
+            const offset = this.offsets[i];
+            if (!offset) continue;
+            const member = this.members[i];
+            member.box.x = this.box.x + offset.x;
+            member.box.y = this.box.y + offset.y;
+            member.onPlaced?.();
+        }
+    }
+
+    override paint(painter: Painter) {
+        for (const member of this.members) {
+            member.paint(painter);
+            for (const decoration of member.decorations) decoration.paint(painter);
+        }
     }
 }

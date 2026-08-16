@@ -5,6 +5,7 @@ import { BoxNode } from "./box/index.js";
 import { DashNode } from "./dash/index.js";
 import { DivNode } from "./div/index.js";
 import { DotNode } from "./dot/index.js";
+import { GraceNode } from "./grace/index.js";
 import { KeyNode } from "./key/index.js";
 import { BrNode } from "./br/index.js";
 import { NoteNode } from "./note/index.js";
@@ -25,6 +26,7 @@ export const defaultFunctions: ASTFunctionClass[] = [
     PageNode,   // 文档页面
     StackNode,  // 时间同步
     UpNode,
+    GraceNode,  // 倚音
     TieNode, BeamNode,
     BoxNode,
     SetNode, KeyNode, TempoNode,    // 设置

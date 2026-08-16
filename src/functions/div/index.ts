@@ -6,6 +6,21 @@ import type { LoweringContext } from "../../lowering/loweringContext.js";
 const DIV_FUNC_NAME = "div";
 export const DIV_ADDON_KEY = functionAddonKey(DIV_FUNC_NAME);
 
+/** div 暴露自己的线段端口，不依赖任何关系函数 */
+export function divLinePortName(level: number, edge: "left" | "right"): string {
+    return `div.${level}.${edge}`;
+}
+
+interface DivLinePort extends LayoutPoint {
+    /** 当前 layout 中该级局部线已由 beam 合并绘制 */
+    claimed?: boolean;
+}
+
+export function claimDivLine(host: LayoutHost, level: number) {
+    const port = host.ports[divLinePortName(level, "left")] as DivLinePort | undefined;
+    if (port) port.claimed = true;
+}
+
 function parseAutoBeamFlag(raw: unknown): boolean {
     if (typeof raw === "boolean") return raw;
     if (typeof raw === "number") return raw !== 0;
@@ -85,6 +100,66 @@ class DivFunction extends ASTFunctionNode {
         ctx.pushNode(node);
         return at;
     }
+
+    /**
+     * 减时线是目标对象下方的通用装饰
+     * 多对象自动连线属于 beam 的关系排版，不在这里猜测相邻元素
+     */
+    static override layoutDecorationHandler: LayoutDecorationHandler = (host, value) => {
+        const count = Math.max(0, Math.floor(Number(value) || 0));
+        if (count === 0) return null;
+
+        const lineGap = host.ast.size * 0.14;
+        const strokeWidth = Math.max(1, host.ast.size * 0.055);
+        const lineBlockHeight = (count - 1) * lineGap + strokeWidth;
+        let lineLeft = 0;
+        let lineRight = 0;
+        let firstLine = 0;
+
+        return {
+            // 减时线声明为靠近主体的下方项
+            // 引擎只按通用 order 排列，不识别 @div
+            below: {
+                order: 0,
+                gap: -host.ast.size * 0.08,
+                height: lineBlockHeight,
+                place(y) {
+                    lineLeft = host.ports["body.left"]?.x ?? 0;
+                    lineRight = host.ports["body.right"]?.x ?? host.box.w;
+                    firstLine = y + strokeWidth / 2;
+
+                    // 每一级提供完整局部范围
+                    // 关系对象可以据此一次绘制整条连接线
+                    for (let i = 0; i < count; i++) {
+                        const lineY = firstLine + i * lineGap;
+                        host.ports[divLinePortName(i, "left")] = {
+                            x: lineLeft,
+                            y: lineY,
+                        };
+                        host.ports[divLinePortName(i, "right")] = {
+                            x: lineRight,
+                            y: lineY,
+                        };
+                    }
+                },
+            },
+            paint(painter) {
+                // 未被关系对象接管的级别仍由本装饰独立绘制
+                for (let i = 0; i < count; i++) {
+                    const leftPort = host.ports[divLinePortName(i, "left")] as DivLinePort;
+                    if (leftPort.claimed) continue;
+                    const y = host.box.y + firstLine + i * lineGap;
+                    painter.drawLine(
+                        host.box.x + lineLeft,
+                        y,
+                        host.box.x + lineRight,
+                        y,
+                        { stroke: "#000", strokeWidth },
+                    );
+                }
+            },
+        };
+    };
 
     override loweringEnter(ctx: LoweringContext) {
         const count = this.n;

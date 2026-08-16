@@ -1,8 +1,18 @@
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, SourceSpan } from "../ASTtypes.js";
 import { ParserContext } from "../ASTtypes.js";
 import { ErrorDiagnostic } from "../../diagnostic.js";
+import type { LoweringContext } from "../../lowering/loweringContext.js";
+import type { TemporalNodeBase } from "../../lowering/types.js";
+import { createAutomaticBeamAttachments } from "./auto.js";
+import {
+    createBeamLayoutAttachment,
+    validateExplicitBeamAttachments,
+} from "./layout.js";
 
 class BeamFunction extends ASTFunctionNode {
+    static override loweringAugment = createAutomaticBeamAttachments;
+    static override loweringFinalize = validateExplicitBeamAttachments;
+
     static override def = {
         name: ["beam"],
         description: "减时线连接",
@@ -31,6 +41,22 @@ class BeamFunction extends ASTFunctionNode {
         if (this.endPoints.length < 2) {
             throw new ErrorDiagnostic("E_NOT_ENOUGH_ARGS", "@beam 至少需要两个端点", sourceSpan);
         }
+    }
+
+    /** 与 tie 一样，只注册不推进时间的关系排版对象 */
+    override loweringEnter(ctx: LoweringContext) {
+
+        const endPoints: TemporalNodeBase[] = [];
+        for (const ast of this.endPoints) {
+            // 暂时只用最后一个；理应有且仅有一个
+            const temporal = ctx.getTemporalNodes(ast).at(-1);
+            if (!temporal) continue;
+            endPoints.push(temporal);
+        }
+
+        if (endPoints.length < 2) return [];
+        ctx.addLayoutAttachment(createBeamLayoutAttachment(endPoints, true, this.sourceSpan));
+        return [];
     }
 }
 

@@ -101,6 +101,7 @@ export function prepareLayoutHost(node: VisualTemporalNode, context: LayoutPrepa
     node.springConfig ??= {};
     node.decorations = [];
     node.ports = {};
+    node.box.x = node.box.y = 0;
     node.prepareLayout(context); // 计算大小等 layout 需要的参数
 
     // 把 lowering 固化在 addon 中的语义交给已注册 handler，生成本轮函数装饰

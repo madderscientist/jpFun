@@ -1,32 +1,81 @@
-import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass, type LengthValue } from "../ASTtypes.js";
 import { ErrorDiagnostic } from "../../diagnostic.js";
+import type { LoweringContext } from "../../lowering/loweringContext.js";
+import {
+    isVisualTemporalNode,
+    type VisualTemporalNode,
+} from "../../lowering/types.js";
+import type {
+    AttachmentLayoutContext,
+    LayoutAttachment,
+    LayoutPoint,
+    Rect,
+} from "../../layout/types.js";
+import type { Painter, PathCommand } from "../../render/types.js";
+import type { Track } from "../../lowering/track.js";
+
+/** Èı´Î±´Èû¶û¿ØÖÆµãµÄÌ§¸ßÏµÊı£ºÁ½¸ö¿ØÖÆµãÍ¬¸ßÊ±£¬Êµ¼Ê»¡¸ßÇ¡ºÃÊÇÌ§¸ßµÄ 3/4 */
+const CUBIC_LIFT = 4 / 3;
+/** »¡´øÖĞ²¿×î´óºñ¶ÈÓë×ÖºÅÖ®±È */
+const THICKNESS_RATIO = 0.09;
 
 class TieFunction extends ASTFunctionNode {
     static override def = {
         name: ["tie"],
-        description: "è¿éŸ³çº¿",
-        example: `@tie(label1, label2, ...)
-å°†å¯¹åº”å…ƒç´ ä¹‹é—´ç”¨è¿éŸ³çº¿ç›¸è¿ï¼›å¯¹äºä¸åœ¨åŒä¸€è¡Œçš„å°†ä½¿ç”¨æ°´å¹³è·¨è¡Œè¿æ¥ï¼›è‹¥ä¸ä¼ å‚åˆ™æ‰¾æœ€è¿‘çš„`,
+        description: "Á¬ÒôÏß",
+        example: `@tie(label1, label2, ..., height=0.5em)
+    ½«¶ËµãÒÀ´ÎÁ¬½Ó£»Í¬ĞĞÓÃÒ»Ìõ»¡Ïß£¬¿çĞĞ²ğ³É·Ö¶ÎÁ¬½Ó£»Èô²»´«¶ËµãÔòÕÒ×î½üµÄ`,
         allowExtraArgs: true,
         args: []
     };
 
     endPoints: ASTNodeBase[] = [];
+    readonly height: number;
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
+        let height = ctx.fontSize * 0.5;
         for (const [key, value] of args) {
+            if (key === "height") {
+                const length = ctx.parseArgWithType(
+                    (value as SourceSpan).start,
+                    (value as SourceSpan).end,
+                    "length",
+                    sourceSpan.start,
+                ) as LengthValue | null;
+                if (length) height = Math.max(0, ctx.length2px(length));
+                continue;
+            }
             const v = ctx.parseArgWithType((value as SourceSpan).start, (value as SourceSpan).end, "label", sourceSpan.start);
             if (v !== null) this.endPoints.push(v as ASTFunctionNode);
         }
-        // æ•°ç›®ä¸è¶³ï¼Œåˆ™æ‰¾æœ€è¿‘çš„
+        // ÊıÄ¿²»×ã£¬ÔòÕÒ×î½üµÄ
         let k = ctx.labelableNodes.length - 1;
         for (let i = this.endPoints.length; i < 2; i++) {
             while (k >= 0 && this.endPoints.includes(ctx.labelableNodes[k])) k--;
             if (k < 0) break;
-            this.endPoints[1 - i] = ctx.labelableNodes[k--];    // ä¿æŒé¡ºåº
+            this.endPoints[1 - i] = ctx.labelableNodes[k--];    // ±£³ÖË³Ğò
         }
-        if (this.endPoints.length < 2) throw new ErrorDiagnostic("E_NOT_ENOUGH_ARGS", "@tie è¿éŸ³çº¿éœ€è¦è‡³å°‘ä¸¤ä¸ªç«¯ç‚¹", sourceSpan);
+        if (this.endPoints.length < 2) throw new ErrorDiagnostic("E_NOT_ENOUGH_ARGS", "@tie Á¬ÒôÏßĞèÒªÖÁÉÙÁ½¸ö¶Ëµã", sourceSpan);
+        this.height = height;
+    }
+
+    /**
+     * tie ²»ÍÆ½øÊ±¼ä
+     * lowering Ö»°Ñ AST ¶Ëµã½âÎö³ÉÎÈ¶¨µÄ temporal ¶ÔÏóÒıÓÃ
+     */
+    override loweringEnter(ctx: LoweringContext) {
+
+        const endPoints: VisualTemporalNode[] = [];
+        for (const ast of this.endPoints) {
+            const temporal = ctx.getTemporalNodes(ast).at(-1);
+            if (!temporal || !isVisualTemporalNode(temporal)) continue;
+            endPoints.push(temporal);
+        }
+
+        if (endPoints.length < 2) return [];
+        ctx.addLayoutAttachment(new TieLayoutAttachment(endPoints, this.height));
+        return [];
     }
 
     override toString(source: string) {
@@ -35,3 +84,321 @@ class TieFunction extends ASTFunctionNode {
 }
 
 export const TieNode: ASTFunctionClass = TieFunction;
+
+interface TieSegment {
+    commands: PathCommand[];
+    line: number;
+    track: Track;
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+}
+
+/** ¶ş´Î±´Èû¶ûÔÚÄ³Ò»Î¬ÉÏµÄÄÚ²¿¼«Öµ */
+function quadExtremum(p0: number, p1: number, p2: number): number | null {
+    const d = p0 - 2 * p1 + p2;
+    if (Math.abs(d) < 1e-9) return null;
+    const t = (p0 - p1) / d;
+    if (t <= 0 || t >= 1) return null;
+    const u = 1 - t;
+    return u * u * p0 + 2 * u * t * p1 + t * t * p2;
+}
+
+/** Èı´Î±´Èû¶ûÔÚÄ³Ò»Î¬ÉÏµÄÄÚ²¿¼«Öµ£¬×î¶àÁ½¸ö */
+function cubicExtrema(p0: number, p1: number, p2: number, p3: number, out: number[]) {
+    // µ¼ÊıÎª 3(qa*t^2 + qb*t + a)£¬ÏÂÃæµÄ a ¾ÍÊÇ³£ÊıÏî
+    const a = p1 - p0;
+    const b = p2 - p1;
+    const c = p3 - p2;
+    const qa = a - 2 * b + c;
+    const qb = 2 * (b - a);
+
+    const push = (t: number) => {
+        if (t <= 0 || t >= 1) return;
+        const u = 1 - t;
+        out.push(u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3);
+    };
+
+    if (Math.abs(qa) < 1e-9) {
+        if (Math.abs(qb) > 1e-9) push(-a / qb);
+        return;
+    }
+    const disc = qb * qb - 4 * qa * a;
+    if (disc < 0) return;
+    const root = Math.sqrt(disc);
+    push((-qb + root) / (2 * qa));
+    push((-qb - root) / (2 * qa));
+}
+
+/**
+ * ¾«È·Çó³öÂ·¾¶µÄÍâ½Ó¾ØĞÎ
+ *
+ * ¿ØÖÆµã²»Ö±½Ó¼ÆÈë£º±´Èû¶ûÇúÏß²¢²»»áµ½´ï¿ØÖÆµã£¬
+ * Ö±½ÓÓÃËü»á°Ñ»¡¶¥¸ß¹ÀÔ¼Èı·ÖÖ®Ò»£¬´Ó¶øÈÃÉÏ·½µÄ¹ìµÀ±»ÎŞÎ½ÍÆ¿ª
+ */
+function pathBounds(commands: readonly PathCommand[]) {
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    const includeX = (x: number) => { left = Math.min(left, x); right = Math.max(right, x); };
+    const includeY = (y: number) => { top = Math.min(top, y); bottom = Math.max(bottom, y); };
+
+    let cx = 0;
+    let cy = 0;
+    const extrema: number[] = [];
+
+    for (const command of commands) {
+        if (command.op === "Z") continue;
+        if (command.op === "Q") {
+            const ex = quadExtremum(cx, command.cx, command.x);
+            if (ex !== null) includeX(ex);
+            const ey = quadExtremum(cy, command.cy, command.y);
+            if (ey !== null) includeY(ey);
+        } else if (command.op === "C") {
+            extrema.length = 0;
+            cubicExtrema(cx, command.cx1, command.cx2, command.x, extrema);
+            for (const value of extrema) includeX(value);
+            extrema.length = 0;
+            cubicExtrema(cy, command.cy1, command.cy2, command.y, extrema);
+            for (const value of extrema) includeY(value);
+        }
+        includeX(cx = command.x);
+        includeY(cy = command.y);
+    }
+
+    if (!Number.isFinite(left)) return { left: 0, top: 0, right: 0, bottom: 0 };
+    return { left, top, right, bottom };
+}
+
+class TieLayoutAttachment implements LayoutAttachment {
+    box: Rect = {
+        x: 0,
+        y: 0,
+        w: 0,
+        h: 0,
+    };
+    layer = "foreground" as const;
+
+    readonly endPoints: VisualTemporalNode[];
+    private readonly height: number;
+    private segments: TieSegment[] = [];
+    /** »¡´øÖĞ²¿ºñ¶È£»Á½¶ËÊÕ¼âµ½ 0 */
+    private thickness = 1;
+
+    constructor(endPoints: VisualTemporalNode[], height: number) {
+        this.endPoints = endPoints;
+        this.height = height;
+    }
+
+    layout(context: AttachmentLayoutContext) {
+        this.updateGeometry(context);
+        return this.segments.map(segment => ({
+            x: segment.left,
+            y: segment.top,
+            w: segment.right - segment.left,
+            h: segment.bottom - segment.top,
+            line: segment.line,
+            track: segment.track,
+        }));
+    }
+
+    paint(painter: Painter) {
+        for (const segment of this.segments) {
+            // »¡´ø±¾Éí¾ÍÊÇ±ÕºÏÂÖÀª£¬Ö±½ÓÌî³ä¾ÍÄÜµÃµ½Á½¶ËÊÕ¼â¡¢ÖĞ²¿½Ï´ÖµÄÀÖÆ×»¡Ïß
+            painter.drawPath(segment.commands, { fill: "#000" });
+        }
+    }
+
+    private absolutePort(node: VisualTemporalNode, name: string): LayoutPoint {
+        const port = node.ports[name];
+        if (port) {
+            return {
+                x: node.box.x + port.x,
+                y: node.box.y + port.y,
+            };
+        }
+
+        return {
+            x: node.box.x + node.box.anchor,
+            y: node.box.y,
+        };
+    }
+
+    /** ¸ù¾İ¶Ëµã¹Ì»¯ºóµÄĞĞºÅÑ¡ÔñÍ¬ĞĞ»¡Ïß»ò¿çĞĞ·Ö¶Î¡£ */
+    private updateGeometry(context: AttachmentLayoutContext) {
+        const size = this.endPoints.reduce(
+            (current, endpoint) => Math.max(current, endpoint.ast.size),
+            0,
+        );
+        this.segments.length = 0;
+        this.thickness = Math.max(1.2, size * THICKNESS_RATIO);
+
+        for (let i = 1; i < this.endPoints.length; i++) {
+            let startNode = this.endPoints[i - 1];
+            let endNode = this.endPoints[i];
+            // ±êÇ©ÊéĞ´Ë³Ğò²»±£Ö¤Ê±¼äË³Ğò£¬ÏÈ°´Æ×ÃæĞĞÉıĞò¹æ·¶»¯
+            if (startNode.layoutLine > endNode.layoutLine) [startNode, endNode] = [endNode, startNode];
+
+            const start = this.absolutePort(startNode, "tie.top");
+            const end = this.absolutePort(endNode, "tie.top");
+
+            if (startNode.layoutLine === endNode.layoutLine) {
+                const startTop = context.getVisualAxis(startNode.layoutLine, startNode.track)
+                    + (context.getHostExtent(startNode.layoutLine, startNode.track)?.top ?? 0);
+                const endTop = context.getVisualAxis(endNode.layoutLine, endNode.track)
+                    + (context.getHostExtent(endNode.layoutLine, endNode.track)?.top ?? 0);
+                this.addArc(
+                    start,
+                    end,
+                    startNode.layoutLine,
+                    startTop <= endTop ? startNode.track : endNode.track,
+                );
+                continue;
+            }
+
+            // Ê×ĞĞÏÈÆğ»¡£¬ÔÙÑØË®Æ½¶ÎÑÓÉìµ½µ±Ç°Æ×ÃæĞĞ×îÓÒ²à
+            this.addOpeningSegment(
+                start,
+                context.originX + context.width,
+                this.plateauY(context, startNode.layoutLine, startNode.track, start.y),
+                startNode.layoutLine,
+                startNode.track,
+            );
+
+            // ÖĞ¼äĞĞ¿ÉÄÜÃ»ÓĞÈÎºÎ¿É¼û¶ÔÏó£¬ÈÔÈ»ĞèÒªÖğĞĞ²¹Ò»¶ÎË®Æ½Ïß
+            for (let line = startNode.layoutLine + 1; line < endNode.layoutLine; line++) {
+                this.addHorizontalSegment(
+                    context.originX,
+                    context.originX + context.width,
+                    this.plateauY(context, line, startNode.track),
+                    line,
+                    startNode.track,
+                );
+            }
+
+            // Ä©ĞĞ´Ó×î×ó²à½øÈë£¬¾­¹ıË®Æ½¶ÎºóÂä»¡µ½ÖÕµã
+            this.addClosingSegment(
+                context.originX,
+                end,
+                this.plateauY(context, endNode.layoutLine, endNode.track, end.y),
+                endNode.layoutLine,
+                endNode.track,
+            );
+        }
+    }
+
+    /** ÑØÓÃÆÕÍ¨¶ËµãµÄÌ§¸ßÁ¿£¬µ«»ù×¼ÖÁÉÙÊÇµ±Ç° Track µÄ×î¸ßÖ÷Ìå¡£ */
+    private plateauY(
+        context: AttachmentLayoutContext,
+        line: number,
+        track: Track,
+        endpointY: number = Infinity,
+    ) {
+        const axis = context.getVisualAxis(line, track);
+        const hostTop = context.getHostExtent(line, track)?.top ?? 0;
+        return Math.min(endpointY, axis + hostTop) - this.height;
+    }
+
+    /** Ò»ÌõÈı´Î±´Èû¶ûµÄÍâÔµÅäÉÏ·´ÏòÄÚÔµ£¬µÃµ½Á½¶ËÊÕ¼â¡¢ÖĞ²¿×îºñµÄÀÖÆ×»¡Ïß */
+    private addArc(
+        startInput: LayoutPoint,
+        endInput: LayoutPoint,
+        line: number,
+        track: Track,
+    ) {
+        let start = startInput;
+        let end = endInput;
+        if (start.x > end.x) [start, end] = [end, start];
+
+        const run = (end.x - start.x) * 0.25;
+        const leftX = start.x + run;
+        const rightX = end.x - run;
+        const lift = this.height * CUBIC_LIFT;
+        const inner = Math.max(0, lift - this.thickness * CUBIC_LIFT);
+
+        const commands: PathCommand[] = [
+            { op: "M", x: start.x, y: start.y },
+            { op: "C", cx1: leftX, cy1: start.y - lift, cx2: rightX, cy2: end.y - lift, x: end.x, y: end.y },
+            { op: "C", cx1: rightX, cy1: end.y - inner, cx2: leftX, cy2: start.y - inner, x: start.x, y: start.y },
+            { op: "Z" },
+        ];
+
+        this.addSegment(commands, line, track);
+    }
+
+    /** ¿çĞĞÊ×¶Î£º´Ó¶ËµãÆğ»¡£¬ËæºóË®Æ½ÑÓÉìµ½ÓÒ±ß½ç */
+    private addOpeningSegment(
+        start: LayoutPoint,
+        right: number,
+        plateauY: number,
+        line: number,
+        track: Track,
+    ) {
+        const span = Math.max(0, right - start.x);
+        const run = Math.min(this.height * 1.2, span * 0.4);
+        const curveX = start.x + run;
+        const controlX = start.x + run * 0.45;
+        const bottom = plateauY + this.thickness;
+
+        this.addSegment([
+            { op: "M", x: start.x, y: start.y },
+            { op: "Q", cx: controlX, cy: plateauY, x: curveX, y: plateauY },
+            { op: "L", x: right, y: plateauY },
+            { op: "L", x: right, y: bottom },
+            { op: "L", x: curveX, y: bottom },
+            { op: "Q", cx: controlX, cy: bottom, x: start.x, y: start.y },
+            { op: "Z" },
+        ], line, track);
+    }
+
+    /** ¿çĞĞÄ©¶Î£º´Ó×ó±ß½çË®Æ½½øÈë£¬×îºóÂä»¡µ½¶Ëµã */
+    private addClosingSegment(
+        left: number,
+        end: LayoutPoint,
+        plateauY: number,
+        line: number,
+        track: Track,
+    ) {
+        const span = Math.max(0, end.x - left);
+        const run = Math.min(this.height * 1.2, span * 0.4);
+        const curveX = end.x - run;
+        const controlX = end.x - run * 0.45;
+        const bottom = plateauY + this.thickness;
+
+        this.addSegment([
+            { op: "M", x: left, y: plateauY },
+            { op: "L", x: curveX, y: plateauY },
+            { op: "Q", cx: controlX, cy: plateauY, x: end.x, y: end.y },
+            { op: "Q", cx: controlX, cy: bottom, x: curveX, y: bottom },
+            { op: "L", x: left, y: bottom },
+            { op: "Z" },
+        ], line, track);
+    }
+
+    private addHorizontalSegment(
+        left: number,
+        right: number,
+        y: number,
+        line: number,
+        track: Track,
+    ) {
+        this.addSegment([
+            { op: "M", x: left, y },
+            { op: "L", x: right, y },
+            { op: "L", x: right, y: y + this.thickness },
+            { op: "L", x: left, y: y + this.thickness },
+            { op: "Z" },
+        ], line, track);
+    }
+
+    private addSegment(
+        commands: PathCommand[],
+        line: number,
+        track: Track,
+    ) {
+        const bounds = pathBounds(commands);
+        this.segments.push({ commands, line, track, ...bounds });
+    }
+}
