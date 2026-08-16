@@ -1,8 +1,8 @@
-import { ParserContext } from "../parser/parserContext.js";
-import { defaultFunctions } from "../functions/default.js";
-import { preprocessSource } from "../parser/preprocess.js";
-import { ASTBraceNode } from "../functions/ASTtypes.js";
-import { LoweringContext } from "../lowering/loweringContext.js";
+import { ParserContext } from "../src/parser/parserContext.js";
+import { defaultFunctions } from "../src/functions/default.js";
+import { preprocessSource } from "../src/parser/preprocess.js";
+import { ASTBraceNode } from "../src/functions/ASTtypes.js";
+import { LoweringContext } from "../src/lowering/loweringContext.js";
 
 function parseScript(source: string) {
     console.log("原始源码:");

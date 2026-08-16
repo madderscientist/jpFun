@@ -224,4 +224,4 @@ class BeamFunction extends ASTFunctionNode {
 4. 范围修饰使用 `LoweringGroup`，跨主体关系使用 `LayoutAttachment`。
 5. 依赖最终时间流的逻辑放入静态 augment/finalize hook。
 
-实现入口见 [`src/lowering/loweringContext.ts`](../src/lowering/loweringContext.ts)，数据结构见 [`src/lowering/types.ts`](../src/lowering/types.ts)，音轨模型见 [`src/lowering/track.ts`](../src/lowering/track.ts)。下一阶段参见 [Layout](layout.md)。
+实现入口见 [`src/lowering/loweringContext.ts`](../packages/jpfun/src/lowering/loweringContext.ts)，数据结构见 [`src/lowering/types.ts`](../packages/jpfun/src/lowering/types.ts)，音轨模型见 [`src/lowering/track.ts`](../packages/jpfun/src/lowering/track.ts)。下一阶段参见 [Layout](layout.md)。

@@ -112,7 +112,7 @@ below 只向下扩张；主体内部或上方几何由具体 Temporal 的 `prepa
 1. 简谱中，音符时长越大，边距越大
 2. 空间不足时，首先压缩边距。实在没空间了，才让元素重叠
 
-横向排版有一个简单的html实现：[demo](../src/layout/layout_demo.html)
+横向排版有一个简单的html实现：[demo](../packages/jpfun/src/layout/layout_demo.html)
 
 每个元素有自己的固有宽度 `W` 和固有时长 `T`，左右连着两根相同长度的弹簧，弹簧的原始长度为 `L`，固有时长越大弹簧越长：$ L = \alpha T $
 

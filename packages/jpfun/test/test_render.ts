@@ -1,10 +1,22 @@
-import { paintLayout } from "../layout/engine.js";
-import { compileScore } from "../pipeline.js";
-import { renderLayoutToCanvas } from "../render/canvas.js";
-import { RecordingPainter, type RecordedPaintCommand } from "../render/recording.js";
-import { renderLayoutToSvg } from "../render/svg.js";
-import type { PathCommand } from "../render/types.js";
-import { PREVIEW_EXAMPLE } from "../demo/previewExample.js";
+import { paintLayout } from "../src/layout/engine.js";
+import { compileScore } from "../src/pipeline.js";
+import { renderLayoutToCanvas } from "../src/render/canvas.js";
+import { RecordingPainter, type RecordedPaintCommand } from "../src/render/recording.js";
+import { renderLayoutToSvg } from "../src/render/svg.js";
+import type { PathCommand } from "../src/render/types.js";
+
+const RENDER_INTEGRATION_SCORE = `@voices(
+    @voice({1@a}, A),
+    @voice({2}, B),
+    @voice({3}, C, "春")
+)
+@br()
+@voices(
+    @voice({4@b}, A),
+    @voice({5}, B),
+    @voice({@stack({6},{7})}, C)
+)
+@tie(a,b)`;
 
 function assert(condition: unknown, message: string): asserts condition {
     if (condition) return;
@@ -359,24 +371,24 @@ assert(compiled.layout.objects.length === 4, "compileScore must return a directl
 assert(compiled.lowering.columns.length === 4, "compileScore must preserve the complete lowering result");
 assert(compiled.parser.diagnostics.length === 0, "valid default pipeline input must not create diagnostics");
 
-const previewCompiled = compileScore(PREVIEW_EXAMPLE);
-assert(previewCompiled.layout.lineCount === 2, "the web demo example must contain two systems");
+const integrationCompiled = compileScore(RENDER_INTEGRATION_SCORE);
+assert(integrationCompiled.layout.lineCount === 2, "the render integration score must contain two systems");
 assert(
-    new Set(previewCompiled.layout.objects.map(object => object.track)).size === 4,
-    "the web demo example must contain three voice lanes plus one temporary stack lane",
+    new Set(integrationCompiled.layout.objects.map(object => object.track)).size === 4,
+    "the render integration score must contain three voice lanes plus one temporary stack lane",
 );
 assert(
-    !previewCompiled.layout.objects.some(object => object.track === previewCompiled.lowering.rootTrack),
+    !integrationCompiled.layout.objects.some(object => object.track === integrationCompiled.lowering.rootTrack),
     "no voice may reuse the empty host track of a voices block",
 );
-const previewCommands = recordLayout(previewCompiled.layout);
+const integrationCommands = recordLayout(integrationCompiled.layout);
 assert(
-    previewCommands.some(command => command.kind === "text" && command.text === "春"),
-    "the web demo final track must render lyrics",
+    integrationCommands.some(command => command.kind === "text" && command.text === "春"),
+    "the render integration score must render lyrics",
 );
 assert(
-    previewCommands.filter(command => command.kind === "path").length >= 2,
-    "the web demo must render a cross-system tie",
+    integrationCommands.filter(command => command.kind === "path").length >= 2,
+    "the render integration score must render a cross-system tie",
 );
 
 console.log(`render commands=${commands.length} svgBytes=${svg.length} canvasCalls=${canvasCalls.length}`);

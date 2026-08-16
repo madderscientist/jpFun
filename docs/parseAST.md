@@ -1,8 +1,8 @@
 # 源码解析
-首先进行[源码解析](../src/parser/parserContext.ts)，得到函数级别的含义。这一步的主要作用是去糖、固化参数。
+首先进行[源码解析](../packages/jpfun/src/parser/parserContext.ts)，得到函数级别的含义。这一步的主要作用是去糖、固化参数。
 
 基本流程如下：
-1. 语法层的解析（`ParserContext.parseGrammar`），即识别 函数调用、标签、大括号，对于不认识的字符，进行语法糖尝试。这一阶段得到的类型在 [grammarType](../src/parser/grammarType.ts) 中定义，目标是得到初步的该层 Node 划分，使得下一步去糖能方便地搜索顶层。
+1. 语法层的解析（`ParserContext.parseGrammar`），即识别 函数调用、标签、大括号，对于不认识的字符，进行语法糖尝试。这一阶段得到的类型在 [grammarType](../packages/jpfun/src/parser/grammarType.ts) 中定义，目标是得到初步的该层 Node 划分，使得下一步去糖能方便地搜索顶层。
 2. 基于第一阶段的 `GrammarNode` 进行具体函数节点的创建，并进行第二轮语法糖解析。
 
 以上两个阶段在同一层进行，更深一层一般出现在函数的参数中，在解析参数的时候自动构建了一棵树。

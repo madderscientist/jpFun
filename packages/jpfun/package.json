@@ -1,0 +1,39 @@
+{
+  "name": "jpfun",
+  "version": "0.0.1",
+  "description": "A functional numbered musical notation typesetting engine",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "clean": "node -e \"for (const path of ['dist', 'tsconfig.tsbuildinfo']) require('node:fs').rmSync(path, { recursive: true, force: true })\"",
+    "build": "pnpm run clean && tsc -p tsconfig.json",
+    "prepack": "pnpm run build",
+    "test": "node --import tsx test/test.ts",
+    "test_preprocess": "node --import tsx test/test_preprocess.ts",
+    "test_layout": "node --import tsx test/test_layout.ts",
+    "test_render": "node --import tsx test/test_render.ts"
+  },
+  "keywords": [
+    "numbered-musical-notation",
+    "music-notation",
+    "typesetting"
+  ],
+  "author": "madderscientist",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
+  }
+}

@@ -21,7 +21,7 @@ interface Painter {
 - 升降号等固定轮廓由所属函数保存局部 `PathCommand`，通过 `drawPath` 绘制
 - 歌词、声部名和 `@text` 同样通过 `drawText` 绘制
 - `TextMeasurer` 只负责文本的宽、高和 baseline；默认实现保持确定性
-- 固定图形的尺寸和路径放在所属函数目录，例如 note 的升降号位于 `src/functions/note/accidentals.ts`
+- 固定图形的尺寸和路径放在所属函数目录，例如 note 的升降号位于 `packages/jpfun/src/functions/note/accidentals.ts`
 
 带 `PathTransform` 的路径使用局部坐标；transform 只改变几何位置和尺寸，`strokeWidth` 始终是最终布局像素。无 transform 的路径使用绝对布局坐标，适合 tie 等动态几何。
 

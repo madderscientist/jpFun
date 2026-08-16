@@ -16,14 +16,14 @@ jpFun 是一条面向简谱 DSL 的编译流水线：它把源码逐步转换为
   -> Paint        -> SVG / Canvas / 其他 Painter 后端
 ```
 
-公共入口 [`compileScore`](../src/pipeline.ts) 串起前三个阶段，并保留所有中间结果。渲染是独立步骤，同一份布局可以交给多个后端。
+公共入口 [`compileScore`](../packages/jpfun/src/pipeline.ts) 串起前三个阶段，并保留所有中间结果。渲染是独立步骤，同一份布局可以交给多个后端。
 
 | 阶段 | 输入与输出 | 只负责 | 不负责 | 代码与详解 |
 | --- | --- | --- | --- | --- |
-| 解析 | 源码 -> AST | 基础语法、参数固化、语法糖调度、源码位置 | 时间、坐标、绘制 | [`src/parser/`](../src/parser/) · [解析](parseAST.md) |
-| Lowering | AST -> `LoweringResult` | 时间顺序、并行音轨、事件列、关系对象 | 像素坐标、绘制 | [`src/lowering/`](../src/lowering/) · [Lowering](lowering.md) |
-| Layout | `LoweringResult` -> `DocumentLayoutResult` | 测量、横纵向求解、分页、最终几何 | 语法解析、业务语义、后端 API | [`src/layout/`](../src/layout/) · [布局](layout.md) |
-| Paint | 布局结果 -> 绘制命令 | 按层调用 `Painter` | 重新测量或改变布局 | [`src/render/`](../src/render/) · [渲染](render.md) |
+| 解析 | 源码 -> AST | 基础语法、参数固化、语法糖调度、源码位置 | 时间、坐标、绘制 | [`src/parser/`](../packages/jpfun/src/parser/) · [解析](parseAST.md) |
+| Lowering | AST -> `LoweringResult` | 时间顺序、并行音轨、事件列、关系对象 | 像素坐标、绘制 | [`src/lowering/`](../packages/jpfun/src/lowering/) · [Lowering](lowering.md) |
+| Layout | `LoweringResult` -> `DocumentLayoutResult` | 测量、横纵向求解、分页、最终几何 | 语法解析、业务语义、后端 API | [`src/layout/`](../packages/jpfun/src/layout/) · [布局](layout.md) |
+| Paint | 布局结果 -> 绘制命令 | 按层调用 `Painter` | 重新测量或改变布局 | [`src/render/`](../packages/jpfun/src/render/) · [渲染](render.md) |
 
 阶段之间只通过显式数据结构通信。若一个改动需要反向读取后续阶段的状态，通常说明职责放错了层。
 
@@ -31,14 +31,14 @@ jpFun 是一条面向简谱 DSL 的编译流水线：它把源码逐步转换为
 
 ### 引擎调度，函数声明
 
-内置符号都位于 [`src/functions/`](../src/functions/)。一个函数类可以按需声明：
+内置符号都位于 [`src/functions/`](../packages/jpfun/src/functions/)。一个函数类可以按需声明：
 
 - 如何被解析，以及有哪些参数和语法糖；
 - 如何产生时间事件、修饰作用域或建立并行关系；
 - 如何测量自身、参与布局或附着到其他对象；
 - 如何通过 `Painter` 发出绘制命令。
 
-Parser、Lowering 和 Layout 只调用这些协议，不应针对具体函数名增加分支。新增符号通常只需新增函数目录，并在 [`defaultFunctions`](../src/functions/default.ts) 中注册。
+Parser、Lowering 和 Layout 只调用这些协议，不应针对具体函数名增加分支。新增符号通常只需新增函数目录，并在 [`defaultFunctions`](../packages/jpfun/src/functions/default.ts) 中注册。
 
 ### AST 只描述源码
 
@@ -66,12 +66,12 @@ AST 保存语法结构、已固化参数和源码位置。解析完成后，AST 
 
 | 契约 | 作用 | 定义位置 |
 | --- | --- | --- |
-| `ASTFunctionNode` | 函数定义、参数、去糖和阶段 hooks 的入口 | [`ASTtypes.ts`](../src/functions/ASTtypes.ts) |
-| `LoweringResult` | 时间列、attachments、Track 树及 AST 到事件的索引 | [`lowering/types.ts`](../src/lowering/types.ts) |
-| `TemporalNodeBase` | 一次编译中的时间事件及其可选视觉主体 | [`lowering/types.ts`](../src/lowering/types.ts) |
-| `LayoutBox` | 主体的尺寸、位置和对齐轴 | [`layout/types.ts`](../src/layout/types.ts) |
-| `LayoutAttachment` | 跨主体几何与纵向占用协议 | [`layout/types.ts`](../src/layout/types.ts) |
-| `Painter` | 与 SVG、Canvas 无关的最小绘制接口 | [`render/types.ts`](../src/render/types.ts) |
+| `ASTFunctionNode` | 函数定义、参数、去糖和阶段 hooks 的入口 | [`ASTtypes.ts`](../packages/jpfun/src/functions/ASTtypes.ts) |
+| `LoweringResult` | 时间列、attachments、Track 树及 AST 到事件的索引 | [`lowering/types.ts`](../packages/jpfun/src/lowering/types.ts) |
+| `TemporalNodeBase` | 一次编译中的时间事件及其可选视觉主体 | [`lowering/types.ts`](../packages/jpfun/src/lowering/types.ts) |
+| `LayoutBox` | 主体的尺寸、位置和对齐轴 | [`layout/types.ts`](../packages/jpfun/src/layout/types.ts) |
+| `LayoutAttachment` | 跨主体几何与纵向占用协议 | [`layout/types.ts`](../packages/jpfun/src/layout/types.ts) |
+| `Painter` | 与 SVG、Canvas 无关的最小绘制接口 | [`render/types.ts`](../packages/jpfun/src/render/types.ts) |
 
 这些契约比具体算法更适合作为扩展依据。弹簧模型、分页、Track 求解等实现细节应留在对应模块内部。
 
@@ -124,8 +124,8 @@ AST 保存语法结构、已固化参数和源码位置。解析完成后，AST 
 
 ## 新贡献者阅读顺序
 
-1. 从 [`src/pipeline.ts`](../src/pipeline.ts) 看完整数据流。
-2. 阅读一个简单主体函数（如 [`bar`](../src/functions/bar/index.ts)），再按需求参考装饰函数 [`dot`](../src/functions/dot/index.ts) 或关系函数 [`tie`](../src/functions/tie/index.ts)。
+1. 从 [`src/pipeline.ts`](../packages/jpfun/src/pipeline.ts) 看完整数据流。
+2. 阅读一个简单主体函数（如 [`bar`](../packages/jpfun/src/functions/bar/index.ts)），再按需求参考装饰函数 [`dot`](../packages/jpfun/src/functions/dot/index.ts) 或关系函数 [`tie`](../packages/jpfun/src/functions/tie/index.ts)。
 3. 只深入与改动相关的专题文档：[解析](parseAST.md)、[Lowering](lowering.md)、[布局](layout.md)、[渲染](render.md)。
 4. 在相邻测试中先描述期望行为，再修改实现。
 

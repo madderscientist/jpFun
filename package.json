@@ -1,24 +1,14 @@
 {
-  "name": "jpfun",
+  "name": "jpfun-workspace",
   "private": true,
   "version": "1.0.0",
-  "description": "",
-  "main": "dist/index.js",
   "scripts": {
-    "build": "tsgo -p tsconfig.json",
-    "test": "node --import tsx src/test/test.ts",
-    "test_preprocess": "node --import tsx src/test/test_preprocess.ts",
-    "test_layout": "node --import tsx src/test/test_layout.ts",
-    "test_render": "node --import tsx src/test/test_render.ts",
-    "prepreview": "pnpm run build",
-    "preview": "node scripts/preview-server.mjs"
-  },
-  "keywords": [],
-  "author": "madderscientist",
-  "license": "ISC",
-  "type": "module",
-  "devDependencies": {
-    "tsx": "^4.21.0",
-    "@typescript/native-preview": "7.0.0-dev.20260707.2"
+    "clean": "pnpm --filter jpfun clean",
+    "build": "pnpm run build:core",
+    "build:core": "pnpm --filter jpfun build",
+    "test": "pnpm --filter jpfun test",
+    "test_preprocess": "pnpm --filter jpfun test_preprocess",
+    "test_layout": "pnpm --filter jpfun test_layout",
+    "test_render": "pnpm --filter jpfun test_render"
   }
 }

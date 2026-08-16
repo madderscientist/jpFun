@@ -1,17 +1,17 @@
-import { ASTBraceNode, ASTFunctionNode } from "../functions/ASTtypes.js";
-import { DIV_ADDON_KEY, DivNode, divLinePortName } from "../functions/div/index.js";
-import { defaultFunctions } from "../functions/default.js";
-import { createLayoutPrepareContext } from "../layout/default.js";
-import { layoutDocument, paintLayout } from "../layout/engine.js";
-import { DEFAULT_PAGE_CONFIG, normalizePageConfig } from "../layout/page.js";
-import { RecordingPainter } from "../render/recording.js";
-import { LoweringContext } from "../lowering/loweringContext.js";
-import { ColType, isVisualTemporalNode } from "../lowering/types.js";
-import type { LayoutAttachment, LayoutBox } from "../layout/types.js";
-import { ParserContext } from "../parser/parserContext.js";
-import { ErrorDiagnostic } from "../diagnostic.js";
-import { preprocessSource } from "../parser/preprocess.js";
-import { compileScore } from "../pipeline.js";
+import { ASTBraceNode, ASTFunctionNode } from "../src/functions/ASTtypes.js";
+import { DIV_ADDON_KEY, DivNode, divLinePortName } from "../src/functions/div/index.js";
+import { defaultFunctions } from "../src/functions/default.js";
+import { createLayoutPrepareContext } from "../src/layout/default.js";
+import { layoutDocument, paintLayout } from "../src/layout/engine.js";
+import { DEFAULT_PAGE_CONFIG, normalizePageConfig } from "../src/layout/page.js";
+import { RecordingPainter } from "../src/render/recording.js";
+import { LoweringContext } from "../src/lowering/loweringContext.js";
+import { ColType, isVisualTemporalNode } from "../src/lowering/types.js";
+import type { LayoutAttachment, LayoutBox } from "../src/layout/types.js";
+import { ParserContext } from "../src/parser/parserContext.js";
+import { ErrorDiagnostic } from "../src/diagnostic.js";
+import { preprocessSource } from "../src/parser/preprocess.js";
+import { compileScore } from "../src/pipeline.js";
 
 function assert(condition: unknown, message: string): asserts condition {
     if (condition) return;
