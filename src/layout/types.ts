@@ -190,13 +190,14 @@ export interface LayoutDecoration {
  * 它们不进入时间列，只需要报出自己占住的矩形，外接盒与纵向占用都由引擎从中导出
  */
 export interface LayoutAttachment {
-    box: LayoutBox; // 由引擎写入：上一次 layout 返回区域的并集
+    box: Rect;  // 由引擎写入：上一次 layout 返回区域的并集
     layer: "background" | "foreground"; // 相对于 Temporal 主体的绘制层 "background"比内容先绘制
     /** 横向求解前：调整弹簧参数或注册横向布局 hook，不得改变对象/列顺序 */
     prepareHorizontal?(context: HorizontalLineView[]): void;
     /**
      * 根据当前视觉轴生成完整几何，并返回自己占住的区域
-     * 纵向迭代求解会调用多次，实现必须幂等（每次从主体几何重算，不能做累加）
+     * 首次返回带 line + track 且扩张主体占用的区域时，引擎会重新求轴并再次调用；
+     * 因此实现必须幂等（每次从主体几何重算，不能做累加）
      */
     layout?(context: AttachmentLayoutContext): readonly LayoutRegion[] | void;
     paint(painter: Painter): void;  // 只读最终几何并发出绘制命令

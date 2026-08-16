@@ -1,13 +1,11 @@
 /**
  * 相对某条基线的纵向占用
- * 约定 top <= 0 <= bottom，是整个排版系统里唯一的纵向词汇
+ * 约定 top <= 0 <= bottom
  */
 export interface Extent {
     top: number;    // 基线以上的边界，通常为负
     bottom: number; // 基线以下的边界，通常为正
 }
-/** 只读的零占用，作为“宿主暂时没有内容”的中性值 */
-export const ZERO_EXTENT: Readonly<Extent> = Object.freeze({ top: 0, bottom: 0 });
 
 /** arrange 给出的单个成员的局部位置 */
 export interface TrackPlacement {
@@ -36,7 +34,7 @@ export type ArrangeFn = (
 
 /** 一组由同一个 parallel 函数派生出来的分支音轨 */
 export interface TrackGroup {
-    readonly host: Track;
+    readonly laneKey: string;
     /** 只含分支音轨，不含宿主；顺序即书写顺序 */
     readonly members: Track[];
     /** 这一个分支怎么布局 将被 layout.solveVerticalAxes 调用 */
@@ -53,17 +51,11 @@ export interface TrackGroup {
  * 两次出现要不要共用基线，完全由申请音轨时给出的 laneKey 决定（见 group）
  */
 export class Track {
-    readonly parent: Track | null;
-
-    /** 挂在本轨上的分组，按首次声明顺序求解，从而实现“自内向外”累积高度 */
+    /** 
+     * 挂在本轨上的分组，按首次声明顺序求解，从而实现“自内向外”累积高度
+     * 一个 group 理解为时间线上的一次分叉，但分叉模式相同会直接复用
+     */
     readonly groups: TrackGroup[] = [];
-
-    /** laneKey -> 分组；只在真正派生过分支时才创建 */
-    private lanes: Map<string, TrackGroup> | null = null;
-
-    constructor(parent: Track | null = null) {
-        this.parent = parent;
-    }
 
     /**
      * 申请一组分支音轨
@@ -75,14 +67,12 @@ export class Track {
      * 同一个 laneKey 首次注册的 arrange 生效，后续调用只负责按需扩充成员数量。
      */
     group(laneKey: string, count: number, arrange: ArrangeFn): TrackGroup {
-        const lanes = this.lanes ??= new Map();
-        let group = lanes.get(laneKey);
+        let group = this.groups.find(group => group.laneKey === laneKey);
         if (!group) {
-            group = { host: this, members: [], arrange };
-            lanes.set(laneKey, group);
+            group = { laneKey, members: [], arrange };
             this.groups.push(group);
         }
-        while (group.members.length < count) group.members.push(new Track(this));
+        while (group.members.length < count) group.members.push(new Track());
         return group;
     }
 }
