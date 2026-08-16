@@ -111,21 +111,16 @@ L: ...
             if (pos >= end) return null;    // 没有内容了 不去糖
             let lyend = end;
             const quote = source[pos];
-            if (quote === '"' || quote === "'") {
+            // 双引号才是字符串，单引号不是
+            if (quote === '"') {
                 // 有引号的 直接以引号为界切分
                 lystart = ++pos;
                 let escaped = false;
-                let q: "'" | '"' | null = null;
                 for (; pos < end; pos++) {
                     const ch = source[pos];
-                    if (q) {
-                        if (escaped) escaped = false;
-                        else if (ch === "\\") escaped = true;
-                        else if (ch === q) q = null;
-                        continue;
-                    }
-                    if (ch === quote) break;
-                    if (ch === '"' || ch === "'") q = ch;
+                    if (escaped) escaped = false;
+                    else if (ch === "\\") escaped = true;
+                    else if (ch === quote) break;
                 }
                 if (pos >= end) throw Diagnostic.error.UnterminatedString({
                     start: lystart - 1, end

@@ -159,10 +159,8 @@ export function findRightParen(source: string, start: number, end: number): numb
     } return -1;
 }
 
+/** 识别字符串参数时用于剥离双引号；单引号不是字符串语法 */
 export function removeQuote(source: string): string {
-    if (
-        (source.startsWith('"') && source.endsWith('"')) ||
-        (source.startsWith("'") && source.endsWith("'"))
-    ) return source.slice(1, -1);
+    if (source.startsWith('"') && source.endsWith('"')) return source.slice(1, -1);
     return source;
 }

@@ -19,7 +19,6 @@ const CHAR_NARROW_NO_BREAK_SPACE = 8239;
 const CHAR_MEDIUM_MATHEMATICAL_SPACE = 8287;
 const CHAR_IDEOGRAPHIC_SPACE = 12288;
 const CHAR_BOM = 65279;
-const CHAR_QUOTE_SINGLE = 39;
 const CHAR_QUOTE_DOUBLE = 34;
 const CHAR_BACKSLASH = 92;
 const CHAR_PERCENT = 37;
@@ -145,7 +144,7 @@ export function preprocessSource(source: string): { maskedSource: string; lineSt
             continue;
         }
 
-        if (ch === CHAR_QUOTE_SINGLE || ch === CHAR_QUOTE_DOUBLE) {
+        if (ch === CHAR_QUOTE_DOUBLE) {
             inQuote = ch;
             updateLineTailState(i, ch);
             i++;
