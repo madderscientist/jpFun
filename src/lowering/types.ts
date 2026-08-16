@@ -184,7 +184,7 @@ export class TemporalNodeBase implements TimeLineEvent {
 
     /**
      * 根据已经固化的语义生成固有尺寸
-     * 一般为使用 LayoutPrepareContext.glyphs 测量字形或文本，填写 box.w/h/anchor/visualAxis
+    * 一般为测量函数自有图形或使用 LayoutPrepareContext.textMeasurer 测量文本，填写 box.w/h/anchor/visualAxis
      * 此时 x 和 y 仍然没有最终含义
      */
     prepareLayout(_ctx: LayoutPrepareContext): void {}

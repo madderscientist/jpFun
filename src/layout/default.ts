@@ -3,8 +3,8 @@ import {
     functionAddonKey,
     type ASTFunctionClass,
 } from "../functions/ASTtypes.js";
-import { defaultGlyphProvider } from "../render/glyphs.js";
-import type { GlyphProvider } from "../render/types.js";
+import { defaultTextMeasurer } from "../render/text.js";
+import type { TextMeasurer } from "../render/types.js";
 import type {
     LayoutDecorationHandler,
     LayoutPrepareContext,
@@ -19,7 +19,7 @@ import type {
 export function createLayoutPrepareContext(
     functionClasses: Iterable<ASTFunctionClass>,
     options: {
-        glyphs?: GlyphProvider;
+        textMeasurer?: TextMeasurer;
     } = {},
 ): LayoutPrepareContext {
     const handlers = new Map<string, LayoutDecorationHandler>();
@@ -37,7 +37,7 @@ export function createLayoutPrepareContext(
     }
 
     return {
-        glyphs: options.glyphs ?? defaultGlyphProvider,
+        textMeasurer: options.textMeasurer ?? defaultTextMeasurer,
         decorationHandlers: handlers,
     };
 }

@@ -508,7 +508,7 @@ function solveVerticalAxes(
         for (const group of track.groups) {
             for (const member of group.members) {
                 const offset = offsets.get(member);
-                if (offset) placeTrack(member, axis + offset);
+                if (offset !== void 0) placeTrack(member, axis + offset);
             }
         }
     };

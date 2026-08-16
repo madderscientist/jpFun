@@ -1,4 +1,4 @@
-import type { GlyphProvider, Painter } from "../render/types.js";
+import type { Painter, TextMeasurer } from "../render/types.js";
 import type { Extent, Track } from "../lowering/track.js";
 import type { HorizontalLayoutHook } from "./model.js";
 
@@ -55,11 +55,11 @@ export interface PageConfig {
 /**
  * 排版前的共享资源
  *
- * glyphs 同时服务于固有尺寸计算和最终绘制
+ * textMeasurer 只负责确定性文本测量
  * 字号由具体视觉函数在 parse 时固化为 px，不属于布局上下文
  */
 export interface LayoutPrepareContext {
-    glyphs: GlyphProvider;   // 测量固定 glyph 与任意文本的统一来源
+    textMeasurer: TextMeasurer;
     decorationHandlers: ReadonlyMap<string, LayoutDecorationHandler>; // addon key 到装饰 handler 的注册表
 }
 
