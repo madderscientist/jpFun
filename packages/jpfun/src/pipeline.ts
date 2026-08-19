@@ -30,7 +30,7 @@ export interface CompileScoreResult {
  * 默认的源码到布局流水线
  *
  * 每个中间结果都保留在返回对象中
- * 编辑器可以读取 diagnostics 和 AST
+ * 编辑器可以读取 diagnostics 和 AST（逐次按键的高亮走 analyzeScoreSyntax）
  * 播放器可以读取 lowering
  * 任意 Painter 后端可以直接消费 layout
  */
@@ -65,5 +65,24 @@ export function compileScore(
         ast,
         lowering,
         layout,
+    };
+}
+
+/**
+ * 只分析编辑器所需的源码结构，不构造 AST
+ *
+ * 输入期间（防抖时）源码经常缺少右括号或完整参数；
+ * 该入口会把这些问题记录到 diagnostics，并尽量返回已经识别的 call/token，供高亮和补全继续工作
+ */
+export function analyzeScoreSyntax(
+    source: string,
+    functions: ASTFunctionClass[] = defaultFunctions,
+) {
+    const { maskedSource, commentSpans } = preprocessSource(source);
+    const parser = new ParserContext({ source: maskedSource, commentSpans });
+    parser.registerFunctions(functions);
+    return {
+        syntax: parser.parseSyntax(),
+        diagnostics: parser.diagnostics,
     };
 }

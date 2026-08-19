@@ -44,6 +44,7 @@ class UpFunction extends ASTFunctionNode {
 表示content1和content2在时间上完全重叠，通常用于和声等需要对齐的场景。可以有任意多个参数，至少需要两个参数。
 `,
         allowExtraArgs: true,
+        extraArgType: "content" as const,
         args: [],
     };
 

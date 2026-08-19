@@ -25,6 +25,8 @@ jpFun 是一条面向简谱 DSL 的编译流水线：它把源码逐步转换为
 | Layout | `LoweringResult` -> `DocumentLayoutResult` | 测量、横纵向求解、分页、最终几何 | 语法解析、业务语义、后端 API | [`src/layout/`](../packages/jpfun/src/layout/) · [布局](layout.md) |
 | Paint | 布局结果 -> 绘制命令 | 按层调用 `Painter` | 重新测量或改变布局 | [`src/render/`](../packages/jpfun/src/render/) · [渲染](render.md) |
 
+编辑器在这四个阶段之外，另走一条只扫语法不建 AST 的轻量路径（`analyzeScoreSyntax`）：[编辑器集成](editor.md)。
+
 阶段之间只通过显式数据结构通信。若一个改动需要反向读取后续阶段的状态，通常说明职责放错了层。
 
 ## 架构边界
@@ -126,7 +128,7 @@ AST 保存语法结构、已固化参数和源码位置。解析完成后，AST 
 
 1. 从 [`src/pipeline.ts`](../packages/jpfun/src/pipeline.ts) 看完整数据流。
 2. 阅读一个简单主体函数（如 [`bar`](../packages/jpfun/src/functions/bar/index.ts)），再按需求参考装饰函数 [`dot`](../packages/jpfun/src/functions/dot/index.ts) 或关系函数 [`tie`](../packages/jpfun/src/functions/tie/index.ts)。
-3. 只深入与改动相关的专题文档：[解析](parseAST.md)、[Lowering](lowering.md)、[布局](layout.md)、[渲染](render.md)。
+3. 只深入与改动相关的专题文档：[解析](parseAST.md)、[Lowering](lowering.md)、[布局](layout.md)、[渲染](render.md)、[编辑器集成](editor.md)。
 4. 在相邻测试中先描述期望行为，再修改实现。
 
 常用验证命令：

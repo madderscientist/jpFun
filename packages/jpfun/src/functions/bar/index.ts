@@ -54,6 +54,7 @@ class BarFunction extends ASTFunctionNode {
             name: "bar",
             args: argMap,
             span: { start, end: pos },
+            syntaxKind: "atom",
         };
         return { next: pos, node };
     };

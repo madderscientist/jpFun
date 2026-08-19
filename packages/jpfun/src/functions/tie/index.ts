@@ -14,18 +14,19 @@ import type {
 import type { Painter, PathCommand } from "../../render/types.js";
 import type { Track } from "../../lowering/track.js";
 
-/** Èı´Î±´Èû¶û¿ØÖÆµãµÄÌ§¸ßÏµÊı£ºÁ½¸ö¿ØÖÆµãÍ¬¸ßÊ±£¬Êµ¼Ê»¡¸ßÇ¡ºÃÊÇÌ§¸ßµÄ 3/4 */
+/** ä¸‰æ¬¡è´å¡å°”æ§åˆ¶ç‚¹çš„æŠ¬é«˜ç³»æ•°ï¼šä¸¤ä¸ªæ§åˆ¶ç‚¹åŒé«˜æ—¶ï¼Œå®é™…å¼§é«˜æ°å¥½æ˜¯æŠ¬é«˜çš„ 3/4 */
 const CUBIC_LIFT = 4 / 3;
-/** »¡´øÖĞ²¿×î´óºñ¶ÈÓë×ÖºÅÖ®±È */
+/** å¼§å¸¦ä¸­éƒ¨æœ€å¤§åšåº¦ä¸å­—å·ä¹‹æ¯” */
 const THICKNESS_RATIO = 0.09;
 
 class TieFunction extends ASTFunctionNode {
     static override def = {
         name: ["tie"],
-        description: "Á¬ÒôÏß",
+        description: "è¿éŸ³çº¿",
         example: `@tie(label1, label2, ..., height=0.5em)
-    ½«¶ËµãÒÀ´ÎÁ¬½Ó£»Í¬ĞĞÓÃÒ»Ìõ»¡Ïß£¬¿çĞĞ²ğ³É·Ö¶ÎÁ¬½Ó£»Èô²»´«¶ËµãÔòÕÒ×î½üµÄ`,
+    å°†ç«¯ç‚¹ä¾æ¬¡è¿æ¥ï¼›åŒè¡Œç”¨ä¸€æ¡å¼§çº¿ï¼Œè·¨è¡Œæ‹†æˆåˆ†æ®µè¿æ¥ï¼›è‹¥ä¸ä¼ ç«¯ç‚¹åˆ™æ‰¾æœ€è¿‘çš„`,
         allowExtraArgs: true,
+        extraArgType: "label" as const,
         args: []
     };
 
@@ -46,23 +47,25 @@ class TieFunction extends ASTFunctionNode {
                 if (length) height = Math.max(0, ctx.length2px(length));
                 continue;
             }
-            const v = ctx.parseArgWithType((value as SourceSpan).start, (value as SourceSpan).end, "label", sourceSpan.start);
+            const v = value instanceof ASTFunctionNode
+                ? value
+                : ctx.parseArgWithType((value as SourceSpan).start, (value as SourceSpan).end, "label", sourceSpan.start);
             if (v !== null) this.endPoints.push(v as ASTFunctionNode);
         }
-        // ÊıÄ¿²»×ã£¬ÔòÕÒ×î½üµÄ
+        // æ•°ç›®ä¸è¶³ï¼Œåˆ™æ‰¾æœ€è¿‘çš„
         let k = ctx.labelableNodes.length - 1;
         for (let i = this.endPoints.length; i < 2; i++) {
             while (k >= 0 && this.endPoints.includes(ctx.labelableNodes[k])) k--;
             if (k < 0) break;
-            this.endPoints[1 - i] = ctx.labelableNodes[k--];    // ±£³ÖË³Ğò
+            this.endPoints[1 - i] = ctx.labelableNodes[k--];    // ä¿æŒé¡ºåº
         }
-        if (this.endPoints.length < 2) throw new ErrorDiagnostic("E_NOT_ENOUGH_ARGS", "@tie Á¬ÒôÏßĞèÒªÖÁÉÙÁ½¸ö¶Ëµã", sourceSpan);
+        if (this.endPoints.length < 2) throw new ErrorDiagnostic("E_NOT_ENOUGH_ARGS", "@tie è¿éŸ³çº¿éœ€è¦è‡³å°‘ä¸¤ä¸ªç«¯ç‚¹", sourceSpan);
         this.height = height;
     }
 
     /**
-     * tie ²»ÍÆ½øÊ±¼ä
-     * lowering Ö»°Ñ AST ¶Ëµã½âÎö³ÉÎÈ¶¨µÄ temporal ¶ÔÏóÒıÓÃ
+     * tie ä¸æ¨è¿›æ—¶é—´
+     * lowering åªæŠŠ AST ç«¯ç‚¹è§£ææˆç¨³å®šçš„ temporal å¯¹è±¡å¼•ç”¨
      */
     override loweringEnter(ctx: LoweringContext) {
 
@@ -95,7 +98,7 @@ interface TieSegment {
     bottom: number;
 }
 
-/** ¶ş´Î±´Èû¶ûÔÚÄ³Ò»Î¬ÉÏµÄÄÚ²¿¼«Öµ */
+/** äºŒæ¬¡è´å¡å°”åœ¨æŸä¸€ç»´ä¸Šçš„å†…éƒ¨æå€¼ */
 function quadExtremum(p0: number, p1: number, p2: number): number | null {
     const d = p0 - 2 * p1 + p2;
     if (Math.abs(d) < 1e-9) return null;
@@ -105,9 +108,9 @@ function quadExtremum(p0: number, p1: number, p2: number): number | null {
     return u * u * p0 + 2 * u * t * p1 + t * t * p2;
 }
 
-/** Èı´Î±´Èû¶ûÔÚÄ³Ò»Î¬ÉÏµÄÄÚ²¿¼«Öµ£¬×î¶àÁ½¸ö */
+/** ä¸‰æ¬¡è´å¡å°”åœ¨æŸä¸€ç»´ä¸Šçš„å†…éƒ¨æå€¼ï¼Œæœ€å¤šä¸¤ä¸ª */
 function cubicExtrema(p0: number, p1: number, p2: number, p3: number, out: number[]) {
-    // µ¼ÊıÎª 3(qa*t^2 + qb*t + a)£¬ÏÂÃæµÄ a ¾ÍÊÇ³£ÊıÏî
+    // å¯¼æ•°ä¸º 3(qa*t^2 + qb*t + a)ï¼Œä¸‹é¢çš„ a å°±æ˜¯å¸¸æ•°é¡¹
     const a = p1 - p0;
     const b = p2 - p1;
     const c = p3 - p2;
@@ -132,10 +135,10 @@ function cubicExtrema(p0: number, p1: number, p2: number, p3: number, out: numbe
 }
 
 /**
- * ¾«È·Çó³öÂ·¾¶µÄÍâ½Ó¾ØĞÎ
+ * ç²¾ç¡®æ±‚å‡ºè·¯å¾„çš„å¤–æ¥çŸ©å½¢
  *
- * ¿ØÖÆµã²»Ö±½Ó¼ÆÈë£º±´Èû¶ûÇúÏß²¢²»»áµ½´ï¿ØÖÆµã£¬
- * Ö±½ÓÓÃËü»á°Ñ»¡¶¥¸ß¹ÀÔ¼Èı·ÖÖ®Ò»£¬´Ó¶øÈÃÉÏ·½µÄ¹ìµÀ±»ÎŞÎ½ÍÆ¿ª
+ * æ§åˆ¶ç‚¹ä¸ç›´æ¥è®¡å…¥ï¼šè´å¡å°”æ›²çº¿å¹¶ä¸ä¼šåˆ°è¾¾æ§åˆ¶ç‚¹ï¼Œ
+ * ç›´æ¥ç”¨å®ƒä¼šæŠŠå¼§é¡¶é«˜ä¼°çº¦ä¸‰åˆ†ä¹‹ä¸€ï¼Œä»è€Œè®©ä¸Šæ–¹çš„è½¨é“è¢«æ— è°“æ¨å¼€
  */
 function pathBounds(commands: readonly PathCommand[]) {
     let left = Infinity;
@@ -184,7 +187,7 @@ class TieLayoutAttachment implements LayoutAttachment {
     readonly endPoints: VisualTemporalNode[];
     private readonly height: number;
     private segments: TieSegment[] = [];
-    /** »¡´øÖĞ²¿ºñ¶È£»Á½¶ËÊÕ¼âµ½ 0 */
+    /** å¼§å¸¦ä¸­éƒ¨åšåº¦ï¼›ä¸¤ç«¯æ”¶å°–åˆ° 0 */
     private thickness = 1;
 
     constructor(endPoints: VisualTemporalNode[], height: number) {
@@ -206,7 +209,7 @@ class TieLayoutAttachment implements LayoutAttachment {
 
     paint(painter: Painter) {
         for (const segment of this.segments) {
-            // »¡´ø±¾Éí¾ÍÊÇ±ÕºÏÂÖÀª£¬Ö±½ÓÌî³ä¾ÍÄÜµÃµ½Á½¶ËÊÕ¼â¡¢ÖĞ²¿½Ï´ÖµÄÀÖÆ×»¡Ïß
+            // å¼§å¸¦æœ¬èº«å°±æ˜¯é—­åˆè½®å»“ï¼Œç›´æ¥å¡«å……å°±èƒ½å¾—åˆ°ä¸¤ç«¯æ”¶å°–ã€ä¸­éƒ¨è¾ƒç²—çš„ä¹è°±å¼§çº¿
             painter.drawPath(segment.commands, { fill: "#000" });
         }
     }
@@ -226,7 +229,7 @@ class TieLayoutAttachment implements LayoutAttachment {
         };
     }
 
-    /** ¸ù¾İ¶Ëµã¹Ì»¯ºóµÄĞĞºÅÑ¡ÔñÍ¬ĞĞ»¡Ïß»ò¿çĞĞ·Ö¶Î¡£ */
+    /** æ ¹æ®ç«¯ç‚¹å›ºåŒ–åçš„è¡Œå·é€‰æ‹©åŒè¡Œå¼§çº¿æˆ–è·¨è¡Œåˆ†æ®µã€‚ */
     private updateGeometry(context: AttachmentLayoutContext) {
         const size = this.endPoints.reduce(
             (current, endpoint) => Math.max(current, endpoint.ast.size),
@@ -238,7 +241,7 @@ class TieLayoutAttachment implements LayoutAttachment {
         for (let i = 1; i < this.endPoints.length; i++) {
             let startNode = this.endPoints[i - 1];
             let endNode = this.endPoints[i];
-            // ±êÇ©ÊéĞ´Ë³Ğò²»±£Ö¤Ê±¼äË³Ğò£¬ÏÈ°´Æ×ÃæĞĞÉıĞò¹æ·¶»¯
+            // æ ‡ç­¾ä¹¦å†™é¡ºåºä¸ä¿è¯æ—¶é—´é¡ºåºï¼Œå…ˆæŒ‰è°±é¢è¡Œå‡åºè§„èŒƒåŒ–
             if (startNode.layoutLine > endNode.layoutLine) [startNode, endNode] = [endNode, startNode];
 
             const start = this.absolutePort(startNode, "tie.top");
@@ -258,7 +261,7 @@ class TieLayoutAttachment implements LayoutAttachment {
                 continue;
             }
 
-            // Ê×ĞĞÏÈÆğ»¡£¬ÔÙÑØË®Æ½¶ÎÑÓÉìµ½µ±Ç°Æ×ÃæĞĞ×îÓÒ²à
+            // é¦–è¡Œå…ˆèµ·å¼§ï¼Œå†æ²¿æ°´å¹³æ®µå»¶ä¼¸åˆ°å½“å‰è°±é¢è¡Œæœ€å³ä¾§
             this.addOpeningSegment(
                 start,
                 context.originX + context.width,
@@ -267,7 +270,7 @@ class TieLayoutAttachment implements LayoutAttachment {
                 startNode.track,
             );
 
-            // ÖĞ¼äĞĞ¿ÉÄÜÃ»ÓĞÈÎºÎ¿É¼û¶ÔÏó£¬ÈÔÈ»ĞèÒªÖğĞĞ²¹Ò»¶ÎË®Æ½Ïß
+            // ä¸­é—´è¡Œå¯èƒ½æ²¡æœ‰ä»»ä½•å¯è§å¯¹è±¡ï¼Œä»ç„¶éœ€è¦é€è¡Œè¡¥ä¸€æ®µæ°´å¹³çº¿
             for (let line = startNode.layoutLine + 1; line < endNode.layoutLine; line++) {
                 this.addHorizontalSegment(
                     context.originX,
@@ -278,7 +281,7 @@ class TieLayoutAttachment implements LayoutAttachment {
                 );
             }
 
-            // Ä©ĞĞ´Ó×î×ó²à½øÈë£¬¾­¹ıË®Æ½¶ÎºóÂä»¡µ½ÖÕµã
+            // æœ«è¡Œä»æœ€å·¦ä¾§è¿›å…¥ï¼Œç»è¿‡æ°´å¹³æ®µåè½å¼§åˆ°ç»ˆç‚¹
             this.addClosingSegment(
                 context.originX,
                 end,
@@ -289,7 +292,7 @@ class TieLayoutAttachment implements LayoutAttachment {
         }
     }
 
-    /** ÑØÓÃÆÕÍ¨¶ËµãµÄÌ§¸ßÁ¿£¬µ«»ù×¼ÖÁÉÙÊÇµ±Ç° Track µÄ×î¸ßÖ÷Ìå¡£ */
+    /** æ²¿ç”¨æ™®é€šç«¯ç‚¹çš„æŠ¬é«˜é‡ï¼Œä½†åŸºå‡†è‡³å°‘æ˜¯å½“å‰ Track çš„æœ€é«˜ä¸»ä½“ã€‚ */
     private plateauY(
         context: AttachmentLayoutContext,
         line: number,
@@ -301,7 +304,7 @@ class TieLayoutAttachment implements LayoutAttachment {
         return Math.min(endpointY, axis + hostTop) - this.height;
     }
 
-    /** Ò»ÌõÈı´Î±´Èû¶ûµÄÍâÔµÅäÉÏ·´ÏòÄÚÔµ£¬µÃµ½Á½¶ËÊÕ¼â¡¢ÖĞ²¿×îºñµÄÀÖÆ×»¡Ïß */
+    /** ä¸€æ¡ä¸‰æ¬¡è´å¡å°”çš„å¤–ç¼˜é…ä¸Šåå‘å†…ç¼˜ï¼Œå¾—åˆ°ä¸¤ç«¯æ”¶å°–ã€ä¸­éƒ¨æœ€åšçš„ä¹è°±å¼§çº¿ */
     private addArc(
         startInput: LayoutPoint,
         endInput: LayoutPoint,
@@ -328,7 +331,7 @@ class TieLayoutAttachment implements LayoutAttachment {
         this.addSegment(commands, line, track);
     }
 
-    /** ¿çĞĞÊ×¶Î£º´Ó¶ËµãÆğ»¡£¬ËæºóË®Æ½ÑÓÉìµ½ÓÒ±ß½ç */
+    /** è·¨è¡Œé¦–æ®µï¼šä»ç«¯ç‚¹èµ·å¼§ï¼Œéšåæ°´å¹³å»¶ä¼¸åˆ°å³è¾¹ç•Œ */
     private addOpeningSegment(
         start: LayoutPoint,
         right: number,
@@ -353,7 +356,7 @@ class TieLayoutAttachment implements LayoutAttachment {
         ], line, track);
     }
 
-    /** ¿çĞĞÄ©¶Î£º´Ó×ó±ß½çË®Æ½½øÈë£¬×îºóÂä»¡µ½¶Ëµã */
+    /** è·¨è¡Œæœ«æ®µï¼šä»å·¦è¾¹ç•Œæ°´å¹³è¿›å…¥ï¼Œæœ€åè½å¼§åˆ°ç«¯ç‚¹ */
     private addClosingSegment(
         left: number,
         end: LayoutPoint,

@@ -162,11 +162,18 @@ export interface FunctionDef {
     name: string | string[]; // 函数名或别名列表
     description: string; // 函数描述
     example: string; // 使用示例
-    allowExtraArgs: boolean; // 是否允许传入定义中未声明的额外参数 额外参数都会得到 SourceSpan
+    allowExtraArgs: boolean; // 是否允许传入定义中未声明的额外参数；类型未知时保留 SourceSpan 交给函数自己解析
+    extraArgType?: paramType; // 额外位置参数的统一类型；命名参数不套用该默认值
     args: FunctionArgDef[]; // 参数定义列表
 }
 
-// allowExtraArgs = true 时未知参数将保留 SourceSpan
+/** 参数名 -> 类型的规则：命名参数只认 def.args，位置参数可回落到 extraArgType */
+export function resolveArgType(def: FunctionDef, name: string | undefined, index: number): paramType | undefined {
+    if (name) return def.args.find(arg => arg.name?.toLowerCase() === name)?.type;
+    return def.args[index]?.type ?? (def.allowExtraArgs ? def.extraArgType : undefined);
+}
+
+// 类型未知的额外参数（未声明的命名参数，或没有 extraArgType 的位置参数）保留 SourceSpan
 export type FunctionArgs = Map<string | number, paramValue | SourceSpan>; // 参数值映射，key可以是位置索引（0,1,2...）或命名参数名
 
 // 所有函数节点的基类，提供通用的参数提取方法和标签功能
@@ -213,7 +220,7 @@ export class ASTFunctionNode extends ASTNodeBase {
                 ?? args.get(index) // 优先使用命名参数，否则使用位置参数
                 ?? (argNameL ? ctx.variables[`${prefix}.${argNameL}`.toLowerCase()] : null)
                 ?? argDef.default;
-            if (argValue === null) throw Diagnostic.error.MissingArg(prefix, argDef.name || index);
+            if (argValue === null) throw Diagnostic.error.MissingArg(prefix, argDef.name || index, this.sourceSpan);
             return argValue; // 假设解析器已经保证了类型正确
         });
     }

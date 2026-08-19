@@ -62,6 +62,7 @@ class NoteFunction extends ASTFunctionNode {
             name: "note",
             args: argMap,
             span: { start, end: parseResult.next },
+            syntaxKind: "atom",
         };
         return { next: parseResult.next, node };
     }

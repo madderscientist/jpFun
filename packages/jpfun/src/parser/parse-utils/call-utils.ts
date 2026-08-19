@@ -1,33 +1,15 @@
 import { SourceSpan } from "../types.js";
-import { Diagnostic } from "../../diagnostic.js";
+import type { CallArgumentInfo, CallInfo } from "../grammarType.js";
 
 // 函数名：允许字母/下划线，以及符号别名（@/ @. @-）
 const CALL_NAME_CHAR_RE = /[A-Za-z0-9_./-]/;
 
 /**
- * 表示解析到的函数/调用信息用于在源码中定位并提取调用体
- */
-export interface CallInfo {
-    name: string; // 调用名（不包含 `@` 前缀），例如 `note`、`set`
-    start: number;  // 整个调用在源字符串中的起始索引（`@` 的位置）
-    end: number;  // 整个调用在源字符串中的结束索引（右括号后一位）
-    argRanges: SourceSpan[]; // 逗号分割后的参数列表 位置为参数的原始文本（未进一步解析、保留原始空白/转义/等号）
-}
-
-/**
- * `readCall` 的返回结果类型：解析到的 `call` 和 包含 `fatal` 错误信息（例如未闭合的调用）
- * 允许都存在，此时可以在fatal中存放警告
- */
-export interface CallReadResult {
-    call?: CallInfo;  // 成功解析到调用时包含调用信息
-    fatal?: Diagnostic; // 遇到严重错误时包含错误信息，例如未闭合的调用
-}
-
-/**
  * 尝试在 `source` 的 `atPos` 位置读取一个以 `@` 开头的调用表达式，例如 `@name(...)`
  * @param source 原始文本
  * @param atPos `@` 字符的位置索引
- * @returns 如果成功解析到调用，返回包含调用信息的 `call`；如果遇到未闭合的括号等严重错误，返回 `fatal` 错误信息；否则返回空对象表示当前位置不是有效调用
+ * @param end 当前 ParserContext 允许读取的右边界，不能越过 content/brace 的解析范围
+ * @returns 不是调用时返回 null；未闭合时仍返回 CallInfo，并用缺失的 closeParenSpan 表示 partial call
  * 实现细节：
  * - 从 `atPos + 1` 读取字母/下划线/符号序列作为调用名
  * - 必须紧跟 `(` 才视为调用，否则返回空对象
@@ -36,16 +18,16 @@ export interface CallReadResult {
  *   - 支持嵌套小括号 `(...)`，但被大括号 `{...}` 包裹的小括号不会影响外层匹配
  *   - 忽略大括号内的小括号深度变化
  * - 在顶层小括号内以逗号分割参数，记录每个参数的原始文本及其在 `source` 中的起始/结束位置
- * - 若找到匹配右括号，返回 `CallInfo`；否则返回 `fatal` 表示未闭合错误
+ * - 若找到匹配右括号，记录 closeParenSpan；否则在 end 处结束，让上层决定诊断/恢复策略
  */
-export function readCall(source: string, atPos: number): CallReadResult {
+export function readCall(source: string, atPos: number, end: number): CallInfo | null {
     // 读取调用名
     let i = atPos + 1;
-    while (i < source.length && CALL_NAME_CHAR_RE.test(source[i])) i++;
+    while (i < end && CALL_NAME_CHAR_RE.test(source[i])) i++;
     const name = source.slice(atPos + 1, i);
 
-    if (!name) return {};  // 没有找到名称,非调用,可能是标签
-    if (source[i] !== "(") return {}; // 必须紧接着一个左括号才是调用(因为小括号会作为其他语法)
+    if (!name) return null;  // 没有找到名称,非调用,可能是标签
+    if (i >= end || source[i] !== "(") return null; // 必须紧接着一个左括号才是调用(因为小括号会作为其他语法)
 
     // 从左括号开始查找匹配的右括号，同时处理字符串与大括号
     const openPos = i;
@@ -55,10 +37,36 @@ export function readCall(source: string, atPos: number): CallReadResult {
     let escaped = false;
 
     // 参数相关
-    const args: SourceSpan[] = [];
+    const argInfo: CallArgumentInfo[] = [];
     let lastCommaPos = openPos + 1;
 
-    for (i++; i < source.length; i++) {
+    // 按照 `key = value` 或者 `value` 的模式匹配各个token的span
+    // keepEmpty=true 用于保留 @func(,key=val) 这种情况的空参数
+    const pushArg = (end: number, commaPos?: number, keepEmpty: boolean = false) => {
+        const span = trimRange(source, lastCommaPos, end);
+        if (!keepEmpty && span.start >= span.end) return;
+        const equals = findTopLevelEquals(source, span.start, span.end);
+        const nameSpan = equals > span.start ? trimRange(source, span.start, equals) : undefined;
+        const valueSpan = equals > span.start ? trimRange(source, equals + 1, span.end) : span;
+        argInfo.push({
+            span,
+            valueSpan,
+            nameSpan,
+            equalsSpan: equals > span.start ? { start: equals, end: equals + 1 } : undefined,
+            commaSpan: commaPos === undefined ? undefined : { start: commaPos, end: commaPos + 1 },
+        });
+    };
+
+    const callInfo = (end: number, closeParenSpan?: SourceSpan): CallInfo => ({
+        name,
+        span: { start: atPos, end },
+        nameSpan: { start: atPos, end: openPos },
+        openParenSpan: { start: openPos, end: openPos + 1 },
+        closeParenSpan,
+        args: argInfo,
+    });
+
+    for (i++; i < end; i++) {
         const ch = source[i];
         // 同 `splitArgsWithRanges` 跳过引号
         if (quote) {
@@ -79,31 +87,19 @@ export function readCall(source: string, atPos: number): CallReadResult {
         else if (ch === ")" && braceDepth === 0) {
             if (--parenDepth) continue; // 还未回到顶层，继续寻找
             // 剩余参数 如果为空就不添加
-            const r = trimRange(source, lastCommaPos, i);
-            if (r.start < r.end) args.push(r);
-            return {
-                call: {
-                    name,
-                    start: atPos,
-                    end: i + 1,
-                    argRanges: args,
-                }
-            };
+            pushArg(i);
+            return callInfo(i + 1, { start: i, end: i + 1 });
         } else if (ch === "," && parenDepth === 1 && braceDepth === 0) {
             // 在顶层小括号内遇到逗号，切分参数
-            // 计算经 trim 后的参数的位置 即使为空也有位置信息
-            args.push(trimRange(source, lastCommaPos, i));
+            pushArg(i, i, true);    // 即使为空也有位置信息
             // 跳过逗号
             lastCommaPos = i + 1;
         }
     }
 
-    // 遍历结束但没有找到匹配右括号 返回致命错误信息
-    return {
-        fatal: Diagnostic.error.UnterminatedCall(
-            name, { start: atPos, end: source.length }
-        )
-    };
+    // 未闭合调用仍保留已有结构；ParserContext 根据 closeParenSpan 生成诊断
+    pushArg(end);
+    return callInfo(end);
 }
 
 const SPACE_RE = /\s/;

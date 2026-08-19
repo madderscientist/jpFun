@@ -23,6 +23,7 @@ class DashFunction extends ASTFunctionNode {
             name: "-",
             args: new Map(),
             span: { start, end: start + 1 },
+            syntaxKind: "atom",
         };
         return { next: start + 1, node };
     };

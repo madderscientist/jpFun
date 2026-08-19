@@ -18,6 +18,7 @@ class BeamFunction extends ASTFunctionNode {
         description: "减时线连接",
         example: "@beam(label1, label2, ...): 将多个已标记音符按顺序连接为减时线组",
         allowExtraArgs: true,
+        extraArgType: "label" as const,
         args: [],
     };
 
@@ -26,7 +27,9 @@ class BeamFunction extends ASTFunctionNode {
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
         for (const [, value] of args) {
-            const parsed = ctx.parseArgWithType((value as SourceSpan).start, (value as SourceSpan).end, "label", sourceSpan.start);
+            const parsed = value instanceof ASTFunctionNode
+                ? value
+                : ctx.parseArgWithType((value as SourceSpan).start, (value as SourceSpan).end, "label", sourceSpan.start);
             if (parsed instanceof ASTFunctionNode) this.endPoints.push(parsed);
         }
 

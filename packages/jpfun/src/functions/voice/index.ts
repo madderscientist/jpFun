@@ -67,6 +67,7 @@ L: ...
 英文歌词用空格和连字符'-'分词，用'@'占位
 `,
         allowExtraArgs: true,
+        extraArgType: "string" as const,
         args: [
             {
                 type: "content" as const,
@@ -396,6 +397,7 @@ N: C2 D2 E2
 L: la la la
 `,
         allowExtraArgs: true,
+        extraArgType: "content" as const,
         args: []
     };
 

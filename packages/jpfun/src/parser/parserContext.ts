@@ -1,14 +1,24 @@
 import { deSugarAtomFunction, deSugarRelationFunction, LengthValue, SourceSpan } from "./types.js";
-import { Diagnostic, ErrorDiagnostic } from "../diagnostic.js";
-import { GrammarBraceNode, GrammarCallNode, GrammarCallNodeRaw, GrammarCallNodeTyped, GrammarLabelNode, GrammarNode } from "./grammarType.js";
-import { readCall, trimRange, findTopLevelEquals, removeQuote } from "./parse-utils/call-utils.js";
+import { Diagnostic } from "../diagnostic.js";
+import { GrammarBraceNode, GrammarCallNode, GrammarCallNodeRaw, GrammarLabelNode, GrammarNode, type CallArgumentInfo, type SyntaxAnalysis, type SyntaxTokenKind } from "./grammarType.js";
+import { readCall, trimRange, removeQuote } from "./parse-utils/call-utils.js";
 import { readBrace } from "./parse-utils/brace-utils.js";
 import { readLabel } from "./parse-utils/label-utils.js";
 import { parseLength } from "./parse-utils/length-utils.js";
-import { ASTBraceNode, ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgDef, FunctionArgs, ASTLabelNode, paramType, paramValue, ASTTextNode } from "../functions/ASTtypes.js";
+import { ASTBraceNode, ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgDef, FunctionArgs, ASTLabelNode, paramType, paramValue, ASTTextNode, resolveArgType } from "../functions/ASTtypes.js";
 
 // bool 字面量 严格要求小写
 const BOOL_RE = /^(true|false)$/;
+
+/** 有函数参数契约时直接用声明类型；未知参数回落到真正的字面量解析器，不另写一套正则 */
+function classifySyntaxValue(type: paramType | undefined, text: string): SyntaxTokenKind | undefined {
+    if (type) return type === "content" ? undefined : type;
+    if (BOOL_RE.test(text)) return "boolean";
+    if (text.startsWith('"')) return "string";
+    if (!isNaN(Number(text))) return "number";
+    if (!(parseLength(text) instanceof Diagnostic)) return "length";
+    return undefined;
+}
 
 export const DEFAULT_FONT_SIZE = 22;
 const DEFAULT_STRICT_MODE = false;
@@ -20,39 +30,25 @@ export class ParserContext {
     /** 根解析器为 0，内容参数和大括号子解析器依次加一 */
     readonly scopeDepth: number;
 
-    /**
-     * 源代码
-     */
+    /** 源代码 */
     readonly source: string;
-    /**
-     * 解析过程中产生的诊断信息，包含错误和警告
-     */
+    /** 词法层产物，只由 parseSyntax 填充；所有子上下文共享 */
+    readonly syntax: SyntaxAnalysis;
+    /** 解析过程中产生的诊断信息，包含错误和警告 */
     diagnostics: Diagnostic[];
-    /**
-     * 变量表，存储 `@set` 定义的变量，供解析过程中查询和修改，具有局部作用域
-     */
+    /** 变量表，存储 `@set` 定义的变量，供解析过程中查询和修改，具有局部作用域 */
     variables: Record<string, any>;
-    /**
-     * 文档级声明（只准有一个）在所有子解析器之间共享的变量
-     */
+    /** 文档级声明（只准有一个）在所有子解析器之间共享的变量 */
     documentDeclarations: Record<string, any>;
-    /**
-     * 函数定义查找表
-     */
+    /** 函数定义查找表 */
     functions: Map<string, ASTFunctionClass>;
 
-    /**
-     * 语法糖识别函数列表，分为两轮：第一轮原子级去糖：将文本转为函数调用，或特殊标记
-     */
+    /** 语法糖识别函数列表，分为两轮：第一轮原子级去糖：将文本转为函数调用，或特殊标记 */
     deSugarAtomFns: deSugarAtomFunction[];
-    /**
-     * 第二轮关系型去糖：得到函数节点。用于依赖 ASTNode 的语法糖。
-     */
+    /** 第二轮关系型去糖：得到函数节点。用于依赖 ASTNode 的语法糖 */
     deSugarRelationFns: deSugarRelationFunction[];
 
-    /**
-     * .labelable() 返回的承载节点会被加入其中，供标签绑定使用
-     */
+    /** .labelable() 返回的承载节点会被加入其中，供标签绑定使用 */
     labelableNodes: ASTFunctionNode[];
 
     nodes: ASTNodeBase[]; // 解析结果
@@ -64,6 +60,7 @@ export class ParserContext {
         functions?: Map<string, ASTFunctionClass>;
         labelableNodes?: ASTFunctionNode[];
         toConsume?: ASTNodeBase[];
+        commentSpans?: SourceSpan[];    // 预处理阶段识别的注释区间，供语法分析和编辑器高亮使用
     }) {
         if (ctx instanceof ParserContext) {
             // 构建子上下文
@@ -71,6 +68,7 @@ export class ParserContext {
             this.documentDeclarations = ctx.documentDeclarations;
             this.source = ctx.source;
             this.diagnostics = ctx.diagnostics; // 诊断信息全局共享
+            this.syntax = ctx.syntax;
             this.variables = { ...ctx.variables };  // 继承但不修改父上下文的变量
             this.functions = ctx.functions; // 函数定义全局共享
             this.deSugarAtomFns = ctx.deSugarAtomFns; // 去糖方法全局共享
@@ -82,6 +80,10 @@ export class ParserContext {
             this.documentDeclarations = {};
             this.source = ctx.source;
             this.diagnostics = ctx.diagnostics ?? [];
+            this.syntax = {
+                tokens: (ctx.commentSpans ?? []).map(span => ({ kind: "comment", span })),
+                calls: [],
+            };
             this.variables = ctx.variables ?? {};
             this.functions = ctx.functions ?? new Map();
             this.labelableNodes = ctx.labelableNodes ?? [];
@@ -150,9 +152,77 @@ export class ParserContext {
     }
 
     //====== 解析相关 ======//
+    /**
+     * 扫描 GrammarNode 并构造 AST；不产出 syntax
+     * 用于最终渲染
+     */
     parse(start: number = 0, end: number = this.source.length) {
         this.makeNodes(this.parseGrammar(start, end));
         return this.nodes;
+    }
+
+    /**
+     * 词法层：容错扫描 GrammarNode 并收集 syntax
+     * 用于防抖时的编辑器高亮和补全
+     */
+    parseSyntax(start: number = 0, end: number = this.source.length): SyntaxAnalysis {
+        this.parseGrammar(start, end, true);
+        if (this.scopeDepth === 0) {
+            const cmp = (a: {span: SourceSpan}, b: {span: SourceSpan}) => a.span.start - b.span.start || a.span.end - b.span.end;
+            this.syntax.tokens.sort(cmp);
+            this.syntax.calls.sort(cmp);
+        } return this.syntax;
+    }
+
+    // syntax 路径独占这些 span，AST 路径不会读取或改写它们
+    private addSyntax(kind: SyntaxTokenKind, span: SourceSpan | undefined) {
+        if (span && span.start < span.end) {
+            this.syntax.tokens.push({ kind, span });
+        }
+    }
+
+    /** 把已识别的 GrammarNode 映射为源码 token；content/brace 在这里继续递归 */
+    private recordSyntax(node: GrammarNode) {
+        if (node.kind === "brace") {
+            this.addSyntax("punctuation", { start: node.span.start, end: node.span.start + 1 });
+            const close = Math.min(this.source.length, node.span.end - 1);
+            if (this.source[close] === "}") this.addSyntax("punctuation", { start: close, end: close + 1 });
+            new ParserContext(this).parseSyntax(node.span.start + 1, close);
+            return;
+        }
+        if (node.kind === "label") {
+            this.addSyntax("label", node.span);
+            return;
+        }
+        if (node.kind === "sugar" || node.typed) {
+            this.addSyntax(node.syntaxKind ?? "operator", node.span);
+            return;
+        }
+
+        // syntax.calls 只暴露源码结构，不带 grammar 阶段的字段
+        const { kind, typed, syntaxKind, ...call } = node;
+        this.syntax.calls.push(call);
+        this.addSyntax("function", call.nameSpan);
+        this.addSyntax("punctuation", call.openParenSpan);
+        this.addSyntax("punctuation", call.closeParenSpan);
+        const def = this.functions.get(call.name.toLowerCase())?.prototype.def;
+        for (let index = 0; index < call.args.length; index++) {
+            const arg = call.args[index];
+            this.addSyntax("property", arg.nameSpan);
+            this.addSyntax("punctuation", arg.equalsSpan);
+            this.addSyntax("punctuation", arg.commaSpan);
+            const name = arg.nameSpan
+                ? this.source.slice(arg.nameSpan.start, arg.nameSpan.end).toLowerCase()
+                : void 0;
+            const type = def && resolveArgType(def, name, index);
+            if (type === "content") {
+                new ParserContext(this).parseSyntax(arg.valueSpan.start, arg.valueSpan.end);
+            } else {
+                const text = this.source.slice(arg.valueSpan.start, arg.valueSpan.end);
+                const kind = classifySyntaxValue(type, text);
+                if (kind) this.addSyntax(kind, arg.valueSpan);
+            }
+        }
     }
 
     /**
@@ -226,58 +296,50 @@ export class ParserContext {
      * 识别核心语法: 大括号/函数调用/标签，其余尝试语法糖，失败的字符以索引的形式存在于返回值中，供第二轮识别终止符或合并为 TextNode
      * 即使是关系型的语法糖，这一阶段也要将依赖的字符提取为 GrammarSugarNode，供下一阶段处理
      * 必须将第一阶段语法糖识别放到grammar解析中，比如 `@fn()`，引号若作为语法糖会导致后面的 `@` 无效
+     * syntaxOnly 是词法层模式：用户语法错误只记录诊断不抛出（保留 partial call），并顺带记录 syntax；
+     * 它不得改变“识别出什么结构”，否则两条路径会认不同的语言
      */
-    parseGrammar(p: number, end: number): (GrammarNode | number)[] {
+    parseGrammar(p: number, end: number, syntaxOnly: boolean = false): (GrammarNode | number)[] {
         const nodes: (GrammarNode | number)[] = [];
+        const emit = (node: GrammarNode) => {
+            nodes.push(node);
+            if (syntaxOnly) this.recordSyntax(node);
+        };
         outer: while ((p = skipSpaces(this.source, p, end)) < end) {
             const ch = this.source[p];
             if (ch === "@") {
-                const { call, fatal } = readCall(this.source, p);
-                if (fatal) {
-                    if (fatal instanceof ErrorDiagnostic) throw fatal;
-                    this.diagnostics.push(fatal);
-                }
-                if (call && call.end <= end) {
-                    // 获取参数名称或位置
-                    const args = new Map<string | number, SourceSpan>();
+                const call = readCall(this.source, p, end);
+                if (call) {
+                    // 先落 syntax 再校验，抛错时编辑器仍拿得到已识别的结构
+                    emit(Object.assign(call, {
+                        kind: "call",
+                        typed: false
+                    } as const) as GrammarCallNodeRaw);
+                    // 校验位置参数和命名参数的顺序
                     let positionArgEnd = false; // 位置参数是否已经结束
-                    for (let i = 0; i < call.argRanges.length; i++) {
-                        const argRange = call.argRanges[i];
-                        const eq = findTopLevelEquals(this.source, argRange.start, argRange.end);
-                        const isNamed = eq > argRange.start;
+                    for (const arg of call.args) {
+                        const isNamed = arg.nameSpan !== undefined;
                         if (isNamed && !positionArgEnd) positionArgEnd = true; // 位置参数结束
                         else if (!isNamed && positionArgEnd) {
                             // 位置参数不允许出现在命名参数之后
-                            throw Diagnostic.error.PosAfterNamedArg(
-                                call.name, argRange
-                            );
+                            const error = Diagnostic.error.PosAfterNamedArg(call.name, arg.span);
+                            if (!syntaxOnly) throw error;
+                            this.diagnostics.push(error);
                         }
-                        let key: string | number;
-                        let value: SourceSpan;
-                        if (isNamed) {
-                            // 一律小写保存
-                            key = this.source.slice(argRange.start, eq).trim().toLowerCase();
-                            value = trimRange(this.source, eq + 1, argRange.end);
-                        } else {
-                            key = i;
-                            value = trimRange(this.source, argRange.start, argRange.end);
-                        }
-                        args.set(key, value);
                     }
-                    nodes.push({
-                        kind: "call",
-                        span: { start: call.start, end: call.end },
-                        name: call.name,
-                        args: args,
-                        typed: false
-                    } as GrammarCallNodeRaw);
-                    p = call.end;
+                    // 括号未闭合
+                    if (!call.closeParenSpan) {
+                        const fatal = Diagnostic.error.UnterminatedCall(call.name, call.span);
+                        if (!syntaxOnly) throw fatal;
+                        this.diagnostics.push(fatal);
+                    }
+                    p = call.span.end;
                     continue;
                 }
                 // 认为是 label
                 const labelResult = readLabel(this.source, p, end);
                 if (labelResult) {
-                    nodes.push({
+                    emit({
                         kind: "label",
                         span: { start: p, end: labelResult.next },
                         label: labelResult.label
@@ -300,7 +362,7 @@ export class ParserContext {
                     );
                     braceEnd = end;
                 }
-                nodes.push({
+                emit({
                     kind: "brace",
                     span: { start: p, end: braceEnd + 1 }
                 } as GrammarBraceNode);
@@ -312,7 +374,7 @@ export class ParserContext {
                 try {
                     const r = fn(this.source, p, end, this.scopeDepth);
                     if (r) {
-                        nodes.push(r.node); // 一般是 kind="sugar" 的特殊node
+                        emit(r.node); // 一般是 kind="sugar" 的特殊node
                         p = r.next;
                         continue outer;
                     }
@@ -344,32 +406,32 @@ export class ParserContext {
             return new ASTFunctionNode(callNode.span, null);
         }
         // 用实际传参查询定义
-        const args = callNode.args;
         if (!callNode.typed) {
-            let i = -1;  // Map遍历顺序严格按照插入顺序
-            for (const [key, value] of callNode.args) {
-                i++;
-                // 校验参数是否在定义中 并获取类型
-                let type: paramType | undefined;
-                if (typeof key === "number") type = defArgs[key]?.type;
-                else type = defArgs.find(defArg => defArg.name?.toLowerCase() === key)?.type ?? defArgs[i]?.type;
+            const args: FunctionArgs = new Map();
+            for (let i = 0; i < callNode.args.length; i++) {
+                const arg: CallArgumentInfo = callNode.args[i];
+                const name = arg.nameSpan
+                    ? this.source.slice(arg.nameSpan.start, arg.nameSpan.end).toLowerCase()
+                    : void 0;
+                const type = resolveArgType(def, name, i);
+                const key = name ?? i;
                 if (type === void 0) {
                     if (!def.allowExtraArgs) {
                         this.diagnostics.push(
                             Diagnostic.warning.TooManyPosArgs(
-                                callNode.name, defArgs.length, i + 1, value
+                                callNode.name, defArgs.length, i + 1, arg.valueSpan
                             )
                         );
-                        args.delete(key);
-                    } continue;
+                    } else args.set(key, arg.valueSpan);
+                    continue;
                 }
-                const v = this.parseArgWithType(value.start, value.end, type, callNode.span.start);
-                if (v !== null) (args as FunctionArgs).set(key, v);
-                else args.delete(key);
-            } (callNode as unknown as GrammarCallNodeTyped).typed = true;
+                const value = this.parseArgWithType(arg.valueSpan.start, arg.valueSpan.end, type, callNode.span.start);
+                if (value !== null) args.set(key, value);
+            }
+            return new callFNClass(callNode.span, args, this, null);
         }   // 完全信任 typed 时的 arg
         // 构造函数内用定义查询实际传参
-        return new callFNClass(callNode.span, args, this, null);
+        return new callFNClass(callNode.span, callNode.args, this, null);
     }
 
     /**

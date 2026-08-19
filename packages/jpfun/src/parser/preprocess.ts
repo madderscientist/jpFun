@@ -1,3 +1,5 @@
+import type { SourceSpan } from "./types.js";
+
 /**
  * 预处理核心模块（单次扫描）：
  * 1. 构建 lineStarts（用于 offset -> 行列映射）
@@ -53,9 +55,14 @@ function isNonLineWhitespace(ch: number): boolean {
     );
 }
 
-export function preprocessSource(source: string): { maskedSource: string; lineStarts: number[] } {
+export function preprocessSource(source: string): {
+    maskedSource: string;
+    lineStarts: number[];
+    commentSpans: SourceSpan[];
+} {
     const sourceLength: number = source.length;
     const lineStarts: number[] = [0];
+    const commentSpans: SourceSpan[] = [];
 
     // 扁平区间表：[start0, end0, start1, end1, ...]
     // 约束：按起点递增写入；相邻/重叠区间会就地合并，减少后续 chunks 数量
@@ -120,6 +127,7 @@ export function preprocessSource(source: string): { maskedSource: string; lineSt
             pushTailBackslashMask(tailBackslashRunStart, tailBackslashRunCount);
             if (pendingCommentStart >= 0) {
                 pushReplaceRange(pendingCommentStart, i);
+                commentSpans.push({ start: pendingCommentStart, end: i });
                 pendingCommentStart = -1;
             }
             if (isOddBackslashRun) pushReplaceRange(i, i + newlineWidth);
@@ -171,10 +179,13 @@ export function preprocessSource(source: string): { maskedSource: string; lineSt
     // - 注释若未收口，收到文件末尾
     // - 行尾连续 `\` 即使没有换行，也执行“隔位空格化”规则（无续行替换）
     pushTailBackslashMask(tailBackslashRunStart, tailBackslashRunCount);
-    if (pendingCommentStart >= 0) pushReplaceRange(pendingCommentStart, sourceLength);
+    if (pendingCommentStart >= 0) {
+        pushReplaceRange(pendingCommentStart, sourceLength);
+        commentSpans.push({ start: pendingCommentStart, end: sourceLength });
+    }
 
     // 无替换快路径：直接复用原字符串
-    if (replaceRanges.length === 0) return { maskedSource: source, lineStarts };
+    if (replaceRanges.length === 0) return { maskedSource: source, lineStarts, commentSpans };
 
     // 分段组装，避免 O(n^2) 拼接
     const chunks: string[] = [];
@@ -188,5 +199,5 @@ export function preprocessSource(source: string): { maskedSource: string; lineSt
     }
     if (lastCopyStart < sourceLength) chunks.push(source.slice(lastCopyStart));
 
-    return { maskedSource: chunks.join(""), lineStarts };
+    return { maskedSource: chunks.join(""), lineStarts, commentSpans };
 }
