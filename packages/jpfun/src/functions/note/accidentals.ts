@@ -4,7 +4,6 @@ interface AccidentalDefinition {
     w: number;
     h: number;
     baseline: number;
-    strokeWidth: number;
     commands: readonly PathCommand[];
 }
 
@@ -16,12 +15,15 @@ export interface PreparedAccidental {
     commands: readonly PathCommand[];
 }
 
+/** 字形相对数字字号的缩放，线宽则取与数字笔画相当的固定比例 */
+const GLYPH_SCALE = 0.72;
+const STROKE_RATIO = 0.06;
+
 const ACCIDENTALS: Partial<Record<string, AccidentalDefinition>> = {
     "#": {
         w: 0.46,
         h: 0.78,
         baseline: 0.63,
-        strokeWidth: 0.1,
         commands: [
             { op: "M", x: 0.34, y: 0.05 },
             { op: "L", x: 0.27, y: 0.95 },
@@ -37,7 +39,6 @@ const ACCIDENTALS: Partial<Record<string, AccidentalDefinition>> = {
         w: 0.38,
         h: 0.82,
         baseline: 0.67,
-        strokeWidth: 0.11,
         commands: [
             { op: "M", x: 0.3, y: 0.04 },
             { op: "L", x: 0.3, y: 0.94 },
@@ -50,7 +51,6 @@ const ACCIDENTALS: Partial<Record<string, AccidentalDefinition>> = {
         w: 0.42,
         h: 0.82,
         baseline: 0.67,
-        strokeWidth: 0.1,
         commands: [
             { op: "M", x: 0.28, y: 0.05 },
             { op: "L", x: 0.28, y: 0.82 },
@@ -63,17 +63,17 @@ const ACCIDENTALS: Partial<Record<string, AccidentalDefinition>> = {
     },
 };
 
+/** size 是数字字号，升降号自己决定缩小多少 */
 export function prepareAccidental(symbol: string, size: number): PreparedAccidental | null {
     const definition = ACCIDENTALS[symbol];
     if (!definition) return null;
 
-    const w = definition.w * size;
-    const h = definition.h * size;
+    const glyphSize = size * GLYPH_SCALE;
     return {
-        w,
-        h,
-        baseline: definition.baseline * size,
-        strokeWidth: definition.strokeWidth * Math.min(w, h),
+        w: definition.w * glyphSize,
+        h: definition.h * glyphSize,
+        baseline: definition.baseline * glyphSize,
+        strokeWidth: size * STROKE_RATIO,
         commands: definition.commands,
     };
 }

@@ -77,7 +77,7 @@ function commandBounds(commands: readonly PathCommand[]) {
     return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
 }
 
-const result = layout(`@box({1@a #2'./ 8 3@b @tie(a,b)}, 2px, 1px) @text("<tag & text>")`);
+const result = layout(`@box({1@a #2'./ 8 9# 3@b @tie(a,b)}, 2px, 1px) @text("<tag & text>")`);
 const commands = recordLayout(result);
 
 const kinds = new Set(commands.map(command => command.kind));
@@ -89,6 +89,10 @@ assert(kinds.has("path"), "tie must emit a path command");
 assert(commands.every(allNumbersFinite), "all recorded drawing coordinates must be finite");
 assert(!commands.some(command => command.kind === "text" && command.text === "8"),
     "hidden placeholder note 8 must not emit text");
+assert(commands.some(command => command.kind === "text" && command.text === "X"),
+    "beat marker note 9 must be drawn as X");
+assert(!commands.some(command => command.kind === "text" && command.text === "9"),
+    "beat marker note 9 must not emit its digit");
 
 const svg = renderLayoutToSvg(result, {
     padding: 4,

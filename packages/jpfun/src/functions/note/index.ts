@@ -13,6 +13,7 @@ class NoteFunction extends ASTFunctionNode {
         example: `@note(name, acc, octave, color)
 参数说明:
 - name: [必填]音符名，可以是大写字母或者数字，不允许小写字母（会和降号冲突）。此参数写法有语法糖，见下。
+  其中 0 是休止符，8 是隐形占位，9 是只打拍不发音的节拍记号（显示为 X），这三者都不显示升降号和八度点。
 - acc: [可选]的额外升降号字符串，例如 "##" 表示再升两个半音，"b" 表示再降一个半音。
 - octave: [可选]八度，类型为数字。如果 name 是字母，则此项代表绝对八度；如果是数字，则此项代表相对八度。
 
@@ -123,6 +124,9 @@ interface PlacedAccidental {
     y: number;
 }
 
+// 8 是隐形占位，9 是只打拍不发音的节拍记号，空串表示不绘制
+const NOTE_GLYPH: Record<string, string> = { "8": "", "9": "X" };
+
 function createNumberStyle(ast: NoteFunction): TextStyle {
     return {
         fontSize: ast.size,
@@ -178,12 +182,12 @@ class NoteTemporalNode extends TemporalNodeBase {
         // 升降号贴近数字左上角，但不参与数字中心 anchor 的计算
         // 缩小右侧间隔会在全局 anchor 不变时把升降号向右移动
         const accidentalGap = size * 0.01;
-        const accidentalRaise = size * 0.24;
+        const accidentalRaise = size * 0.42;
         const accidentalShapes: PreparedAccidental[] = [];
 
         // 把每个升降字符转换为 note 私有的局部路径
         for (const accidental of this.acc) {
-            const shape = prepareAccidental(accidental, size * 0.82);
+            const shape = prepareAccidental(accidental, size);
             if (shape) accidentalShapes.push(shape);
         }
 
@@ -293,9 +297,10 @@ class NoteTemporalNode extends TemporalNodeBase {
             );
         }
 
-        if (this.name !== "8") {
+        const glyph = NOTE_GLYPH[this.name] ?? this.name;
+        if (glyph) {
             painter.drawText(
-                this.name,
+                glyph,
                 this.box.x + this.box.anchor,
                 this.box.y + this.numberY,
                 numberStyle,

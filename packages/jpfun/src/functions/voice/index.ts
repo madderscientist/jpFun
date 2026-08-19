@@ -15,6 +15,7 @@ import type {
     LayoutAttachment,
     LayoutBox,
     LayoutPrepareContext,
+    LayoutRegion,
     Rect,
 } from "../../layout/types.js";
 import type { Painter, PathCommand, TextStyle } from "../../render/types.js";
@@ -274,15 +275,6 @@ L: ...
      */
     override loweringEnter(ctx: LoweringContext) {
 
-        // 收集范围内的
-        const temporalMembers: TemporalNodeBase[] = [];
-        ctx.beginLoweringGroup(this, {
-            attachment: new VoiceLyricsAttachment(temporalMembers, this),
-                onTemporal(node) {
-                    temporalMembers.push(node);
-                },
-        });
-
         // 无名声部也要产出一个（不可见的）名称事件，才能保证同一个 voices 块内
         // 每个成员的列结构完全一致，从而把所有声部名归并到同一列
         const parent = this.parent;
@@ -290,7 +282,18 @@ L: ...
         const braceSpace = parent instanceof VoicesFunction && parent.voices.length > 1
             ? parent.braceSpace
             : 0;
-        return [new VoiceNameTemporal(this, braceSpace)];
+        const nameHost = new VoiceNameTemporal(this, braceSpace);
+
+        // 收集范围内的
+        const temporalMembers: TemporalNodeBase[] = [];
+        ctx.beginLoweringGroup(this, {
+            attachment: new VoiceLyricsAttachment(temporalMembers, nameHost),
+                onTemporal(node) {
+                    temporalMembers.push(node);
+                },
+        });
+
+        return [nameHost];
     }
 
     override loweringExit(ctx: LoweringContext) {
@@ -495,6 +498,21 @@ L: la la la
 export const VoiceNode: ASTFunctionClass = VoiceFunction;
 export const VoicesNode: ASTFunctionClass = VoicesFunction;
 
+/** 歌词与歌词行名称相对声部字号的字号 */
+const LYRIC_SIZE_RATIO = 0.82;
+
+/** 无大括号时标签右侧的空隙，相对声部字号 */
+const NAME_GAP_RATIO = 0.6;
+
+/** 歌词行名称的宽度决定标签列宽度，因此声部名事件和歌词附件必须用同一个样式测量 */
+function lyricNameStyle(size: number): TextStyle {
+    return {
+        fontSize: size * LYRIC_SIZE_RATIO,
+        fill: "#000",
+        fontWeight: 600,
+    };
+}
+
 class VoiceNameTemporal extends TemporalNodeBase {
     declare ast: VoiceFunction;
     declare box: LayoutBox;
@@ -512,20 +530,32 @@ class VoiceNameTemporal extends TemporalNodeBase {
         // 因此可以安全地归并成一列并右对齐；
         // 独立的 @voice 与相邻分支不对称，必须单独成列，否则会把同时刻的音符挤到下一列
         this.type = ast.parent instanceof VoicesFunction ? ColType.DEFAULT : ColType.SINGLE;
-        // 既没有名称也不需要括号空间时只保留不可见的占位事件：
+        // 既没有名称、也不需要括号空间和标签列时只保留不可见的占位事件：
         // 它不进入可见对象，也不让空声部失去默认槽位高度
-        if (ast.name || braceSpace > 0) this.initLayoutBox();
+        if (ast.name || braceSpace > 0 || ast.lyrics.some(lyric => lyric.name)) this.initLayoutBox();
     }
 
     override prepareLayout(context: LayoutPrepareContext) {
         const metrics = this.ast.name
             ? context.textMeasurer.measureText(this.ast.name, this.style)
             : { w: 0, h: 0, baseline: 0 };
-        // 对齐点放在名称右边界：同一列共享 `x + anchor`，因此长短不一的声部名会右对齐，
+        // 声部名和歌词行名称共用这一列，列宽取其中最宽的一个
+        let labelWidth = metrics.w;
+        for (const lyric of this.ast.lyrics) {
+            if (!lyric.name) continue;
+            const lyricMetrics = context.textMeasurer.measureText(lyric.name, lyricNameStyle(this.ast.size));
+            labelWidth = Math.max(labelWidth, lyricMetrics.w);
+        }
+
+        // 没有大括号时也要在标签右侧留出与内容分离的空隙
+        const rightSpace = this.braceSpace > 0 ? this.braceSpace
+            : labelWidth > 0 ? this.ast.size * NAME_GAP_RATIO : 0;
+
+        // 对齐点放在标签右边界：同一列共享 `x + anchor`，因此长短不一的声部名会右对齐，
         // 括号空间统一落在对齐点右侧
-        this.box.w = metrics.w + this.braceSpace;
+        this.box.w = labelWidth + rightSpace;
         this.box.h = metrics.h;
-        this.box.anchor = metrics.w;
+        this.box.anchor = labelWidth;
         this.box.visualAxis = metrics.h / 2;
         this.textBaselineY = metrics.baseline;
 
@@ -538,12 +568,13 @@ class VoiceNameTemporal extends TemporalNodeBase {
             fontSize: this.ast.size * 0.85,
             fill: "#000",
             fontWeight: 600,
+            textAlign: "right",
         };
     }
 
     override paint(painter: Painter) {
         if (!this.ast.name) return;
-        painter.drawText(this.ast.name, this.box.x, this.box.y + this.textBaselineY, this.style);
+        painter.drawText(this.ast.name, this.box.x + this.box.anchor, this.box.y + this.textBaselineY, this.style);
     }
 }
 
@@ -661,66 +692,42 @@ class VoicesBraceAttachment implements LayoutAttachment {
     }
 }
 
-interface PreparedLyricText {
-    text: string;       // 最终绘制的 token 或歌词行名称
-    style: TextStyle;   // 当前文本使用的字体和颜色
-    box: Rect;          // 已按共享歌词 baseline 定位的文本边界
+/** 一段已经定位好的歌词文本，同时就是报给引擎的占用区域 */
+interface PreparedLyricText extends LayoutRegion {
+    text: string;          // 最终绘制的 token 或歌词行名称
+    style: TextStyle;      // 当前文本使用的字体和颜色
     textBaselineY: number; // 字体 baseline 距文本盒顶部的距离
-    line: number;       // 所属谱面行
-    track: Track;       // 所属音轨
-}
-
-interface LyricTargetGroup {
-    line: number;           // 当前歌词组所属谱面行
-    track: Track;           // 当前歌词组所属音轨
-    contentBottom: number;  // 该谱面行轨道所有歌词目标的最大下边界
 }
 
 class VoiceLyricsAttachment implements LayoutAttachment {
-    box: Rect = {
-        x: 0,
-        y: 0,
-        w: 0,
-        h: 0,
-    };
+    box: Rect = { x: 0, y: 0, w: 0, h: 0 };
     layer = "foreground" as const;
 
     /** lowering 会持续向这个数组加入 voice 内容产生的 temporal */
     private temporalMembers: TemporalNodeBase[];
-    private owner: VoiceFunction;
+    /** 同一个 voice 的声部名事件，歌词行名称向它的对齐点右对齐 */
+    private nameHost: VoiceNameTemporal;
     private preparedText: PreparedLyricText[] = [];
 
-    constructor(temporalMembers: TemporalNodeBase[], owner: VoiceFunction) {
+    constructor(temporalMembers: TemporalNodeBase[], nameHost: VoiceNameTemporal) {
         this.temporalMembers = temporalMembers;
-        this.owner = owner;
+        this.nameHost = nameHost;
     }
 
     layout(context: AttachmentLayoutContext) {
         this.updateGeometry(context);
         // 同一行同一轨的多行歌词由引擎合并成一段占用
-        return this.preparedText.map(item => ({
-            x: item.box.x,
-            y: item.box.y,
-            w: item.box.w,
-            h: item.box.h,
-            line: item.line,
-            track: item.track,
-        }));
+        return this.preparedText;
     }
 
     paint(painter: Painter) {
         for (const item of this.preparedText) {
-            painter.drawText(
-                item.text,
-                item.box.x,
-                item.box.y + item.textBaselineY,
-                item.style,
-            );
+            painter.drawText(item.text, item.x, item.y + item.textBaselineY, item.style);
         }
     }
 
     private updateGeometry(context: AttachmentLayoutContext) {
-        const { lyrics, size } = this.owner;
+        const { lyrics, size } = this.nameHost.ast;
         this.preparedText.length = 0;
 
         const targets = this.temporalMembers
@@ -728,105 +735,65 @@ class VoiceLyricsAttachment implements LayoutAttachment {
             .filter(node => node.ports?.["lyric"]);
         if (targets.length === 0 || lyrics.length === 0) return;
 
-        // 每个 system+track 只创建一个歌词组
-        // 装饰高度先汇总为 contentBottom，不进入单个 token 的 y 计算
-        const groupsByLine = new Map<number, Map<Track, LyricTargetGroup>>();
+        // 每个 system+track 的歌词共用一条基线
+        // 装饰高度先汇总为下边界，不进入单个 token 的 y 计算
+        const contentBottom = new Map<number, Map<Track, number>>();
         for (const target of targets) {
-            let lineGroups = groupsByLine.get(target.layoutLine);
-            if (!lineGroups) {
-                lineGroups = new Map();
-                groupsByLine.set(target.layoutLine, lineGroups);
-            }
-
-            let group = lineGroups.get(target.track);
-            if (!group) {
-                group = {
-                    line: target.layoutLine,
-                    track: target.track,
-                    contentBottom: -Infinity,
-                };
-                lineGroups.set(target.track, group);
-            }
-            group.contentBottom = Math.max(group.contentBottom, target.box.y + target.box.h);
+            let byTrack = contentBottom.get(target.layoutLine);
+            if (!byTrack) contentBottom.set(target.layoutLine, byTrack = new Map());
+            const bottom = target.box.y + target.box.h;
+            byTrack.set(target.track, Math.max(byTrack.get(target.track) ?? bottom, bottom));
         }
 
-        const fontSize = size * 0.82;
+        const fontSize = size * LYRIC_SIZE_RATIO;
         const rowGap = size * 0.24;
         const firstRowGap = size * 0.32;
-        const lyricStyle: TextStyle = {
-            fontSize,
-            fill: "#000",
-        };
-        const baselineMetrics = context.textMeasurer.measureText("M", lyricStyle);
+        const lyricStyle: TextStyle = { fontSize, fill: "#000" };
+        const nameStyle = lyricNameStyle(size);
+        const baselineOffset = context.textMeasurer.measureText("M", lyricStyle).baseline + firstRowGap;
+        const baselineOf = (bottom: number, row: number) => bottom + baselineOffset + row * (fontSize + rowGap);
+
+        // 歌词行名称与声部名共用左侧那一列，因此只出现在声部名所在的那一行
+        const { box: labelBox, layoutLine: labelLine, track: labelTrack } = this.nameHost;
+        const labelBottom = contentBottom.get(labelLine)?.get(labelTrack);
 
         for (let row = 0; row < lyrics.length; row++) {
             const lyric = lyrics[row];
-            const firstTokenLeftByGroup = new Map<LyricTargetGroup, number>();
 
-            // 每个 token 使用所属组的同一个 rowBaseline
             for (let i = 0; i < lyric.tokens.length && i < targets.length; i++) {
                 const text = lyric.tokens[i];
-                if (!text) continue;
-
                 const target = targets[i];
-                const port = target.ports["lyric"];
-                const group = groupsByLine.get(target.layoutLine)?.get(target.track);
-                if (!group) continue;
+                const bottom = contentBottom.get(target.layoutLine)?.get(target.track);
+                if (!text || bottom === undefined) continue;
 
                 const metrics = context.textMeasurer.measureText(text, lyricStyle);
-                const centerX = target.box.x + port.x;
-                const rowBaseline = group.contentBottom
-                    + firstRowGap
-                    + baselineMetrics.baseline
-                    + row * (fontSize + rowGap);
-                const box: Rect = {
-                    x: centerX - metrics.w / 2,
-                    y: rowBaseline - metrics.baseline,
-                    w: metrics.w,
-                    h: metrics.h,
-                };
-                const previousLeft = firstTokenLeftByGroup.get(group) ?? Infinity;
-                firstTokenLeftByGroup.set(group, Math.min(previousLeft, box.x));
                 this.preparedText.push({
                     text,
                     style: lyricStyle,
-                    box,
                     textBaselineY: metrics.baseline,
-                    line: group.line,
-                    track: group.track,
-                });
-            }
-
-            if (!lyric.name) continue;
-
-            const nameStyle: TextStyle = {
-                fontSize,
-                fill: "#000",
-                fontWeight: 600,
-            };
-            const metrics = context.textMeasurer.measureText(lyric.name, nameStyle);
-
-            // 每个 system+track 的歌词名称与该组 token 共用 baseline
-            for (const [group, firstTokenLeft] of firstTokenLeftByGroup) {
-                const rowBaseline = group.contentBottom
-                    + firstRowGap
-                    + baselineMetrics.baseline
-                    + row * (fontSize + rowGap);
-                const box: Rect = {
-                    x: firstTokenLeft - size * 0.35 - metrics.w,
-                    y: rowBaseline - metrics.baseline,
+                    x: target.box.x + target.ports["lyric"].x - metrics.w / 2,
+                    y: baselineOf(bottom, row) - metrics.baseline,
                     w: metrics.w,
                     h: metrics.h,
-                };
-                this.preparedText.push({
-                    text: lyric.name,
-                    style: nameStyle,
-                    box,
-                    textBaselineY: metrics.baseline,
-                    line: group.line,
-                    track: group.track,
+                    line: target.layoutLine,
+                    track: target.track,
                 });
             }
+
+            if (!lyric.name || !labelBox || labelBottom === undefined) continue;
+
+            const metrics = context.textMeasurer.measureText(lyric.name, nameStyle);
+            this.preparedText.push({
+                text: lyric.name,
+                style: nameStyle,
+                textBaselineY: metrics.baseline,
+                x: labelBox.x + labelBox.anchor - metrics.w,
+                y: baselineOf(labelBottom, row) - metrics.baseline,
+                w: metrics.w,
+                h: metrics.h,
+                line: labelLine,
+                track: labelTrack,
+            });
         }
     }
 }

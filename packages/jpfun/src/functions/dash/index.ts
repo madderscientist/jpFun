@@ -60,7 +60,7 @@ class DashTemporalNode extends TemporalNodeBase {
 
     override prepareLayout() {
         const size = this.ast.size;
-        const width = size * 0.7;
+        const width = size * 0.5;
 
         // dash 与数字音符共享视觉中心和完整字号高度
         // 线本身位于数字视觉中心，不使用极小的 glyph 高度作为轨道高度

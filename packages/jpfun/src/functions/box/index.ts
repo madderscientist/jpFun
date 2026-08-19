@@ -31,7 +31,7 @@ class BoxFunction extends ASTFunctionNode {
                 type: "length" as const,
                 default: {
                     value: 1,
-                    unit: "em",
+                    unit: "px",
                 } as LengthValue,
             },
             {

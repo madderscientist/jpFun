@@ -10,13 +10,13 @@ importers:
 
   apps/playground:
     dependencies:
-      '@codemirror/autocomplete':
-        specifier: ^6.20.3
-        version: 6.20.3
       jpfun:
         specifier: workspace:*
         version: link:../../packages/jpfun
     devDependencies:
+      '@codemirror/autocomplete':
+        specifier: ^6.20.3
+        version: 6.20.3
       '@codemirror/commands':
         specifier: ^6.10.4
         version: 6.10.4

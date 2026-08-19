@@ -56,13 +56,16 @@ class TextTemporalNode extends TemporalNodeBase {
     }
 
     override prepareLayout(context: LayoutPrepareContext) {
-        const metrics = context.textMeasurer.measureText(this.ast.text, {
+        const style = {
             fontSize: this.ast.size,
             fill: "#000",
-        });
+        };
+        const metrics = context.textMeasurer.measureText(this.ast.text, style);
+        const firstChar = [...this.ast.text][0] ?? "";
+        const firstCharWidth = firstChar ? context.textMeasurer.measureText(firstChar, style).w : 0;
         this.box.w = metrics.w;
         this.box.h = metrics.h;
-        this.box.anchor = 0;
+        this.box.anchor = firstCharWidth / 2;
         this.box.visualAxis = metrics.h / 2;
         this.textBaselineY = metrics.baseline;
     }
