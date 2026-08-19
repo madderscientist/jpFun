@@ -1,6 +1,6 @@
 {
   "name": "jpfun",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "A functional numbered musical notation typesetting engine",
   "type": "module",
   "main": "./dist/index.js",
@@ -9,13 +9,31 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
+  "sideEffects": false,
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "grammar.md"
   ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/madderscientist/jpFun.git",
+    "directory": "packages/jpfun"
+  },
+  "homepage": "https://github.com/madderscientist/jpFun#readme",
+  "bugs": {
+    "url": "https://github.com/madderscientist/jpFun/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "clean": "node -e \"for (const path of ['dist', 'tsconfig.tsbuildinfo']) require('node:fs').rmSync(path, { recursive: true, force: true })\"",
     "build": "pnpm run clean && tsc -p tsconfig.json",
@@ -27,7 +45,9 @@
   },
   "keywords": [
     "numbered-musical-notation",
+    "jianpu",
     "music-notation",
+    "sheet-music",
     "typesetting"
   ],
   "author": "madderscientist",
