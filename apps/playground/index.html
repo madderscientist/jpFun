@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>jpFun 排版预览</title>
+    <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+    <div class="app-shell">
+        <main class="workspace" id="workspace" data-view="split">
+            <section class="editor-panel" aria-label="源码编辑器">
+                <div class="pane-toolbar">
+                    <div class="pane-tabs" role="tablist" aria-label="编辑工作区">
+                        <button class="pane-tab" id="sourceTab" type="button" role="tab" data-left-tab="source" aria-selected="true" aria-controls="sourcePane">
+                            <span class="file-dot" aria-hidden="true"></span>
+                            score.jpfun
+                        </button>
+                        <button class="pane-tab" id="playbackTab" type="button" role="tab" data-left-tab="playback" aria-selected="false" aria-controls="playbackPane">
+                            <span class="tab-icon" aria-hidden="true">▶</span>
+                            播放
+                        </button>
+                    </div>
+                    <span class="source-size" id="sourceSize">0 字符</span>
+                </div>
+
+                <div class="pane-stack">
+                    <div class="source-pane" id="sourcePane" role="tabpanel" aria-labelledby="sourceTab">
+                        <div class="editor-host" id="sourceEditor" aria-label="jpFun 源码"></div>
+                    </div>
+
+                    <section class="playback-pane" id="playbackPane" role="tabpanel" aria-labelledby="playbackTab" hidden>
+                        <div class="playback-scroll">
+                            <header class="playback-header">
+                                <div>
+                                    <span class="section-kicker">PLAYBACK</span>
+                                    <h2>播放控制台</h2>
+                                </div>
+                                <span class="coming-soon">界面预留</span>
+                            </header>
+
+                            <section class="control-section" aria-labelledby="transportTitle">
+                                <div class="section-heading">
+                                    <h3 id="transportTitle">走带</h3>
+                                    <span>00:00 / 00:00</span>
+                                </div>
+                                <div class="transport-controls">
+                                    <button class="transport-button" type="button" title="从头播放" disabled aria-label="从头播放">◀</button>
+                                    <button class="transport-button primary" type="button" title="播放" disabled aria-label="播放">▶</button>
+                                    <button class="transport-button" type="button" title="停止" disabled aria-label="停止">■</button>
+                                    <button class="transport-button" type="button" title="循环" disabled aria-label="循环">↻</button>
+                                </div>
+                                <div class="progress-track" aria-hidden="true"><span></span></div>
+                                <div class="parameter-grid">
+                                    <label>速度<input type="number" value="1" step="0.1" min="0.25" max="4" disabled /></label>
+                                    <label>移调<input type="number" value="0" step="1" min="-24" max="24" disabled /></label>
+                                </div>
+                            </section>
+
+                            <section class="control-section" aria-labelledby="rangeTitle">
+                                <div class="section-heading"><h3 id="rangeTitle">播放范围</h3></div>
+                                <label class="field-label">段落<select disabled><option>整首曲谱</option></select></label>
+                                <div class="parameter-grid">
+                                    <label>起始小节<input type="number" value="1" disabled /></label>
+                                    <label>反复次数<input type="number" value="1" disabled /></label>
+                                </div>
+                            </section>
+
+                            <section class="control-section" aria-labelledby="metronomeTitle">
+                                <div class="section-heading">
+                                    <h3 id="metronomeTitle">节拍器</h3>
+                                    <label class="switch-label"><input type="checkbox" disabled /> 启用</label>
+                                </div>
+                                <label class="range-label">音量 <input type="range" value="72" disabled /><output>72</output></label>
+                                <div class="parameter-grid">
+                                    <label>拍型<select disabled><option>跟随曲谱</option></select></label>
+                                    <label>速度倍率<select disabled><option>× 1</option></select></label>
+                                </div>
+                            </section>
+
+                            <section class="control-section" aria-labelledby="mixerTitle">
+                                <div class="section-heading"><h3 id="mixerTitle">声部混音</h3><span>1 声部</span></div>
+                                <div class="voice-strip">
+                                    <div class="voice-title"><strong>主声部</strong><span>默认音色</span></div>
+                                    <div class="voice-actions"><button type="button" disabled>M</button><button type="button" disabled>S</button></div>
+                                    <label class="range-label full">音量 <input type="range" value="100" disabled /><output>100</output></label>
+                                    <label class="field-label">乐器<select disabled><option>钢琴</option></select></label>
+                                </div>
+                            </section>
+                        </div>
+                    </section>
+                </div>
+            </section>
+
+            <div
+                class="workspace-divider"
+                id="workspaceDivider"
+                role="separator"
+                aria-label="调整编辑器和预览宽度"
+                aria-orientation="vertical"
+                aria-valuemin="25"
+                aria-valuemax="75"
+                aria-valuenow="40"
+                tabindex="0"
+            ></div>
+
+            <section class="preview-panel" aria-label="谱面预览">
+                <div class="pane-toolbar result-toolbar">
+                    <div class="pane-tabs" role="tablist" aria-label="结果工作区">
+                        <button class="pane-tab" id="previewTab" type="button" role="tab" data-right-tab="preview" aria-selected="true" aria-controls="previewPane">谱面</button>
+                        <button class="pane-tab" id="problemsTab" type="button" role="tab" data-right-tab="problems" aria-selected="false" aria-controls="problemsPane">
+                            诊断
+                            <span class="tab-badge" id="diagnosticCount">0</span>
+                        </button>
+                    </div>
+                    <div class="preview-tools" id="previewTools">
+                        <button class="compile-button" id="runLayout" type="button">
+                            <span aria-hidden="true">▶</span>
+                            排版
+                        </button>
+                        <div class="zoom-control">
+                            <button
+                                class="tool-button zoom-button"
+                                id="zoomButton"
+                                type="button"
+                                aria-haspopup="true"
+                                aria-expanded="false"
+                                title="设置预览缩放"
+                            >100%</button>
+                            <div class="zoom-menu" id="zoomMenu" role="menu" hidden>
+                                <button type="button" role="menuitem" data-zoom="50">50%</button>
+                                <button type="button" role="menuitem" data-zoom="75">75%</button>
+                                <button type="button" role="menuitem" data-zoom="100">100%</button>
+                                <button type="button" role="menuitem" data-zoom="125">125%</button>
+                                <button type="button" role="menuitem" data-zoom="150">150%</button>
+                                <button type="button" role="menuitem" data-zoom="200">200%</button>
+                            </div>
+                        </div>
+                        <button class="tool-button fit-button" id="fitWidth" type="button" title="预览宽度撑满">
+                            适合宽度
+                        </button>
+                        <div class="backend-tabs" role="tablist" aria-label="渲染后端">
+                            <button class="backend-tab" role="tab" data-backend="svg" aria-selected="true">SVG</button>
+                            <button class="backend-tab" role="tab" data-backend="canvas" aria-selected="false">Canvas</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pane-stack">
+                    <section class="preview-pane" id="previewPane" role="tabpanel" aria-labelledby="previewTab">
+                        <div class="preview-scroll" id="previewScroll">
+                            <div class="preview-host" id="previewHost"></div>
+                        </div>
+                    </section>
+
+                    <section class="problems-pane" id="problemsPane" role="tabpanel" aria-labelledby="problemsTab" hidden>
+                        <div class="problems-summary">
+                            <div>
+                                <span class="section-kicker">DIAGNOSTICS</span>
+                                <h2>诊断</h2>
+                            </div>
+                            <span id="diagnosticSummary">未发现诊断</span>
+                        </div>
+                        <div class="diagnostics-panel" id="diagnosticsPanel" data-empty="true" aria-label="诊断">
+                            <div class="diagnostics-empty">
+                                <strong>没有诊断</strong>
+                                <span>当前曲谱可以正常排版。</span>
+                            </div>
+                            <div class="diagnostics" id="diagnostics" aria-live="polite"></div>
+                        </div>
+                    </section>
+                </div>
+
+            </section>
+        </main>
+
+        <footer class="statusbar" aria-label="工作区状态">
+            <div class="view-switch" role="group" aria-label="工作区布局">
+                <button type="button" data-view="editor">编辑</button>
+                <button type="button" data-view="split" aria-pressed="true">拆分</button>
+                <button type="button" data-view="preview">预览</button>
+            </div>
+            <div class="theme-control">
+                <button class="theme-button" id="themeButton" type="button" aria-haspopup="true" aria-expanded="false" title="切换界面主题">2026 Light</button>
+                <div class="theme-menu" id="themeMenu" role="menu" hidden>
+                    <button type="button" role="menuitemradio" data-theme-value="2026-light" aria-checked="true">2026 Light</button>
+                    <button type="button" role="menuitemradio" data-theme-value="quiet-light" aria-checked="false">Quiet Light</button>
+                </div>
+            </div>
+            <div class="status-results">
+                <button class="status-message" id="statusMessage" type="button" data-state="ok">就绪</button>
+                <span class="status-item" id="layoutStats">布局 0 个对象</span>
+                <span class="status-item" id="layoutTime">用时 --</span>
+            </div>
+        </footer>
+    </div>
+
+    <script type="module" src="/main.ts"></script>
+</body>
+</html>

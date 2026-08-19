@@ -3,12 +3,15 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "clean": "pnpm --filter jpfun clean",
-    "build": "pnpm run build:core",
+    "clean": "node scripts/clean.mjs",
+    "build": "pnpm run clean && pnpm run build:core && pnpm run build:playground",
     "build:core": "pnpm --filter jpfun build",
+    "build:playground": "pnpm --filter @jpfun/playground build",
     "test": "pnpm --filter jpfun test",
     "test_preprocess": "pnpm --filter jpfun test_preprocess",
     "test_layout": "pnpm --filter jpfun test_layout",
-    "test_render": "pnpm --filter jpfun test_render"
+    "test_render": "pnpm --filter jpfun test_render",
+    "predev": "pnpm run build:core",
+    "dev": "node scripts/dev-server.mjs"
   }
 }

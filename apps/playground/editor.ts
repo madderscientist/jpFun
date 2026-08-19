@@ -1,0 +1,187 @@
+import { acceptCompletion, autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
+import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { bracketMatching } from "@codemirror/language";
+import { lintGutter, setDiagnostics } from "@codemirror/lint";
+import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
+import { Compartment, EditorState, Prec, RangeSetBuilder, StateField } from "@codemirror/state";
+import {
+    crosshairCursor,
+    Decoration,
+    type DecorationSet,
+    drawSelection,
+    dropCursor,
+    EditorView,
+    highlightActiveLine,
+    highlightActiveLineGutter,
+    highlightSpecialChars,
+    keymap,
+    lineNumbers,
+    rectangularSelection,
+    ViewPlugin,
+} from "@codemirror/view";
+import { Diagnostic, ErrorDiagnostic } from "jpfun";
+import { jpFunLanguage } from "./jpfun-language.js";
+
+export interface SourceRange {
+    from: number;
+    to: number;
+}
+
+interface SourceEditorOptions {
+    parent: HTMLElement;
+    doc: string;
+    onCompile: () => void;
+    onDocChanged: () => void;
+}
+
+// 默认不折行，Alt+Z 就地重配
+const lineWrapping = new Compartment();
+
+// VS Code 风格：只给选中区域里的空白标记，不全局显示
+function selectedWhitespace(state: EditorState): DecorationSet {
+    const decorations = new RangeSetBuilder<Decoration>();
+    for (const range of state.selection.ranges) {
+        if (range.empty) continue;
+        const text = state.sliceDoc(range.from, range.to);
+        for (let index = 0; index < text.length; index++) {
+            const character = text[index];
+            if (character !== " " && character !== "\t") continue;
+            const position = range.from + index;
+            decorations.add(position, position + 1, Decoration.mark({
+                class: character === " " ? "cm-selected-space" : "cm-selected-tab",
+            }));
+        }
+    }
+    return decorations.finish();
+}
+
+const selectedWhitespaceField = StateField.define<DecorationSet>({
+    create: selectedWhitespace,
+    update(value, transaction) {
+        return transaction.docChanged || transaction.selection
+            ? selectedWhitespace(transaction.state)
+            : value;
+    },
+    provide: field => EditorView.decorations.from(field),
+});
+
+function syncSelectionState(view: EditorView) {
+    view.dom.dataset.hasSelection = String(view.state.selection.ranges.some(range => !range.empty));
+}
+
+// VS Code 在有选中时会隐去当前行高亮
+const selectionStatePlugin = ViewPlugin.define(view => {
+    syncSelectionState(view);
+    return {
+        update(update) {
+            if (update.selectionSet || update.docChanged) syncSelectionState(update.view);
+        },
+    };
+});
+
+function toggleLineWrapping(view: EditorView) {
+    view.dispatch({ effects: lineWrapping.reconfigure(view.lineWrapping ? [] : EditorView.lineWrapping) });
+    return true;
+}
+
+const editorTheme = EditorView.theme({
+    "&": {
+        height: "100%",
+        color: "var(--editor-ink)",
+        backgroundColor: "var(--editor-bg)",
+        fontSize: "14px",
+    },
+    ".cm-content": {
+        padding: "14px 0 28px",
+        caretColor: "var(--accent)",
+        fontFamily: '"Cascadia Mono", "SFMono-Regular", Consolas, monospace',
+        lineHeight: "1.65",
+    },
+    ".cm-line": { padding: "0 18px 0 8px" },
+    ".cm-gutters": {
+        color: "var(--editor-muted)",
+        backgroundColor: "var(--editor-bg)",
+        borderRight: "1px solid var(--line-subtle)",
+    },
+    ".cm-activeLine": { backgroundColor: "var(--editor-active)" },
+    ".cm-activeLineGutter": { backgroundColor: "var(--editor-active)" },
+    ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
+        backgroundColor: "var(--selection) !important",
+    },
+    ".cm-scroller": { overflow: "auto" },
+    ".cm-panels": { backgroundColor: "var(--surface)", color: "var(--ink)" },
+    ".cm-tooltip": { border: "1px solid var(--line)", backgroundColor: "var(--surface)" },
+});
+
+export function createSourceEditor(options: SourceEditorOptions): EditorView {
+    return new EditorView({
+        parent: options.parent,
+        state: EditorState.create({
+            doc: options.doc,
+            extensions: [
+                lineNumbers(),
+                highlightActiveLineGutter(),
+                highlightSpecialChars(),
+                history(),
+                drawSelection(),
+                dropCursor(),
+                EditorState.allowMultipleSelections.of(true),
+                bracketMatching(),
+                closeBrackets(),
+                autocompletion({ defaultKeymap: false }),
+                // VS Code 风格：Tab 接受补全，回车留给换行；补全未打开时 Tab 会落到 indentWithTab
+                Prec.highest(keymap.of([
+                    ...completionKeymap.filter(binding => binding.key !== "Enter"),
+                    { key: "Tab", run: acceptCompletion },
+                ])),
+                rectangularSelection(),
+                crosshairCursor(),
+                highlightActiveLine(),
+                highlightSelectionMatches(),
+                jpFunLanguage,
+                selectedWhitespaceField,
+                selectionStatePlugin,
+                lintGutter(),
+                lineWrapping.of([]),
+                keymap.of([
+                    { key: "Alt-z", run: toggleLineWrapping },
+                    ...closeBracketsKeymap,
+                    ...defaultKeymap,
+                    ...historyKeymap,
+                    ...searchKeymap,
+                    indentWithTab,
+                    { key: "Mod-Enter", run: () => { options.onCompile(); return true; } },
+                ]),
+                editorTheme,
+                EditorView.updateListener.of(update => {
+                    if (update.docChanged) options.onDocChanged();
+                }),
+            ],
+        }),
+    });
+}
+
+export function setSourceDiagnostics(editor: EditorView, items: readonly Diagnostic[]): SourceRange[] {
+    const length = editor.state.doc.length;
+    const ranges = items.map(item => {
+        const from = Math.min(length, Math.max(0, item.span.start));
+        const to = Math.min(length, Math.max(from, item.span.end));
+        // 空区间擑成一个字符，否则波浪线看不见
+        return { from, to: to === from && from < length ? from + 1 : to };
+    });
+    editor.dispatch(setDiagnostics(editor.state, items.map((item, index) => ({
+        ...ranges[index],
+        severity: item instanceof ErrorDiagnostic ? "error" : "warning",
+        message: item.message,
+        source: item.code,
+    }))));
+    return ranges;
+}
+
+export function revealSourceRange(editor: EditorView, range: SourceRange) {
+    editor.dispatch({
+        selection: { anchor: range.from, head: range.to },
+        effects: EditorView.scrollIntoView(range.from, { y: "center" }),
+    });
+    editor.focus();
+}

@@ -29,7 +29,7 @@
 | 去糖替换 | `node.toString(source)` | `CodeActionProvider`（见下） |
 | 诊断 | `parser.diagnostics` + 抛出的错误 | `DiagnosticCollection` |
 | 谱面预览 | `renderLayoutToSvg` / `renderLayoutToCanvas` | Webview |
-| 注释/括号/缩进 | `languageData` | `language-configuration.json` |
+| 注释/括号 | `languageData` | `language-configuration.json` |
 
 ## 语法着色
 
@@ -86,11 +86,13 @@ playground 的实现在 [jpfun-language.ts](../apps/playground/jpfun-language.ts
 ## 诊断
 
 - **非致命**（警告 + 被显式吞掉的错误）在 `parser.diagnostics` 里，编译照常完成。
-- **致命错误**由 `compileScore` 抛出，`catch` 到的 `Diagnostic` 单独展示。
-- `Diagnostic` 有 `code`、`message`、`span`（offset）和 `toLineCol(lineStarts)`。VS Code 里用 `document.positionAt(offset)` 就够，不需要 `lineStarts`。
+- **致命错误**由 `compileScore` 抛出，`catch` 到的 `Diagnostic` 单独展示。注意 `PageLayoutError` 这类不是 `Diagnostic`，没有 `span` 也没法跳转，前端要单独留一条只显示文本的位置。
+- `Diagnostic` 有 `code`、`message`、`span`（offset）和 `toLineCol(lineStarts)`。`lineStarts` 只在没有编辑器的场景才需要——playground 直接用 `doc.lineAt(offset)`，VS Code 里用 `document.positionAt(offset)`，两者对致命错误一样有效（那条路径拿不到 `compileScore` 的 `lineStarts`）。
 - 空 span（`start === end`）要人为撑成 1 个字符，否则波浪线不可见。
 
 `analyzeScoreSyntax` 也返回 `diagnostics`（未闭合调用、位置参数排在命名参数之后等）。是否把输入过程中的这些错误也报出来是产品选择——playground 目前只展示编译路径的诊断，避免打字时满屏红线。
+
+**只有致命错误才抢占面板**：非致命诊断哪怕是 error 级也只更新标签徽标，谱面照常显示；致命错误才切到诊断面板，并在下一次编译成功时切回预览。`parser.diagnostics` 里的 `ErrorDiagnostic` 全是「已被吞掉、编译得以继续」的，拿它当切换依据会在谱面明明画好时把面板抢走。
 
 ## 预览
 
