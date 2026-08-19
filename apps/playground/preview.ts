@@ -38,7 +38,6 @@ export function createPreviewController(): PreviewController {
         host.innerHTML = renderLayoutToSvg(compiled.layout, {
             padding: PREVIEW_PADDING,
             background: "#ffffff",
-            idPrefix: "jpfun-preview",
         });
         const svg = host.querySelector<SVGSVGElement>("svg");
         if (!svg) throw new Error("SVG preview was not created");

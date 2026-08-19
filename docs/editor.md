@@ -99,11 +99,11 @@ playground 的实现在 [jpfun-language.ts](../apps/playground/jpfun-language.ts
 `compileScore` 的 `layout` 可以直接喂给两个渲染后端：
 
 ```ts
-renderLayoutToSvg(layout, { padding, background, idPrefix })   // 返回 SVG 字符串
-renderLayoutToCanvas(layout, ctx)                              // 画到 2D context
+renderLayoutToSvg(layout, { padding, background })   // 返回 SVG 字符串
+renderLayoutToCanvas(layout, ctx)                    // 画到 2D context
 ```
 
-`idPrefix` 用于隔离 SVG `<defs>` 的 id，同一页面上有多个谱面时必须给不同前缀。Canvas 后端要自己处理 `devicePixelRatio` 和 `translate(-bounds.x, -bounds.y)`。SVG 内容与缩放无关，缩放时只改 `style.width/height`，不要重新生成。
+SVG 路径直接使用最终坐标（不生成 `<defs>/<use>` 因为发现徒增复杂度）。Canvas 后端要自己处理 `devicePixelRatio` 和 `translate(-bounds.x, -bounds.y)`。SVG 内容与缩放无关，缩放时只改 `style.width/height`，不要重新生成。
 
 VS Code 里放 Webview。`jpfun` 是纯 ESM 且不依赖 DOM，所以编译可以放在扩展主进程、只把 SVG 字符串 postMessage 给 webview（这样能复用同一份编译结果做诊断），也可以整个跑在 webview 里。
 

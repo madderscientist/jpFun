@@ -33,7 +33,7 @@ interface Painter {
 2. 具体函数决定使用哪个 glyph，以及它在自身布局中的尺寸和位置
 3. prepare 阶段使用字体度量生成 `LayoutBox`
 4. paint 阶段把字体轮廓转换为局部 `PathCommand`，继续调用通用 `drawPath`
-5. SVG 自动通过现有 `<defs>/<use>` 机制复用轮廓，Canvas 绘制同一份路径
+5. SVG 把变换烘焙为最终坐标并直接输出路径，Canvas 绘制同一份路径
 
 这样 Painter 和后端仍不理解 SMuFL 或具体音乐符号，图形所有权仍在函数中。可以先用 Bravura 替换升降号验证度量、路径方向和 anchor，再逐步扩展其他符号。
 
@@ -42,7 +42,7 @@ interface Painter {
 ## 内置后端
 
 ### SVG
-`renderLayoutToSvg` 返回完整 SVG 字符串。带 transform 的局部路径按序列化后的 `d` 自动去重：第一次放入 `<defs>`，所有位置都用 `<use>` 引用。缓存只理解路径，不知道 note 或具体函数；样式留在 `<use>` 上。动态绝对路径直接输出 `<path>`。数字音符使用带 `text-anchor="middle"` 的等宽 `<text>`。
+`renderLayoutToSvg` 返回完整 SVG 字符串。所有路径都直接输出 `<path>`；带 transform 的局部路径会先换算成最终坐标，不保留 SVG transform，也不生成 `<defs>/<use>`。这让每个实例具有稳定、独立的 DOM 节点，便于调试以及未来挂载源码位置等交互信息。数字音符使用带 `text-anchor="middle"` 的等宽 `<text>`。
 
 ### Canvas
 `CanvasPainter` 直接执行结构化路径和可选变换，数字使用 `textAlign="center"` 的等宽文本。调用方负责配置 canvas 像素尺寸、CSS 尺寸和 devicePixelRatio，Painter 只执行绘制。

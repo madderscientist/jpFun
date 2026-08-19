@@ -2,7 +2,7 @@ import { paintLayout } from "../src/layout/engine.js";
 import { compileScore } from "../src/pipeline.js";
 import { renderLayoutToCanvas } from "../src/render/canvas.js";
 import { RecordingPainter, type RecordedPaintCommand } from "../src/render/recording.js";
-import { renderLayoutToSvg } from "../src/render/svg.js";
+import { renderLayoutToSvg, SvgPainter } from "../src/render/svg.js";
 import type { PathCommand } from "../src/render/types.js";
 
 const RENDER_INTEGRATION_SCORE = `@voices(
@@ -96,27 +96,32 @@ assert(!commands.some(command => command.kind === "text" && command.text === "9"
 
 const svg = renderLayoutToSvg(result, {
     padding: 4,
-    idPrefix: "render-test",
 });
-assert(svg.includes("<defs>"), "SVG must contain a definitions section");
 assert(svg.includes("text-anchor=\"middle\""), "note numbers must use centered text alignment");
 assert(svg.includes("Cascadia Mono"), "note numbers must request a normal monospaced font");
 assert(svg.includes("&lt;tag &amp; text&gt;"), "arbitrary SVG text must be XML escaped");
 assert(!svg.includes(">8</text>"), "hidden placeholder note 8 must not create SVG text");
 assert(!svg.includes("NaN") && !svg.includes("Infinity"), "SVG output must not contain invalid coordinates");
+assert(!svg.includes("<defs") && !svg.includes("<use ")
+    && !svg.includes("transform=") && !svg.includes("vector-effect="),
+    "SVG paths must contain final geometry without definitions or SVG transforms");
 
-const repeatedPathSvg = renderLayoutToSvg(layout("#1 #2"), { idPrefix: "path-cache" });
-assert((repeatedPathSvg.match(/<path id=/g) ?? []).length === 1,
-    "one repeated local path must create one SVG definition");
-assert((repeatedPathSvg.match(/<use /g) ?? []).length === 2,
-    "every repeated local path placement must use the shared SVG definition");
+const scaledPathPainter = new SvgPainter();
+const scaledPathCommands: readonly PathCommand[] = [
+    { op: "M", x: 0, y: 0 },
+    { op: "L", x: 1, y: 1 },
+];
+scaledPathPainter.drawPath(scaledPathCommands, { stroke: "#000", strokeWidth: 1 },
+    { x: 7, y: 8, scaleX: 4, scaleY: -6 });
+const scaledPathSvg = scaledPathPainter.toSvg({ x: 0, y: 0, w: 20, h: 20 });
+assert(scaledPathSvg.includes('<path d="M7 8 L11 2"'),
+    "SVG paths must bake translation and positive or negative scaling into final geometry");
 
-const dynamicPathSvg = renderLayoutToSvg(layout(`1@a 2@b @tie(a,b)`), { idPrefix: "dynamic-path" });
-assert(!dynamicPathSvg.includes("<use "), "dynamic absolute paths must not use SVG definitions");
+const dynamicPathSvg = renderLayoutToSvg(layout(`1@a 2@b @tie(a,b)`));
 assert((dynamicPathSvg.match(/<path d=/g) ?? []).length === 1,
     "a dynamic tie must remain one direct SVG path");
 
-const fixedOnlySvg = renderLayoutToSvg(layout("1 2 3"), { idPrefix: "fixed-only" });
+const fixedOnlySvg = renderLayoutToSvg(layout("1 2 3"));
 assert((fixedOnlySvg.match(/<text /g) ?? []).length === 3, "each fixed note number must use one normal text element");
 
 const nearTiePaths = commandsOfKind(`1@a 2@b @tie(a,b)`, "path");
@@ -181,7 +186,7 @@ const twoPageLayout = compileScore(`
 @page(width=200px, height=80px, top=10px, bottom=10px, left=20px, right=20px, gap=5px)
 1 @br() 2 @br() 3 @br() 4
 `).layout;
-const twoPageSvg = renderLayoutToSvg(twoPageLayout, { idPrefix: "two-page" });
+const twoPageSvg = renderLayoutToSvg(twoPageLayout);
 assert(twoPageLayout.pages.length === 2, "the renderer sample must contain two pages");
 assert(twoPageSvg.includes('width="200"') && twoPageSvg.includes('height="160"'), "SVG dimensions must include complete stacked page bounds");
 

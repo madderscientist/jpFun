@@ -4,7 +4,6 @@ import type { PaintStyle, Painter, PathCommand, PathTransform, TextStyle } from 
 export interface SvgRenderOptions {
     padding?: number;       // viewBox 四周额外保留的空间
     background?: string;    // 可选背景颜色，默认透明
-    idPrefix?: string;      // symbol id 前缀，用于同一页面放置多份 SVG
 }
 
 function number(value: number): string {
@@ -21,18 +20,21 @@ function escapeXml(value: string): string {
         .replace(/'/g, "&apos;");
 }
 
-function safeId(value: string): string {
-    return value.replace(/[^a-zA-Z0-9_-]/g, "-");
-}
-
 /**
  * 把结构化路径命令转换为 SVG path data
- * symbol 定义保持 0 到 1 的局部坐标
+ * 可选缩放和平移用于直接生成最终坐标
  */
 function pathCommandsToSvg(
     commands: readonly PathCommand[],
+    transform?: PathTransform,
 ): string {
     const parts: string[] = [];
+    const x = transform
+        ? (value: number) => number(transform.x + value * transform.scaleX)
+        : number;
+    const y = transform
+        ? (value: number) => number(transform.y + value * transform.scaleY)
+        : number;
 
     for (const command of commands) {
         if (command.op === "Z") {
@@ -41,23 +43,23 @@ function pathCommandsToSvg(
         }
 
         if (command.op === "M" || command.op === "L") {
-            parts.push(`${command.op}${number(command.x)} ${number(command.y)}`);
+            parts.push(`${command.op}${x(command.x)} ${y(command.y)}`);
             continue;
         }
 
         if (command.op === "Q") {
             parts.push(
-                `Q${number(command.cx)} ${number(command.cy)} `
-                + `${number(command.x)} ${number(command.y)}`,
+                `Q${x(command.cx)} ${y(command.cy)} `
+                + `${x(command.x)} ${y(command.y)}`,
             );
             continue;
         }
 
         if (!("cx1" in command)) continue;
         parts.push(
-            `C${number(command.cx1)} ${number(command.cy1)} `
-            + `${number(command.cx2)} ${number(command.cy2)} `
-            + `${number(command.x)} ${number(command.y)}`,
+            `C${x(command.cx1)} ${y(command.cy1)} `
+            + `${x(command.cx2)} ${y(command.cy2)} `
+            + `${x(command.x)} ${y(command.y)}`,
         );
     }
 
@@ -69,20 +71,9 @@ function opacityAttribute(style?: PaintStyle): string {
     return ` opacity="${number(style.opacity)}"`;
 }
 
-/**
- * 生成独立 SVG 字符串的 Painter
- *
- * 带 transform 的局部路径会在 defs 中定义一次
- * 每个绘制位置只追加一个 use 元素；动态绝对路径仍直接输出 path
- */
+/** 生成独立 SVG 字符串的 Painter；路径直接输出最终坐标 */
 export class SvgPainter implements Painter {
     private body: string[] = [];
-    private definitions = new Map<string, { id: string; svg: string }>();
-    private idPrefix: string;
-
-    constructor(idPrefix: string = "jpfun") {
-        this.idPrefix = safeId(idPrefix) || "jpfun";
-    }
 
     drawText(text: string, x: number, y: number, style: TextStyle) {
         const family = style.fontFamily ?? "sans-serif";
@@ -138,27 +129,12 @@ export class SvgPainter implements Painter {
     drawPath(commands: readonly PathCommand[], style?: PaintStyle, transform?: PathTransform) {
         if (commands.length === 0) return;
 
-        const d = pathCommandsToSvg(commands);
+        const d = pathCommandsToSvg(commands, transform);
         const fill = style?.fill ?? "none";
         const stroke = style?.stroke ?? "none";
         const strokeWidth = style?.strokeWidth ?? 1;
-
-        if (transform) {
-            const pathId = this.ensurePathDefinition(d);
-            this.body.push(
-                `<use href="#${pathId}" `
-                + `transform="translate(${number(transform.x)} ${number(transform.y)}) `
-                + `scale(${number(transform.scaleX)} ${number(transform.scaleY)})" `
-                + `fill="${escapeXml(fill)}" stroke="${escapeXml(stroke)}" `
-                + `stroke-width="${number(strokeWidth)}" stroke-linecap="round" stroke-linejoin="round" `
-                + `vector-effect="non-scaling-stroke"${opacityAttribute(style)} />`,
-            );
-            return;
-        }
-
         this.body.push(
-            `<path d="${d}" `
-            + `fill="${escapeXml(fill)}" stroke="${escapeXml(stroke)}" `
+            `<path d="${d}" fill="${escapeXml(fill)}" stroke="${escapeXml(stroke)}" `
             + `stroke-width="${number(strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"`
             + `${opacityAttribute(style)} />`,
         );
@@ -173,26 +149,13 @@ export class SvgPainter implements Painter {
         const top = bounds.y - padding;
         const width = Math.max(1, bounds.w + padding * 2);
         const height = Math.max(1, bounds.h + padding * 2);
-        const defs = [...this.definitions.values()].map(definition => definition.svg).join("");
         const background = options.background
             ? `<rect x="${number(left)}" y="${number(top)}" width="${number(width)}" height="${number(height)}" fill="${escapeXml(options.background)}" />`
             : "";
 
         return `<svg xmlns="http://www.w3.org/2000/svg" width="${number(width)}" height="${number(height)}" `
             + `viewBox="${number(left)} ${number(top)} ${number(width)} ${number(height)}">`
-            + `<defs>${defs}</defs>${background}${this.body.join("")}</svg>`;
-    }
-
-    private ensurePathDefinition(d: string): string {
-        const existing = this.definitions.get(d);
-        if (existing) return existing.id;
-
-        const id = `${this.idPrefix}-path-${this.definitions.size + 1}`;
-        this.definitions.set(d, {
-            id,
-            svg: `<path id="${id}" d="${d}" vector-effect="non-scaling-stroke" />`,
-        });
-        return id;
+            + `${background}${this.body.join("")}</svg>`;
     }
 }
 
@@ -201,7 +164,7 @@ export function renderLayoutToSvg(
     result: DocumentLayoutResult,
     options: SvgRenderOptions = {},
 ): string {
-    const painter = new SvgPainter(options.idPrefix);
+    const painter = new SvgPainter();
     paintLayout(result, painter);
     return painter.toSvg(result.bounds, options);
 }

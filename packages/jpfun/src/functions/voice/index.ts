@@ -578,46 +578,28 @@ class VoiceNameTemporal extends TemporalNodeBase {
     }
 }
 
-/**
- * 括线端头的小钩
- *
- * 它是贴在粗竖线端点上的独立装饰，尺寸只跟字号有关，不随括线长度变化：
- * 从端点几乎水平地探出，再向外侧一挑收成尖角，因此上沿是向内凹陷的。
- *
- * @param x    粗竖线的中心横坐标
- * @param endY 粗竖线的端点纵坐标
- * @param dir  +1 表示下端（向右下挑），-1 表示上端（向右上挑）
- */
-function hookCommands(
-    x: number,
-    endY: number,
-    reach: number,
-    drop: number,
-    base: number,
-    dir: number,
-): PathCommand[] {
-    const y0 = endY - dir * base;          // 钩根靠内侧的一端
-    const at = (f: number) => y0 + dir * f;
-
-    return [
-        { op: "M", x, y: at(base) },
-        { op: "L", x, y: at(0) },
-        {
-            op: "C",
-            cx1: x + reach * 0.421, cy1: at(drop * 0.077),
-            cx2: x + reach * 0.733, cy2: at(drop * 0.346),
-            x: x + reach, y: at(drop),
-        },
-        { op: "L", x: x + reach * 0.929, y: at(drop) },
-        {
-            op: "C",
-            cx1: x + reach * 0.696, cy1: at(drop * 0.535),
-            cx2: x + reach * 0.328, cy2: at(drop * 0.352),
-            x, y: at(base),
-        },
-        { op: "Z" },
-    ];
-}
+/** 括线端头的小钩；单位尺寸，绘制时按粗竖线宽度缩放并上下镜像 */
+const BRACE_HOOK_REACH = 2.33;
+const BRACE_HOOK_DROP = 1.17;
+const BRACE_HOOK_BASE = 0.34;
+const BRACE_HOOK_COMMANDS: readonly PathCommand[] = [
+    { op: "M", x: 0, y: 0 },
+    { op: "L", x: 0, y: -BRACE_HOOK_BASE },
+    {
+        op: "C",
+        cx1: BRACE_HOOK_REACH * 0.421, cy1: -BRACE_HOOK_BASE + BRACE_HOOK_DROP * 0.077,
+        cx2: BRACE_HOOK_REACH * 0.733, cy2: -BRACE_HOOK_BASE + BRACE_HOOK_DROP * 0.346,
+        x: BRACE_HOOK_REACH, y: -BRACE_HOOK_BASE + BRACE_HOOK_DROP,
+    },
+    { op: "L", x: BRACE_HOOK_REACH * 0.929, y: -BRACE_HOOK_BASE + BRACE_HOOK_DROP },
+    {
+        op: "C",
+        cx1: BRACE_HOOK_REACH * 0.696, cy1: -BRACE_HOOK_BASE + BRACE_HOOK_DROP * 0.535,
+        cx2: BRACE_HOOK_REACH * 0.328, cy2: -BRACE_HOOK_BASE + BRACE_HOOK_DROP * 0.352,
+        x: 0, y: 0,
+    },
+    { op: "Z" },
+];
 
 /**
  * 画在声部名与音符之间的多声部括线
@@ -633,7 +615,7 @@ class VoicesBraceAttachment implements LayoutAttachment {
     private readonly names: VoiceNameTemporal[];
     private readonly ast: VoicesFunction;
     private bars: { x: number; y: number; w: number; h: number }[] = [];
-    private hooks: PathCommand[][] = [];
+    private hooks: { x: number; y: number; scale: number; dir: -1 | 1 }[] = [];
 
     constructor(names: VoiceNameTemporal[], ast: VoicesFunction) {
         this.names = names;
@@ -654,9 +636,8 @@ class VoicesBraceAttachment implements LayoutAttachment {
 
         // 各部分尺寸都以粗竖线宽度为单位，比例取自常见简谱软件的括线
         const stem = Math.max(2.5, em * 0.19);
-        const reach = stem * 2.33;
-        const drop = stem * 1.17;
-        const base = stem * 0.34;
+        const reach = stem * BRACE_HOOK_REACH;
+        const drop = stem * BRACE_HOOK_DROP;
         const x = first.x + first.anchor + this.ast.braceSpace * 0.3 + stem / 2;
 
         this.bars = [
@@ -669,8 +650,8 @@ class VoicesBraceAttachment implements LayoutAttachment {
             },
         ];
         this.hooks = [
-            hookCommands(x, top, reach, drop, base, -1),
-            hookCommands(x, bottom, reach, drop, base, 1),
+            { x, y: top, scale: stem, dir: -1 },
+            { x, y: bottom, scale: stem, dir: 1 },
         ];
 
         // 括线画在声部名左侧的空白里，只参与画布边界，不抢任何轨道的纵向空间
@@ -687,7 +668,11 @@ class VoicesBraceAttachment implements LayoutAttachment {
             painter.drawRect(bar.x, bar.y, bar.w, bar.h, { fill: "#000" });
         }
         for (const hook of this.hooks) {
-            painter.drawPath(hook, { fill: "#000" });
+            painter.drawPath(
+                BRACE_HOOK_COMMANDS,
+                { fill: "#000" },
+                { x: hook.x, y: hook.y, scaleX: hook.scale, scaleY: hook.scale * hook.dir },
+            );
         }
     }
 }

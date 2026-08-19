@@ -11,7 +11,7 @@ import {
 } from "../../lowering/types.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { ParserContext } from "../../parser/parserContext.js";
-import type { Painter } from "../../render/types.js";
+import type { Painter, PathCommand } from "../../render/types.js";
 import {
     ASTBraceNode,
     ASTFunctionClass,
@@ -318,11 +318,11 @@ export const GraceNode: ASTFunctionClass = GraceFunction;
 
 //==== 倚音线 ====
 // 固定形状的小钩，起点在最靠近宿主的那个倚音的 anchor、盒底边（后倚音镜像），
-// 尺寸只跟倚音字号有关，不随倚音到宿主的距离变化。改这四个点就能调整外观。
-const HOOK_START = { x: 0, y: 0 };
-const HOOK_CTRL1 = { x: -0.01, y: 0.26 };
-const HOOK_CTRL2 = { x: 0.14, y: 0.42 };
-const HOOK_END = { x: 0.29, y: 0.36 };
+// 尺寸只跟倚音字号有关，不随倚音到宿主的距离变化。
+const HOOK_COMMANDS: readonly PathCommand[] = [
+    { op: "M", x: 0, y: 0 },
+    { op: "C", cx1: -0.01, cy1: 0.26, cx2: 0.14, cy2: 0.42, x: 0.29, y: 0.36 },
+];
 const HOOK_WIDTH = 0.07;
 /** 倚音块底边到宿主顶边的视觉间隙；倚音线会探进这段空间指向宿主 */
 const GRACE_RISE = 0.18;
@@ -544,16 +544,15 @@ export class GraceTemporal extends TemporalNodeBase {
         if (!this.hookOrigin) return;
         const hookOrigin = this.hookOrigin;
         const dir = this.side === "pre" ? 1 : -1;
-        const px = (v: number) => this.box.x + hookOrigin.x + v * graceEm * dir;
-        const py = (v: number) => this.box.y + hookOrigin.y + v * graceEm;
-        painter.drawPath([
-            { op: "M", x: px(HOOK_START.x), y: py(HOOK_START.y) },
+        painter.drawPath(
+            HOOK_COMMANDS,
+            { stroke: "#000", strokeWidth: Math.max(0.8, graceEm * HOOK_WIDTH) },
             {
-                op: "C",
-                cx1: px(HOOK_CTRL1.x), cy1: py(HOOK_CTRL1.y),
-                cx2: px(HOOK_CTRL2.x), cy2: py(HOOK_CTRL2.y),
-                x: px(HOOK_END.x), y: py(HOOK_END.y),
+                x: this.box.x + hookOrigin.x,
+                y: this.box.y + hookOrigin.y,
+                scaleX: graceEm * dir,
+                scaleY: graceEm,
             },
-        ], { stroke: "#000", strokeWidth: Math.max(0.8, graceEm * HOOK_WIDTH) });
+        );
     }
 }
