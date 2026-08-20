@@ -34,6 +34,7 @@
     --status-warning: #895503;
     --status-error: #ad0707;
     --preview-shadow: rgba(32, 32, 32, 0.12);
+    --scrollbar: #64646466;
 
     /* Syntax colors stay on VS Code 2026 Light for both workbench themes. */
     --syntax-comment: #6e7781;
@@ -88,6 +89,18 @@ body {
     color: var(--ink);
     background: var(--canvas);
     font-family: Bahnschrift, "Noto Sans SC", "Microsoft YaHei UI", sans-serif;
+}
+
+/* 看不到导轨，滑块只在指针进入可滚动区域时浮现，快淡入、慢淡出 */
+/* 用标准的 scrollbar-color 而不是 ::-webkit-scrollbar：后者不能过渡，且 hover 消失时不重绘 */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    transition: scrollbar-color 0.6s ease-out;
+}
+*:hover {
+    scrollbar-color: var(--scrollbar) transparent;
+    transition-duration: 0.1s;
 }
 button { color: inherit; font: inherit; }
 button:focus-visible, [tabindex]:focus-visible {

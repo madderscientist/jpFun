@@ -202,14 +202,13 @@ L: ...
         if (newCtx.nodes.length === 0) {
             throw Diagnostic.error.EmptyContent("voice", "content", n.span);
         }
+        const span: SourceSpan = { start: n.span.start, end: newCtx.nodes.at(-1)!.sourceSpan.end };
         const argMap: FunctionArgs = new Map();
         if (newCtx.nodes.length === 1 && newCtx.nodes[0] instanceof ASTBraceNode) argMap.set(0, newCtx.nodes[0]);
-        else argMap.set(0, new ASTBraceNode(n.span, newCtx.nodes));
+        // 复制一份：voice 的 span 之后会被歌词撑大，内容 brace 不该跟着长
+        else argMap.set(0, new ASTBraceNode({ ...span }, newCtx.nodes));
         argMap.set("name", n.data.name);
-        const newVoice = new VoiceFunction({
-            start: n.span.start,
-            end: breakAt < nodes.length ? (nodes[breakAt] as number) : ctx.source.length
-        }, argMap, ctx, null);
+        const newVoice = new VoiceFunction(span, argMap, ctx, null);
 
         // 如果前面紧挨着 VoicesFunction | VoiceFunction 则直接加入
         let voicesNode: VoicesFunction | null = null;
@@ -339,8 +338,11 @@ L: ...
         }
         this.lyrics.push({ name, tokens });
         if (span) {
-            this.sourceSpan.start = Math.min(span.start, this.sourceSpan.start);
-            this.sourceSpan.end = Math.max(span.end, this.sourceSpan.end);
+            // 歌词是成节点之后才补上来的，祖先的 span 得一起长，否则按源码位置查节点会漏掉歌词那几行
+            for (let node: ASTNodeBase | null = this; node; node = node.parent) {
+                node.sourceSpan.start = Math.min(span.start, node.sourceSpan.start);
+                node.sourceSpan.end = Math.max(span.end, node.sourceSpan.end);
+            }
         }
     }
 

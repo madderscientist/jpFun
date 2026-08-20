@@ -1,6 +1,6 @@
 import { snippetCompletion, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { EditorState, RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
-import { Decoration, EditorView, hoverTooltip } from "@codemirror/view";
+import { activateHover, closeHoverTooltips, Decoration, EditorView, hoverTooltip, ViewPlugin, type Tooltip } from "@codemirror/view";
 import { analyzeScoreSyntax, ASTFunctionNode, ASTNodeBase, defaultFunctions, resolveArgType, type CallInfo, type FunctionDef, type SourceSpan, type SyntaxTokenKind } from "jpfun";
 
 const syntaxClasses: Record<SyntaxTokenKind, string> = {
@@ -75,7 +75,12 @@ const functionCompletions: Completion[] = [...defByName].map(([name, def]) => sn
     info: def.example,
 }));
 
-const MAX_DESUGAR_LENGTH = 200;
+/** 悬浮框与行框之间留的缝，免得压住光标 */
+const TOOLTIP_GAP = 4;
+/** 鼠标离开 token 后，留给它走进悬浮框的时间 */
+const HOVER_HIDE_DELAY = 250;
+/** 判定「鼠标还在悬浮框上」时向外放宽的距离 */
+const HOVER_KEEP_MARGIN = 8;
 
 /** 去糖行：左边是等价写法，右边一个按钮把原文换成它 */
 function desugarRow(view: EditorView, desugared: string, from: number, to: number) {
@@ -83,16 +88,14 @@ function desugarRow(view: EditorView, desugared: string, from: number, to: numbe
     row.className = "cm-jpfun-desugar";
     const text = document.createElement("span");
     text.className = "cm-jpfun-desugar-text";
-    text.textContent = desugared.length > MAX_DESUGAR_LENGTH
-        ? desugared.slice(0, MAX_DESUGAR_LENGTH) + " \u2026"
-        : desugared;
+    text.textContent = desugared;
     const apply = document.createElement("button");
     apply.type = "button";
     apply.className = "cm-jpfun-desugar-apply";
     apply.textContent = "替换";
     apply.title = "用去糖后的写法替换原文";
     apply.addEventListener("click", () => {
-        view.dispatch({ changes: { from, to, insert: desugared } });  // 截断只影响显示
+        view.dispatch({ changes: { from, to, insert: desugared } });
         view.focus();
     });
     row.append(text, apply);
@@ -100,10 +103,11 @@ function desugarRow(view: EditorView, desugared: string, from: number, to: numbe
 }
 
 /** 悬浮框统一结构：可选的去糖行 + 函数文档 */
-function docTooltip(from: number, to: number, doc: string, desugared?: string) {
+function docTooltip(from: number, to: number, doc: string, desugared?: string): Tooltip {
     return {
         pos: from,
         end: to,
+        above: true,   // 和 VS Code 一样浮在上方
         create: (view: EditorView) => {
             const dom = document.createElement("div");
             dom.className = "cm-jpfun-doc";
@@ -112,12 +116,12 @@ function docTooltip(from: number, to: number, doc: string, desugared?: string) {
             body.className = "cm-jpfun-doc-body";
             body.textContent = doc;
             dom.append(body);
-            return { dom };
+            return { dom, offset: { x: 0, y: TOOLTIP_GAP } };
         },
     };
 }
 
-const functionHover = hoverTooltip((view, pos) => {
+function hoverAt(view: EditorView, pos: number): Tooltip | null {
     const calls = view.state.field(syntaxField).analysis.calls;
     const call = calls.find(item => pos >= item.nameSpan.start && pos < item.nameSpan.end);
     const def = call && defByName.get(call.name.toLowerCase());
@@ -136,6 +140,59 @@ const functionHover = hoverTooltip((view, pos) => {
         `${node.def.description}\n${node.def.example}`,
         node.toString(view.state.doc.toString()),
     );
+}
+
+let locking = false;
+
+const functionHover = hoverTooltip((view, pos, side) => {
+    if (view.plugin(hoverControl)?.suppressed) return null;
+    if (locking) return hoverAt(view, pos);
+    // 借 CM 的触发时机与定位，但必须开成 locked 悬浮框：否则鼠标一离开 token 就被 CM 关掉，根本走不进去
+    locking = true;
+    try { activateHover(view, pos, side, { tooltip: functionHover }); } finally { locking = false; }
+    return null;
+}, { hideOnChange: true });
+
+function staysOnHover(view: EditorView, event: MouseEvent) {
+    const rect = view.dom.querySelector(".cm-tooltip-hover")?.getBoundingClientRect();
+    if (rect && event.x >= rect.left - HOVER_KEEP_MARGIN && event.x <= rect.right + HOVER_KEEP_MARGIN
+        && event.y >= rect.top - HOVER_KEEP_MARGIN && event.y <= rect.bottom + HOVER_KEEP_MARGIN) return true;
+    const pos = view.posAtCoords(event, false);
+    return view.state.field(functionHover.active).some(tip => pos >= tip.pos && pos <= (tip.end ?? tip.pos));
+}
+
+/** 悬浮框的开关时机：点击后不再唤起，离开 token 后延时关闭，好让鼠标有机会走进去 */
+const hoverControl = ViewPlugin.define(view => {
+    const listeners = new AbortController();
+    const signal = listeners.signal;
+    let suppressed = false;
+    let last = { x: 0, y: 0 };
+    let hideTimer = -1;
+
+    const cancelHide = () => { clearTimeout(hideTimer); hideTimer = -1; };
+    const hide = () => {
+        cancelHide();
+        if (view.state.field(functionHover.active).length) view.dispatch({ effects: closeHoverTooltips });
+    };
+
+    view.dom.addEventListener("mousedown", () => { suppressed = true; }, { signal });
+    view.dom.addEventListener("mouseleave", hide, { signal });
+    view.dom.addEventListener("mousemove", event => {
+        if (event.x !== last.x || event.y !== last.y) suppressed = false;   // 鼠标真的挪了窝
+        last = { x: event.x, y: event.y };
+        if (!view.state.field(functionHover.active).length || staysOnHover(view, event)) return cancelHide();
+        if (hideTimer < 0) hideTimer = setTimeout(() => {
+            hide();
+            // CM 在悬浮框开着时不重算 hover，关掉后得自己补一次，否则停在相邻函数上不出新的
+            const pos = view.posAtCoords(last);
+            if (pos !== null) activateHover(view, pos, 1, { tooltip: functionHover });
+        }, HOVER_HIDE_DELAY);
+    }, { signal });
+
+    return {
+        get suppressed() { return suppressed; },
+        destroy() { cancelHide(); listeners.abort(); },
+    };
 });
 
 /** calls 按起点升序且同级不重叠，所以最后一个命中的必然是最内层 */
@@ -190,6 +247,7 @@ export const jpFunLanguage = [
     syntaxField,
     semanticField,
     functionHover,
+    hoverControl,
     EditorView.baseTheme({
         ".cm-jpfun-comment": { color: "var(--syntax-comment)", fontStyle: "italic" },
         ".cm-jpfun-string": { color: "var(--syntax-string)" },
@@ -217,6 +275,9 @@ export const jpFunLanguage = [
             minWidth: "0",
             color: "var(--syntax-function)",
             fontFamily: '"Cascadia Mono", "SFMono-Regular", Consolas, monospace',
+            whiteSpace: "pre",     // 等价写法是代码，宁可横向滚动也不折行
+            overflowX: "auto",
+            lineHeight: "1.5",     // 横向滚动使它成为裁剪容器，行高不够中文字形会被切掉
         },
         ".cm-jpfun-desugar-apply": {
             flexShrink: "0",
