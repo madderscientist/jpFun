@@ -208,7 +208,7 @@ assert(scopedDiv.columns[0][0].t === 0 && scopedDiv.columns[1][0].t === 0.5 && s
 const mixedHistoryDiv = lower(`@div({@up(@div(1,1),3) 2},1)`);
 const mixedHistoryChord = mixedHistoryDiv.columns[0][0] as typeof upTemporal;
 const mixedHistoryNote = mixedHistoryDiv.columns[1][0];
-assert(mixedHistoryChord.T === 0.25 && mixedHistoryChord.members[0].addon?.["@div"] === 2,
+assert(mixedHistoryChord.T === 0.25 && mixedHistoryChord.addon?.["@div"] === 2,
     "an outer div must extend the count already applied inside up");
 assert(mixedHistoryNote.t === 0.25 && mixedHistoryNote.T === 0.5
     && mixedHistoryNote.addon?.["@div"] === 1 && mixedHistoryDiv.duration === 0.75,
@@ -288,8 +288,18 @@ function loweredModifiedChord(source: string) {
 }
 
 const dividedChord = loweredModifiedChord(`@div(@up(@div(1, 1), 3), 1)`);
-assert(dividedChord.temporal.T === 0.25 && dividedChord.lead.addon?.["@div"] === 2,
-    "modifiers inside and outside up must accumulate on its representative member");
+assert(dividedChord.temporal.T === 0.25 && dividedChord.temporal.addon?.["@div"] === 2,
+    "modifiers inside and outside up must accumulate on the chord itself");
+
+// 交还发生在 prepareLayout：减时线必须落在代表成员的数字与下八度点之间
+const chordDivPaint = new RecordingPainter();
+paintLayout(compileScore(`1,,,/^3`).layout, chordDivPaint);
+const chordDivDots = chordDivPaint.commands.filter(command => command.kind === "circle");
+const chordDivLines = chordDivPaint.commands.filter(command => command.kind === "line");
+assert(chordDivDots.length === 3 && chordDivLines.length === 1,
+    "the chord's lead member must carry its own octave dots and div line");
+assert(chordDivLines[0].y1 < Math.min(...chordDivDots.map(command => command.cy)),
+    "the chord div line must stay between the digit and its octave dots");
 
 // up 的成员不进入全局列，但必须由 up 自己完成堆叠定位并绘制
 const chord = compileScore(`1 @up(3, 5) 2`).layout;
@@ -1029,6 +1039,29 @@ assert(Math.abs(nestedSizes[1] / nestedSizes[0] - 0.7) < 1e-6
     && Math.abs(nestedSizes[2] / nestedSizes[1] - 0.7) < 1e-6,
     "nesting must scale the font size once per level");
 
+// 内层复合体不在 columns 里，交还必须递归到最里层的宿主音符，
+// 否则减时线会画在整个倩音盒下面，跑到下八度点外侧
+const nestedDivDots = layoutGrace(`1> 2,,,/>3`);
+const nestedDots = nestedDivDots.commands.filter(command => command.kind === "circle");
+const nestedDotTop = Math.min(...nestedDots.map(command => command.cy));
+const nestedDivLines = nestedDivDots.commands
+    .filter(command => command.kind === "line")
+    .filter(command => command.x1 < nestedDots[0].cx && command.x2 > nestedDots[0].cx);
+assert(nestedDots.length === 3 && nestedDivLines.length === 2,
+    "the innermost grace host must carry its own octave dots and div lines");
+assert(nestedDivLines.every(command => command.y1 < nestedDotTop),
+    "div lines must stay between the digit and its octave dots");
+
+// 和弦折叠进倚音时也要交还：递归靠 prepareLayoutHost，倚音不必认识和弦
+const chordGrace = layoutGrace(`{1,,, ^ 3}/>2`);
+const chordGraceDots = chordGrace.commands.filter(command => command.kind === "circle");
+const chordGraceLines = chordGrace.commands.filter(command => command.kind === "line");
+assert(chordGraceDots.length === 3 && chordGraceLines.length === 2,
+    "a chord folded into a grace must keep its lead member's dots and div lines");
+assert(chordGraceLines.every(command =>
+    command.y1 < Math.min(...chordGraceDots.map(dot => dot.cy))),
+    "a folded chord's div lines must stay between the digit and its octave dots");
+
 // 写在成员上的标签由 foldedInto 上溯到复合体，因此仍是合法的关系端点
 const graceTie = layoutGrace(`2>1@a 3@b @tie(a,b)`);
 assert(graceTie.result.attachments.length === 1
@@ -1036,6 +1069,8 @@ assert(graceTie.result.attachments.length === 1
     "a label written inside a grace composite must still work as a tie endpoint");
 
 assertLoweringError(`3>{1 2}`, "E_GRACE_INVALID_HOST");
+// & 的堆叠靠并行 Track，而折叠成员不进引擎，放行只会退化成横排
+assertLoweringError(`{1 & 3}/>2`, "E_GRACE_PARALLEL_CONTENT");
 
 console.log(`grace w=${preGraceNode.box.w.toFixed(2)} anchor=${preGraceNode.box.anchor.toFixed(2)}`
     + ` steal=${preGraceNode.stealTime} nested=${nestedSizes.map(size => size.toFixed(1)).join("/")}`);

@@ -6,7 +6,6 @@ import type { Track } from "../../lowering/track.js";
 import {
     isVisualTemporalNode,
     TemporalNodeBase,
-    type LoweringResult,
     type VisualTemporalNode,
 } from "../../lowering/types.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
@@ -162,22 +161,6 @@ class GraceFunction extends ASTFunctionNode {
         );
     }
 
-    /**
-     * 语义确定后，把提升上来的修饰交还给宿主成员
-     *
-     * lowering 期间修饰必须挂在复合节点上，自动连梁之类的 augmenter 才看得到它的节奏；
-     * 但渲染上「宿主代表整个复合体」，减时线要画在宿主音符下面而不是整个盒子下面。
-     */
-    static override loweringFinalize = (result: LoweringResult) => {
-        for (const column of result.columns) {
-            for (const node of column) {
-                if (!(node instanceof GraceTemporal) || !node.addon) continue;
-                node.host.addon = node.addon;
-                node.addon = void 0;
-            }
-        }
-    };
-
     host: ASTNodeBase;
     grace: ASTNodeBase;
     side: GraceSide = "pre";
@@ -283,6 +266,13 @@ class GraceFunction extends ASTFunctionNode {
             for (const content of order) {
                 const events = ctx.trackedEvents(content, 0, track).columns.flat();
                 const visible = events.filter(isVisualTemporalNode);
+                // 并行分支的纵向关系由引擎解 Track 树，而折叠成员进不了引擎
+                if (events.some(event => event.track !== track))
+                    throw new ErrorDiagnostic(
+                        "E_GRACE_PARALLEL_CONTENT",
+                        "@grace 的内容不能包含多声部结构（& / @voices）；要在倚音里叠音请用 ^",
+                        content.sourceSpan,
+                    );
                 if (content === this.host) {
                     if (visible.length !== 1 || visible.length !== events.length) {
                         throw new ErrorDiagnostic(
@@ -406,6 +396,12 @@ export class GraceTemporal extends TemporalNodeBase {
      * 因此左右邻居会被固有宽度推开，不会在空间紧张时被压穿。
      */
     override prepareLayout(context: LayoutPrepareContext) {
+        // lowering 期间修饰挂在复合体上（augmenter 要看到整体节奏），渲染时交给宿主：
+        // 减时线要落在宿主数字与下八度点之间，而不是压在整个倚音盒下面
+        if (this.addon) {
+            this.host.addon = this.addon;
+            this.addon = void 0;
+        }
         for (const grace of this.graces) prepareLayoutHost(grace, context);
         prepareLayoutHost(this.host, context);
 

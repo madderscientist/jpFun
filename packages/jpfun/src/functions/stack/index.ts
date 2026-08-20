@@ -44,7 +44,7 @@ const STACK_TRACKS = {
 class StackFunction extends ASTFunctionNode {
     static override def = {
         name: ["stack"],
-        description: "时间对齐的上下层叠",
+        description: "临时多声部",
         example: `@stack(content1, content2, ...)
 语法糖: &
 {content1} & {content2} & ...

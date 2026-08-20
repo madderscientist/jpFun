@@ -6,7 +6,6 @@ import {
     ColType,
     isVisualTemporalNode,
     TemporalNodeBase,
-    type LoweringResult,
     type VisualTemporalNode,
 } from "../../lowering/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
@@ -46,25 +45,6 @@ class UpFunction extends ASTFunctionNode {
         allowExtraArgs: true,
         extraArgType: "content" as const,
         args: [],
-    };
-
-    /**
-     * 语义确定后，把和弦的修饰交还给最下面的成员
-     *
-     * lowering 期间修饰必须挂在和弦上，自动连梁之类的 augmenter 才看得到它的节奏；
-     * 但渲染上「最下面的成员代表整个和弦」，由它按普通音符的规则承载修饰，
-     * 减时线才会落在数字与下八度点之间，而不是压在整个和弦盒的下面。
-     * 交还后和弦自身不再有 addon，排版阶段不必再动它。
-     */
-    static override loweringFinalize = (result: LoweringResult) => {
-        for (const column of result.columns) {
-            for (const node of column) {
-                // addon 非空就意味着当初从第一个成员提升过，成员必定存在
-                if (!(node instanceof UpTemporal) || !node.addon) continue;
-                node.members[0].addon = node.addon;
-                node.addon = void 0;
-            }
-        }
     };
 
     /** 和弦自己会产生 UpTemporal，标签直接指向整个和弦（内部没有 note 时也能标注） */
@@ -268,6 +248,12 @@ class UpTemporal extends TemporalNodeBase {
      */
     override prepareLayout(context: LayoutPrepareContext) {
         this.offsets.length = 0;
+        // lowering 期间修饰挂在和弦上（augmenter 要看到整体节奏），渲染时交给最下面的成员：
+        // 减时线要落在它的数字与下八度点之间，而不是压在整个和弦盒下面
+        if (this.addon && this.members[0]) {
+            this.members[0].addon = this.addon;
+            this.addon = void 0;
+        }
         for (const member of this.members) prepareLayoutHost(member, context);
 
         const first = this.members[0];

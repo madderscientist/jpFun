@@ -9,7 +9,7 @@ import { GraceNode } from "./grace/index.js";
 import { KeyNode } from "./key/index.js";
 import { BrNode } from "./br/index.js";
 import { NoteNode } from "./note/index.js";
-import { UpNode } from "./over/index.js";
+import { UpNode } from "./up/index.js";
 import { PageNode } from "./page/index.js";
 import { StackNode } from "./stack/index.js";
 import { SetNode } from "./set/index.js";
