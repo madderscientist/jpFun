@@ -136,9 +136,10 @@ AST 保存语法结构、已固化参数和源码位置。解析完成后，AST 
 ```sh
 pnpm run build
 pnpm test
-pnpm run test_preprocess
-pnpm run test_layout
-pnpm run test_render
+pnpm run typecheck
+pnpm run test:update       # 确认新几何值无误后重写快照基线
 ```
 
+测试按源码模块划分，一个模块一个 `packages/jpfun/test/<模块>.test.ts`；只跑其中一个用
+`pnpm --dir packages/jpfun exec node --import tsx --test test/beam.test.ts`。
 提交前至少运行构建和受影响阶段的测试。跨阶段改动应运行完整 `pnpm test`。

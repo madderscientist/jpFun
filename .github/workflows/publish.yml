@@ -25,6 +25,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - run: pnpm run typecheck
+
       - run: pnpm test
 
       # 忘记 bump 版本时 npm 只会回一个难懂的 403，这里提前拦下

@@ -38,10 +38,9 @@
     "clean": "node -e \"for (const path of ['dist', 'tsconfig.tsbuildinfo']) require('node:fs').rmSync(path, { recursive: true, force: true })\"",
     "build": "pnpm run clean && tsc -p tsconfig.json",
     "prepack": "pnpm run build",
-    "test": "node --import tsx test/test.ts",
-    "test_preprocess": "node --import tsx test/test_preprocess.ts",
-    "test_layout": "node --import tsx test/test_layout.ts",
-    "test_render": "node --import tsx test/test_render.ts"
+    "typecheck": "tsc -p test/tsconfig.json",
+    "test": "node --import tsx --test \"test/*.test.ts\"",
+    "test:update": "node --import tsx --test \"test/*.test.ts\""
   },
   "keywords": [
     "numbered-musical-notation",
@@ -53,6 +52,7 @@
   "author": "madderscientist",
   "license": "Apache-2.0",
   "devDependencies": {
+    "@types/node": "^26.2.0",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2"
   }

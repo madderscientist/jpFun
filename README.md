@@ -46,9 +46,8 @@ pnpm test
 pnpm run dev               # 启动 Playground
 pnpm run build:core        # 构建核心包
 pnpm run build:playground  # 构建 Playground
-pnpm run test_preprocess   # 预处理测试
-pnpm run test_layout       # 布局测试
-pnpm run test_render       # 渲染测试
+pnpm run typecheck         # 只做类型检查（tsx 跑测试时不检查类型）
+pnpm run test:update       # 重写测试快照基线
 ```
 
 ## 仓库结构

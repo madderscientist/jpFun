@@ -169,7 +169,7 @@ const hoverControl = ViewPlugin.define(view => {
     let last = { x: 0, y: 0 };
     let hideTimer = -1;
 
-    const cancelHide = () => { clearTimeout(hideTimer); hideTimer = -1; };
+    const cancelHide = () => { window.clearTimeout(hideTimer); hideTimer = -1; };
     const hide = () => {
         cancelHide();
         if (view.state.field(functionHover.active).length) view.dispatch({ effects: closeHoverTooltips });
@@ -181,7 +181,7 @@ const hoverControl = ViewPlugin.define(view => {
         if (event.x !== last.x || event.y !== last.y) suppressed = false;   // 鼠标真的挪了窝
         last = { x: event.x, y: event.y };
         if (!view.state.field(functionHover.active).length || staysOnHover(view, event)) return cancelHide();
-        if (hideTimer < 0) hideTimer = setTimeout(() => {
+        if (hideTimer < 0) hideTimer = window.setTimeout(() => {
             hide();
             // CM 在悬浮框开着时不重算 hover，关掉后得自己补一次，否则停在相邻函数上不出新的
             const pos = view.posAtCoords(last);

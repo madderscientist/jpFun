@@ -9,9 +9,8 @@
     "build:core": "pnpm --filter jpfun build",
     "build:playground": "pnpm --filter @jpfun/playground build",
     "test": "pnpm --filter jpfun test",
-    "test_preprocess": "pnpm --filter jpfun test_preprocess",
-    "test_layout": "pnpm --filter jpfun test_layout",
-    "test_render": "pnpm --filter jpfun test_render",
+    "test:update": "pnpm --filter jpfun test:update",
+    "typecheck": "pnpm --filter jpfun typecheck",
     "predev": "pnpm run build:core",
     "dev": "node scripts/dev-server.mjs"
   }
