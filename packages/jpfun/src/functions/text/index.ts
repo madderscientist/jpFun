@@ -1,5 +1,5 @@
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, ParserContext, SourceSpan, LengthValue } from "../ASTtypes.js";
-import { ColType, TemporalNodeBase } from "../../lowering/types.js";
+import { DEFAULT_KEY, TemporalNodeBase } from "../../lowering/types.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";
 
@@ -51,7 +51,7 @@ class TextTemporalNode extends TemporalNodeBase {
         super();
         this.ast = ast;
         this.T = 0;
-        this.type = ColType.DEFAULT;
+        this.mergeKey = DEFAULT_KEY;
         this.initLayoutBox();
     }
 

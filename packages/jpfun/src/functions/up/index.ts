@@ -3,7 +3,8 @@ import { ParserContext } from "../../parser/parserContext.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import {
-    ColType,
+    ANCHOR_KEY,
+    DEFAULT_KEY,
     isVisualTemporalNode,
     TemporalNodeBase,
     type VisualTemporalNode,
@@ -22,12 +23,12 @@ import type { Painter } from "../../render/types.js";
  * 而且有三个问题：
  * 1. 排版上不好对齐。只有一个元素可以直接用anchor进行对齐，而多个，甚至是嵌套，对齐锚点应该选择哪个呢？
  * 2. 时间上不好对齐。如果某个元素里面包含了多个事件，在 onTimeState 时应该如何处理？
- * 3. ColType 类型不好确定。如果每个元素都只有一个，那么 ColType 可以直接取最小值，但是如果某个元素里面有多个事件，那么 ColType 应该取哪个呢？
+ * 3. 合并组不好确定。如果某个元素里面有多个事件，该取哪个的 mergeKey 呢？
  *
- * ColType 属于一个时间位置，不属于任意大的 AST 子树。所以每个元素必须有以下接口：
+ * mergeKey 属于一个时间位置，不属于任意大的 AST 子树。所以每个元素必须有以下接口：
  * - box
  * - t/T
- * - colType
+ * - mergeKey
  * - onTimeState
  *
  * 此时 up 的每个元素就只允许为一个 VisualTemporalNode，不再需要处理子内容了
@@ -206,8 +207,8 @@ class UpTemporal extends TemporalNodeBase {
         this.members = members;
 
         this.T = members[0]?.T ?? 0;
-            this.t = 0;
-        this.type = ColType.DEFAULT;
+        this.t = 0;
+        this.mergeKey = DEFAULT_KEY;
         this.initLayoutBox();
 
         // 第一个成员决定和弦的时值，它的修饰语义也随之成为整个和弦的修饰，
@@ -217,7 +218,9 @@ class UpTemporal extends TemporalNodeBase {
         if (leadAddon) this.addon = { ...leadAddon };
 
         for (const member of members) {
-            if (member.type < this.type) this.type = member.type;
+            // 只有锚点需要传上来：`| ^ @text(A)` 得保持小节线语义；
+            // 成员不进全局 columns，它们自己的合并组对外没有意义
+            if (member.mergeKey === ANCHOR_KEY) this.mergeKey = ANCHOR_KEY;
             // 堆叠在一起的成员共享同一个时值，由第一个成员决定；
             // 本来就没有时长的成员（标注、小节线等）保持 0，不会被拉长
             if (member.T !== 0) member.T = this.T;

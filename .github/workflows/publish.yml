@@ -35,7 +35,4 @@ jobs:
           pkg=$(node -p "require('./packages/jpfun/package.json').version")
           test "$tag" = "$pkg" || { echo "tag=$tag but package.json=$pkg"; exit 1; }
 
-      - run: pnpm --filter jpfun publish --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: true
+      - run: npm publish ./packages/jpfun --access public --provenance

@@ -5,7 +5,6 @@ import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { ParserContext, skipSpaces } from "../../parser/parserContext.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import {
-    ColType,
     isVisualTemporalNode,
     TemporalNodeBase,
 } from "../../lowering/types.js";
@@ -527,10 +526,7 @@ class VoiceNameTemporal extends TemporalNodeBase {
         this.ast = ast;
         this.braceSpace = braceSpace;
         this.T = 0;
-        // 同一个 voices 块里每个成员都会产生本事件，列结构对称，
-        // 因此可以安全地归并成一列并右对齐；
-        // 独立的 @voice 与相邻分支不对称，必须单独成列，否则会把同时刻的音符挤到下一列
-        this.type = ast.parent instanceof VoicesFunction ? ColType.DEFAULT : ColType.SINGLE;
+        this.mergeKey = -2;
         // 既没有名称、也不需要括号空间和标签列时只保留不可见的占位事件：
         // 它不进入可见对象，也不让空声部失去默认槽位高度
         if (ast.name || braceSpace > 0 || ast.lyrics.some(lyric => lyric.name)) this.initLayoutBox();

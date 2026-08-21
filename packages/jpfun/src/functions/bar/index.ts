@@ -1,6 +1,6 @@
 import { LengthValue, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
-import { ColType, TemporalNodeBase } from "../../lowering/types.js";
+import { ANCHOR_KEY, TemporalNodeBase } from "../../lowering/types.js";
 import type { HorizontalLineView, LayoutBox, LayoutHost } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";
 
@@ -93,7 +93,7 @@ class BarTemporalNode extends TemporalNodeBase {
         super();
         this.ast = ast;
         this.T = 0;
-        this.type = ColType.ANCHOR;
+        this.mergeKey = ANCHOR_KEY;
         this.initLayoutBox();
         // 由于有最小时长，因此设置alpha依然有效
         this.springConfig = {

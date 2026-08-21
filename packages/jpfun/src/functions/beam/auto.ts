@@ -1,5 +1,5 @@
 import {
-    ColType,
+    ANCHOR_KEY,
     isVisualTemporalNode,
     type LoweringResult,
     type TemporalNodeBase,
@@ -185,14 +185,14 @@ function createAdjacentBeams(
     };
 
     for (const column of result.columns) {
-        const anchor = column.find(node => node.type === ColType.ANCHOR);
+        const anchor = column.find(node => node.mergeKey === ANCHOR_KEY);
         if (anchor) {
             flushAll();
             measureStart = anchor.t;
         }
 
         for (const node of column) {
-            if (node.type === ColType.ANCHOR) continue;
+            if (node.mergeKey === ANCHOR_KEY) continue;
 
             const memberships = isVisualTemporalNode(node) ? nodeScopes.get(node) : undefined;
             const isIndependentDiv = memberships?.every(scope => scope.nodes.length === 1) ?? false;

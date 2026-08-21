@@ -5,7 +5,7 @@ import type {
     PageConfig,
 } from "../layout/types.js";
 import {
-    ColType,
+    ANCHOR_KEY,
     TemporalNodeBase,
     type LoweringAugmenter,
     type LoweringFinalizer,
@@ -112,46 +112,17 @@ export class LoweringContext {
      * 固化谱面行号并进行时间状态固化
      */
     private solidifyColumns(columns: TimeColumn[]) {
-        // 同一轨的请求累加（`br br` 两行），不同轨的请求取最大（两轨同时 br 只换一行）
+        // 同时刻跨轨的 br 已经合成一列，所以取最大；同轨连写仍是多个列，因而累加
         let line = 0;
-        let t = 0;  // 上一个br的时间点
-        let requests = new Map<Track, number>();
-        let pending: TimeColumn[] = [];
-
-        const applyBreak = () => {
-            if (requests.size === 0) return;
+        for (const column of columns) {
             let offset = 0;
-            for (const value of requests.values()) offset = Math.max(offset, value);
+            for (const node of column) {
+                if (node.breakBefore > offset) offset = node.breakBefore;
+            }
             line += offset;
             // 换行列本身归属于换行之后的那一行
-            for (const column of pending as TimeColumn[]) column.layoutLine = line;
-            requests.clear();
-            pending.length = 0;
-        };
-
-        for (const column of columns) {
-            if (!column.breakRequested) {
-                applyBreak();
-                column.layoutLine = line;
-                continue;
-            }
-            if (column.t !== t) {
-                applyBreak();   // 不在同一时刻，重启换行
-                t = column.t;
-            } else {
-                for (const node of column) {
-                    if (node.breakBefore <= 0) continue;
-                    if (requests.has(node.track)) {
-                        applyBreak();   // 同一轨重复出现，先把之前的换行列固化
-                        break;
-                    }
-                }
-            }
-            for (const node of column) {
-                if (node.breakBefore > 0) requests.set(node.track, node.breakBefore);
-            } pending.push(column);
+            column.layoutLine = line;
         }
-        applyBreak();
 
         // 行号全部就位后再固化时间状态，up 等节点才能把行号转发给内部成员
         const state: Record<string, any> = {};
@@ -254,7 +225,7 @@ export class LoweringContext {
         event.track = track;
         event.ast ??= owner;
         event.order = this.cnt++;
-        event.type ??= event.T === 0 ? ColType.SINGLE : ColType.DEFAULT;
+        event.mergeKey ??= event.order; // 默认为独立成列，用 order 保证唯一性
     }
 
     /**
@@ -379,19 +350,19 @@ export class LoweringContext {
             let t0 = a.t, t1 = b.t;
 
             while (true) {
-                if (a.type === ColType.ANCHOR) {
+                if (a.mergeKey === ANCHOR_KEY) {
                     // 等待b也遇到anchor
-                    if (b.type !== ColType.ANCHOR) {
+                    if (b.mergeKey !== ANCHOR_KEY) {
                         result.push(b);
                         b = track1[++j];
-                        while (j < l1 && b.type !== ColType.ANCHOR) {
+                        while (j < l1 && b.mergeKey !== ANCHOR_KEY) {
                             if (jdt) b.t += jdt;    // setter 比较重，能避免尽量避免
                             result.push(b);
                             b = track1[++j];
                         }
                         if (b) b.t = t1 = b.t + jdt;
                     }
-                    if (j < l1) {    // b.type === "anchor"
+                    if (j < l1) {    // b 也是 anchor
                         const maxT = Math.max(t0, t1);
                         idt += maxT - t0, jdt += maxT - t1;
                         a.push(...b);
@@ -405,11 +376,11 @@ export class LoweringContext {
                     if (b) b.t = t1 = b.t + jdt;
                     if (!a || !b) break;
                 }
-                if (b.type === ColType.ANCHOR) {
-                    if (a.type !== ColType.ANCHOR) {
+                if (b.mergeKey === ANCHOR_KEY) {
+                    if (a.mergeKey !== ANCHOR_KEY) {
                         result.push(a);
                         a = track0[++i];
-                        while (i < l0 && a.type !== ColType.ANCHOR) {
+                        while (i < l0 && a.mergeKey !== ANCHOR_KEY) {
                             if (idt) a.t += idt;
                             result.push(a);
                             a = track0[++i];
@@ -430,19 +401,7 @@ export class LoweringContext {
                     if (!a || !b) break;
                 }
                 if (Math.abs(t0 - t1) < 1e-6) {
-                    if (a.type === ColType.SINGLE) {
-                        result.push(a);
-                        a = track0[++i];
-                        if (a) {
-                            a.t = t0 = a.t + idt;
-                        } else break;
-                    } else if (b.type === ColType.SINGLE) {
-                        result.push(b);
-                        b = track1[++j];
-                        if (b) {
-                            b.t = t1 = b.t + jdt;
-                        } else break;
-                    } else {
+                    if (a.mergeKey === b.mergeKey) {
                         a.push(...b);
                         result.push(a);
                         a = track0[++i];
@@ -450,6 +409,18 @@ export class LoweringContext {
                         if (a) a.t = t0 = a.t + idt;
                         if (b) b.t = t1 = b.t + jdt;
                         if (!a || !b) break;
+                    } else if (a.mergeKey < b.mergeKey) {
+                        result.push(a);
+                        a = track0[++i];
+                        if (a) {
+                            a.t = t0 = a.t + idt;
+                        } else break;
+                    } else {
+                        result.push(b);
+                        b = track1[++j];
+                        if (b) {
+                            b.t = t1 = b.t + jdt;
+                        } else break;
                     } continue;
                 }
                 if (t0 < t1) {
@@ -524,40 +495,34 @@ export class LoweringContext {
                 result.push(container);
                 continue;
             }
-            switch (front.e.type) {
-                case ColType.ANCHOR:
-                    // 进入缓冲区 不补充本track的下一个元素
-                    anchorBuffer.push(front);
-                    break;
-                case ColType.SINGLE:
-                    result.push(front.e);
-                    fetchNext(front.i);
-                    break;
-                default:
-                    // 找同时的
-                    const minT = front.e.t + 1e-6;  // 避免浮点数误差
-                    const consumed = [front.i];
-                    while (true) { // heap 的排序保证此时同时刻没有single和anchor
-                        const f = heap.front();
-                        if (!f || f.e.t > minT) break;  // 所有轨道都处理完了
-                        heap.pop();
-                        front.e.push(...f.e);
-                        consumed.push(f.i);
-                    }
-                    result.push(front.e);
-                    // 最后再加新的，使得只合并每个轨道最前面的，防止把后面同时刻的都合并了
-                    // 这也是引入 SINGLE 的原因
-                    for (const i of consumed) fetchNext(i);
+            if (front.e.mergeKey === ANCHOR_KEY) {
+                // 进入缓冲区 不补充本track的下一个元素
+                anchorBuffer.push(front);
+                continue;
             }
+            // 找同时刻的同组
+            const minT = front.e.t + 1e-6;  // 避免浮点数误差
+            const consumed = [front.i];
+            while (true) {
+                const f = heap.front();
+                // 堆序保证同组相邻，遇到别的组即说明本组已取完
+                if (!f || f.e.t > minT || f.e.mergeKey !== front.e.mergeKey) break;
+                heap.pop();
+                front.e.push(...f.e);
+                consumed.push(f.i);
+            }
+            result.push(front.e);
+            // 最后再加新的，使得只合并每个轨道最前面的，防止把后面同时刻的都合并了
+            for (const i of consumed) fetchNext(i);
         } return result;
     }
 }
 
 class TimeColumn extends Array<TemporalNodeBase> {
-    type: TemporalNodeBase["type"];
+    readonly mergeKey: number;
     constructor(n: TemporalNodeBase) {
         super(1);
-        this.type = n.type;
+        this.mergeKey = n.mergeKey;
         this[0] = n;
     }
     get t() {
@@ -565,13 +530,6 @@ class TimeColumn extends Array<TemporalNodeBase> {
     }
     set t(value: number) {
         for (const n of this) n.t = value;
-    }
-
-    /** 当前列是否携带换行请求 */
-    get breakRequested() {
-        for (const node of this) {
-            if (node.breakBefore > 0) return true;
-        } return false;
     }
 
     /** 将当前列所有事件的行号固化为 lowering 后的实际行号 */
@@ -587,8 +545,8 @@ interface heapItem {
 
 function heapItemCmp(a: heapItem, b: heapItem) {
     if (a.e.t !== b.e.t) return a.e.t - b.e.t;
-    const orderDiff = a.e.type - b.e.type;
-    if (orderDiff !== 0) return orderDiff;
+    // 有无穷所以不能直接减
+    if (a.e.mergeKey !== b.e.mergeKey) return a.e.mergeKey < b.e.mergeKey ? -1 : 1;
     return a.i - b.i;
 }
 // 最小堆

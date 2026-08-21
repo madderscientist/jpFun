@@ -63,18 +63,15 @@ export type TimeFlowModel =
     | { mode: "parallel"; children: ASTNodeBase[]; tracks: TrackArrangement };
 
 /**
- * 在时间列中怎么表现
- * - anchor: 时间对齐点，比如 bar
- * - single: 需要单独成列，一般是设置或 br 等控制事件，避免与普通事件合列
- * - default: 其他所有希望被分到同一个时间列的
- * 
- * 由于有优先级别（需要可比），所以用了枚举
+ * 事件的合并组：同一时刻 mergeKey 相等的事件归并成一列
+ *
+ * 缺省取事件自身的 order，因而互不相等、各自独占一列；需要合并的显式取相同的值。
+ * 数值同时决定同时刻的列先后，越小越靠左。已占用的共享常量：-1 br，-2 声部名
  */
-export const enum ColType {
-    ANCHOR, // anchor 最优先
-    SINGLE,
-    DEFAULT // 普通事件必须最后
-}
+/** 时间对齐点（小节线）；必须是最小值，最先出队 */
+export const ANCHOR_KEY = -Infinity;
+/** 普通事件的公共组 */
+export const DEFAULT_KEY = Infinity;
 
 /** 
  * 时间线事件
@@ -92,7 +89,7 @@ export class TemporalNodeBase implements TimeLineEvent {
     ast!: ASTNodeBase;  // 对应的 AST 节点
     order!: number;     // 事件创建序号，作为id。可用于区分同时发生的父子、排序同一时刻发生的事件
     addon?: Record<string, any>; // 其他任意字段，仅在存在已固化的函数语义时创建，比如存储 div 和 dot 的数目
-    type!: ColType;     // 事件类型
+    mergeKey!: number;  // 时间列合并组
 
     /**
      * 被折叠进哪个宿主的盒子（由宿主自己设置）

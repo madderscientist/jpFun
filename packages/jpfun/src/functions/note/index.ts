@@ -115,7 +115,7 @@ class NoteFunction extends ASTFunctionNode {
 
 export const NoteNode: ASTFunctionClass = NoteFunction;
 
-import { ColType, TemporalNodeBase } from "../../lowering/types.js";
+import { DEFAULT_KEY, TemporalNodeBase } from "../../lowering/types.js";
 import { resolveLetterNameToJianpu, resolveNoteMidi } from "../../parser/parse-utils/note-utils.js";
 
 interface PlacedAccidental {
@@ -163,7 +163,7 @@ class NoteTemporalNode extends TemporalNodeBase {
         this.ast = ast;
         this.T = 1;
         this.t = 0;
-        this.type = ColType.DEFAULT;
+        this.mergeKey = DEFAULT_KEY;
         this.name = ast.name;
         this.acc = ast.acc;
         this.octave = ast.octave;

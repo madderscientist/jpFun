@@ -1,6 +1,6 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
-import { ColType, TemporalNodeBase } from "../../lowering/types.js";
+import { DEFAULT_KEY, TemporalNodeBase } from "../../lowering/types.js";
 import type { LayoutBox } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";
 
@@ -54,7 +54,7 @@ class DashTemporalNode extends TemporalNodeBase {
         super();
         this.ast = ast;
         this.T = 1;
-        this.type = ColType.DEFAULT;
+        this.mergeKey = DEFAULT_KEY;
         this.initLayoutBox();
     }
 

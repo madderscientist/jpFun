@@ -17,7 +17,7 @@ class TemporalNodeBase {
     t: number;        // 开始时间，单位 QN（四分音符时值）
     T: number;        // 持续时间
     track: Track;     // 所在的纵向音轨
-    type: ColType;    // 进入时间列的方式
+    mergeKey: number; // 合并组；相等才进同一个时间列。其中 -inf 有时间对齐锚点的含义
     ast: ASTNodeBase; // 来源 AST，便于定位和查找关系端点
 }
 ```
@@ -25,10 +25,13 @@ class TemporalNodeBase {
 函数通常只需给出事件自身的时长和语义；`LoweringContext` 会补齐开始时间、音轨、创建顺序和来源 AST。AST 在解析完成后保持只读，后续信息都写入 Temporal。
 
 ### Column：时间列
-`columns` 是排版器的横向输入。一个时间列包含应共享横向位置的事件，但“开始时间相同”不一定意味着“放进同一列”。`ColType` 用来区分：
-- `DEFAULT`：普通事件；并行音轨上同时发生时可以合列。
-- `SINGLE`：必须独占一列；常用于 `set`、`br` 等控制事件，避免遮断相邻主体的对齐。
-- `ANCHOR`：对齐锚点，例如小节线；并行分支会在对应锚点处会合。
+`columns` 是排版器的横向输入。一个时间列包含应共享横向位置的事件，但“开始时间相同”不一定意味着“放进同一列”。`mergeKey` 用来区分：同一时刻只有 `mergeKey` 相等的事件才合并。
+- `DEFAULT_KEY`（`Infinity`）：普通事件的公共组；并行音轨上同时发生时合列。
+- 缺省值（事件自身的 `order`）：互不相等，因而独占一列；`key`、`tempo` 等控制事件靠它避免遮断相邻主体的对齐。
+- 手写负常量：需要跨轨合并的事件取相同值，如声部名用 `-2` 合成一条标签列。
+- `ANCHOR_KEY`（`-Infinity`）：对齐锚点，例如小节线；并行分支会在对应锚点处会合。它必须是最小值，归并循环靠它先出队才不会被普通列吞掉。
+
+数值同时决定同时刻的列先后，越小越靠左。
 
 锚点对齐只发生在当前 `parallel` 子树内。某个分支先到锚点时会等待其他分支，较早分支后面的事件整体后移。这样临时多声部结束后，不会影响文档后面的时间。
 
@@ -51,7 +54,7 @@ class TemporalNodeBase {
 
 ### 1. 产生并追加事件
 每个新事件会依次经历：
-1. 补齐 `t`、`T`、`track`、`ast`、`order` 和默认 `ColType`。
+1. 补齐 `t`、`T`、`track`、`ast`、`order` 和默认 `mergeKey`。
 2. 记录到 `astToTemporal`，供标签、tie、beam 等按 AST 查找端点。
 3. 交给当前所有 `LoweringGroup` 观察或修改。
 4. 加入时间列，并把时间游标推进到事件结束处。
@@ -143,7 +146,7 @@ class NoteTemporalNode extends TemporalNodeBase {
         super();
         this.ast = ast;
         this.T = 1;
-        this.type = ColType.DEFAULT;
+        this.mergeKey = DEFAULT_KEY;
     }
 
     override onTimeState(state: Record<string, any>) {

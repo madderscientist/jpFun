@@ -351,7 +351,7 @@ export class GraceTemporal extends TemporalNodeBase {
 
         this.t = 0;
         this.T = host.T;
-        this.type = host.type;
+        this.mergeKey = host.mergeKey;
         this.initLayoutBox();
 
         // 宿主携带整体节奏，它的修饰暂时成为复合体的修饰，自动连梁才看得到

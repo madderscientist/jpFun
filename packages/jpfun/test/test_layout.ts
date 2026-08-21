@@ -6,7 +6,7 @@ import { layoutDocument, paintLayout } from "../src/layout/engine.js";
 import { DEFAULT_PAGE_CONFIG, normalizePageConfig } from "../src/layout/page.js";
 import { RecordingPainter } from "../src/render/recording.js";
 import { LoweringContext } from "../src/lowering/loweringContext.js";
-import { ColType, isVisualTemporalNode } from "../src/lowering/types.js";
+import { ANCHOR_KEY, isVisualTemporalNode } from "../src/lowering/types.js";
 import type { LayoutAttachment, LayoutBox } from "../src/layout/types.js";
 import { ParserContext } from "../src/parser/parserContext.js";
 import { ErrorDiagnostic } from "../src/diagnostic.js";
@@ -258,8 +258,8 @@ assert(
 
 const loweredUpAnchor = lower(`@up(1, @bar()) 2`);
 assert(
-    loweredUpAnchor.columns[0][0].type === ColType.ANCHOR,
-    "up must inherit the strongest column type from its members",
+    loweredUpAnchor.columns[0][0].mergeKey === ANCHOR_KEY,
+    "up must inherit the anchor merge group from its members",
 );
 assertLoweringError(`@up({1 2}, 3)`, "E_UP_INVALID_CHILD");
 assertLoweringError(`@up({@tempo(90) 1}, 3)`, "E_UP_INVALID_CHILD");
@@ -565,7 +565,7 @@ const parallelBreakResult = layoutDocument(loweredParallelBreak, context);
 const parallelBreakColumns = loweredParallelBreak.columns.filter(column =>
     column.some(node => node.breakBefore > 0)
 );
-assert(parallelBreakColumns.length === 2, "each parallel br must remain an independent SINGLE column");
+assert(parallelBreakColumns.length === 1, "simultaneous parallel br controls must merge into one column");
 assert(parallelBreakResult.lineCount === 2, "simultaneous br controls on different tracks must break the score only once");
 assert(parallelBreakResult.objects[2].layoutLine === 1 && parallelBreakResult.objects[3].layoutLine === 1, "both parallel tracks must continue on the same new line");
 

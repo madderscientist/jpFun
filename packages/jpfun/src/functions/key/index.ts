@@ -1,4 +1,4 @@
-import { ColType, TemporalNodeBase } from "../../lowering/types.js";
+import { TemporalNodeBase } from "../../lowering/types.js";
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, ParserContext, SourceSpan } from "../ASTtypes.js";
 
 class KeyFunction extends ASTFunctionNode {
@@ -41,7 +41,6 @@ class KeyTemporalNode extends TemporalNodeBase {
     constructor(ast: KeyFunction) {
         super();
         this.ast = ast;
-        this.type = ColType.SINGLE;
     }
     override onTimeState(state: Record<string, any>) {
         state.keySignature = this.ast.tonality;

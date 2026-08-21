@@ -1,4 +1,4 @@
-import { ColType, TemporalNodeBase } from "../../lowering/types.js";
+import { TemporalNodeBase } from "../../lowering/types.js";
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, ParserContext, SourceSpan } from "../ASTtypes.js";
 
 class TempoFunction extends ASTFunctionNode {
@@ -38,7 +38,6 @@ class TempoTemporalNode extends TemporalNodeBase {
     constructor(ast: TempoFunction) {
         super();
         this.ast = ast;
-        this.type = ColType.SINGLE;
     }
     override onTimeState(state: Record<string, any>) {
         state.bpm = this.ast.bpm;

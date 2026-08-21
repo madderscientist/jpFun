@@ -1,6 +1,6 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { ParserContext, skipSpaces, skipSpacesBack } from "../../parser/parserContext.js";
-import { ColType, TemporalNodeBase, type LoweringResult } from "../../lowering/types.js";
+import { TemporalNodeBase, type LoweringResult } from "../../lowering/types.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
 import { Diagnostic, WarningDiagnostic } from "../../diagnostic.js";
 
@@ -46,7 +46,7 @@ class BrFunction extends ASTFunctionNode {
         const br = new TemporalNodeBase();
         br.ast = this;
         br.T = 0;
-        br.type = ColType.SINGLE;
+        br.mergeKey = -1;
         br.breakBefore = this.offset;
         return [br];
     }
