@@ -151,8 +151,7 @@ class NoteTemporalNode extends TemporalNodeBase {
     constructor(ast: NoteFunction) {
         super();
         this.ast = ast;
-        this.T = 1;
-        this.t = 0;
+        this.T.set(1);
         this.mergeKey = DEFAULT_KEY;
         this.name = ast.name;
         this.acc = ast.acc;

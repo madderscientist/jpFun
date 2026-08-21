@@ -92,7 +92,6 @@ class BarTemporalNode extends TemporalNodeBase {
     constructor(ast: BarFunction) {
         super();
         this.ast = ast;
-        this.T = 0;
         this.mergeKey = ANCHOR_KEY;
         this.initLayoutBox();
         // 由于有最小时长，因此设置alpha依然有效

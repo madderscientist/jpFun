@@ -1,5 +1,6 @@
 import type { Painter, TextMeasurer } from "../render/types.js";
 import type { Extent, Track } from "../lowering/track.js";
+import type { Fraction } from "../fraction.js";
 import type { HorizontalLayoutHook } from "./model.js";
 
 /** 轴对齐矩形，是所有排版几何的公共部分 */
@@ -36,8 +37,8 @@ export interface HorizontalSpringConfig {
 
 
 export interface TimeLineEvent {
-    t: number; // 事件发生的时间点
-    T: number; // 事件的持续时间
+    t: Fraction;  // 事件发生的时间点
+    T: Fraction;  // 事件的持续时间
     track: Track; // 事件所在的纵向音轨
 }
 

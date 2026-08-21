@@ -53,7 +53,7 @@ class DashTemporalNode extends TemporalNodeBase {
     constructor(ast: DashFunction) {
         super();
         this.ast = ast;
-        this.T = 1;
+        this.T.set(1);
         this.mergeKey = DEFAULT_KEY;
         this.initLayoutBox();
     }

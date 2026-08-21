@@ -22,13 +22,13 @@ const plainNote = layoutGrace(`1`).result.objects[0];
 const preGrace = layoutGrace(`2>1`);
 const preGraceNode = preGrace.result.objects[0] as VisualTemporalNode & {
     host: { box: LayoutBox };
-    graces: readonly { T: number }[];
+    graces: readonly VisualTemporalNode[];
     stealTime: number;
 };
 
 test("倚音折叠成一个可见对象，但保留宿主的时值与端口", () => {
     assert(preGrace.result.objects.length === 1, "a grace note must fold into a single visible object");
-    assert(preGraceNode.T === plainNote.T, "the composite must keep the host duration");
+    assert(preGraceNode.T.equals(plainNote.T), "the composite must keep the host duration");
     assert(preGraceNode.box.w > plainNote.box.w, "a grace note must reserve intrinsic horizontal space");
     assert(preGraceNode.box.anchor > plainNote.box.anchor, "a pre-grace must push the host anchor to the right");
     assert(nearly(preGraceNode.ports["lyric"].x, preGraceNode.box.anchor),
@@ -57,7 +57,7 @@ test("倚音的时值决定减时线数量与偷取的宿主时长", () => {
         "a bare grace note must render its default eighth-note beam line");
     assert(layoutGrace(`2/>1`).commands.filter(command => command.kind === "line").length === 2,
         "an explicit div inside the grace must add a second line");
-    assert(preGraceNode.graces[0].T === 0.5, "the grace member must keep its written duration for playback");
+    assert(preGraceNode.graces[0].T.equals(1, 2), "the grace member must keep its written duration for playback");
     assert(nearly(preGraceNode.stealTime, 0.5), "a bare grace steals half of the host duration");
     assert(nearly((layoutGrace(`2/>1`).result.objects[0] as typeof preGraceNode).stealTime, 0.25),
         "a sixteenth grace steals a quarter of the host duration");

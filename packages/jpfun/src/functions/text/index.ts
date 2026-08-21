@@ -75,7 +75,6 @@ class TextTemporalNode extends TemporalNodeBase {
     constructor(ast: TextFunction) {
         super();
         this.ast = ast;
-        this.T = 0;
         this.mergeKey = DEFAULT_KEY;
         this.style = { fontSize: ast.size, fill: "#000", textAlign: ast.align };
         this.initLayoutBox();

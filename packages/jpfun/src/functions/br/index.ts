@@ -3,6 +3,7 @@ import { ParserContext, skipSpaces, skipSpacesBack } from "../../parser/parserCo
 import { TemporalNodeBase, type LoweringResult } from "../../lowering/types.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
 import { Diagnostic, WarningDiagnostic } from "../../diagnostic.js";
+import { Fraction } from "../../fraction.js";
 
 class BrFunction extends ASTFunctionNode {
     static override def = {
@@ -45,7 +46,6 @@ class BrFunction extends ASTFunctionNode {
     override loweringEnter() {
         const br = new TemporalNodeBase();
         br.ast = this;
-        br.T = 0;
         br.mergeKey = -1;
         br.breakBefore = this.offset;
         return [br];
@@ -56,20 +56,20 @@ class BrFunction extends ASTFunctionNode {
      * 换行会把整条时间线切开，因此跨越换行点的持续事件无法被完整绘制
      */
     static override loweringFinalize = (result: LoweringResult) => {
-        let latestEnd = -Infinity;
+        const latestEnd = new Fraction();
+        const candidateEnd = new Fraction();
         let latestNode: TemporalNodeBase | null = null;
 
         for (const column of result.columns) {
-            const t = column[0].t;
-
-            if (latestEnd > t + 1e-6 && column.some(node => node.breakBefore > 0)) {
+            if (latestNode && latestEnd.compare(column[0].t) > 0 && column.some(node => node.breakBefore > 0)) {
                 throw Diagnostic.error.BreakInsideEvent(latestNode!.ast.sourceSpan);
             }
     
             for (const node of column) {
-                const end = node.t + node.T;
-                if (node.T > 1e-6 && end > latestEnd) {
-                    latestEnd = end;
+                if (node.T.isZero()) continue;
+                candidateEnd.copyFrom(node.t).add(node.T);
+                if (!latestNode || candidateEnd.compare(latestEnd) > 0) {
+                    latestEnd.copyFrom(candidateEnd);
                     latestNode = node;
                 }
             }

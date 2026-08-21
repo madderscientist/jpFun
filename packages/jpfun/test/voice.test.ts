@@ -11,7 +11,7 @@ test("声部的名称不推进时间，歌词行归一个附件并计入文档�
     const voiceResult = layoutOf(`@voice({1 2 3}, 主, 男="你 好 啊", 女="我 也 是")`);
 
     assert(voiceResult.objects.length === 4, "voice name and three notes must create four visible objects");
-    assert(voiceResult.objects[0].T === 0, "voice name must not advance musical time");
+    assert(voiceResult.objects[0].T.isZero(), "voice name must not advance musical time");
     assert(voiceResult.attachments.length === 1, "all lyric rows must belong to one voice attachment");
 
     const lyrics = voiceResult.attachments[0];
@@ -154,10 +154,10 @@ test("多声部括线画在声部名与音符之间，纵向跨足首末声部",
     const bracketed = layoutOf(`@voices(@voice({1}, 上), @voice({2}, 中), @voice({3}, 下))`);
     const bracket = bracketed.attachments.find(item => item.layer === "background");
     assert(bracket !== undefined && bracket.box.h > 0, "a multi-voice block must draw one bracket");
-    const bracketVoices = bracketed.objects.filter(object => object.T > 0);
+    const bracketVoices = bracketed.objects.filter(object => !object.T.isZero());
     assert(bracket.box.y < axisOf(bracketVoices[0]) && bracket.box.y + bracket.box.h > axisOf(bracketVoices[2]),
         "the bracket must span from the first voice to the last voice");
-    const bracketName = bracketed.objects.find(object => object.T === 0);
+    const bracketName = bracketed.objects.find(object => object.T.isZero());
     assert(bracketName !== undefined
         && bracket.box.x > bracketName.box.x + bracketName.box.anchor
         && bracket.box.x + bracket.box.w < bracketVoices[0].box.x,

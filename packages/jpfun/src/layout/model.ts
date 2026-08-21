@@ -3,6 +3,7 @@
  * 基本使用: 借助 layoutElement() 构建 LayoutElement[][]，调用 layout() 函数进行排版
  */
 import type { HorizontalSpringConfig, LayoutBox, TimeLineEvent } from "./types.js";
+import { Fraction } from "../fraction.js";
 
 const DEFAULT_F = 1.0;  // 多大力让一行的 margin 全变为 0
 const DEFAULT_ALPHA = 6;    // 控制无约束时元素的margin
@@ -58,7 +59,7 @@ export function layoutElement(
     completeSpringConfig(config, F);
 
     // 最小时长限制，与非线性变换（美观）
-    const duration = Math.pow(Math.max(time.T, MIN_DURATION), 0.5);
+    const duration = Math.pow(Math.max(time.T.toNumber(), MIN_DURATION), 0.5);
 
     return {
         config, box, time,
@@ -108,7 +109,7 @@ function fillPlaceholders(columns: LayoutElement[][], F: number = DEFAULT_F): {
                 // 出现了同一行同一时刻的多个元素，则优先时长更大的
                 // 重复的元素放到最后，不参与后续的元素比较
                 const elExist = sortedCol[rIdx];
-                if (el.time.T > elExist.time.T) {
+                if (el.time.T.compare(elExist.time.T) > 0) {
                     sortedCol[rIdx] = el;
                     sortedCol[same++] = elExist;
                 } else {
@@ -130,7 +131,8 @@ function fillPlaceholders(columns: LayoutElement[][], F: number = DEFAULT_F): {
                 } as HorizontalSpringConfig, {
                     x: 0, w: 0, anchor: 0
                 } as _LayoutBox, {
-                    t: colTime, T: 1, track: rowId[0]
+                    // 后面不会修改，所以直接引用
+                    t: colTime, T: new Fraction(1), track: rowId[0]
                 } as TimeLineEvent, F);
                 elPlaceholder.fake = true;
                 sortedCol[rIdx] = elPlaceholder;

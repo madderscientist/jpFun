@@ -1,5 +1,5 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass, functionAddonKey } from "../ASTtypes.js";
-import { ErrorDiagnostic } from "../../diagnostic.js";
+import { ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import type { LayoutDecorationHandler } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
@@ -7,8 +7,9 @@ import type { LoweringContext } from "../../lowering/loweringContext.js";
 const DOT_FUNC_NAME = "dot";
 const DOT_ADDON_KEY = functionAddonKey(DOT_FUNC_NAME);
 
-function durationFactor(count: number) {
-    return 2 - Math.pow(2, -count);
+function durationFactor(count: number): [number, number] {
+    const denominator = 2 ** count;
+    return [2 * denominator - 1, denominator];
 }
 
 class DotFunction extends ASTFunctionNode {
@@ -123,7 +124,12 @@ class DotFunction extends ASTFunctionNode {
                 const addon = node.addon ??= {};
                 const current = Number(addon[DOT_ADDON_KEY]) || 0;
                 const total = current + count;
-                node.T *= durationFactor(total) / durationFactor(current);
+                const [totalNumerator, totalDenominator] = durationFactor(total);
+                const [currentNumerator, currentDenominator] = durationFactor(current);
+                node.T.mul(
+                    totalNumerator * currentDenominator,
+                    totalDenominator * currentNumerator,
+                );
                 addon[DOT_ADDON_KEY] = total;
             },
         });
@@ -156,6 +162,15 @@ class DotFunction extends ASTFunctionNode {
             );
         }
         this.content.parent = this;
+        const n = Math.max(0, Math.trunc(this.n));
+        if (n !== this.n) {
+            ctx.diagnostics.push(new WarningDiagnostic(
+                "W_DOT_INVALID_N",
+                `@dot 的数量参数 n 必须为非负整数，已被修正为 ${n}`,
+                this.sourceSpan
+            ));
+            this.n = n;
+        }
     }
 
     override toString(source: string) {

@@ -2,6 +2,7 @@ import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, 
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import type { LayoutDecorationHandler, LayoutHost, LayoutPoint } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
+import { WarningDiagnostic } from "../../diagnostic.js";
 
 const DIV_FUNC_NAME = "div";
 export const DIV_ADDON_KEY = functionAddonKey(DIV_FUNC_NAME);
@@ -168,7 +169,7 @@ class DivFunction extends ASTFunctionNode {
                 if (count === 0) return;
                 const addon = node.addon ??= {};
                 addon[DIV_ADDON_KEY] = (Number(addon[DIV_ADDON_KEY]) || 0) + count;
-                node.T /= 2 ** count;
+                node.T.divPow2(count);
             },
         });
         return [];
@@ -198,6 +199,15 @@ class DivFunction extends ASTFunctionNode {
         this.autoBeamEnabled = parseAutoBeamFlag(ctx.variables["autobeam"]);
         // div 允许修饰任意 都会加下划线
         this.content.parent = this;
+        const n = Math.max(0, Math.trunc(this.n));
+        if (n !== this.n) {
+            ctx.diagnostics.push(new WarningDiagnostic(
+                "W_DIV_INVALID_N",
+                `@div 的数量参数 n 必须为非负整数，已被修正为 ${n}`,
+                this.sourceSpan
+            ));
+            this.n = n;
+        }
     }
 
     override toString(source: string) {

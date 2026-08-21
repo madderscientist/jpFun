@@ -1,4 +1,5 @@
 import { Diagnostic } from "../diagnostic.js";
+import { Fraction } from "../fraction.js";
 import { ASTFunctionClass, ASTNodeBase } from "../functions/ASTtypes.js";
 import type {
     LayoutAttachment,
@@ -95,14 +96,15 @@ export class LoweringContext {
         this.activeLoweringGroups = [];
 
         const rootTrack = new Track();
-        const { columns, timeOffset } = this.trackedEvents(node, 0, rootTrack);
+        const duration = new Fraction();
+        const columns = this.trackedEvents(node, duration, rootTrack);
         this.solidifyColumns(columns);
         return this.postprocessResult({
             diagnostics: this.diagnostics,
             columns,
             attachments: this.attachments,
             astToTemporal: this.astToTemporal,
-            duration: timeOffset,
+            duration,
             rootTrack,
             page: this.page,
         });
@@ -217,11 +219,10 @@ export class LoweringContext {
     private initEvent(
         event: TemporalNodeBase,
         owner: ASTNodeBase,
-        timeOffset: number,
+        timeOffset: Fraction,
         track: Track,
     ) {
-        event.t = timeOffset + (event.t ?? 0);
-        event.T ??= 0;
+        event.t.add(timeOffset);
         event.track = track;
         event.ast ??= owner;
         event.order = this.cnt++;
@@ -230,19 +231,16 @@ export class LoweringContext {
 
     /**
      * 递归展开一棵子树，得到它的时间列与结束时间
-     * @param timeOffset 当前节点的时间偏移量（单位QN） 由父节点传入
+     * @param timeOffset 当前节点的时间偏移量（单位QN） 由父节点传入，会被原地修改
      * @param track 当前所在的纵向音轨
      */
     trackedEvents(
         node: ASTNodeBase,
-        timeOffset: number,
+        timeOffset: Fraction,
         track: Track,
-    ): {
-        timeOffset: number,
-        columns: TimeColumn[]
-    } {
+    ): TimeColumn[] {
         const columns: TimeColumn[] = [];
-        timeOffset = this.appendEvents(
+        this.appendEvents(
             node.loweringEnter(this, track),
             node, timeOffset,
             track, columns,
@@ -254,9 +252,7 @@ export class LoweringContext {
             switch (model.mode) {
                 case "sequence": {
                     for (const c of model.children) {
-                        const result = this.trackedEvents(c, timeOffset, track);
-                        timeOffset = result.timeOffset;
-                        for (const column of result.columns) columns.push(column);
+                        for (const column of this.trackedEvents(c, timeOffset, track)) columns.push(column);
                     }
                 } break;
                 case "parallel": {
@@ -277,44 +273,57 @@ export class LoweringContext {
                             ? track
                             : group.members[hostIndex === null || i < hostIndex ? i : i - 1];
                         // 每个分支从头开始
-                        const result = this.trackedEvents(c, timeOffset, branchTrack);
-                        if (result.timeOffset <= timeOffset) {
+                        const branchTime = timeOffset.clone();
+                        const branch = this.trackedEvents(c, branchTime, branchTrack);
+                        if (branchTime.compare(timeOffset) <= 0) {
                             this.diagnostics.push(Diagnostic.warning.ZeroTimeTrack(c.sourceSpan, i + 1));
                         }
-                        branches.push(result.columns);
+                        branches.push(branch);
                     }
                     // 归并 局部归并以限制对齐作用域
                     for (const column of LoweringContext.anchorAlign(branches)) columns.push(column);
                     const lastCol = columns[columns.length - 1];
-                    if (lastCol) timeOffset = lastCol.t + lastCol.reduce((maxT, n) => Math.max(maxT, n.T), 0);
+                    if (lastCol) {
+                        let maxDuration = lastCol[0].T;
+                        for (let i = 1; i < lastCol.length; i++) {
+                            if (lastCol[i].T.compare(maxDuration) > 0) maxDuration = lastCol[i].T;
+                        }
+                        timeOffset.copyFrom(lastCol.t).add(maxDuration);
+                    }
                 } break;
             }
         }
-        timeOffset = this.appendEvents(
+        this.appendEvents(
             node.loweringExit(this, track),
             node, timeOffset,
             track, columns,
         );
-        return { timeOffset, columns };
+        return columns;
     }
 
-    /** 将 hook 返回的事件规范化、加入索引与分组，再追加到时间列 */
+    /**
+     * 将 hook 返回的事件规范化、加入索引与分组，再追加到时间列
+     * 原地修改 timeOffset
+     */
     private appendEvents(
         events: Iterable<TemporalNodeBase>,
         owner: ASTNodeBase,
-        timeOffset: number,
+        timeOffset: Fraction,
         track: Track,
         columns: TimeColumn[],
-    ): number {
+    ) {
+        // 由于大部分时候不会有事件，所以延迟创建
+        let eventEnd: Fraction | undefined;
         for (const event of events) {
             this.initEvent(event, owner, timeOffset, track);
             this.indexTemporal(event);
             for (const { group } of this.activeLoweringGroups) {
                 group.onTemporal?.(event);
             }
-            timeOffset = Math.max(timeOffset, event.t + event.T);
+            const end = (eventEnd ??= new Fraction()).copyFrom(event.t).add(event.T);
+            if (end.compare(timeOffset) > 0) timeOffset.copyFrom(end);
             columns.push(new TimeColumn(event));
-        } return timeOffset;
+        }
     }
 
     /** 记录 AST->TemporalNode 的映射 */
@@ -345,9 +354,9 @@ export class LoweringContext {
             const track0 = tracks[0], track1 = tracks[1];
             const l0 = track0.length, l1 = track1.length;
             let i = 0, j = 0;
-            let idt = 0, jdt = 0;   // 应用时间偏移一定要紧在 push 前
+            const idt = new Fraction(), jdt = new Fraction(); // 应用时间偏移一定要紧在 push 前
             let a = track0[0], b = track1[0];
-            let t0 = a.t, t1 = b.t;
+            const t0 = a.t.clone(), t1 = b.t.clone();
 
             while (true) {
                 if (a.mergeKey === ANCHOR_KEY) {
@@ -356,15 +365,19 @@ export class LoweringContext {
                         result.push(b);
                         b = track1[++j];
                         while (j < l1 && b.mergeKey !== ANCHOR_KEY) {
-                            if (jdt) b.t += jdt;    // setter 比较重，能避免尽量避免
+                            if (!jdt.isZero()) b.shiftTime(jdt);
                             result.push(b);
                             b = track1[++j];
                         }
-                        if (b) b.t = t1 = b.t + jdt;
+                        if (b) {
+                            b.shiftTime(jdt);
+                            t1.copyFrom(b.t);
+                        }
                     }
                     if (j < l1) {    // b 也是 anchor
-                        const maxT = Math.max(t0, t1);
-                        idt += maxT - t0, jdt += maxT - t1;
+                        const maxT = t0.compare(t1) >= 0 ? t0 : t1;
+                        idt.add(maxT).sub(t0);
+                        jdt.add(maxT).sub(t1);
                         a.push(...b);
                         a.t = maxT;
                         b = track1[++j];
@@ -372,8 +385,14 @@ export class LoweringContext {
                     result.push(a);
                     a = track0[++i];
                     // 准备下一个
-                    if (a) a.t = t0 = a.t + idt;
-                    if (b) b.t = t1 = b.t + jdt;
+                    if (a) {
+                        a.shiftTime(idt);
+                        t0.copyFrom(a.t);
+                    }
+                    if (b) {
+                        b.shiftTime(jdt);
+                        t1.copyFrom(b.t);
+                    }
                     if (!a || !b) break;
                 }
                 if (b.mergeKey === ANCHOR_KEY) {
@@ -381,61 +400,81 @@ export class LoweringContext {
                         result.push(a);
                         a = track0[++i];
                         while (i < l0 && a.mergeKey !== ANCHOR_KEY) {
-                            if (idt) a.t += idt;
+                            if (!idt.isZero()) a.shiftTime(idt);
                             result.push(a);
                             a = track0[++i];
                         }
-                        if (a) a.t = t0 = a.t + idt;
+                        if (a) {
+                            a.shiftTime(idt);
+                            t0.copyFrom(a.t);
+                        }
                     }
                     if (i < l0) {
-                        const maxT = Math.max(t0, t1);
-                        idt += maxT - t0, jdt += maxT - t1;
+                        const maxT = t0.compare(t1) >= 0 ? t0 : t1;
+                        idt.add(maxT).sub(t0);
+                        jdt.add(maxT).sub(t1);
                         b.push(...a);
                         b.t = maxT;
                         a = track0[++i];
                     }
                     result.push(b);
                     b = track1[++j];
-                    if (a) a.t = t0 = a.t + idt;
-                    if (b) b.t = t1 = b.t + jdt;
+                    if (a) {
+                        a.shiftTime(idt);
+                        t0.copyFrom(a.t);
+                    }
+                    if (b) {
+                        b.shiftTime(jdt);
+                        t1.copyFrom(b.t);
+                    }
                     if (!a || !b) break;
                 }
-                if (Math.abs(t0 - t1) < 1e-6) {
+                if (t0.equals(t1)) {
                     if (a.mergeKey === b.mergeKey) {
                         a.push(...b);
                         result.push(a);
                         a = track0[++i];
                         b = track1[++j];
-                        if (a) a.t = t0 = a.t + idt;
-                        if (b) b.t = t1 = b.t + jdt;
+                        if (a) {
+                            a.shiftTime(idt);
+                            t0.copyFrom(a.t);
+                        }
+                        if (b) {
+                            b.shiftTime(jdt);
+                            t1.copyFrom(b.t);
+                        }
                         if (!a || !b) break;
                     } else if (a.mergeKey < b.mergeKey) {
                         result.push(a);
                         a = track0[++i];
                         if (a) {
-                            a.t = t0 = a.t + idt;
+                            a.shiftTime(idt);
+                            t0.copyFrom(a.t);
                         } else break;
                     } else {
                         result.push(b);
                         b = track1[++j];
                         if (b) {
-                            b.t = t1 = b.t + jdt;
+                            b.shiftTime(jdt);
+                            t1.copyFrom(b.t);
                         } else break;
                     } continue;
                 }
-                if (t0 < t1) {
+                if (t0.compare(t1) < 0) {
                     result.push(a);
                     a = track0[++i];
                     if (a) {
-                        a.t = t0 = a.t + idt;
+                        a.shiftTime(idt);
+                        t0.copyFrom(a.t);
                         continue;
                     } else break;
                 }
-                if (t1 < t0) {
+                if (t1.compare(t0) < 0) {
                     result.push(b);
                     b = track1[++j];
                     if (b) {
-                        b.t = t1 = b.t + jdt;
+                        b.shiftTime(jdt);
+                        t1.copyFrom(b.t);
                         continue;
                     } else break;
                 }
@@ -444,13 +483,13 @@ export class LoweringContext {
             if (a) result.push(a);
             while (++i < l0) {
                 a = track0[i];
-                if (idt) a.t += idt;
+                if (!idt.isZero()) a.shiftTime(idt);
                 result.push(a);
             }
             if (b) result.push(b);
             while (++j < l1) {
                 b = track1[j];
-                if (jdt) b.t += jdt;
+                if (!jdt.isZero()) b.shiftTime(jdt);
                 result.push(b);
             }
             return result;
@@ -458,7 +497,7 @@ export class LoweringContext {
 
         // 归并多个轨道
         const p = new Uint16Array(l);   // 当前指向第几个
-        const dt = new Float64Array(l); // 每个轨道的偏移量
+        const dt = Array.from({ length: l }, () => new Fraction()); // 每个轨道的偏移量
         const anchorBuffer: heapItem[] = [];
         const heap = new HeapSort(l); // 保证每个轨在堆里最多一个
         for (let i = 0; i < l; i++) heap.push({ e: tracks[i][0], i });
@@ -466,7 +505,7 @@ export class LoweringContext {
         const fetchNext = (i: number) => {
             const e = tracks[i][++p[i]];
             if (e) {
-                if (dt[i]) e.t += dt[i];
+                if (!dt[i].isZero()) e.shiftTime(dt[i]);
                 heap.push({ e, i });
             }
         }
@@ -479,14 +518,16 @@ export class LoweringContext {
                 const first = anchorBuffer[0];
                 const container = first.e;
                 let maxT = container.t;
-                for (let j = 1; j < anchorBuffer.length; j++) maxT = Math.max(maxT, anchorBuffer[j].e.t);
-                dt[first.i] += maxT - container.t;
+                for (let j = 1; j < anchorBuffer.length; j++) {
+                    if (anchorBuffer[j].e.t.compare(maxT) > 0) maxT = anchorBuffer[j].e.t;
+                }
+                dt[first.i].add(maxT).sub(container.t);
                 fetchNext(first.i);
 
                 for (let j = 1; j < anchorBuffer.length; j++) {
                     const item = anchorBuffer[j];
                     container.push(...item.e);
-                    dt[item.i] += maxT - item.e.t;
+                    dt[item.i].add(maxT).sub(item.e.t);
                     fetchNext(item.i);
                 }
                 anchorBuffer.length = 0;
@@ -501,12 +542,11 @@ export class LoweringContext {
                 continue;
             }
             // 找同时刻的同组
-            const minT = front.e.t + 1e-6;  // 避免浮点数误差
             const consumed = [front.i];
             while (true) {
                 const f = heap.front();
                 // 堆序保证同组相邻，遇到别的组即说明本组已取完
-                if (!f || f.e.t > minT || f.e.mergeKey !== front.e.mergeKey) break;
+                if (!f || !f.e.t.equals(front.e.t) || f.e.mergeKey !== front.e.mergeKey) break;
                 heap.pop();
                 front.e.push(...f.e);
                 consumed.push(f.i);
@@ -528,8 +568,12 @@ class TimeColumn extends Array<TemporalNodeBase> {
     get t() {
         return this[0].t;
     }
-    set t(value: number) {
-        for (const n of this) n.t = value;
+    set t(value: Fraction) {
+        for (const node of this) node.t.copyFrom(value);
+    }
+
+    shiftTime(offset: Fraction) {
+        for (const node of this) node.t.add(offset);
     }
 
     /** 将当前列所有事件的行号固化为 lowering 后的实际行号 */
@@ -544,7 +588,8 @@ interface heapItem {
 }
 
 function heapItemCmp(a: heapItem, b: heapItem) {
-    if (a.e.t !== b.e.t) return a.e.t - b.e.t;
+    const timeOrder = a.e.t.compare(b.e.t);
+    if (timeOrder !== 0) return timeOrder;
     // 有无穷所以不能直接减
     if (a.e.mergeKey !== b.e.mergeKey) return a.e.mergeKey < b.e.mergeKey ? -1 : 1;
     return a.i - b.i;

@@ -2,6 +2,7 @@ import { ErrorDiagnostic } from "../../diagnostic.js";
 import { prepareLayoutHost } from "../../layout/engine.js";
 import type { LayoutBox, LayoutPoint, LayoutPrepareContext } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
+import { Fraction } from "../../fraction.js";
 import type { Track } from "../../lowering/track.js";
 import {
     isVisualTemporalNode,
@@ -264,7 +265,7 @@ class GraceFunction extends ASTFunctionNode {
                 ? [this.grace!, this.host!]
                 : [this.host!, this.grace!];
             for (const content of order) {
-                const events = ctx.trackedEvents(content, 0, track).columns.flat();
+                const events = ctx.trackedEvents(content, new Fraction(), track).flat();
                 const visible = events.filter(isVisualTemporalNode);
                 // 并行分支的纵向关系由引擎解 Track 树，而折叠成员进不了引擎
                 if (events.some(event => event.track !== track))
@@ -349,8 +350,7 @@ export class GraceTemporal extends TemporalNodeBase {
         this.graces = graces;
         this.side = side;
 
-        this.t = 0;
-        this.T = host.T;
+        this.T.copyFrom(host.T);
         this.mergeKey = host.mergeKey;
         this.initLayoutBox();
 
@@ -365,7 +365,7 @@ export class GraceTemporal extends TemporalNodeBase {
             // 倚音默认就是八分音符：补一条减时线，书面时值随之减半
             const addon = grace.addon = { ...grace.addon };
             addon[DIV_ADDON_KEY] = (Number(addon[DIV_ADDON_KEY]) || 0) + 1;
-            grace.T /= 2;
+            grace.T.divPow2();
         }
     }
 
@@ -375,7 +375,7 @@ export class GraceTemporal extends TemporalNodeBase {
             ? [...this.graces, this.host]
             : [this.host, ...this.graces];
         for (const member of members) {
-            member.t = this.t;
+            member.t.copyFrom(this.t);
             member.track = this.track;
             member.layoutLine = this.layoutLine;
             member.onTimeState?.(state);
@@ -389,8 +389,8 @@ export class GraceTemporal extends TemporalNodeBase {
      * 基准取宿主经过 div 与 dot 后的实际时值；延时线是独立事件、tie 不改 T，天然不计入。
      */
     get stealTime(): number {
-        const written = this.graces.reduce((sum, grace) => sum + grace.T, 0);
-        return Math.min(written, MAX_STEAL_RATIO) * this.T;
+        const written = this.graces.reduce((sum, grace) => sum + grace.T.toNumber(), 0);
+        return Math.min(written, MAX_STEAL_RATIO) * this.T.toNumber();
     }
 
     /**

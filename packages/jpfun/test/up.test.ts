@@ -13,11 +13,11 @@ const upTemporal = loweredUp.columns[0][0] as TemporalNodeBase & {
 test("up 成员不占全局列，共享和弦的时间位置与轨道", () => {
     assert(loweredUp.columns.length === 2, "up members must not create independent global columns");
     assert(upTemporal.members.length === 3, "up must retain exactly one visible temporal per argument");
-    assert(upTemporal.T === 1, "up duration must come from its first member");
-    assert(loweredUp.columns[1][0].t === 1, "the event after up must start after the first member duration");
+    assert(upTemporal.T.equals(1), "up duration must come from its first member");
+    assert(loweredUp.columns[1][0].t.equals(1), "the event after up must start after the first member duration");
     assert(
         upTemporal.members.every(member =>
-            member.t === upTemporal.t
+            member.t.equals(upTemporal.t)
             && member.track === upTemporal.track
             && member.layoutLine === upTemporal.layoutLine
         ),
@@ -37,24 +37,24 @@ test("up 继承成员的锚点合并组，并拒绝非法子节点", () => {
 test("堆叠成员共享第一个成员的时值，零时长成员保持 0", () => {
     const upMemberDurations = (source: string) => {
         const temporal = lower(source).columns[0][0] as TemporalNodeBase & {
-            members: readonly { T: number }[];
+            members: readonly TemporalNodeBase[];
         };
         return { duration: temporal.T, members: temporal.members.map(member => member.T) };
     };
     const dottedChord = upMemberDurations(`@up(1., 3)`);
-    assert(dottedChord.duration === 1.5 && dottedChord.members.every(T => T === 1.5),
+    assert(dottedChord.duration.equals(3, 2) && dottedChord.members.every(T => T.equals(3, 2)),
         "up members must adopt the first member duration");
     const flattenedChord = upMemberDurations(`@up(1, 3.)`);
-    assert(flattenedChord.duration === 1 && flattenedChord.members.every(T => T === 1),
+    assert(flattenedChord.duration.equals(1) && flattenedChord.members.every(T => T.equals(1)),
         "a longer later member must be pulled back to the first member duration");
     const annotatedChord = upMemberDurations(`@up(1., @text("cresc."))`);
-    assert(annotatedChord.members[0] === 1.5 && annotatedChord.members[1] === 0,
+    assert(annotatedChord.members[0].equals(3, 2) && annotatedChord.members[1].isZero(),
         "a zero-duration up member must stay at zero");
 });
 
 test("up 内外的修饰都累加到和弦本身", () => {
     const dividedChord = lower(`@div(@up(@div(1, 1), 3), 1)`).columns[0][0];
-    assert(dividedChord.T === 0.25 && dividedChord.addon?.["@div"] === 2,
+    assert(dividedChord.T.equals(1, 4) && dividedChord.addon?.["@div"] === 2,
         "modifiers inside and outside up must accumulate on the chord itself");
 });
 

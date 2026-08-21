@@ -71,7 +71,7 @@ test("并行轨的同时刻 br 归并成一列，只换一次行", () => {
     const loweredAsymmetricBreak = lower(`@stack({1 @br() 2}, {3 4})`);
     const simultaneousAfterBreak = loweredAsymmetricBreak.columns
         .flat()
-        .filter(node => isVisualTemporalNode(node) && nearly(node.t, 1));
+        .filter(node => isVisualTemporalNode(node) && node.t.equals(1));
     assert(simultaneousAfterBreak.length === 2, "the asymmetric break sample must retain both simultaneous events");
     assert(
         simultaneousAfterBreak.every(node => node.layoutLine === 1),

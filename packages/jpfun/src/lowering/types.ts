@@ -1,5 +1,6 @@
 import { ASTNodeBase } from "../functions/ASTtypes.js";
 import type { Diagnostic } from "../diagnostic.js";
+import { Fraction } from "../fraction.js";
 import type {
     LayoutAttachment,
     HorizontalSpringConfig,
@@ -34,7 +35,7 @@ export interface LoweringResult {
     columns: TemporalNodeBase[][];  // 按时间和对齐规则归并的事件列
     attachments: LayoutAttachment[];// 不推进时间的关系与分组对象
     astToTemporal: Map<ASTNodeBase, TemporalNodeBase[]>; // 关系函数和编辑器使用的 AST 到本轮事件索引
-    duration: number;               // 当前 lowering 范围的总时长
+    duration: Fraction;             // 当前 lowering 范围的总时长
     rootTrack: Track;               // 纵向音轨树的根
     page?: PageConfig;              // 文档页面配置；缺省时 layout 使用默认页面
 }
@@ -82,8 +83,8 @@ export class TemporalNodeBase implements TimeLineEvent {
     // 下面这批字段统一由 LoweringContext.initEvent 原地补全
 
     // 横向 layout 要用的三个属性
-    t!: number; // 事件发生的时间点
-    T!: number; // 事件的持续时间
+    readonly t = new Fraction(); // 事件发生的时间点
+    readonly T = new Fraction(); // 事件的持续时间
     track!: Track;  // 所在的纵向音轨；同轨判断使用引用相等
 
     ast!: ASTNodeBase;  // 对应的 AST 节点

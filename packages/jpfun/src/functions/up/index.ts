@@ -10,6 +10,7 @@ import {
     type VisualTemporalNode,
 } from "../../lowering/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
+import { Fraction } from "../../fraction.js";
 import type { Track } from "../../lowering/track.js";
 import { prepareLayoutHost } from "../../layout/engine.js";
 import type { LayoutBox, LayoutPoint, LayoutPrepareContext } from "../../layout/types.js";
@@ -135,7 +136,7 @@ class UpFunction extends ASTFunctionNode {
         ctx.isolateFromLoweringGroups(() => {
             for (const content of this.contents) {
                 // 摊平所有时间列取全部事件，和弦要求恰好一个
-                const [member, ...rest] = ctx.trackedEvents(content, 0, track).columns.flat();
+                const [member, ...rest] = ctx.trackedEvents(content, new Fraction(), track).flat();
                 if (!member || rest.length > 0 || !isVisualTemporalNode(member)) {
                     throw new ErrorDiagnostic(
                         "E_UP_INVALID_CHILD",
@@ -206,8 +207,7 @@ class UpTemporal extends TemporalNodeBase {
         this.ast = ast;
         this.members = members;
 
-        this.T = members[0]?.T ?? 0;
-        this.t = 0;
+        if (members[0]) this.T.copyFrom(members[0].T);
         this.mergeKey = DEFAULT_KEY;
         this.initLayoutBox();
 
@@ -223,7 +223,7 @@ class UpTemporal extends TemporalNodeBase {
             if (member.mergeKey === ANCHOR_KEY) this.mergeKey = ANCHOR_KEY;
             // 堆叠在一起的成员共享同一个时值，由第一个成员决定；
             // 本来就没有时长的成员（标注、小节线等）保持 0，不会被拉长
-            if (member.T !== 0) member.T = this.T;
+            if (!member.T.isZero()) member.T.copyFrom(this.T);
             // 修饰已经提升到和弦上，成员不再单独绘制，
             // 否则和弦内部会出现多余的减时线或附点
             member.addon = void 0;
@@ -240,7 +240,7 @@ class UpTemporal extends TemporalNodeBase {
         // 一般而言，最下面的成员是主体、上面的是标记，标记先写入主体才读得到
         for (let i = this.members.length - 1; i >= 0; i--) {
             const member = this.members[i];
-            member.t = this.t;
+            member.t.copyFrom(this.t);
             member.track = this.track;
             member.layoutLine = this.layoutLine;
             member.onTimeState?.(state);

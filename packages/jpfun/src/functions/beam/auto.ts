@@ -5,6 +5,7 @@ import {
     type TemporalNodeBase,
     type VisualTemporalNode,
 } from "../../lowering/types.js";
+import { Fraction } from "../../fraction.js";
 import type { LayoutAttachment } from "../../layout/types.js";
 import type { ASTNodeBase } from "../ASTtypes.js";
 import {
@@ -16,14 +17,11 @@ import {
     createBeamLayoutAttachment,
 } from "./layout.js";
 
-const QUARTER_NOTE_DURATION = 1;
-const TIME_EPSILON = 1e-6;
-
 interface AutoBeamGroup {
     nodes: VisualTemporalNode[];
     line: number;
     beat: number;
-    endTime: number;
+    endTime: Fraction;
 }
 
 interface DivScope {
@@ -145,8 +143,8 @@ function createScopeBeams(
     return attachments;
 }
 
-function beatAt(time: number): number {
-    return Math.floor((time + TIME_EPSILON) / QUARTER_NOTE_DURATION);
+function beatAt(time: Fraction): number {
+    return Math.floor(time.numerator / time.denominator);
 }
 
 /**
@@ -163,13 +161,14 @@ function createAdjacentBeams(
 ): LayoutAttachment[] {
     const attachments: LayoutAttachment[] = [];
     const groups = new Map<TemporalNodeBase["track"], AutoBeamGroup>();
-    const lineStarts = new Map<number, number>();
-    let measureStart = 0;
+    const lineStarts = new Map<number, Fraction>();
+    const measureStart = new Fraction();
+    const beatTime = new Fraction();
 
     for (const column of result.columns) {
         for (const node of column) {
             const current = lineStarts.get(node.layoutLine);
-            if (current === undefined || node.t < current) lineStarts.set(node.layoutLine, node.t);
+            if (current === undefined || node.t.compare(current) < 0) lineStarts.set(node.layoutLine, node.t);
         }
     }
 
@@ -188,7 +187,7 @@ function createAdjacentBeams(
         const anchor = column.find(node => node.mergeKey === ANCHOR_KEY);
         if (anchor) {
             flushAll();
-            measureStart = anchor.t;
+            measureStart.copyFrom(anchor.t);
         }
 
         for (const node of column) {
@@ -200,43 +199,44 @@ function createAdjacentBeams(
             const isCandidate = isVisualTemporalNode(node)
                 && isIndependentDiv
                 && autoBeamEnabled
-                && node.T < QUARTER_NOTE_DURATION - TIME_EPSILON
+                && node.T.compare(1) < 0
                 && !explicitEndpoints.has(node);
 
             if (!isCandidate) {
                 // 同轨可见元素必须打断相邻关系，即使它本身是零时长文本
                 // 不可见的 set/key/tempo 等零时长状态不会打断
-                if (isVisualTemporalNode(node) || node.T > TIME_EPSILON) flush(node.track);
+                if (isVisualTemporalNode(node) || !node.T.isZero()) flush(node.track);
                 continue;
             }
 
             const lineStart = lineStarts.get(node.layoutLine) ?? node.t;
-            const beat = beatAt(node.t - Math.max(measureStart, lineStart));
+            const activeStart = measureStart.compare(lineStart) >= 0 ? measureStart : lineStart;
+            const beat = beatAt(beatTime.copyFrom(node.t).sub(activeStart));
             const current = groups.get(node.track);
             if (!current) {
                 groups.set(node.track, {
                     nodes: [node],
                     line: node.layoutLine,
                     beat,
-                    endTime: node.t + node.T,
+                    endTime: node.t.clone().add(node.T),
                 });
                 continue;
             }
 
-            const isContinuous = Math.abs(node.t - current.endTime) < TIME_EPSILON;
+            const isContinuous = node.t.equals(current.endTime);
             if (node.layoutLine !== current.line || beat !== current.beat || !isContinuous) {
                 flush(node.track);
                 groups.set(node.track, {
                     nodes: [node],
                     line: node.layoutLine,
                     beat,
-                    endTime: node.t + node.T,
+                    endTime: node.t.clone().add(node.T),
                 });
                 continue;
             }
 
             current.nodes.push(node);
-            current.endTime = node.t + node.T;
+            current.endTime.copyFrom(node.t).add(node.T);
         }
     }
 

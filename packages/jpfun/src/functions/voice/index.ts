@@ -525,7 +525,6 @@ class VoiceNameTemporal extends TemporalNodeBase {
         super();
         this.ast = ast;
         this.braceSpace = braceSpace;
-        this.T = 0;
         this.mergeKey = -2;
         // 既没有名称、也不需要括号空间和标签列时只保留不可见的占位事件：
         // 它不进入可见对象，也不让空声部失去默认槽位高度
