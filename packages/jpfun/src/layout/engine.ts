@@ -1,5 +1,5 @@
 import { Diagnostic } from "../diagnostic.js";
-import type { Extent, Track } from "../lowering/track.js";
+import type { Extent, Track, TrackGroup, TrackPlacement } from "../lowering/track.js";
 import {
     isVisualTemporalNode,
     type LoweringResult,
@@ -455,8 +455,8 @@ interface VerticalSolution {
 /**
  * 沿 Track 树自内向外求出一条谱面行里所有音轨的纵向轴
  *
- * 引擎只做三件通用的事：递归求出每个成员的子树高度、调用该分组自己声明的 arrange、
- * 把返回的偏移并回宿主的占用范围。上方叠放还是局部居中完全由 arrange 决定，
+ * 引擎只做三件通用的事：递归求出每个成员的子树高度、调用该分组自己声明的 measure、
+ * 再用完整宿主占用调可选的 place 定位整组。上方叠放还是局部居中完全由函数决定，
  * 因此这里不需要认识 stack、voices 或任何将来新增的排版函数。
  */
 function solveVerticalAxes(
@@ -478,23 +478,55 @@ function solveVerticalAxes(
             else extent = { top: attachmentExtent.top, bottom: attachmentExtent.bottom };
         }
 
+        const measurements: {
+            group: TrackGroup;
+            placements: readonly (TrackPlacement | null)[];
+            extent: Extent;
+        }[] = [];
+
         for (const group of track.groups) {
             const memberExtents = group.members.map(solveTrack);
             // 整组在本行没有任何内容时不占位，避免共用音轨的分组在空行上浪费高度
             if (memberExtents.every(member => member === null)) continue;
 
-            const placements = group.arrange(extent ?? { top: 0, bottom: 0 }, memberExtents, gap);
-            extent ??= { top: 0, bottom: 0 };
-            for (let i = 0; i < group.members.length; i++) {
-                const placement = placements[i];
+            const placements = group.measure(memberExtents, gap);
+            let groupExtent: Extent | null = null;
+            for (const placement of placements) {
                 if (!placement) continue;
-                offsets.set(group.members[i], placement.offset);
-                includeExtent(
-                    extent,
-                    placement.offset + placement.extent.top,
-                    placement.offset + placement.extent.bottom,
-                );
+                const top = placement.offset + placement.extent.top;
+                const bottom = placement.offset + placement.extent.bottom;
+                if (groupExtent) includeExtent(groupExtent, top, bottom);
+                else groupExtent = { top, bottom };
             }
+            if (groupExtent) measurements.push({ group, placements, extent: groupExtent });
+        }
+
+        const applyPlacement = (
+            measurement: typeof measurements[number],
+            groupOffset: number,
+        ) => {
+            extent ??= { top: 0, bottom: 0 };
+            for (let i = 0; i < measurement.group.members.length; i++) {
+                const placement = measurement.placements[i];
+                if (!placement) continue;
+                offsets.set(measurement.group.members[i], groupOffset + placement.offset);
+            }
+            includeExtent(
+                extent,
+                groupOffset + measurement.extent.top,
+                groupOffset + measurement.extent.bottom,
+            );
+        };
+
+        // 先完成不依赖宿主的局部布局，依赖宿主的分组再贴到完整占用之外
+        for (const measurement of measurements) {
+            if (!measurement.group.place) applyPlacement(measurement, 0);
+        }
+        for (const measurement of measurements) {
+            const place = measurement.group.place;
+            if (!place) continue;
+            const host = extent ?? { top: 0, bottom: 0 };
+            applyPlacement(measurement, place(host, measurement.extent, gap));
         }
         return extent;
     };

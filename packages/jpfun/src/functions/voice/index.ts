@@ -9,7 +9,7 @@ import {
     isVisualTemporalNode,
     TemporalNodeBase,
 } from "../../lowering/types.js";
-import type { ArrangeFn, Extent, Track } from "../../lowering/track.js";
+import type { Extent, MeasureFn, Track } from "../../lowering/track.js";
 import type {
     AttachmentLayoutContext,
     LayoutAttachment,
@@ -32,9 +32,9 @@ const WHITEPACE_RE = /\s/;
  * 本行没有实质高度的成员（空声部，或内容都在上一行）仍然占一个默认高度的槽位，
  * 声部数量因而保持稳定，居中结果也不会因为某一声部没写东西而跳变。
  */
-function makeVoicesArrange(emptySlotHeight: number): ArrangeFn {
+function makeVoicesMeasure(emptySlotHeight: number): MeasureFn {
     const half = emptySlotHeight / 2;
-    return (_host, members, gap) => {
+    return (members, gap) => {
         const extents: Extent[] = members.map(member =>
             member && member.bottom - member.top > 1e-6 ? member : { top: -half, bottom: half });
         const offsets: number[] = [];
@@ -273,7 +273,6 @@ L: ...
      * 此处只建立歌词作用域，并按需在内容前创建声部名对象
      */
     override loweringEnter(ctx: LoweringContext) {
-
         // 无名声部也要产出一个（不可见的）名称事件，才能保证同一个 voices 块内
         // 每个成员的列结构完全一致，从而把所有声部名归并到同一列
         const parent = this.parent;
@@ -412,7 +411,7 @@ L: la la la
     /** 声部名右侧为大括号预留的横向空间 */
     readonly braceSpace: number;
     /** 闭包捕获 parse 期冻结的字号，用来决定空声部槽位的默认高度（1em） */
-    private readonly arrange: ArrangeFn;
+    private readonly measure: MeasureFn;
     override get children() { return this.voices; }
     override timeFlowModel() {
         return {
@@ -421,7 +420,7 @@ L: la la la
             tracks: {
                 laneKey: `voices/${this.voices.length}`,
                 hostIndex: null,    // 宿主不是成员：第一个 voice 也必须拥有独立轨道
-                arrange: this.arrange,
+                measure: this.measure,
             },
         };
     }
@@ -448,7 +447,7 @@ L: la la la
         this.voices = [];
         this.size = ctx.fontSize;
         this.braceSpace = ctx.fontSize;
-        this.arrange = makeVoicesArrange(ctx.fontSize);
+        this.measure = makeVoicesMeasure(ctx.fontSize);
         for (const [, value] of args) {
             if (value instanceof ASTNodeBase) {
                 if (value instanceof VoiceFunction) this.addVoice(value);

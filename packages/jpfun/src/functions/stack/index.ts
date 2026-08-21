@@ -2,7 +2,7 @@ import { ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClas
 import { ParserContext } from "../../parser/parserContext.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { ErrorDiagnostic } from "../../diagnostic.js";
-import type { ArrangeFn, TrackPlacement } from "../../lowering/track.js";
+import type { MeasureFn, PlaceFn, TrackPlacement } from "../../lowering/track.js";
 
 /**
  * 临时伴奏紧贴主旋律，用比系统级行距更小的间隙
@@ -10,23 +10,25 @@ import type { ArrangeFn, TrackPlacement } from "../../lowering/track.js";
  */
 const GAP_RATIO = 0.4;
 
+const placeAbove: PlaceFn = (host, group, gap) =>
+    host.top - gap * GAP_RATIO - group.bottom;
+
 /**
- * stack 的成员依次贴在宿主上方：书写顺序即自下而上
- * cursor 从宿主已占用的最上沿开始，因此同一宿主上的多个分组会自内向外依次堆叠
+ * stack 的成员在局部坐标中按书写顺序自下而上排列
  */
-const arrangeAbove: ArrangeFn = (host, members, gap) => {
+const measureAbove: MeasureFn = (members, gap) => {
     const step = gap * GAP_RATIO;
     const placements: (TrackPlacement | null)[] = [];
-    let cursor = host.top;
+    let cursor = 0;
     for (const extent of members) {
         // 临时伴奏在本行没有内容就不占位，避免共用音轨白白抬高行高
         if (!extent) {
             placements.push(null);
             continue;
         }
-        const offset = cursor - step - extent.bottom;
+        const offset = cursor - extent.bottom;
         placements.push({ offset, extent });
-        cursor = offset + extent.top;
+        cursor = offset + extent.top - step;
     }
     return placements;
 };
@@ -38,7 +40,8 @@ const arrangeAbove: ArrangeFn = (host, members, gap) => {
  */
 const STACK_TRACKS = {
     laneKey: "stack",
-    arrange: arrangeAbove,
+    measure: measureAbove,
+    place: placeAbove,
 };
 
 class StackFunction extends ASTFunctionNode {

@@ -45,12 +45,14 @@ solve(track):
 	for group of track.groups:
 		members = group.members.map(solve)
 		if members 全为空: continue
-		placements = group.arrange(ext, members, gap)
-		把返回的偏移并回 ext
+		placements = group.measure(members, gap)
+		缓存组内偏移和分组占用
+	把无需宿主定位的分组并回 ext
+	用完整 ext 调用其余分组的 place，再把整体平移后的占用并回 ext
 place(root, -ext.top)
 ```
 
-引擎只负责递归、调用 `arrange` 和合并占用；stack、voices 等具体排列策略由函数提供。行高取全行占用的并集，不做横向感知的二维压缩。attachment 即使位于空逻辑行，也可通过 `line + track` 引入纵向占用。
+`measure` 只决定成员在分组局部坐标中的相对位置，因此所有分组都能先完成测量；可选的 `place` 在宿主占用完整后决定整组平移。两者都是分组声明的静态策略。引擎只负责递归和合并占用，不认识 stack、voices 等具体函数。行高取全行占用的并集，不做横向感知的二维压缩。attachment 即使位于空逻辑行，也可通过 `line + track` 引入纵向占用。
 
 `page.ts` 只消费自然行高，产出页面边界和每行全局顶部 `lineTops`；它不读取 Track 或具体对象。`@page` 的长度在 parse 时固化为 px，可用内容宽度是页宽减左右边距。`height=0` 表示无限高；有限页面至少容纳一行，完整非末页可拉伸行距。
 

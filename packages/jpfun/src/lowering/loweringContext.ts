@@ -294,9 +294,8 @@ export class LoweringContext {
                     const children = model.children;
                     const hostIndex = spec.hostIndex === void 0 ? 0 : spec.hostIndex;
                     const group = track.group(
-                        spec.laneKey,
+                        spec,
                         hostIndex === null ? children.length : children.length - 1,
-                        spec.arrange,
                     );
 
                     const branches: TimeColumn[][] = [];

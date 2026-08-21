@@ -39,7 +39,7 @@ class TemporalNodeBase {
 - 相同 `laneKey` 会复用一组基线，不同 `laneKey` 会创建独立基线。
 - `hostIndex` 指定哪个并行成员继续使用宿主 Track；传 `null` 表示所有成员都使用分支 Track。
 
-具体函数只声明如何分轨和纵向排列；Lowering 不需要知道它是 `stack` 还是 `voices`。
+具体函数用 `measure` 声明成员在分组内部怎么排列；需要完整宿主占用才能定位时，再声明 `place`。Lowering 不需要知道它是 `stack` 还是 `voices`。
 
 ## 实际处理流程
 入口是 `LoweringContext.lowerDocument(root)`。它创建根 Track，然后递归调用 `trackedEvents`：
@@ -190,7 +190,8 @@ override loweringExit(ctx: LoweringContext) {
 ```ts
 const STACK_TRACKS = {
     laneKey: "stack",
-    arrange: arrangeAbove,
+    measure: measureAbove,
+    place: placeAbove,
 };
 
 override timeFlowModel() {
@@ -204,7 +205,7 @@ override timeFlowModel() {
 
 LoweringContext 会让所有分支从同一时间开始、分配 Track、归并锚点，并取最晚的分支作为结束时间。`stack` 固定使用 `laneKey: "stack"`，因此同一宿主上先后出现的临时伴奏可以复用基线；默认 `hostIndex: 0` 又让第一个成员延续主旋律的 Track。
 
-函数只声明“并行”和“怎么纵向排列”，而不自己实现递归与对齐。以后增加另一种并行结构时，只需更换 Track 声明和 `arrange`，无需复制时间算法，也无需让引擎硬编码函数名。
+函数只声明“并行”“成员怎么排列”和可选的“整组怎么定位”，而不自己实现递归与对齐。以后增加另一种并行结构时，只需更换 Track 声明，无需复制时间算法，也无需让引擎硬编码函数名。
 
 ### 何时使用全局后处理
 普通 enter/exit 执行时，锚点归并和谱面行号还未完成。像自动 beam 这样依赖最终相邻关系的功能，应注册静态 hook：

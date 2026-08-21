@@ -849,6 +849,27 @@ const mixedTracks = new Set(
 assert(mixedTracks.size === 3 && !mixedTracks.has(mixedTopology.lowering.rootTrack),
     "voices(A, stack(B, C)) must create three content tracks plus an empty host track");
 
+const voicesAsStackHost = drawn(`@stack({@voices(@voice({1}), @voice({2}))}, {3})`);
+const voicesStackAnchors = voicesAsStackHost.map(object => object.box.x + object.box.anchor);
+assert(voicesStackAnchors.every(anchor => nearly(anchor, voicesStackAnchors[0])),
+    "a stack branch must align with the first note column after a voices label column");
+const voicesStackBranch = voicesAsStackHost.reduce((latest, object) =>
+    object.ast.sourceSpan.start > latest.ast.sourceSpan.start ? object : latest);
+const voicesStackHostTop = Math.min(...voicesAsStackHost
+    .filter(object => object !== voicesStackBranch)
+    .map(object => object.box.y));
+assert(voicesStackBranch.box.y + voicesStackBranch.box.h <= voicesStackHostTop,
+    "a stack branch must stay above the complete voices host block");
+
+const completeStackHost = drawn(`1&2 3^4`);
+const completeStackBranch = completeStackHost.find(object => object.ast.sourceSpan.start === 2);
+assert(completeStackBranch !== undefined, "the stack branch must remain addressable by its source span");
+const completeStackHostTop = Math.min(...completeStackHost
+    .filter(object => object !== completeStackBranch)
+    .map(object => object.box.y));
+assert(completeStackBranch.box.y + completeStackBranch.box.h <= completeStackHostTop,
+    "a stack branch must stay above the complete host track");
+
 // 多声部括线画在声部名与音符之间，纵向跨足首末两个声部
 const bracketed = compileScore(`@voices(@voice({1}, 上), @voice({2}, 中), @voice({3}, 下))`).layout;
 const bracket = bracketed.attachments.find(item => item.layer === "background");

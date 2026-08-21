@@ -13,7 +13,7 @@ import type {
     TimeLineEvent,
 } from "../layout/types.js";
 import type { Painter } from "../render/types.js";
-import type { ArrangeFn, Track } from "./track.js";
+import type { Track, TrackArrangement } from "./track.js";
 
 /** 时间流固化后生成额外 attachment；所有 augmenter 读取同一份输入快照 */
 export type LoweringAugmenter = (result: LoweringResult) => Iterable<LayoutAttachment>;
@@ -48,27 +48,6 @@ export interface LoweringGroup {
     attachment?: LayoutAttachment;
     onTemporal?(node: TemporalNodeBase): void;
     onAttachment?(attachment: LayoutAttachment): void;
-}
-
-/**
- * parallel 节点的分轨与纵向排列声明
- *
- * 这是具体函数唯一需要提供的纵向信息。LoweringContext 据此分配音轨，
- * layout 据此求解纵向轴；两者都不需要知道声明它的是 stack、voices 还是别的什么。
- */
-export interface TrackArrangement {
-    /**
-     * 音轨复用键：同一宿主上 laneKey 相同的多次出现共用同一批音轨（同一条基线）
-     * 例如 stack 用 "stack"，voices 用 `voices/成员数`
-     */
-    laneKey: string;
-    /**
-     * 哪个成员就地留在宿主轨上，缺省为 0
-     * stack 用默认值以保证宿主的旋律主线不被打断；voices 传 null 表示宿主不是成员
-     */
-    hostIndex?: number | null;
-    /** 纵向排列策略 */
-    arrange: ArrangeFn;
 }
 
 /**
