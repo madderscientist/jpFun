@@ -1,12 +1,15 @@
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, ParserContext, SourceSpan, LengthValue } from "../ASTtypes.js";
+import { ErrorDiagnostic } from "../../diagnostic.js";
 import { DEFAULT_KEY, TemporalNodeBase } from "../../lowering/types.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
-import type { Painter } from "../../render/types.js";
+import type { Painter, TextStyle } from "../../render/types.js";
+
+type TextAlign = "left" | "center";
 
 class TextFunction extends ASTFunctionNode {
     static override def = {
         name: ["text"],
-        description: "文本标记。单独写在谱中是文本对象；也可作为 up 的单个可见成员",
+        description: "文本标记。括号内可直接换行，默认左对齐，标题类多行文本用 align=center",
         example: `@text(进入主题)`,
         allowExtraArgs: false,
         args: [
@@ -21,22 +24,43 @@ class TextFunction extends ASTFunctionNode {
                     value: 1,
                     unit: "em",
                 } as LengthValue,
+            },
+            {
+                name: "lineheight",
+                type: "number" as const,
+                default: 1.25,   // 相对自身字号的倍数
+            },
+            {
+                name: "align",
+                type: "string" as const,
+                default: "left",
             }
         ],
     };
 
-    text: string;
+    lines: string[];
     size: number;
+    lineAdvance: number;
+    align: TextAlign;
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
-        const [txt, sz] = this.getArgValue(args, ctx) as [string, LengthValue];
-        this.text = txt;
-        this.size = ctx.length2px(sz);
+        const [text, size, lineHeight, align] = this.getArgValue(args, ctx) as [string, LengthValue, number, TextAlign];
+        if (align !== "left" && align !== "center") {
+            throw new ErrorDiagnostic(
+                "E_TEXT_INVALID_ALIGN",
+                "@text 的 align 参数必须是 'left' 或 'center'",
+                sourceSpan,
+            );
+        }
+        this.lines = text.split(/\r?\n/);
+        this.size = ctx.length2px(size);
+        this.lineAdvance = lineHeight * this.size;
+        this.align = align;
     }
 
     override loweringEnter() { return [new TextTemporalNode(this)]; }
 
-    override toString() { return `@text(${this.text})`; }
+    override toString() { return `@text(${this.lines.join("\n")})`; }
 }
 
 export const TextNode: ASTFunctionClass = TextFunction;
@@ -45,6 +69,7 @@ class TextTemporalNode extends TemporalNodeBase {
     declare ast: TextFunction;
     declare box: LayoutBox;
 
+    private style: TextStyle;
     private textBaselineY = 0;
 
     constructor(ast: TextFunction) {
@@ -52,33 +77,36 @@ class TextTemporalNode extends TemporalNodeBase {
         this.ast = ast;
         this.T = 0;
         this.mergeKey = DEFAULT_KEY;
+        this.style = { fontSize: ast.size, fill: "#000", textAlign: ast.align };
         this.initLayoutBox();
     }
 
     override prepareLayout(context: LayoutPrepareContext) {
-        const style = {
-            fontSize: this.ast.size,
-            fill: "#000",
-        };
-        const metrics = context.textMeasurer.measureText(this.ast.text, style);
-        const firstChar = [...this.ast.text][0] ?? "";
-        const firstCharWidth = firstChar ? context.textMeasurer.measureText(firstChar, style).w : 0;
-        this.box.w = metrics.w;
-        this.box.h = metrics.h;
-        this.box.anchor = firstCharWidth / 2;
-        this.box.visualAxis = metrics.h / 2;
-        this.textBaselineY = metrics.baseline;
+        const { lines, align, lineAdvance } = this.ast;
+        const measure = (text: string) => context.textMeasurer.measureText(text, this.style);
+        const first = measure(lines[0]);
+        let width = first.w;
+        for (let i = 1; i < lines.length; i++) width = Math.max(width, measure(lines[i]).w);
+
+        this.box.w = width;
+        this.box.h = (lines.length - 1) * lineAdvance + first.h;
+        this.box.visualAxis = this.box.h / 2;
+        this.textBaselineY = first.baseline;
+        if (align === "center") this.box.anchor = width / 2;
+        else {
+            // 左对齐时锚点落在首字符中心，单字标记才能像音符一样对准宿主
+            const firstChar = [...lines[0]][0];
+            this.box.anchor = firstChar ? measure(firstChar).w / 2 : 0;
+        }
     }
 
     override paint(painter: Painter) {
-        painter.drawText(
-            this.ast.text,
-            this.box.x,
-            this.box.y + this.textBaselineY,
-            {
-                fontSize: this.ast.size,
-                fill: "#000",
-            }
-        );
+        const { lines, align, lineAdvance } = this.ast;
+        const x = this.box.x + (align === "center" ? this.box.w / 2 : 0);
+        let y = this.box.y + this.textBaselineY;
+        for (const line of lines) {
+            painter.drawText(line, x, y, this.style);
+            y += lineAdvance;
+        }
     }
 }
