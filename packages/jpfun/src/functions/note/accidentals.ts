@@ -1,4 +1,4 @@
-import type { PathCommand } from "../../render/types.js";
+import type { Painter, PathCommand } from "../../render/types.js";
 
 interface AccidentalDefinition {
     w: number;
@@ -15,9 +15,18 @@ export interface PreparedAccidental {
     commands: readonly PathCommand[];
 }
 
+/** 已经定位到宿主盒局部坐标的升降号 */
+export interface PlacedAccidental {
+    shape: PreparedAccidental;
+    x: number;
+    y: number;
+}
+
 /** 字形相对数字字号的缩放，线宽则取与数字笔画相当的固定比例 */
 const GLYPH_SCALE = 0.72;
 const STROKE_RATIO = 0.06;
+/** 升降号写在宿主基线之上多少，贴住数字左上角 */
+const RAISE_RATIO = 0.42;
 
 const ACCIDENTALS: Partial<Record<string, AccidentalDefinition>> = {
     "#": {
@@ -64,7 +73,7 @@ const ACCIDENTALS: Partial<Record<string, AccidentalDefinition>> = {
 };
 
 /** size 是数字字号，升降号自己决定缩小多少 */
-export function prepareAccidental(symbol: string, size: number): PreparedAccidental | null {
+function prepareAccidental(symbol: string, size: number): PreparedAccidental | null {
     const definition = ACCIDENTALS[symbol];
     if (!definition) return null;
 
@@ -76,4 +85,41 @@ export function prepareAccidental(symbol: string, size: number): PreparedAcciden
         strokeWidth: size * STROKE_RATIO,
         commands: definition.commands,
     };
+}
+
+/**
+ * 把升降号串按同一基线依次排在 x 右侧
+ * @param size 宿主数字的字号
+ * @param baselineY 宿主文字基线在宿主盒局部坐标中的 y
+ * @param gap 相邻升降号之间的间隔；末尾也留一份，宿主据此得到 right
+ * @returns right 是下一个字形的起点，top 是最高处（可能为负，宿主自行决定是否下移）
+ */
+export function placeAccidentals(symbols: string, size: number, x: number, baselineY: number, gap: number) {
+    const placed: PlacedAccidental[] = [];
+    const raise = size * RAISE_RATIO;
+    let right = x;
+    let top = 0;
+    for (const symbol of symbols) {
+        const shape = prepareAccidental(symbol, size);
+        if (!shape) continue;
+        const y = baselineY - shape.baseline - raise;
+        placed.push({ shape, x: right, y });
+        if (y < top) top = y;
+        right += shape.w + gap;
+    }
+    return { placed, right, top };
+}
+
+/** commands 是 0..1 归一化坐标，必须配回字形自己的 w/h 才不会画歪 */
+export function paintAccidental(
+    painter: Painter,
+    { shape, x, y }: PlacedAccidental,
+    origin: { x: number; y: number },
+    color: string,
+) {
+    painter.drawPath(
+        shape.commands,
+        { stroke: color, strokeWidth: shape.strokeWidth },
+        { x: origin.x + x, y: origin.y + y, scaleX: shape.w, scaleY: shape.h },
+    );
 }

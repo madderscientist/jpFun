@@ -369,12 +369,16 @@ export class GraceTemporal extends TemporalNodeBase {
         }
     }
 
+    /** 成员共享全局时间状态，按发声顺序固化 */
     override onTimeState(state: Record<string, any>) {
-        for (const member of [this.host, ...this.graces]) {
+        const members = this.side === "pre"
+            ? [...this.graces, this.host]
+            : [this.host, ...this.graces];
+        for (const member of members) {
             member.t = this.t;
             member.track = this.track;
             member.layoutLine = this.layoutLine;
-            member.onTimeState?.({ ...state });
+            member.onTimeState?.(state);
         }
     }
 

@@ -233,13 +233,17 @@ class UpTemporal extends TemporalNodeBase {
         }
     }
 
-    /** 所有成员属于 up 的同一个全局时间位置，但分别读取同一份状态快照。 */
+    /**
+     * 成员共享全局时间状态，从最上面的成员开始固化
+     */
     override onTimeState(state: Record<string, any>) {
-        for (const member of this.members) {
+        // 一般而言，最下面的成员是主体、上面的是标记，标记先写入主体才读得到
+        for (let i = this.members.length - 1; i >= 0; i--) {
+            const member = this.members[i];
             member.t = this.t;
             member.track = this.track;
             member.layoutLine = this.layoutLine;
-            member.onTimeState?.({ ...state });
+            member.onTimeState?.(state);
         }
     }
 
@@ -266,18 +270,9 @@ class UpTemporal extends TemporalNodeBase {
             return;
         }
 
-        // 横向：所有成员共用一个对齐点，升降号不会把和弦推离时间列中心
-        let anchor = 0;
-        let right = 0;
-        let leftReach = 0;
-        let rightReach = 0;
-        for (const member of this.members) {
-            const box = member.box;
-            anchor = Math.max(anchor, box.anchor);
-            right = Math.max(right, box.w - box.anchor);
-            leftReach = Math.max(leftReach, box.anchor - (member.ports["body.left"]?.x ?? 0));
-            rightReach = Math.max(rightReach, (member.ports["body.right"]?.x ?? box.w) - box.anchor);
-        }
+        // 横向完全等于代表成员：上方的标记（变速、注释）常常比音符宽得多，
+        // 让它们撑宽盒子会把右邻推开一大截；它们画在基线上方，伸出盒外也不会碰撞
+        const anchor = first.box.anchor;
 
         // 纵向：以第一个成员的盒顶为 0 向上堆叠得到负坐标，最后整体下移
         const gap = this.ast.size * 0.12;
@@ -289,31 +284,29 @@ class UpTemporal extends TemporalNodeBase {
         const top = cursor; // 堆叠严格向上，最后一个成员就是最高点
         for (const offset of this.offsets) offset.y -= top;
 
-        this.box.w = anchor + right;
+        this.box.w = first.box.w;
         this.box.h = first.box.h - top;
         this.box.anchor = anchor;
         // 和弦用最下面的成员对齐轨道基线，上方成员只向上撑开行高
         this.box.visualAxis = first.box.visualAxis - top;
 
-        // 端口：最下面的成员代表整个和弦，把它发布的端口原样上提，
+        // 端口：最下面的成员代表整个和弦，把它发布的端口原样上提（它的 offset.x 恒为 0），
         // 减时线、歌词等端口于是与普通音符完全一致，关系函数不需要认识 up
         const firstOffset = this.offsets[0];
         for (const name in first.ports) {
             const port = first.ports[name];
-            this.ports[name] = { x: firstOffset.x + port.x, y: firstOffset.y + port.y };
+            this.ports[name] = { x: port.x, y: firstOffset.y + port.y };
         }
 
-        // 核心范围取全体成员的并集，减时线才能盖住最宽的数字
-        this.ports["body.left"] = { x: anchor - leftReach, y: this.box.visualAxis };
-        this.ports["body.right"] = { x: anchor + rightReach, y: this.box.visualAxis };
+        // 代表成员没声明核心范围时退回它的整个盒子
+        this.ports["body.left"] ??= { x: 0, y: this.box.visualAxis };
+        this.ports["body.right"] ??= { x: first.box.w, y: this.box.visualAxis };
 
         // 唯一的例外：连音线要接到和弦顶部
-        const last = this.members[this.members.length - 1];
-        const lastOffset = this.offsets[this.members.length - 1];
-        const lastTiePort = last.ports["tie.top"];
+        const lastOffset = this.offsets[this.offsets.length - 1];
         this.ports["tie.top"] = {
             x: anchor,
-            y: lastOffset.y + (lastTiePort ? lastTiePort.y : 0),
+            y: lastOffset.y + (this.members[this.members.length - 1].ports["tie.top"]?.y ?? 0),
         };
     }
 

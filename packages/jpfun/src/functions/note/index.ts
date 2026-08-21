@@ -4,7 +4,7 @@ import { parseNoteName } from "./noteNameFSM.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
 import type { LayoutBox, LayoutDecoration, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
-import { prepareAccidental, type PreparedAccidental } from "./accidentals.js";
+import { paintAccidental, placeAccidentals, type PlacedAccidental } from "./accidentals.js";
 
 class NoteFunction extends ASTFunctionNode {
     static override def = {
@@ -118,24 +118,11 @@ export const NoteNode: ASTFunctionClass = NoteFunction;
 import { DEFAULT_KEY, TemporalNodeBase } from "../../lowering/types.js";
 import { resolveLetterNameToJianpu, resolveNoteMidi } from "../../parser/parse-utils/note-utils.js";
 
-interface PlacedAccidental {
-    shape: PreparedAccidental;
-    x: number;
-    y: number;
-}
-
 // 8 是隐形占位，9 是只打拍不发音的节拍记号，空串表示不绘制
 const NOTE_GLYPH: Record<string, string> = { "8": "", "9": "X" };
 
-function createNumberStyle(ast: NoteFunction): TextStyle {
-    return {
-        fontSize: ast.size,
-        fontFamily: '"Cascadia Mono", Consolas, "Liberation Mono", "Noto Sans Mono", monospace',
-        fontWeight: 400,
-        textAlign: "center",
-        fill: ast.color,
-    };
-}
+/** 简谱数字的字体栈；谱面上其他地方写简谱数字（如 @key 的 `1=`）要用同一个 */
+export const JIANPU_NUMBER_FONT = '"Cascadia Mono", Consolas, "Liberation Mono", "Noto Sans Mono", monospace';
 
 class NoteTemporalNode extends TemporalNodeBase {
     declare ast: NoteFunction;
@@ -150,6 +137,9 @@ class NoteTemporalNode extends TemporalNodeBase {
 
     /** prepareLayout 生成的局部升降号位置 */
     private accidentals: PlacedAccidental[] = [];
+
+    /** 字号和颜色在解析时已经固化，样式随之不再变 */
+    private readonly numberStyle: TextStyle;
 
     /** 上八度点属于主体，下八度点通过通用装饰流排在其他下方符号之后 */
     private upperOctaveDotY: number[] = [];
@@ -167,36 +157,22 @@ class NoteTemporalNode extends TemporalNodeBase {
         this.name = ast.name;
         this.acc = ast.acc;
         this.octave = ast.octave;
+        this.numberStyle = {
+            fontSize: ast.size,
+            fontFamily: JIANPU_NUMBER_FONT,
+            fontWeight: 400,
+            textAlign: "center",
+            fill: ast.color,
+        };
         this.initLayoutBox();
     }
 
     override prepareLayout(context: LayoutPrepareContext) {
-        this.accidentals.length = 0;
         this.upperOctaveDotY.length = 0;
         this.lowerOctaveDotY.length = 0;
 
         const { size, color } = this.ast;
-        const numberStyle = createNumberStyle(this.ast);
-        const mainMetrics = context.textMeasurer.measureText("0", numberStyle);
-
-        // 升降号贴近数字左上角，但不参与数字中心 anchor 的计算
-        // 缩小右侧间隔会在全局 anchor 不变时把升降号向右移动
-        const accidentalGap = size * 0.01;
-        const accidentalRaise = size * 0.42;
-        const accidentalShapes: PreparedAccidental[] = [];
-
-        // 把每个升降字符转换为 note 私有的局部路径
-        for (const accidental of this.acc) {
-            const shape = prepareAccidental(accidental, size);
-            if (shape) accidentalShapes.push(shape);
-        }
-
-        let accidentalWidth = 0;
-        // 汇总升降号区域宽度，为数字单元保留固定起点
-        for (const shape of accidentalShapes) {
-            if (accidentalWidth > 0) accidentalWidth += accidentalGap;
-            accidentalWidth += shape.w;
-        }
+        const mainMetrics = context.textMeasurer.measureText("0", this.numberStyle);
 
         const dotCount = Math.abs(this.octave);
         this.octaveDotRadius = size * 0.065;
@@ -205,15 +181,19 @@ class NoteTemporalNode extends TemporalNodeBase {
         const octaveSpace = dotCount === 0
             ? 0
             : dotCount * this.octaveDotRadius * 2 + (dotCount - 1) * dotGap + dotGap;
-        const topSpace = this.octave > 0 ? octaveSpace : 0;
-        const mainX = accidentalWidth + (accidentalShapes.length > 0 ? accidentalGap : 0);
-        const mainY = topSpace;
+        const mainY = this.octave > 0 ? octaveSpace : 0;
+        this.numberY = mainY + mainMetrics.baseline;
+
+        // 升降号贴近数字左上角，按同一 baseline 排在数字左侧；
+        // 缩小右侧间隔会在全局 anchor 不变时把升降号向右移动
+        const accidentalGap = size * 0.01;
+        const { placed, right: mainX } = placeAccidentals(this.acc, size, 0, this.numberY, accidentalGap);
+        this.accidentals = placed;
 
         this.box.w = mainX + mainMetrics.w;
-        this.box.h = topSpace + mainMetrics.h;
+        this.box.h = mainY + mainMetrics.h;
         this.box.anchor = mainX + mainMetrics.w / 2;
         this.box.visualAxis = mainY + mainMetrics.h / 2;
-        this.numberY = mainY + mainMetrics.baseline;
 
         // 升降号和附点参与完整盒布局，但不计入数字主体范围，减时线因此只画在数字下
         this.ports["body.left"] = { x: this.box.anchor - mainMetrics.w / 2, y: this.box.visualAxis };
@@ -225,22 +205,10 @@ class NoteTemporalNode extends TemporalNodeBase {
             y: mainY + mainMetrics.h * 0.64,
         };
 
-        // 升降号位于完整盒的左侧区域，但不会进入核心有效范围
-        let accidentalX = 0;
-        // 所有升降号按同一数字 baseline 排列在数字左侧
-        for (const shape of accidentalShapes) {
-            this.accidentals.push({
-                shape,
-                x: accidentalX,
-                y: this.numberY - shape.baseline - accidentalRaise,
-            });
-            accidentalX += shape.w + accidentalGap;
-        }
-
         if (this.octave > 0) {
             // 上八度点从靠近数字的位置向上依次排列
             for (let i = 0; i < dotCount; i++) {
-                this.upperOctaveDotY.push(topSpace - dotGap - this.octaveDotRadius - i * dotStep);
+                this.upperOctaveDotY.push(mainY - dotGap - this.octaveDotRadius - i * dotStep);
             }
             return;
         }
@@ -283,19 +251,7 @@ class NoteTemporalNode extends TemporalNodeBase {
 
     override paint(painter: Painter) {
         const color = this.ast.color;
-        const numberStyle = createNumberStyle(this.ast);
-        for (const accidental of this.accidentals) {
-            painter.drawPath(
-                accidental.shape.commands,
-                { stroke: color, strokeWidth: accidental.shape.strokeWidth },
-                {
-                    x: this.box.x + accidental.x,
-                    y: this.box.y + accidental.y,
-                    scaleX: accidental.shape.w,
-                    scaleY: accidental.shape.h,
-                },
-            );
-        }
+        for (const accidental of this.accidentals) paintAccidental(painter, accidental, this.box, color);
 
         const glyph = NOTE_GLYPH[this.name] ?? this.name;
         if (glyph) {
@@ -303,7 +259,7 @@ class NoteTemporalNode extends TemporalNodeBase {
                 glyph,
                 this.box.x + this.box.anchor,
                 this.box.y + this.numberY,
-                numberStyle,
+                this.numberStyle,
             );
         }
 

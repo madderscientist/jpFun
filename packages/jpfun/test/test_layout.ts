@@ -6,7 +6,7 @@ import { layoutDocument, paintLayout } from "../src/layout/engine.js";
 import { DEFAULT_PAGE_CONFIG, normalizePageConfig } from "../src/layout/page.js";
 import { RecordingPainter } from "../src/render/recording.js";
 import { LoweringContext } from "../src/lowering/loweringContext.js";
-import { ANCHOR_KEY, isVisualTemporalNode } from "../src/lowering/types.js";
+import { ANCHOR_KEY, DEFAULT_KEY, isVisualTemporalNode } from "../src/lowering/types.js";
 import type { LayoutAttachment, LayoutBox } from "../src/layout/types.js";
 import { ParserContext } from "../src/parser/parserContext.js";
 import { ErrorDiagnostic } from "../src/diagnostic.js";
@@ -342,6 +342,38 @@ assert(chordTextPositions(`@up({@up(1,3)}, 5)`) === chordTextPositions(`@up(1,3,
     "a nested up must render exactly like the flattened chord");
 assert(chordTextPositions(`@up(@up(1,3), 5)`) === chordTextPositions(`1^3^5`),
     "an unbraced inner up must flatten just like the ^ sugar");
+
+// 叠在音符上方的状态标记：状态要传出和弦，横向占位只算代表成员
+const markedTempo = compileScore(`1 ^ @tempo(120) 1`).layout;
+const markedChord = markedTempo.objects[0] as typeof markedTempo.objects[0] & {
+    members: readonly { box: LayoutBox }[];
+    mergeKey: number;
+};
+const markedFollower = markedTempo.objects[1] as typeof markedTempo.objects[1] & { activeBpm: number };
+assert(markedFollower.activeBpm === 120, "a tempo stacked by ^ must reach the following notes");
+assert(markedChord.mergeKey === DEFAULT_KEY, "a folded member's own merge group must not leak to the chord");
+assert(Math.abs(markedChord.box.w - markedChord.members[0].box.w) < 1e-6,
+    "only the lead member decides the chord's horizontal footprint");
+assert(Math.abs(markedFollower.box.x - compileScore(`1 1`).layout.objects[1].box.x) < 1e-6,
+    "a wide upper mark must not push the next note away");
+
+const markedKey = compileScore(`1 ^ @1(F#) 1`).layout;
+const markedKeyChord = markedKey.objects[0] as typeof markedKey.objects[0] & {
+    members: readonly { resolvedMidi?: number }[];
+};
+assert(markedKeyChord.members[0].resolvedMidi === 66 && (markedKey.objects[1] as { resolvedMidi?: number }).resolvedMidi === 66,
+    "a key stacked by ^ must apply to its own chord and to the following notes");
+
+const graceState = compileScore(`@tempo(60) @tempo(150) > 1 1`).layout;
+assert((graceState.objects[2] as { activeBpm?: number }).activeBpm === 150,
+    "a tempo written inside a grace must escape the composite too");
+
+// 设置事件默认独占一列：跨轨归并要求 mergeKey 相等，它不会吃掉另一条轨的同时刻音符
+const parallelTempo = compileScore(`@stack({@tempo(120) 1}, {3})`).layout;
+const [tempoMark, upperNote, lowerNote] = parallelTempo.objects;
+assert(Math.abs(upperNote.box.x - lowerNote.box.x) < 1e-6,
+    "a control event must not steal the parallel track's first note into its own column");
+assert(tempoMark.box.x < upperNote.box.x, "a control event sorts left of the notes at the same time");
 
 console.log(`up members=${upTemporal.members.length} duration=${upTemporal.T}`);
 
@@ -917,19 +949,19 @@ assert(accidentalNumber.box.w > plainNumber.box.w, "accidentals must be included
 assert(Math.abs(plainCoreLeft - accidentalCoreLeft) < 1e-6, "accidentals must not change the core left extent");
 assert(Math.abs(plainCoreRight - accidentalCoreRight) < 1e-6, "accidentals must not change the core right extent");
 
-const stateSource = `@tempo(90) @1(D4) @set(note.color=#f00) 1`;
+const stateSource = `@tempo(90) @1(D4) @set(note.color=#f00) 1 @br()`;
 const loweredState = lower(stateSource);
 const stateResult = layoutDocument(loweredState, context);
 const invisibleStateEvents = loweredState.columns
     .flat()
     .filter(event => !isVisualTemporalNode(event));
-const stateNote = stateResult.objects[0] as typeof stateResult.objects[number] & {
+const stateNote = stateResult.objects[2] as typeof stateResult.objects[number] & {
     activeBpm: number;
     resolvedMidi: number;
     ast: ASTFunctionNode & { color: string };
 };
 
-assert(stateResult.objects.length === 1, "key, tempo and set must not create visible score objects");
+assert(stateResult.objects.length === 3, "tempo and key draw themselves; set stays purely lexical");
 assert(stateNote.activeBpm === 90, "tempo must be frozen into following notes");
 assert(stateNote.resolvedMidi === 62, "key D4 must resolve jianpu 1 to MIDI 62");
 assert(stateNote.ast.color === "#f00", "set must solidify the note color during parsing");
