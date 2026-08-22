@@ -129,7 +129,11 @@ export class Fraction {
     }
 
     equals(value: Fraction | number, denominator = 1): boolean {
-        return this.compare(value, denominator) === 0;
+        if (value instanceof Fraction) {
+            return this._numerator === value._numerator
+                && this._denominator === value._denominator;
+        }
+        return this._numerator * denominator === value * this._denominator;
     }
 
     isZero(): boolean {

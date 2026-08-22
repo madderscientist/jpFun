@@ -22,7 +22,7 @@
 ## 3. 主要函数
 - `@1(tonality)` 修改调性 如 `1=C` 作用域为当前时间之后
 - `@tempo(number)` 修改bpm 作用域为当前时间之后
-
+- `@meter(num, den, size=0.7em)` 设置拍号 `num/den`，以分数形式显示
 - `@set(key=value, ...)` 修改函数的缺省值，作用域为当前 `{}`
     几个特殊变量:
     - `fontsize`: length类型，是所有`em`的基准
