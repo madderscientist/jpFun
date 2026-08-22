@@ -1,4 +1,5 @@
-import { paintLayout, type DocumentLayoutResult } from "../layout/engine.js";
+import type { DocumentLayoutResult } from "../layout/engine.js";
+import { layoutPageBounds, paintLayoutPages } from "./paint.js";
 import type { PaintStyle, Painter, PathCommand, PathTransform, TextStyle } from "./types.js";
 
 export interface SvgRenderOptions {
@@ -159,12 +160,13 @@ export class SvgPainter implements Painter {
     }
 }
 
-/** 使用 SVG 后端绘制一个已经完成布局的文档 */
-export function renderLayoutToSvg(
+/** 使用 SVG 后端把一个布局结果绘制成独立页面 */
+export function renderLayoutPagesToSvg(
     result: DocumentLayoutResult,
     options: SvgRenderOptions = {},
-): string {
-    const painter = new SvgPainter();
-    paintLayout(result, painter);
-    return painter.toSvg(result.bounds, options);
+): string[] {
+    const bounds = layoutPageBounds(result);
+    const painters = bounds.map(() => new SvgPainter());
+    paintLayoutPages(result, painters);
+    return painters.map((painter, index) => painter.toSvg(bounds[index], options));
 }

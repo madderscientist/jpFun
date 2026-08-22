@@ -31,7 +31,7 @@ CommonJS `require("jpfun")` is not supported.
 ## Quick Start
 
 ```ts
-import { compileScore, renderLayoutToSvg } from "jpfun";
+import { compileScore, renderLayoutPagesToSvg } from "jpfun";
 
 const source = `
   @1(C4)
@@ -41,22 +41,22 @@ const source = `
 `;
 
 const result = compileScore(source);
-const svg = renderLayoutToSvg(result.layout);
+const pages = renderLayoutPagesToSvg(result.layout);
 ```
 
-`renderLayoutToSvg` returns an SVG string that can be written to a file, sent in an HTTP response, or inserted into a browser page.
+`renderLayoutPagesToSvg` returns one SVG string per page. Even an infinite-height document produces one natural-height page. Each SVG can be written to a file, sent in an HTTP response, or inserted into a browser page.
 
 ## Canvas Rendering
 
 ```ts
-import { compileScore, renderLayoutToCanvas } from "jpfun";
+import { compileScore, renderLayoutPagesToCanvas } from "jpfun";
 
 const result = compileScore("1 2 3 | 4");
 const canvas = document.querySelector("canvas");
 const context = canvas.getContext("2d");
 
 if (context) {
-  renderLayoutToCanvas(result.layout, context);
+  renderLayoutPagesToCanvas(result.layout, [context]);
 }
 ```
 

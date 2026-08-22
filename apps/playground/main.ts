@@ -101,6 +101,11 @@ function scheduleRender() {
 statusMessage.addEventListener("click", () => workspace.showResult("problems"));
 
 requiredElement<HTMLButtonElement>("#runLayout").addEventListener("click", compileAndRender);
+window.addEventListener("beforeprint", () => {
+    compileAndRender();
+    preview.preparePrint();
+});
+window.addEventListener("afterprint", preview.clearPrint);
 
 updateSourceSize();
 compileAndRender();

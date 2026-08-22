@@ -5,7 +5,6 @@ import {
     type LoweringResult,
     type VisualTemporalNode,
 } from "../lowering/types.js";
-import type { Painter } from "../render/types.js";
 import {
     completeSpringConfig,
     layoutElement,
@@ -422,27 +421,6 @@ function registerAttachmentRegions(
         includeTrackExtent(line.attachmentExtents, region.track, top, bottom);
     }
     return expandedTrackOccupancy;
-}
-
-/**
- * 按固定层级绘制已经完成布局的结果
- *
- * background 先于 temporal 对象绘制
- * foreground 用于 tie、beam 等覆盖在线符号之上的对象
- */
-export function paintLayout(result: DocumentLayoutResult, painter: Painter) {
-    for (const attachment of result.attachments) {
-        if (attachment.layer === "background") attachment.paint(painter);
-    }
-
-    for (const node of result.objects) {
-        node.paint(painter);
-        for (const decoration of node.decorations) decoration.paint(painter);
-    }
-
-    for (const attachment of result.attachments) {
-        if (attachment.layer === "foreground") attachment.paint(painter);
-    }
 }
 
 /** 一条谱面行的纵向解 */

@@ -42,7 +42,7 @@ interface Painter {
 ## 内置后端
 
 ### SVG
-`renderLayoutToSvg` 返回完整 SVG 字符串。所有路径都直接输出 `<path>`；带 transform 的局部路径会先换算成最终坐标，不保留 SVG transform，也不生成 `<defs>/<use>`。这让每个实例具有稳定、独立的 DOM 节点，便于调试以及未来挂载源码位置等交互信息。数字音符使用带 `text-anchor="middle"` 的等宽 `<text>`。
+`renderLayoutPagesToSvg` 按系统分页结果返回 SVG 字符串数组；无限高文档也会返回一个自然高度页面。所有路径都直接输出 `<path>`；带 transform 的局部路径会先换算成最终坐标，不保留 SVG transform，也不生成 `<defs>/<use>`。这让每个实例具有稳定、独立的 DOM 节点，便于调试以及未来挂载源码位置等交互信息。数字音符使用带 `text-anchor="middle"` 的等宽 `<text>`。
 
 ### Canvas
 `CanvasPainter` 直接执行结构化路径和可选变换，数字使用 `textAlign="center"` 的等宽文本。调用方负责配置 canvas 像素尺寸、CSS 尺寸和 devicePixelRatio，Painter 只执行绘制。
@@ -62,7 +62,7 @@ interface Painter {
 ```ts
 import {
     compileScore,
-    renderLayoutToSvg,
+    renderLayoutPagesToSvg,
 } from "jpfun";
 
 const compiled = compileScore(`
@@ -72,11 +72,13 @@ const compiled = compileScore(`
     fontSize: 16,
 });
 
-const svg = renderLayoutToSvg(compiled.layout, {
+const pages = renderLayoutPagesToSvg(compiled.layout, {
     padding: 8,
     background: "#fff",
 });
 ```
+
+SVG 与 Canvas 高层 API 都只输出系统分页结果。Canvas 使用 `renderLayoutPagesToCanvas`：调用方只配置每页 canvas 尺寸和 devicePixelRatio，API 负责把全局布局坐标平移到各页原点。分页路由发生在 `render/paint.ts` 的 Painter 命令层，普通对象和跨页 attachment 都不会按页复制整篇绘制结果。
 
 `compileScore` 返回行索引、parser、AST、LoweringResult 和最终布局。预处理源码已经保存在 `parser.source`，不重复出现在结果顶层。编辑器、播放器和 renderer 可以各取所需阶段，不必重新解析。
 

@@ -28,7 +28,7 @@
 | 去糖写法悬浮 | `compileScore().ast` | 同上 |
 | 去糖替换 | `node.toString(source)` | `CodeActionProvider`（见下） |
 | 诊断 | `parser.diagnostics` + 抛出的错误 | `DiagnosticCollection` |
-| 谱面预览 | `renderLayoutToSvg` / `renderLayoutToCanvas` | Webview |
+| 谱面预览 | `renderLayoutPagesToSvg` / `renderLayoutPagesToCanvas` | Webview |
 | 注释/括号 | `languageData` | `language-configuration.json` |
 
 ## 语法着色
@@ -99,8 +99,8 @@ playground 的实现在 [jpfun-language.ts](../apps/playground/jpfun-language.ts
 `compileScore` 的 `layout` 可以直接喂给两个渲染后端：
 
 ```ts
-renderLayoutToSvg(layout, { padding, background })   // 返回 SVG 字符串
-renderLayoutToCanvas(layout, ctx)                    // 画到 2D context
+renderLayoutPagesToSvg(layout, { padding, background }) // 返回分页 SVG 字符串数组
+renderLayoutPagesToCanvas(layout, contexts)             // 画到每页的 2D context
 ```
 
 SVG 路径直接使用最终坐标（不生成 `<defs>/<use>` 因为发现徒增复杂度）。Canvas 后端要自己处理 `devicePixelRatio` 和 `translate(-bounds.x, -bounds.y)`。SVG 内容与缩放无关，缩放时只改 `style.width/height`，不要重新生成。

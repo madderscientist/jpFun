@@ -1,4 +1,5 @@
-import { paintLayout, type DocumentLayoutResult } from "../layout/engine.js";
+import type { DocumentLayoutResult } from "../layout/engine.js";
+import { layoutPageBounds, paintLayoutPages } from "./paint.js";
 import type { PaintStyle, Painter, PathCommand, PathTransform, TextStyle } from "./types.js";
 
 function tracePath(
@@ -164,10 +165,22 @@ export class CanvasPainter implements Painter {
     }
 }
 
-/** 使用 Canvas 后端绘制一个已经完成布局的文档 */
-export function renderLayoutToCanvas(
+/** 使用 Canvas 后端把一个布局结果一次绘制到独立页面 context */
+export function renderLayoutPagesToCanvas(
     result: DocumentLayoutResult,
-    context: CanvasRenderingContext2D,
+    contexts: readonly CanvasRenderingContext2D[],
 ) {
-    paintLayout(result, new CanvasPainter(context));
+    const pages = layoutPageBounds(result);
+    if (contexts.length !== pages.length) {
+        throw new Error(`Expected ${pages.length} page contexts, got ${contexts.length}`);
+    }
+    for (const [index, context] of contexts.entries()) {
+        context.save();
+        context.translate(-pages[index].x, -pages[index].y);
+    }
+    try {
+        paintLayoutPages(result, contexts.map(context => new CanvasPainter(context)));
+    } finally {
+        for (const context of contexts) context.restore();
+    }
 }

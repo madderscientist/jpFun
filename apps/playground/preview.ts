@@ -1,4 +1,8 @@
-import { renderLayoutToCanvas, renderLayoutToSvg, type CompileScoreResult } from "jpfun";
+import {
+    renderLayoutPagesToCanvas,
+    renderLayoutPagesToSvg,
+    type CompileScoreResult,
+} from "jpfun";
 import { createDropdown, requiredElement } from "./platform.js";
 
 type PreviewBackend = "svg" | "canvas";
@@ -6,9 +10,10 @@ type PreviewBackend = "svg" | "canvas";
 export interface PreviewController {
     render(result: CompileScoreResult): void;
     showError(message: string): void;
+    preparePrint(): void;
+    clearPrint(): void;
 }
 
-const PREVIEW_PADDING = 22;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 3;
 
@@ -22,97 +27,170 @@ export function createPreviewController(): PreviewController {
     const zoomButton = requiredElement<HTMLButtonElement>("#zoomButton");
     const zoomMenu = requiredElement<HTMLElement>("#zoomMenu");
     const fitWidthButton = requiredElement<HTMLButtonElement>("#fitWidth");
+    const printHost = requiredElement<HTMLElement>("#printHost");
+    const printStyle = document.createElement("style");
     const backendTabs = [...document.querySelectorAll<HTMLButtonElement>(".backend-tab")];
     let activeBackend: PreviewBackend = "svg";
     let result: CompileScoreResult | null = null;
     let zoom = 1;
+    let canvasZoomFrame: number | undefined;
 
-    function size(compiled: CompileScoreResult) {
-        return {
-            width: Math.max(1, Math.ceil(compiled.layout.bounds.w + PREVIEW_PADDING * 2)),
-            height: Math.max(1, Math.ceil(compiled.layout.bounds.h + PREVIEW_PADDING * 2)),
-        };
+    document.head.append(printStyle);
+
+    function pageBounds(compiled: CompileScoreResult) {
+        return compiled.layout.pages.length > 0
+            ? compiled.layout.pages.map(page => page.bounds)
+            : [compiled.layout.bounds];
+    }
+
+    function createSvgPages(compiled: CompileScoreResult) {
+        const container = document.createElement("div");
+        container.innerHTML = renderLayoutPagesToSvg(compiled.layout, { background: "#ffffff" }).join("");
+        return [...container.querySelectorAll<SVGSVGElement>(":scope > svg")];
     }
 
     function renderSvg(compiled: CompileScoreResult) {
-        host.innerHTML = renderLayoutToSvg(compiled.layout, {
-            padding: PREVIEW_PADDING,
-            background: "#ffffff",
-        });
-        const svg = host.querySelector<SVGSVGElement>("svg");
-        if (!svg) throw new Error("SVG preview was not created");
-        resizeSvg(svg, compiled);
+        const pages = createSvgPages(compiled);
+        for (const svg of pages) resizeSvg(svg);
+        host.replaceChildren(...pages);
     }
 
-    function resizeSvg(svg: SVGSVGElement, compiled: CompileScoreResult) {
-        const preview = size(compiled);
-        svg.style.width = `${preview.width * zoom}px`;
-        svg.style.height = `${preview.height * zoom}px`;
+    function resizeSvg(svg: SVGSVGElement) {
+        const width = Number(svg.getAttribute("width")) || 1;
+        const height = Number(svg.getAttribute("height")) || 1;
+        svg.style.width = `${width * zoom}px`;
+        svg.style.height = `${height * zoom}px`;
     }
 
     function renderCanvas(compiled: CompileScoreResult) {
-        const preview = size(compiled);
-        const bounds = compiled.layout.bounds;
         const ratio = window.devicePixelRatio || 1;
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.ceil(preview.width * ratio * zoom);
-        canvas.height = Math.ceil(preview.height * ratio * zoom);
-        canvas.style.width = `${preview.width * zoom}px`;
-        canvas.style.height = `${preview.height * zoom}px`;
-        const context = canvas.getContext("2d");
-        if (!context) throw new Error("Canvas 2D context is unavailable");
-        context.scale(ratio * zoom, ratio * zoom);
-        context.fillStyle = "#ffffff";
-        context.fillRect(0, 0, preview.width, preview.height);
-        context.translate(PREVIEW_PADDING - bounds.x, PREVIEW_PADDING - bounds.y);
-        renderLayoutToCanvas(compiled.layout, context);
-        host.replaceChildren(canvas);
+        const contexts: CanvasRenderingContext2D[] = [];
+        const pages = pageBounds(compiled).map(bounds => {
+            const width = Math.max(1, Math.ceil(bounds.w));
+            const height = Math.max(1, Math.ceil(bounds.h));
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.ceil(width * ratio * zoom);
+            canvas.height = Math.ceil(height * ratio * zoom);
+            canvas.style.width = `${width * zoom}px`;
+            canvas.style.height = `${height * zoom}px`;
+            const context = canvas.getContext("2d");
+            if (!context) throw new Error("Canvas 2D context is unavailable");
+            context.scale(ratio * zoom, ratio * zoom);
+            context.fillStyle = "#ffffff";
+            context.fillRect(0, 0, width, height);
+            contexts.push(context);
+            return canvas;
+        });
+        renderLayoutPagesToCanvas(compiled.layout, contexts);
+        host.replaceChildren(...pages);
     }
 
     function renderActiveBackend() {
+        window.cancelAnimationFrame(canvasZoomFrame ?? 0);
+        canvasZoomFrame = void 0;
         if (!result) return;
         if (activeBackend === "canvas") renderCanvas(result);
         else renderSvg(result);
     }
 
-    // SVG 内容与缩放无关，只改尺寸；Canvas 必须重画
-    function applyZoom() {
+    function applySvgZoom() {
         if (!result) return;
-        if (activeBackend === "canvas") return renderCanvas(result);
-        const svg = host.querySelector<SVGSVGElement>("svg");
-        if (svg) resizeSvg(svg, result);
-        else renderSvg(result);
+        const pages = host.querySelectorAll<SVGSVGElement>("svg");
+        if (pages.length === 0) return renderSvg(result);
+        for (const svg of pages) resizeSvg(svg);
+    }
+
+    function captureZoomAnchor(anchor: { x: number; y: number }) {
+        const pages = [...host.children];
+        const scrollBounds = scroll.getBoundingClientRect();
+        const x = scrollBounds.left + anchor.x;
+        const y = scrollBounds.top + anchor.y;
+        let nearest = 0;
+        let nearestDistance = Infinity;
+        for (const [index, page] of pages.entries()) {
+            const bounds = page.getBoundingClientRect();
+            const dx = Math.max(bounds.left - x, 0, x - bounds.right);
+            const dy = Math.max(bounds.top - y, 0, y - bounds.bottom);
+            const distance = dx * dx + dy * dy;
+            if (distance < nearestDistance) {
+                nearest = index;
+                nearestDistance = distance;
+            }
+        }
+        const bounds = pages[nearest]?.getBoundingClientRect();
+        if (!bounds) return null;
+        return {
+            page: nearest,
+            x: Math.min(1, Math.max(0, (x - bounds.left) / bounds.width)),
+            y: Math.min(1, Math.max(0, (y - bounds.top) / bounds.height)),
+        };
+    }
+
+    function restoreZoomAnchor(
+        saved: { page: number; x: number; y: number } | null,
+        anchor: { x: number; y: number },
+    ) {
+        if (!saved) return;
+        const page = host.children[saved.page];
+        if (!page) return;
+        const scrollBounds = scroll.getBoundingClientRect();
+        const bounds = page.getBoundingClientRect();
+        scroll.scrollLeft += bounds.left + bounds.width * saved.x - scrollBounds.left - anchor.x;
+        scroll.scrollTop += bounds.top + bounds.height * saved.y - scrollBounds.top - anchor.y;
+    }
+
+    function scheduleCanvasZoom(
+        saved: { page: number; x: number; y: number } | null,
+        anchor: { x: number; y: number },
+    ) {
+        window.cancelAnimationFrame(canvasZoomFrame ?? 0);
+        canvasZoomFrame = window.requestAnimationFrame(() => {
+            canvasZoomFrame = void 0;
+            if (!result || activeBackend !== "canvas") return;
+            renderCanvas(result);
+            restoreZoomAnchor(saved, anchor);
+        });
     }
 
     function setZoom(value: number, origin?: { x: number; y: number }) {
         const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
         if (Math.abs(next - zoom) < 0.001) return;
 
-        const previous = zoom;
         const anchor = origin ?? {
             x: scroll.clientWidth / 2,
             y: scroll.clientHeight / 2,
         };
-        const contentX = scroll.scrollLeft + anchor.x;
-        const contentY = scroll.scrollTop + anchor.y;
+        const savedAnchor = captureZoomAnchor(anchor);
         zoom = next;
         zoomButton.textContent = `${Math.round(zoom * 100)}%`;
-        applyZoom();
-
-        // Preserve the content point under the cursor (or viewport center) after rerendering.
-        requestAnimationFrame(() => {
-            const factor = zoom / previous;
-            scroll.scrollLeft = contentX * factor - anchor.x;
-            scroll.scrollTop = contentY * factor - anchor.y;
-        });
+        if (activeBackend === "canvas") scheduleCanvasZoom(savedAnchor, anchor);
+        else {
+            applySvgZoom();
+            restoreZoomAnchor(savedAnchor, anchor);
+        }
     }
 
     function fitWidth() {
         if (!result) return;
-        const preview = size(result);
         const styles = getComputedStyle(scroll);
         const horizontalPadding = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
-        setZoom((scroll.clientWidth - horizontalPadding) / preview.width);
+        const width = Math.max(...pageBounds(result).map(bounds => bounds.w), 1);
+        setZoom((scroll.clientWidth - horizontalPadding) / width);
+    }
+
+    function preparePrint() {
+        clearPrint();
+        document.body.classList.add("print-ready");
+        if (!result) return;
+        const [paper] = pageBounds(result);
+        printHost.replaceChildren(...createSvgPages(result));
+        printStyle.textContent = `@media print { @page { size: ${paper.w}px ${paper.h}px; margin: 0; } }`;
+    }
+
+    function clearPrint() {
+        document.body.classList.remove("print-ready");
+        printStyle.textContent = "";
+        printHost.replaceChildren();
     }
 
     const closeZoomMenu = createDropdown(zoomButton, zoomMenu);
@@ -155,10 +233,15 @@ export function createPreviewController(): PreviewController {
         },
         showError(message) {
             result = null;   // 否则缩放会把过期谱面重新画回来
+            window.cancelAnimationFrame(canvasZoomFrame ?? 0);
+            canvasZoomFrame = void 0;
+            clearPrint();
             const text = document.createElement("pre");
             text.className = "preview-error";
             text.textContent = message;
             host.replaceChildren(text);
         },
+        preparePrint,
+        clearPrint,
     };
 }

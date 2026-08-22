@@ -1,8 +1,9 @@
 import { test } from "node:test";
 
 import type { DocumentLayoutResult } from "../src/layout/engine.js";
-import { renderLayoutToCanvas } from "../src/render/canvas.js";
-import { renderLayoutToSvg, SvgPainter } from "../src/render/svg.js";
+import { renderLayoutPagesToCanvas } from "../src/render/canvas.js";
+import { layoutPageBounds } from "../src/render/paint.js";
+import { renderLayoutPagesToSvg, SvgPainter } from "../src/render/svg.js";
 import type { PathCommand } from "../src/render/types.js";
 import { assert, expectSnapshot, layoutOf, recordCommands } from "./helpers.js";
 
@@ -13,26 +14,31 @@ function allNumbersFinite(value: unknown): boolean {
     return Object.values(value).every(allNumbersFinite);
 }
 
-/** Canvas 后端没有记录器，用只记方法名的假 context 观察它实际调用了哪些绘制原语 */
-function recordCanvasCalls(result: DocumentLayoutResult) {
-    const calls: string[] = [];
+function recordingCanvasContext(calls: string[]) {
     const note = (name: string) => () => { calls.push(name); };
-    renderLayoutToCanvas(result, {
+    return {
         globalAlpha: 1,
-        save: note("save"), restore: note("restore"), translate: note("translate"),
+        save: note("save"), restore: note("restore"),
+        translate: (x: number, y: number) => { calls.push(`translate(${x},${y})`); },
         beginPath: note("beginPath"), closePath: note("closePath"),
         moveTo: note("moveTo"), lineTo: note("lineTo"), arc: note("arc"),
         quadraticCurveTo: note("quadraticCurveTo"), bezierCurveTo: note("bezierCurveTo"),
         fill: note("fill"), stroke: note("stroke"), fillText: note("fillText"),
         fillRect: note("fillRect"), strokeRect: note("strokeRect"),
-    } as unknown as CanvasRenderingContext2D);
+    } as unknown as CanvasRenderingContext2D;
+}
+
+/** Canvas 后端没有记录器，用只记方法名的假 context 观察它实际调用了哪些绘制原语 */
+function recordCanvasCalls(result: DocumentLayoutResult) {
+    const calls: string[] = [];
+    renderLayoutPagesToCanvas(result, layoutPageBounds(result).map(() => recordingCanvasContext(calls)));
     return calls;
 }
 
 /** 综合样例：一次画出文本、减时线、方框、八度点与连音线，供多个用例共享 */
 const result = layoutOf(`@box({1@a #2'./ 8 9# 3@b @tie(a,b)}, 2px, 1px) @text("<tag & text>")`);
 const commands = recordCommands(result);
-const svg = renderLayoutToSvg(result, { padding: 4 });
+const [svg] = renderLayoutPagesToSvg(result, { padding: 4 });
 const canvasCalls = recordCanvasCalls(result);
 
 test("综合乐谱产生各类绘制命令且坐标全部有限", () => {
@@ -76,22 +82,50 @@ test("SVG 路径把平移与正负缩放烘进最终几何", () => {
 });
 
 test("动态与固定图形各自使用一个 SVG 元素", () => {
-    const dynamicPathSvg = renderLayoutToSvg(layoutOf(`1@a 2@b @tie(a,b)`));
+    const [dynamicPathSvg] = renderLayoutPagesToSvg(layoutOf(`1@a 2@b @tie(a,b)`));
     assert((dynamicPathSvg.match(/<path d=/g) ?? []).length === 1,
         "a dynamic tie must remain one direct SVG path");
 
-    const fixedOnlySvg = renderLayoutToSvg(layoutOf("1 2 3"));
+    const [fixedOnlySvg] = renderLayoutPagesToSvg(layoutOf("1 2 3"));
     assert((fixedOnlySvg.match(/<text /g) ?? []).length === 3, "each fixed note number must use one normal text element");
 });
 
-test("多页输出的 SVG 尺寸包含堆叠后的整个纸面", () => {
+test("分页 SVG 与 Canvas 保持纸张尺寸、内容归属和页面原点", () => {
     const twoPageLayout = layoutOf(`
 @page(width=200px, height=80px, top=10px, bottom=10px, left=20px, right=20px, gap=5px)
 1 @br() 2 @br() 3 @br() 4
 `);
-    const twoPageSvg = renderLayoutToSvg(twoPageLayout);
     assert(twoPageLayout.pages.length === 2, "the renderer sample must contain two pages");
-    assert(twoPageSvg.includes('width="200"') && twoPageSvg.includes('height="160"'), "SVG dimensions must include complete stacked page bounds");
+    const pages = renderLayoutPagesToSvg(twoPageLayout);
+    assert(pages.length === 2, "page rendering must create one SVG per layout page");
+    assert(pages.every(page => page.includes('width="200"') && page.includes('height="80"')),
+        "each page SVG must preserve the configured paper size");
+    assert((pages[0].match(/<text /g) ?? []).length === 2 && (pages[1].match(/<text /g) ?? []).length === 2,
+        "each page SVG must contain only the objects assigned to that page");
+    assert(pages[0].includes(">1</text>") && pages[0].includes(">2</text>") && !pages[0].includes(">3</text>"),
+        "the first SVG must not duplicate content from later pages");
+    assert(pages[1].includes(">3</text>") && pages[1].includes(">4</text>") && !pages[1].includes(">2</text>"),
+        "the second SVG must not duplicate content from earlier pages");
+
+    const canvasCalls = pages.map(() => [] as string[]);
+    renderLayoutPagesToCanvas(twoPageLayout, canvasCalls.map(recordingCanvasContext));
+    assert(canvasCalls.every(calls => calls.filter(call => call === "fillText").length === 2),
+        "each page Canvas must draw only the objects assigned to that page");
+    assert(canvasCalls[0].includes("translate(0,0)") && canvasCalls[1].includes("translate(0,-80)"),
+        "each page Canvas must translate global layout coordinates to its own page origin");
+    assert(canvasCalls.every(calls => calls[0] === "save" && calls[1].startsWith("translate(")
+        && calls.at(-1) === "restore" && calls.indexOf("fillText") > 1),
+        "page Canvas transforms must wrap all drawing and restore the caller context");
+
+    const crossPageTie = layoutOf(`
+@page(width=200px, height=80px, top=10px, bottom=10px, left=20px, right=20px, gap=5px)
+1@a @br() 2 @br() 3 @br() 4@b @tie(a,b)
+`);
+    const tiePages = renderLayoutPagesToSvg(crossPageTie);
+    assert(tiePages.reduce((count, page) => count + (page.match(/<path /g) ?? []).length, 0) === 4,
+        "cross-page attachments must route each path segment once instead of duplicating every segment per page");
+    assert(tiePages.length === 4 && tiePages.every(page => (page.match(/<path /g) ?? []).length === 1),
+        "cross-page attachment segments must be assigned to their corresponding pages");
 });
 
 test("Canvas 后端能执行描边、曲线与文本绘制", () => {

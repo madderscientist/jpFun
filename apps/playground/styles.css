@@ -335,6 +335,7 @@ button:focus-visible, [tabindex]:focus-visible {
 .diagnostic-row {
     display: grid;
     grid-template-columns: 3px auto minmax(0, 1fr) auto;
+    align-items: center;
     gap: 10px;
     width: 100%;
     min-height: 46px;
@@ -433,8 +434,10 @@ button:focus-visible, [tabindex]:focus-visible {
 }
 .preview-host {
     display: flex;
-    align-items: flex-start;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 24px;
     width: max-content;
     min-width: 100%;
     min-height: 100%;
@@ -479,6 +482,7 @@ button:focus-visible, [tabindex]:focus-visible {
 .status-message[data-state="ok"] { color: var(--status-success); }
 .status-message[data-state="warning"] { color: var(--status-warning); }
 .status-message[data-state="error"] { color: var(--status-error); }
+.print-host { display: none; }
 
 @media (max-width: 800px) {
     html, body { height: auto; min-height: 100%; overflow: auto; }
@@ -510,4 +514,18 @@ button:focus-visible, [tabindex]:focus-visible {
     .theme-button { min-width: 87px; padding: 0 6px; font-size: 10px; }
     .status-item { padding: 0 6px; }
     #layoutStats { max-width: 120px; }
+}
+
+@media print {
+    html, body { width: auto; height: auto; overflow: visible; background: #ffffff; }
+    .print-ready .app-shell { display: none !important; }
+    .print-ready .print-host { display: block; }
+    .print-host > svg {
+        display: block;
+        width: 100%;
+        height: auto;
+        break-after: page;
+        page-break-after: always;
+    }
+    .print-host > svg:last-child { break-after: auto; page-break-after: auto; }
 }
