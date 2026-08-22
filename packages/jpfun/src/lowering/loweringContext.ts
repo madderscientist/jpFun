@@ -276,7 +276,7 @@ export class LoweringContext {
                         // 每个分支从头开始
                         const branchTime = timeOffset.clone();
                         const branch = this.trackedEvents(c, branchTime, branchTrack);
-                        if (branchTime.compare(timeOffset) <= 0) {
+                        if (branch.length === 0) {
                             this.diagnostics.push(Diagnostic.warning.ZeroTimeTrack(c.sourceSpan, i + 1));
                         }
                         branches.push(branch);

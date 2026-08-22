@@ -4,12 +4,12 @@ import { DEFAULT_KEY, TemporalNodeBase } from "../../lowering/types.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
 
-type TextAlign = "left" | "center";
+type TextAlign = "left" | "center" | "right";
 
 class TextFunction extends ASTFunctionNode {
     static override def = {
         name: ["text"],
-        description: "文本标记。括号内可直接换行，默认左对齐，标题类多行文本用 align=center",
+        description: "文本标记。括号内可直接换行，支持 left、center、right 对齐",
         example: `@text(进入主题)`,
         allowExtraArgs: false,
         args: [
@@ -45,10 +45,10 @@ class TextFunction extends ASTFunctionNode {
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
         const [text, size, lineHeight, align] = this.getArgValue(args, ctx) as [string, LengthValue, number, TextAlign];
-        if (align !== "left" && align !== "center") {
+        if (align !== "left" && align !== "center" && align !== "right") {
             throw new ErrorDiagnostic(
                 "E_TEXT_INVALID_ALIGN",
-                "@text 的 align 参数必须是 'left' 或 'center'",
+                "@text 的 align 参数必须是 'left'、'center' 或 'right'",
                 sourceSpan,
             );
         }
@@ -60,7 +60,10 @@ class TextFunction extends ASTFunctionNode {
 
     override loweringEnter() { return [new TextTemporalNode(this)]; }
 
-    override toString() { return `@text(${this.lines.join("\n")})`; }
+    override toString() {
+        const lineHeight = this.size === 0 ? 1.25 : this.lineAdvance / this.size;
+        return `@text(${JSON.stringify(this.lines.join("\n"))}, size=${this.size}px, lineheight=${lineHeight}, align=${this.align})`;
+    }
 }
 
 export const TextNode: ASTFunctionClass = TextFunction;
@@ -92,7 +95,10 @@ class TextTemporalNode extends TemporalNodeBase {
         this.box.visualAxis = this.box.h / 2;
         this.textBaselineY = first.baseline;
         if (align === "center") this.box.anchor = width / 2;
-        else {
+        else if (align === "right") {
+            const lastChar = [...lines[0]].at(-1);
+            this.box.anchor = width - (lastChar ? measure(lastChar).w / 2 : 0);
+        } else {
             // 左对齐时锚点落在首字符中心，单字标记才能像音符一样对准宿主
             const firstChar = [...lines[0]][0];
             this.box.anchor = firstChar ? measure(firstChar).w / 2 : 0;
@@ -101,7 +107,7 @@ class TextTemporalNode extends TemporalNodeBase {
 
     override paint(painter: Painter) {
         const { lines, align, lineAdvance } = this.ast;
-        const x = this.box.x + (align === "center" ? this.box.w / 2 : 0);
+        const x = this.box.x + (align === "center" ? this.box.w / 2 : align === "right" ? this.box.w : 0);
         let y = this.box.y + this.textBaselineY;
         for (const line of lines) {
             painter.drawText(line, x, y, this.style);

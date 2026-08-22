@@ -67,6 +67,18 @@ test("align=center 时锚点与各行都取整块中心", () => {
         "centered lines must share the block center line");
 });
 
-test("align 只接受 left 和 center", () => {
+test("align=right 时锚点取末字符中心，各行取整块右缘", () => {
+    const result = layoutOf(`@text("短\n下面这行更长", align=right)`);
+    const box = result.objects[0].box;
+    const [first, second] = recordCommands(result).filter(command => command.kind === "text");
+    assert(box.anchor < box.w && box.anchor > box.w - first.style.fontSize,
+        "right-aligned text must anchor at the first line's last character center");
+    assert(first.style.textAlign === "right" && second.style.textAlign === "right",
+        "the painter must right-align every line");
+    assert(nearly(first.x, second.x) && nearly(first.x, box.x + box.w),
+        "right-aligned lines must share the block right edge");
+});
+
+test("align 只接受 left、center 和 right", () => {
     expectCompileError(`@text("上行", align=middle)`, "E_TEXT_INVALID_ALIGN");
 });
