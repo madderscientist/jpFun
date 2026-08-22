@@ -2,6 +2,18 @@
 
 [playground](../apps/playground/) 目前是唯一的编辑器前端。这里记录它提供了什么能力、数据从 `jpfun` 的哪个 API 来、以及对应 VS Code 的哪个扩展点，供插件对齐。
 
+## 工作台
+
+桌面端有「编辑 / 拆分 / 预览」三种布局。拆分视图的分隔条可拖动，也可聚焦后用左右方向键按 2% 调整；编辑器宽度限制在 25%～75%。当前布局、编辑器宽度和左侧标签会写入 `localStorage`，存储不可用时静默退化为本次会话状态。
+
+左侧是「源码 / 播放」标签，右侧是「谱面 / 诊断」标签。播放页目前只是禁用控件组成的界面占位，还没有播放、节拍器或混音逻辑。状态栏提供：
+
+- `2026 Light` / `Quiet Light` 两套持久化主题；
+- 等待排版、排版完成、诊断数量或排版失败状态，点击状态文字会打开诊断页；
+- 对象数、谱面行数、页数、页面尺寸、编译耗时和源码字符数。
+
+窄于 800px 时编辑器与结果区改为上下排列、隐藏分隔条，不再由桌面端的三种布局隐藏其中一侧；窄于 480px 时工具栏和诊断行进一步压缩。
+
 ## 两条路径
 
 编辑器功能分两层，对应解析器的两个入口（解析器侧見 [解析](parseAST.md)）。任何前端都应该保持这个划分：
@@ -29,6 +41,7 @@
 | 去糖替换 | `node.toString(source)` | `CodeActionProvider`（见下） |
 | 诊断 | `parser.diagnostics` + 抛出的错误 | `DiagnosticCollection` |
 | 谱面预览 | `renderLayoutPagesToSvg` / `renderLayoutPagesToCanvas` | Webview |
+| 分页、缩放、页码与打印 | `layout.pages` + 前端页面组装 | Webview / Webview 打印 |
 | 注释/括号 | `languageData` | `language-configuration.json` |
 
 ## 语法着色
@@ -79,16 +92,20 @@ playground 的实现在 [jpfun-language.ts](../apps/playground/jpfun-language.ts
 
 **只有语法糖才显示去糖行**：判断依据是节点 `sourceSpan` 能否在 `syntax.calls` 里找到**起止完全相同**的条目——能找到就是用户写出来的调用，去糖行等于原文。别用「源码切片是否以 `@name` 开头」判，语法糖会撑开 span，`@note(1) ^ @note(3)` 产生的 UpFunction 切片就以 `@note` 开头。
 
-去糖行单独一段，用不同颜色（`--syntax-function`）和等宽字体，行尾挂一个「替换」按钮把 `node.sourceSpan` 区间换成去糖写法。显示超长会截断（上限 200 字符），但**替换用完整文本**。
+去糖行单独一段，用不同颜色（`--syntax-function`）和等宽字体，行尾挂一个「替换」按钮把 `node.sourceSpan` 区间换成去糖写法。等价写法**不截断也不折行**，超长内容在该行内横向滚动；悬浮框整体仍受最大宽高限制，正文过长时由外层滚动。「替换」按钮在悬浮框滚动时保持可见。
+
+playground 接管了 CodeMirror 默认的悬浮关闭时机：悬浮框优先放在当前行上方并留 4px 间距，鼠标离开 token 后延迟 250ms 关闭，进入悬浮框或其外扩 8px 区域会取消关闭。点击编辑器后，在鼠标真正移动前不会原地重新弹出。这些数值是 playground 的交互选择，不是 core 契约。
 
 > 移植差异：VS Code 的 Hover 只接受 `MarkdownString`，放不了真按钮。两种替代：在 Markdown 里放 `command:` 链接（需要 `isTrusted`），或者把「替换为函数调用」做成 `CodeActionProvider` 的 refactor——后者更符合 VS Code 习惯，而且能在选中一段时批量提供。
 
 ## 诊断
 
 - **非致命**（警告 + 被显式吞掉的错误）在 `parser.diagnostics` 里，编译照常完成。
-- **致命错误**由 `compileScore` 抛出，`catch` 到的 `Diagnostic` 单独展示。注意 `PageLayoutError` 这类不是 `Diagnostic`，没有 `span` 也没法跳转，前端要单独留一条只显示文本的位置。
+- **致命错误**由 `compileScore` 抛出，`catch` 到的 `Diagnostic` 单独展示。正常的单行页面溢出会在布局入口转成带 span 的 `E_PAGE_OVERFLOW`；其它非 `Diagnostic` 异常没有 span，前端保留一条「排版中断」文本行兜底。
 - `Diagnostic` 有 `code`、`message`、`span`（offset）和 `toLineCol(lineStarts)`。`lineStarts` 只在没有编辑器的场景才需要——playground 直接用 `doc.lineAt(offset)`，VS Code 里用 `document.positionAt(offset)`，两者对致命错误一样有效（那条路径拿不到 `compileScore` 的 `lineStarts`）。
 - 空 span（`start === end`）要人为撑成 1 个字符，否则波浪线不可见。
+
+诊断标签显示总数和最高严重级别，面板显示错误/警告计数。带 span 的诊断行显示 `行:列`，点击后切回源码、选中对应区间并滚动到视口中央；无 span 的兜底行只显示文本。
 
 `analyzeScoreSyntax` 也返回 `diagnostics`（未闭合调用、位置参数排在命名参数之后等）。是否把输入过程中的这些错误也报出来是产品选择——playground 目前只展示编译路径的诊断，避免打字时满屏红线。
 
@@ -103,7 +120,20 @@ renderLayoutPagesToSvg(layout, { padding, background }) // 返回分页 SVG 字�
 renderLayoutPagesToCanvas(layout, contexts)             // 画到每页的 2D context
 ```
 
-SVG 路径直接使用最终坐标（不生成 `<defs>/<use>` 因为发现徒增复杂度）。Canvas 后端要自己处理 `devicePixelRatio` 和 `translate(-bounds.x, -bounds.y)`。SVG 内容与缩放无关，缩放时只改 `style.width/height`，不要重新生成。
+SVG 路径直接使用最终坐标（不生成 `<defs>/<use>` 因为发现徒增复杂度）。`renderLayoutPagesToCanvas` 会在内部按页执行 `translate(-bounds.x, -bounds.y)`；前端只需创建数量匹配的 context，并处理画布尺寸、`devicePixelRatio` 和缩放。SVG 内容与缩放无关，缩放时只改 `style.width/height`，不要重新生成。
+
+playground 把每个 `layout.pages[i].bounds` 展示成独立纸张，纵向排列并保留固定页间距。工具栏提供：
+
+- SVG / Canvas 后端即时切换；
+- 缩放菜单内提供「适合宽度」和 50%～200% 的常用倍率；内部缩放范围是 25%～300%；
+- 初始采用适宽模式，按钮显示 `适合宽度:53%` 形式的实时倍率；容器或页面宽度变化时继续贴合，手动选择倍率或 `Ctrl+滚轮` 后退出该模式并只显示百分比；
+- 普通滚轮滚动页面，`Ctrl+滚轮` 以指针所在位置为缩放锚点。
+
+多页缩放锚点按「具体页面 + 页面内归一化坐标」保存，页间距不会被误算进缩放比例。SVG 只更新已有根元素的 CSS 尺寸；Canvas 按当前缩放和 `devicePixelRatio` 重绘，连续滚轮事件合并到一个 animation frame。发生致命错误时会清空当前编译结果，之后缩放不会把上一次成功的谱面重新画回来。
+
+每页底部中央由 playground 追加 `当前页/总页数`，单页也显示 `1/1`。页码同时进入 SVG、Canvas 和打印结果，但**不属于 core 布局或 Painter 协议**，不会改变 `@page` 的边距，也不参与谱面行高计算。
+
+打印前会立即重新编译，并用同一批带页码的分页 SVG 建立独立打印树；动态 `@page size` 与布局纸张尺寸一致，工作台本身在打印媒体中隐藏，每个 SVG 后强制分页。打印结束后清空临时节点和样式。若重新编译失败，打印树保持为空，不会打印过期谱面。
 
 VS Code 里放 Webview。`jpfun` 是纯 ESM 且不依赖 DOM，所以编译可以放在扩展主进程、只把 SVG 字符串 postMessage 给 webview（这样能复用同一份编译结果做诊断），也可以整个跑在 webview 里。
 
@@ -129,6 +159,7 @@ closeBrackets: { brackets: ["(", "{", "[", "\""] }
 - **跳转定义 / 查找引用**（标签 → 音符）。`ASTLabelNode.target` 已经指向被标注的节点，做起来不难，但还没做。
 - **语义高亮**：标签没绑上、未知函数名等应该标红，现在没有。需要遍历 AST 而不是 token。
 - **重命名标签**、**格式化**、**代码折叠**。
+- **实际播放**。播放标签只有禁用的走带、范围、节拍器和声部混音占位控件。
 - **增量解析**。现在每次按键全文重扫词法层。乐谱规模够用；真要做，先做区间重扫（按行/大括号边界），别一上来就上节点复用——`span` 是绝对 offset，且 AST 会改写 grammar 阶段的 span 对象，这两条都要先解决。
 
 ## 已知问题

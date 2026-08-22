@@ -4,6 +4,14 @@
 export const PLAYGROUND_EXAMPLE = `% ===== jpFun 语法示例 ===== %
 @page(width=860px, height=0px, top=42px, bottom=42px, left=38px, right=38px, gap=1.2em)
 
+H.title: jpFun 简谱示例
+H.subtitle: 函数式排版语言
+H.author: 示例曲谱
+H.author: madderscientist 开发
+H.left: @key(D4) @meter(4,4)
+H.left: @tempo(96)
+@br()
+
 @text("音符 ")
 @note(C, #, 4, #f00) % 标准函数调用
 C3#           % 绝对音高语法糖：音名+升降号+八度

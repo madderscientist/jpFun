@@ -16,6 +16,11 @@ export interface PreviewController {
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 3;
+const PAGE_NUMBER_FONT_SIZE = 16;       // 页码字号
+const PAGE_NUMBER_BOTTOM_INSET = 14;    // 页码距离页面底边的视觉间距
+const PAGE_NUMBER_COLOR = "#606060";
+const PAGE_NUMBER_FONT_FAMILY = 'Bahnschrift, "Noto Sans SC", "Microsoft YaHei UI", sans-serif';
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
 function isPreviewBackend(value: string | undefined): value is PreviewBackend {
     return value === "svg" || value === "canvas";
@@ -33,6 +38,7 @@ export function createPreviewController(): PreviewController {
     let activeBackend: PreviewBackend = "svg";
     let result: CompileScoreResult | null = null;
     let zoom = 1;
+    let fitToWidth = true;
     let canvasZoomFrame: number | undefined;
 
     document.head.append(printStyle);
@@ -44,9 +50,24 @@ export function createPreviewController(): PreviewController {
     }
 
     function createSvgPages(compiled: CompileScoreResult) {
+        const bounds = pageBounds(compiled);
         const container = document.createElement("div");
         container.innerHTML = renderLayoutPagesToSvg(compiled.layout, { background: "#ffffff" }).join("");
-        return [...container.querySelectorAll<SVGSVGElement>(":scope > svg")];
+        const pages = [...container.querySelectorAll<SVGSVGElement>(":scope > svg")];
+        for (const [index, svg] of pages.entries()) {
+            const page = bounds[index];
+            if (!page) continue;
+            const text = document.createElementNS(SVG_NAMESPACE, "text");
+            text.setAttribute("x", String(page.x + page.w / 2));
+            text.setAttribute("y", String(page.y + page.h - PAGE_NUMBER_BOTTOM_INSET));
+            text.setAttribute("text-anchor", "middle");
+            text.setAttribute("font-family", PAGE_NUMBER_FONT_FAMILY);
+            text.setAttribute("font-size", String(PAGE_NUMBER_FONT_SIZE));
+            text.setAttribute("fill", PAGE_NUMBER_COLOR);
+            text.textContent = `${index + 1} / ${pages.length}`;
+            svg.append(text);
+        }
+        return pages;
     }
 
     function renderSvg(compiled: CompileScoreResult) {
@@ -65,9 +86,10 @@ export function createPreviewController(): PreviewController {
     function renderCanvas(compiled: CompileScoreResult) {
         const ratio = window.devicePixelRatio || 1;
         const contexts: CanvasRenderingContext2D[] = [];
-        const pages = pageBounds(compiled).map(bounds => {
-            const width = Math.max(1, Math.ceil(bounds.w));
-            const height = Math.max(1, Math.ceil(bounds.h));
+        const bounds = pageBounds(compiled);
+        const pages = bounds.map(page => {
+            const width = Math.max(1, Math.ceil(page.w));
+            const height = Math.max(1, Math.ceil(page.h));
             const canvas = document.createElement("canvas");
             canvas.width = Math.ceil(width * ratio * zoom);
             canvas.height = Math.ceil(height * ratio * zoom);
@@ -82,6 +104,17 @@ export function createPreviewController(): PreviewController {
             return canvas;
         });
         renderLayoutPagesToCanvas(compiled.layout, contexts);
+        for (const [index, context] of contexts.entries()) {
+            const page = bounds[index];
+            if (!page) continue;
+            context.save();
+            context.fillStyle = PAGE_NUMBER_COLOR;
+            context.font = `${PAGE_NUMBER_FONT_SIZE}px ${PAGE_NUMBER_FONT_FAMILY}`;
+            context.textAlign = "center";
+            context.textBaseline = "alphabetic";
+            context.fillText(`${index + 1} / ${contexts.length}`, page.w / 2, page.h - PAGE_NUMBER_BOTTOM_INSET);
+            context.restore();
+        }
         host.replaceChildren(...pages);
     }
 
@@ -152,9 +185,17 @@ export function createPreviewController(): PreviewController {
         });
     }
 
+    function updateZoomLabel() {
+        const percent = `${Math.round(zoom * 100)}%`;
+        zoomButton.textContent = fitToWidth ? `适合宽度:${percent}` : percent;
+    }
+
     function setZoom(value: number, origin?: { x: number; y: number }) {
         const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
-        if (Math.abs(next - zoom) < 0.001) return;
+        if (Math.abs(next - zoom) < 0.001) {
+            updateZoomLabel();
+            return;
+        }
 
         const anchor = origin ?? {
             x: scroll.clientWidth / 2,
@@ -162,7 +203,7 @@ export function createPreviewController(): PreviewController {
         };
         const savedAnchor = captureZoomAnchor(anchor);
         zoom = next;
-        zoomButton.textContent = `${Math.round(zoom * 100)}%`;
+        updateZoomLabel();
         if (activeBackend === "canvas") scheduleCanvasZoom(savedAnchor, anchor);
         else {
             applySvgZoom();
@@ -171,11 +212,13 @@ export function createPreviewController(): PreviewController {
     }
 
     function fitWidth() {
-        if (!result) return;
-        const styles = getComputedStyle(scroll);
-        const horizontalPadding = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
+        fitToWidth = true;
+        if (!result || scroll.clientWidth <= 0) {
+            updateZoomLabel();
+            return;
+        }
         const width = Math.max(...pageBounds(result).map(bounds => bounds.w), 1);
-        setZoom((scroll.clientWidth - horizontalPadding) / width);
+        setZoom(scroll.clientWidth / width);
     }
 
     function preparePrint() {
@@ -208,18 +251,29 @@ export function createPreviewController(): PreviewController {
     for (const item of zoomMenu.querySelectorAll<HTMLButtonElement>("[data-zoom]")) {
         item.addEventListener("click", () => {
             const percent = Number(item.dataset.zoom);
-            if (Number.isFinite(percent)) setZoom(percent / 100);
+            if (Number.isFinite(percent)) {
+                fitToWidth = false;
+                setZoom(percent / 100);
+            }
             closeZoomMenu(true);
         });
     }
 
-    fitWidthButton.addEventListener("click", fitWidth);
+    fitWidthButton.addEventListener("click", () => {
+        fitWidth();
+        closeZoomMenu(true);
+    });
+
+    new ResizeObserver(() => {
+        if (fitToWidth) fitWidth();
+    }).observe(scroll);
 
     scroll.addEventListener("wheel", event => {
         // 普通滚轮翻页，Ctrl+滚轮以指针为中心缩放
         if (!event.ctrlKey) return;
         event.preventDefault();
         const bounds = scroll.getBoundingClientRect();
+        fitToWidth = false;
         setZoom(zoom * Math.exp(-event.deltaY * 0.002), {
             x: event.clientX - bounds.left,
             y: event.clientY - bounds.top,
@@ -230,6 +284,7 @@ export function createPreviewController(): PreviewController {
         render(compiled) {
             result = compiled;
             renderActiveBackend();
+            if (fitToWidth) fitWidth();
         },
         showError(message) {
             result = null;   // 否则缩放会把过期谱面重新画回来

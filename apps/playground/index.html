@@ -128,6 +128,8 @@
                                 title="设置预览缩放"
                             >100%</button>
                             <div class="zoom-menu" id="zoomMenu" role="menu" hidden>
+                                <button id="fitWidth" type="button" role="menuitem">适合宽度</button>
+                                <div class="zoom-menu-separator" role="separator"></div>
                                 <button type="button" role="menuitem" data-zoom="50">50%</button>
                                 <button type="button" role="menuitem" data-zoom="75">75%</button>
                                 <button type="button" role="menuitem" data-zoom="100">100%</button>
@@ -136,9 +138,6 @@
                                 <button type="button" role="menuitem" data-zoom="200">200%</button>
                             </div>
                         </div>
-                        <button class="tool-button fit-button" id="fitWidth" type="button" title="预览宽度撑满">
-                            适合宽度
-                        </button>
                         <div class="backend-tabs" role="tablist" aria-label="渲染后端">
                             <button class="backend-tab" role="tab" data-backend="svg" aria-selected="true">SVG</button>
                             <button class="backend-tab" role="tab" data-backend="canvas" aria-selected="false">Canvas</button>

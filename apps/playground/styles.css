@@ -389,7 +389,7 @@ button:focus-visible, [tabindex]:focus-visible {
     top: calc(100% + 6px);
     right: 0;
     display: grid;
-    width: 92px;
+    width: max-content;
     padding: 4px;
     border: 1px solid var(--line);
     border-radius: 4px;
@@ -402,7 +402,7 @@ button:focus-visible, [tabindex]:focus-visible {
     padding: 0 8px;
     border: 0;
     border-radius: 3px;
-    text-align: right;
+    text-align: center;
     color: var(--ink);
     background: transparent;
     font-family: "Cascadia Mono", monospace;
@@ -410,7 +410,7 @@ button:focus-visible, [tabindex]:focus-visible {
     cursor: pointer;
 }
 .zoom-menu button:hover, .zoom-menu button:focus-visible { background: var(--hover); }
-.fit-button { white-space: nowrap; }
+.zoom-menu-separator { height: 1px; margin: 4px; background: var(--line-subtle); }
 .backend-tabs { overflow: hidden; border: 1px solid var(--line); border-radius: 4px; }
 .backend-tab {
     padding: 0 10px;
@@ -427,7 +427,7 @@ button:focus-visible, [tabindex]:focus-visible {
     min-width: 0;
     min-height: 0;
     overflow: auto;
-    padding: 24px;
+    padding: 24px 0;
     background-color: var(--canvas);
     background-image: radial-gradient(color-mix(in srgb, var(--muted) 22%, transparent) 0.55px, transparent 0.55px);
     background-size: 9px 9px;
@@ -495,7 +495,7 @@ button:focus-visible, [tabindex]:focus-visible {
     .workspace[data-view] .editor-panel, .workspace[data-view] .preview-panel { display: grid; }
     .workspace-divider { display: none; }
     .editor-panel { border-bottom: 1px solid var(--line); }
-    .preview-scroll { padding: 14px; }
+    .preview-scroll { padding: 14px 0; }
     .playback-scroll { padding: 18px; }
     .statusbar { position: fixed; z-index: 30; right: 0; bottom: 0; left: 0; }
 }
@@ -506,8 +506,6 @@ button:focus-visible, [tabindex]:focus-visible {
     .result-toolbar { padding-right: 6px; }
     .compile-button { padding: 0 9px; font-size: 0; }
     .compile-button span { font-size: 9px; }
-    .fit-button { width: 30px; overflow: hidden; padding: 0; color: transparent; }
-    .fit-button::after { color: var(--muted); content: "↔"; }
     .diagnostic-row { grid-template-columns: 3px auto minmax(0, 1fr); }
     .diagnostic-position { display: none; }
     .parameter-grid { grid-template-columns: minmax(0, 1fr); }
