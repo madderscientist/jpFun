@@ -6,9 +6,9 @@ jpFun compiles a compact numbered-notation DSL into a reusable document layout t
 
 ## Features
 
-- Concise DSL with function-based extensibility
-- Numbered notes, rests, chords, lyrics, voices, grace notes, ties, and beams
-- Automatic spacing, line breaking, and pagination
+- Compact DSL with syntax sugar and function-based extensibility
+- Exact rational timing and composable score structures
+- Automatic spacing, explicit system breaks, and page-aware pagination
 - Shared layout model for SVG and Canvas rendering
 - Structured diagnostics and source locations
 - Zero runtime dependencies

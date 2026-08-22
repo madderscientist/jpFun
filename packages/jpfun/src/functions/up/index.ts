@@ -221,9 +221,7 @@ class UpTemporal extends TemporalNodeBase {
             // 只有锚点需要传上来：`| ^ @text(A)` 得保持小节线语义；
             // 成员不进全局 columns，它们自己的合并组对外没有意义
             if (member.mergeKey === ANCHOR_KEY) this.mergeKey = ANCHOR_KEY;
-            // 堆叠在一起的成员共享同一个时值，由第一个成员决定；
-            // 本来就没有时长的成员（标注、小节线等）保持 0，不会被拉长
-            if (!member.T.isZero()) member.T.copyFrom(this.T);
+            // 时间同步在 onTimeState 里做，避免成员的时间被提前固化（后续时间可能会变）
             // 修饰已经提升到和弦上，成员不再单独绘制，
             // 否则和弦内部会出现多余的减时线或附点
             member.addon = void 0;
@@ -240,6 +238,9 @@ class UpTemporal extends TemporalNodeBase {
         // 一般而言，最下面的成员是主体、上面的是标记，标记先写入主体才读得到
         for (let i = this.members.length - 1; i >= 0; i--) {
             const member = this.members[i];
+            // 堆叠在一起的成员共享同一个时值，由第一个成员决定；
+            // 本来就没有时长的成员（标注、小节线等）保持 0，不会被拉长
+            if (!member.T.isZero()) member.T.copyFrom(this.T);
             member.t.copyFrom(this.t);
             member.track = this.track;
             member.layoutLine = this.layoutLine;

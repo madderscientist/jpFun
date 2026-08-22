@@ -1,6 +1,7 @@
 ﻿import type { SourceSpan, LengthValue, deSugarAtomFunction, deSugarRelationFunction } from "../parser/types.js";
 import type { ParserContext } from "../parser/parserContext.js";
 import { Diagnostic } from "../diagnostic.js";
+import type { Fraction } from "../fraction.js";
 import type {
     LoweringAugmenter,
     LoweringFinalizer,
@@ -80,10 +81,14 @@ export class ASTNodeBase {
 
     /**
      * 离开当前层级的回调 同 loweringEnter
+     *
+     * timeOffset 是 children 展开后的当前时间游标。
+     * 只有在同步重写本节点已经产生的 Temporal.t/T 时才可原地修改它，避免事件时间与后继事件起点不一致。
      */
     loweringExit(
         _ctx: LoweringContext,
         _track: Track,
+        _timeOffset: Fraction,
     ): Iterable<TemporalNodeBase> {
         return [];
     }

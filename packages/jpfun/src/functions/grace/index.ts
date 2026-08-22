@@ -371,6 +371,8 @@ export class GraceTemporal extends TemporalNodeBase {
 
     /** 成员共享全局时间状态，按发声顺序固化 */
     override onTimeState(state: Record<string, any>) {
+        // 同步时间的修改。比如tuplet修改的是GraceTemporal.T，这里要把它传给成员
+        this.host.T.copyFrom(this.T);
         const members = this.side === "pre"
             ? [...this.graces, this.host]
             : [this.host, ...this.graces];

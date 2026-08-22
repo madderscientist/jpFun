@@ -17,11 +17,12 @@ import { SetNode } from "./set/index.js";
 import { TempoNode } from "./tempo/index.js";
 import { TextNode } from "./text/index.js";
 import { TieNode } from "./tie/index.js";
+import { TupletNode } from "./tuplet/index.js";
 import { VoiceNode, VoicesNode } from "./voice/index.js";
 
 export const defaultFunctions: ASTFunctionClass[] = [
     NoteNode, DashNode, BarNode, // 有实体
-    DivNode, DotNode,   // 装饰性
+    DivNode, DotNode, TupletNode,   // 装饰性
     VoiceNode, VoicesNode,  // 歌词和声部
     BrNode,     // 排版
     PageNode,   // 文档页面

@@ -14,8 +14,8 @@ AST 适合表达嵌套语法，例如“这一组音符被二分”“两个声�
 AST 节点可以在 `loweringEnter` 或 `loweringExit` 中产生 `TemporalNodeBase`。核心字段是：
 ```ts
 class TemporalNodeBase {
-    t: number;        // 开始时间，单位 QN（四分音符时值）
-    T: number;        // 持续时间
+    t: Fraction;      // 开始时间，单位 QN（四分音符时值）
+    T: Fraction;      // 持续时间
     track: Track;     // 所在的纵向音轨
     mergeKey: number; // 合并组；相等才进同一个时间列。其中 -inf 有时间对齐锚点的含义
     ast: ASTNodeBase; // 来源 AST，便于定位和查找关系端点
@@ -59,7 +59,9 @@ class TemporalNodeBase {
 3. 交给当前所有 `LoweringGroup` 观察或修改。
 4. 加入时间列，并把时间游标推进到事件结束处。
 
-分组必须在推进游标前修改事件。以 `dot`、`div` 为例，它们会在进入节点时开启分组，在离开时关闭；组内每个事件的时长先被修饰，后续事件才从修饰后的结束时间开始。
+通常，分组应在推进游标前修改事件。以 `dot`、`div` 为例，它们会在进入节点时开启分组，在离开时关闭；组内每个事件的时长先被修饰，后续事件才从修饰后的结束时间开始。
+
+必须观察完整作用域才能决定比例的函数可在 `LoweringGroup` 中只收集事件，再在 `loweringExit(ctx, track, timeOffset)` 中统一修改。此时必须同时重写已收集事件的 `t/T` 和可变的 `timeOffset`，保证后继事件仍从新的组尾开始。`tuplet` 使用这一模式；只改其中一边会破坏时间线一致性。
 
 ### 2. 展开子节点
 节点通过 `timeFlowModel()` 声明子节点如何流动：
@@ -102,7 +104,7 @@ interface LoweringResult {
     columns: TemporalNodeBase[][];
     attachments: LayoutAttachment[];
     astToTemporal: Map<ASTNodeBase, TemporalNodeBase[]>;
-    duration: number;
+    duration: Fraction;
     rootTrack: Track;
     page?: PageConfig;
 }
@@ -166,7 +168,7 @@ override loweringEnter(ctx: LoweringContext) {
         onTemporal(node) {
             const addon = node.addon ??= {};
             addon[DIV_ADDON_KEY] = (Number(addon[DIV_ADDON_KEY]) || 0) + count;
-            node.T /= 2 ** count;
+            node.T.divPow2(count);
         },
     }); return [];
 }

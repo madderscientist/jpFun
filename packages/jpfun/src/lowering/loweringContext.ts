@@ -148,11 +148,12 @@ export class LoweringContext {
      * 结束最近的分组并注册其辅助排版对象
      * 嵌套分组按退出顺序注册，因此天然是由内向外计算边界
      */
-    endLoweringGroup(owner: ASTNodeBase) {
+    endLoweringGroup(owner: ASTNodeBase): LoweringGroup {
         const active = this.activeLoweringGroups.pop();
         if (!active) throw new Error("No active lowering group to end");
         if (active.owner !== owner) throw new Error("Lowering groups must end in reverse order");
         if (active.group.attachment) this.addLayoutAttachment(active.group.attachment);
+        return active.group;
     }
 
     /** 先统一生成派生 attachment，再按注册顺序执行最终处理 */
@@ -294,7 +295,7 @@ export class LoweringContext {
             }
         }
         this.appendEvents(
-            node.loweringExit(this, track),
+            node.loweringExit(this, track, timeOffset),
             node, timeOffset,
             track, columns,
         );
