@@ -6,6 +6,7 @@ import { DashNode } from "./dash/index.js";
 import { DivNode } from "./div/index.js";
 import { DotNode } from "./dot/index.js";
 import { GraceNode } from "./grace/index.js";
+import { HeadNode } from "./head/index.js";
 import { KeyNode } from "./key/index.js";
 import { MeterNode } from "./meter/index.js";
 import { BrNode } from "./br/index.js";
@@ -25,7 +26,7 @@ export const defaultFunctions: ASTFunctionClass[] = [
     DivNode, DotNode, TupletNode,   // 装饰性
     VoiceNode, VoicesNode,  // 歌词和声部
     BrNode,     // 排版
-    PageNode,   // 文档页面
+    PageNode, HeadNode,   // 文档页面与谱头
     StackNode,  // 时间同步
     UpNode,
     GraceNode,  // 倚音

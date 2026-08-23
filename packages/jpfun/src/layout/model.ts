@@ -9,6 +9,7 @@ const DEFAULT_F = 1.0;  // 多大力让一行的 margin 全变为 0
 const DEFAULT_ALPHA = 6;    // 控制无约束时元素的margin
 const DEFAULT_MU = 16;
 const DEFAULT_CROSS_PUNISH = 32;
+const MIN_ALPHA = 1e-6;
 
 type _LayoutBox = Pick<LayoutBox, 'w' | 'x' | 'anchor'>;
 export interface LayoutElement {
@@ -45,8 +46,8 @@ export function completeSpringConfig(
     config.mu_L ??= defaultMu;
     config.mu_R ??= defaultMu;
 
-    config.beta_L ??= F / config.alpha_L;
-    config.beta_R ??= F / config.alpha_R;
+    config.beta_L ??= F / Math.max(config.alpha_L, MIN_ALPHA);
+    config.beta_R ??= F / Math.max(config.alpha_R, MIN_ALPHA);
 }
 
 // 有副作用：确保直接调用时也能消费尚未补齐的配置

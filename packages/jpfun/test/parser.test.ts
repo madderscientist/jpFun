@@ -29,6 +29,30 @@ test("续行与注释掩码保持源码长度和行首偏移", () => {
     ].join("\n"));
 });
 
+test("head 行语法糖只标记前缀并递归显式内容", () => {
+    const source = `H.title: jpFun 简谱示例
+H.title: @box(@text(测试))`;
+    const syntax = analyzeScoreSyntax(source).syntax;
+    const tokenText = (token: typeof syntax.tokens[number]) => source.slice(token.span.start, token.span.end);
+    assert(syntax.tokens.some(token => token.kind === "operator" && tokenText(token) === "H.title:"),
+        "head declaration prefix must be one operator token");
+    assert(!syntax.tokens.some(token => tokenText(token) === "H.title: jpFun 简谱示例"),
+        "bare head text must not be included in the operator token");
+    assert(!syntax.tokens.some(token => token.kind === "atom" && tokenText(token) === "F"),
+        "bare head text must not be scanned as note sugar");
+    assert(syntax.tokens.some(token => token.kind === "function" && tokenText(token) === "@box")
+        && syntax.tokens.some(token => token.kind === "function" && tokenText(token) === "@text"),
+    "explicit head content must retain nested function tokens");
+
+    const first = createParser(source).parseGrammar(0, source.length)[0];
+    assert(typeof first !== "number" && first.kind === "sugar"
+        && tokenText({ kind: "operator", span: first.span }) === "H.title:",
+    "parseGrammar must emit a short head sugar node");
+    assert(typeof first !== "number" && first.kind === "sugar"
+        && Object.keys(first.data).sort().join(",") === "class,field",
+    "head sugar data must contain only dispatch class and field");
+});
+
 test("未闭合的调用仍然向编辑器暴露语法信息", () => {
     const incomplete = `@page(width=800px, height= % comment`;
     const incompleteResult = analyzeScoreSyntax(incomplete);

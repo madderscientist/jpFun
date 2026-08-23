@@ -85,7 +85,8 @@ class TempoTemporalNode extends TemporalNodeBase {
         this.box.w = this.textX + metrics.w;
         this.box.h = textTop + metrics.h;
         this.box.anchor = glyph.stemCenterX;
-        this.box.visualAxis = this.box.h / 2;
+        // Tempo 与同轨文字按等号所在的文字行对齐；符干只向上扩展占用，不参与对齐轴。
+        this.box.visualAxis = textTop + metrics.h / 2;
     }
 
     override paint(painter: Painter) {

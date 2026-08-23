@@ -8,9 +8,8 @@ H.title: jpFun 简谱示例
 H.subtitle: 函数式排版语言
 H.author: 示例曲谱
 H.author: madderscientist 开发
-H.left: @key(D4) @meter(4,4)
-H.left: @tempo(96)
-@br()
+H.signature: 1=C 4/4
+H.tempo: 94
 
 @text("音符 ")
 @note(C, #, 4, #f00) % 标准函数调用
