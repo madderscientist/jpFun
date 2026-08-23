@@ -294,11 +294,13 @@ H.left: / H.center: / H.right: 接受对应槽的任意零时长 DSL 内容
     ): ASTNodeBase {
         if (parsed !== void 0) return sugarRow(span, parsed);
         if (field === "signature") {
-            const match = /^1\s*=\s*(\S+)\s+(\d+)\s*\/\s*(\d+)$/.exec(text);
+            const match = /^(1\s*=\s*(\S+))\s+((\d+)\s*\/\s*(\d+))$/.exec(text);
             if (!match) throw new ErrorDiagnostic("E_HEAD_INVALID_SIGNATURE", "H.signature 的格式应为 1=C 4/4", span);
+            const keySpan = { start: span.start, end: span.start + match[1].length };
+            const meterSpan = { start: span.end - match[3].length, end: span.end };
             return sugarRow(span, [
-                new KeyNode(span, new Map([["tonality", match[1]]]), ctx, null),
-                new MeterNode(span, new Map([["num", Number(match[2])], ["den", Number(match[3])]]), ctx, null),
+                new KeyNode(keySpan, new Map([["tonality", match[2]]]), ctx, null),
+                new MeterNode(meterSpan, new Map([["num", Number(match[4])], ["den", Number(match[5])]]), ctx, null),
             ]);
         }
         if (field === "tempo") {

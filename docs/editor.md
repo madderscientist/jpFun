@@ -41,6 +41,7 @@
 | 去糖替换 | `node.toString(source)` | `CodeActionProvider`（见下） |
 | 诊断 | `parser.diagnostics` + 抛出的错误 | `DiagnosticCollection` |
 | 谱面预览 | `renderLayoutPagesToSvg` / `renderLayoutPagesToCanvas` | Webview |
+| 源码 / 谱面双向定位 | `object.ast.sourceSpan + box`、`attachment.sourceSpan + regions` | Webview 消息 + `TextEditor.selection` |
 | 分页、缩放、页码与打印 | `layout.pages` + 前端页面组装 | Webview / Webview 打印 |
 | 注释/括号 | `languageData` | `language-configuration.json` |
 
@@ -130,6 +131,12 @@ playground 把每个 `layout.pages[i].bounds` 展示成独立纸张，纵向排�
 - 普通滚轮滚动页面，`Ctrl+滚轮` 以指针所在位置为缩放锚点。
 
 多页缩放锚点按「具体页面 + 页面内归一化坐标」保存，页间距不会被误算进缩放比例。SVG 只更新已有根元素的 CSS 尺寸；Canvas 按当前缩放和 `devicePixelRatio` 重绘，连续滚轮事件合并到一个 animation frame。发生致命错误时会清空当前编译结果，之后缩放不会把上一次成功的谱面重新画回来。
+
+源码与谱面使用同一份后端无关映射：可见 Temporal 读取 `ast.sourceSpan + box`，attachment 读取 `sourceSpan + regions`。除了顶层 `layout.objects`，前端还从 `lowering.astToTemporal` 收集已完成布局的折叠成员，因此 grace/up 内部的音符与各层复合体仍可分别命中。`regions` 是 attachment 最后一次布局返回的实际区域，发生条件纵向重排时由引擎覆盖成最终坐标；自动 beam 的 span 取首末端点及其生效 div 作用域的并集。只有一个可见后代、且父 AST 本身没有可见 Temporal、也没有独立 attachment 的函数包装才会并入对象范围，因此 `1/` 的音符和减时线都对应完整 `1/`，而 grace 操作符不会吞掉内部音符的 span，`@box` 仍由自己的 attachment 定位。
+
+playground 只在鼠标点击源码时触发右侧同步，键盘移动光标不触发；注释、空白及没有可见输出的声明会清除强调而不猜最近对象。文档一改就立即丢弃上一轮导航映射，等防抖编译完成后再恢复，旧谱面不会把新文档跳到错误 span。命中后预览滚到对应页，并从目标中心播放双层圆形波纹。谱面第一次 click 立即把光标放到 span 起点；500ms 内同一位置的第二次 click 扩展为完整 span 选区，但第一击不等待这个窗口。从「预览」单栏触发时自动恢复拆分视图，第二击即使因布局变化落到别的 DOM 元素，也由 document 捕获层完成原 range 的选中。
+
+右侧命中先去掉纸张元素的 CSS 边框，再把 SVG/Canvas 内容盒像素按当前纸张 `bounds` 还原成全局布局坐标，然后在 region 外扩 6px 范围内选择面积最小、距离最近的目标。由此细 beam、tie 等关系图形优先于覆盖它们的大盒子，SVG 和 Canvas 不需要各自维护 DOM source marker。
 
 每页底部中央由 playground 追加 `当前页/总页数`，单页也显示 `1/1`。页码同时进入 SVG、Canvas 和打印结果，但**不属于 core 布局或 Painter 协议**，不会改变 `@page` 的边距，也不参与谱面行高计算。
 

@@ -2,16 +2,30 @@ import {
     renderLayoutPagesToCanvas,
     renderLayoutPagesToSvg,
     type CompileScoreResult,
+    type Rect,
 } from "jpfun";
+import type { SourceRange } from "./editor.js";
 import { createDropdown, requiredElement } from "./platform.js";
+import {
+    createPreviewNavigationMap,
+    previewHitAt,
+    sourceTargetAt,
+    type PreviewNavigationMap,
+} from "./preview-navigation.js";
 
 type PreviewBackend = "svg" | "canvas";
 
 export interface PreviewController {
     render(result: CompileScoreResult): void;
     showError(message: string): void;
+    invalidateNavigation(): void;
+    focusSourcePosition(position: number): void;
     preparePrint(): void;
     clearPrint(): void;
+}
+
+interface PreviewControllerOptions {
+    onNavigateSource(range: SourceRange, select: boolean): void;
 }
 
 const MIN_ZOOM = 0.25;
@@ -21,12 +35,15 @@ const PAGE_NUMBER_BOTTOM_INSET = 14;    // 页码距离页面底边的视觉间�
 const PAGE_NUMBER_COLOR = "#606060";
 const PAGE_NUMBER_FONT_FAMILY = 'Bahnschrift, "Noto Sans SC", "Microsoft YaHei UI", sans-serif';
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+const HIT_TOLERANCE = 6;
+const DOUBLE_CLICK_DELAY = 500;
+const DOUBLE_CLICK_DISTANCE = 8;
 
 function isPreviewBackend(value: string | undefined): value is PreviewBackend {
     return value === "svg" || value === "canvas";
 }
 
-export function createPreviewController(): PreviewController {
+export function createPreviewController(options: PreviewControllerOptions): PreviewController {
     const host = requiredElement<HTMLElement>("#previewHost");
     const scroll = requiredElement<HTMLElement>("#previewScroll");
     const zoomButton = requiredElement<HTMLButtonElement>("#zoomButton");
@@ -37,9 +54,12 @@ export function createPreviewController(): PreviewController {
     const backendTabs = [...document.querySelectorAll<HTMLButtonElement>(".backend-tab")];
     let activeBackend: PreviewBackend = "svg";
     let result: CompileScoreResult | null = null;
+    let navigation: PreviewNavigationMap | null = null;
     let zoom = 1;
     let fitToWidth = true;
     let canvasZoomFrame: number | undefined;
+    let pendingSourceClick: { range: SourceRange; x: number; y: number } | null = null;
+    let pendingSourceClickTimer: number | undefined;
 
     document.head.append(printStyle);
 
@@ -70,10 +90,21 @@ export function createPreviewController(): PreviewController {
         return pages;
     }
 
+    function mountPages(pages: readonly (SVGSVGElement | HTMLCanvasElement)[]) {
+        host.replaceChildren(...pages.map(surface => {
+            const page = document.createElement("div");
+            page.className = "preview-page";
+            const overlay = document.createElement("div");
+            overlay.className = "preview-overlay";
+            page.append(surface, overlay);
+            return page;
+        }));
+    }
+
     function renderSvg(compiled: CompileScoreResult) {
         const pages = createSvgPages(compiled);
         for (const svg of pages) resizeSvg(svg);
-        host.replaceChildren(...pages);
+        mountPages(pages);
     }
 
     function resizeSvg(svg: SVGSVGElement) {
@@ -115,7 +146,92 @@ export function createPreviewController(): PreviewController {
             context.fillText(`${index + 1} / ${contexts.length}`, page.w / 2, page.h - PAGE_NUMBER_BOTTOM_INSET);
             context.restore();
         }
-        host.replaceChildren(...pages);
+        mountPages(pages);
+    }
+
+    function clearFocus() {
+        host.querySelector(".preview-focus-ripple")?.remove();
+    }
+
+    function clearPendingSourceClick() {
+        window.clearTimeout(pendingSourceClickTimer);
+        pendingSourceClickTimer = void 0;
+        pendingSourceClick = null;
+    }
+
+    function invalidateNavigation() {
+        clearPendingSourceClick();
+        navigation = null;
+        clearFocus();
+    }
+
+    function surfaceContentBounds(surface: SVGSVGElement | HTMLCanvasElement) {
+        const bounds = surface.getBoundingClientRect();
+        const styles = getComputedStyle(surface);
+        const left = parseFloat(styles.borderLeftWidth) || 0;
+        const right = parseFloat(styles.borderRightWidth) || 0;
+        const top = parseFloat(styles.borderTopWidth) || 0;
+        const bottom = parseFloat(styles.borderBottomWidth) || 0;
+        return {
+            left: bounds.left + left,
+            top: bounds.top + top,
+            width: Math.max(1, bounds.width - left - right),
+            height: Math.max(1, bounds.height - top - bottom),
+        };
+    }
+
+    function focusRegion(region: Rect, reveal: boolean) {
+        if (!result) return;
+        const pages = pageBounds(result);
+        const centerY = region.y + region.h / 2;
+        const pageIndex = pages.findIndex(page => centerY >= page.y && centerY <= page.y + page.h);
+        const pageBoundsValue = pages[pageIndex];
+        const page = host.children[pageIndex];
+        if (!pageBoundsValue || !(page instanceof HTMLElement)) return;
+        const surface = page.querySelector<SVGSVGElement | HTMLCanvasElement>(":scope > svg, :scope > canvas");
+        const overlay = page.querySelector<HTMLElement>(":scope > .preview-overlay");
+        if (!surface || !overlay) return;
+
+        if (reveal) {
+            const viewportBounds = scroll.getBoundingClientRect();
+            if (viewportBounds.top < 0 || viewportBounds.bottom > window.innerHeight) {
+                scroll.scrollIntoView({ block: "center", inline: "nearest" });
+            }
+        }
+        clearFocus();
+        const surfaceBounds = surfaceContentBounds(surface);
+        const pageElementBounds = page.getBoundingClientRect();
+        const centerX = region.x + region.w / 2;
+        const x = surfaceBounds.left - pageElementBounds.left
+            + (centerX - pageBoundsValue.x) / pageBoundsValue.w * surfaceBounds.width;
+        const y = surfaceBounds.top - pageElementBounds.top
+            + (centerY - pageBoundsValue.y) / pageBoundsValue.h * surfaceBounds.height;
+
+        if (reveal) {
+            const scrollBounds = scroll.getBoundingClientRect();
+            scroll.scrollLeft += pageElementBounds.left + x - scrollBounds.left - scroll.clientWidth / 2;
+            scroll.scrollTop += pageElementBounds.top + y - scrollBounds.top - scroll.clientHeight / 2;
+        }
+
+        const regionWidth = region.w / pageBoundsValue.w * surfaceBounds.width;
+        const regionHeight = region.h / pageBoundsValue.h * surfaceBounds.height;
+        const diameter = Math.min(140, Math.max(48, Math.max(regionWidth, regionHeight) + 32));
+        const marker = document.createElement("span");
+        marker.className = "preview-focus-ripple";
+        marker.style.left = `${x}px`;
+        marker.style.top = `${y}px`;
+        marker.style.setProperty("--focus-diameter", `${diameter}px`);
+        overlay.append(marker);
+    }
+
+    function focusSourcePosition(position: number) {
+        clearFocus();
+        if (!result || !navigation) return;
+        const character = result.parser.source[position];
+        if (!character || /\s/.test(character)) return;
+        const target = sourceTargetAt(navigation, position);
+        const region = target?.regions[0];
+        if (region) focusRegion(region, true);
     }
 
     function renderActiveBackend() {
@@ -280,13 +396,62 @@ export function createPreviewController(): PreviewController {
         });
     }, { passive: false });
 
+    document.addEventListener("click", event => {
+        if (!pendingSourceClick || event.button !== 0) return;
+        const { range, x, y } = pendingSourceClick;
+        if (Math.hypot(event.clientX - x, event.clientY - y) > DOUBLE_CLICK_DISTANCE) {
+            clearPendingSourceClick();
+            return;
+        }
+        clearPendingSourceClick();
+        event.preventDefault();
+        event.stopPropagation();
+        options.onNavigateSource(range, true);
+    }, true);
+
+    host.addEventListener("click", event => {
+        clearFocus();
+        if (!result || !navigation || event.button !== 0) return;
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        const page = target.closest<HTMLElement>(".preview-page");
+        if (!page || page.parentElement !== host) return;
+        const pageIndex = [...host.children].indexOf(page);
+        const bounds = pageBounds(result)[pageIndex];
+        const surface = page.querySelector<SVGSVGElement | HTMLCanvasElement>(":scope > svg, :scope > canvas");
+        if (!bounds || !surface) return;
+        const surfaceBounds = surfaceContentBounds(surface);
+        const x = bounds.x + (event.clientX - surfaceBounds.left) / surfaceBounds.width * bounds.w;
+        const y = bounds.y + (event.clientY - surfaceBounds.top) / surfaceBounds.height * bounds.h;
+        const tolerance = HIT_TOLERANCE * Math.max(
+            bounds.w / surfaceBounds.width,
+            bounds.h / surfaceBounds.height,
+        );
+        const hit = previewHitAt(navigation, x, y, tolerance);
+        if (!hit) return;
+        event.preventDefault();
+        focusRegion(hit.region, false);
+        const range = {
+            from: hit.target.span.start,
+            to: hit.target.span.end,
+        };
+        pendingSourceClick = { range, x: event.clientX, y: event.clientY };
+        pendingSourceClickTimer = window.setTimeout(clearPendingSourceClick, DOUBLE_CLICK_DELAY);
+        options.onNavigateSource(range, false);
+    });
+
+    host.addEventListener("dblclick", event => event.preventDefault());
+
     return {
         render(compiled) {
+            clearPendingSourceClick();
             result = compiled;
+            navigation = createPreviewNavigationMap(compiled);
             renderActiveBackend();
             if (fitToWidth) fitWidth();
         },
         showError(message) {
+            invalidateNavigation();
             result = null;   // 否则缩放会把过期谱面重新画回来
             window.cancelAnimationFrame(canvasZoomFrame ?? 0);
             canvasZoomFrame = void 0;
@@ -296,6 +461,8 @@ export function createPreviewController(): PreviewController {
             text.textContent = message;
             host.replaceChildren(text);
         },
+        invalidateNavigation,
+        focusSourcePosition,
         preparePrint,
         clearPrint,
     };

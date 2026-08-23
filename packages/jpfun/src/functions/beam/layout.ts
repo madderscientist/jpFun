@@ -39,8 +39,8 @@ interface BeamSpan {
 /** 显式和自动分组共享同一个几何对象 */
 export function createBeamLayoutAttachment(
     endPoints: TemporalNodeBase[],
-    explicit: boolean = false,
-    sourceSpan?: SourceSpan,
+    explicit: boolean,
+    sourceSpan: SourceSpan,
 ): LayoutAttachment {
     return new BeamLayoutAttachment(endPoints, explicit, sourceSpan);
 }
@@ -92,7 +92,7 @@ export function validateExplicitBeamAttachments(result: LoweringResult) {
             throw new ErrorDiagnostic(
                 "E_NON_ADJACENT_BEAM",
                 "@beam 的端点必须按时间顺序连接同一轨道、同一谱面行中的相邻可见元素",
-                attachment.sourceSpan ?? attachment.endPoints[i].ast.sourceSpan,
+                attachment.sourceSpan,
             );
         }
     }
@@ -121,11 +121,11 @@ class BeamLayoutAttachment implements LayoutAttachment {
 
     readonly endPoints: TemporalNodeBase[];
     readonly explicit: boolean;
-    readonly sourceSpan?: SourceSpan;
+    readonly sourceSpan: SourceSpan;
     private lines: BeamLine[] = [];
     private strokeWidth = 1;
 
-    constructor(endPoints: TemporalNodeBase[], explicit: boolean, sourceSpan?: SourceSpan) {
+    constructor(endPoints: TemporalNodeBase[], explicit: boolean, sourceSpan: SourceSpan) {
         this.endPoints = endPoints;
         this.explicit = explicit;
         this.sourceSpan = sourceSpan;

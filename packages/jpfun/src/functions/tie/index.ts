@@ -77,7 +77,7 @@ class TieFunction extends ASTFunctionNode {
         }
 
         if (endPoints.length < 2) return [];
-        ctx.addLayoutAttachment(new TieLayoutAttachment(endPoints, this.height));
+        ctx.addLayoutAttachment(new TieLayoutAttachment(endPoints, this.height, this.sourceSpan));
         return [];
     }
 
@@ -183,6 +183,7 @@ class TieLayoutAttachment implements LayoutAttachment {
         h: 0,
     };
     layer = "foreground" as const;
+    readonly sourceSpan: SourceSpan;
 
     readonly endPoints: VisualTemporalNode[];
     private readonly height: number;
@@ -190,9 +191,10 @@ class TieLayoutAttachment implements LayoutAttachment {
     /** 弧带中部厚度；两端收尖到 0 */
     private thickness = 1;
 
-    constructor(endPoints: VisualTemporalNode[], height: number) {
+    constructor(endPoints: VisualTemporalNode[], height: number, sourceSpan: SourceSpan) {
         this.endPoints = endPoints;
         this.height = height;
+        this.sourceSpan = sourceSpan;
     }
 
     layout(context: AttachmentLayoutContext) {

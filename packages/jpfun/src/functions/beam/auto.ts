@@ -7,7 +7,7 @@ import {
 } from "../../lowering/types.js";
 import { Fraction } from "../../fraction.js";
 import type { LayoutAttachment } from "../../layout/types.js";
-import type { ASTNodeBase } from "../ASTtypes.js";
+import type { ASTNodeBase, SourceSpan } from "../ASTtypes.js";
 import {
     DIV_ADDON_KEY,
     DivNode,
@@ -107,6 +107,24 @@ function outermostScopes(scopes: DivScope[]): DivScope[] {
     });
 }
 
+function sourceSpanForAutoBeam(nodes: readonly VisualTemporalNode[]): SourceSpan {
+    let start = Infinity;
+    let end = -Infinity;
+    for (const node of nodes) {
+        start = Math.min(start, node.ast.sourceSpan.start);
+        end = Math.max(end, node.ast.sourceSpan.end);
+        for (const div of findActiveDivs(node)) {
+            start = Math.min(start, div.sourceSpan.start);
+            end = Math.max(end, div.sourceSpan.end);
+        }
+    }
+    return { start, end };
+}
+
+function createAutoBeam(nodes: VisualTemporalNode[]): LayoutAttachment {
+    return createBeamLayoutAttachment(nodes, false, sourceSpanForAutoBeam(nodes));
+}
+
 /** 同一个 div 内部始终按轨道连接，手工 beam 端点会截断自动片段 */
 function createScopeBeams(
     scopes: DivScope[],
@@ -125,7 +143,7 @@ function createScopeBeams(
         for (const nodes of tracks.values()) {
             let segment: VisualTemporalNode[] = [];
             const flush = () => {
-                if (segment.length >= 2) attachments.push(createBeamLayoutAttachment(segment));
+                if (segment.length >= 2) attachments.push(createAutoBeam(segment));
                 segment = [];
             };
 
@@ -176,7 +194,7 @@ function createAdjacentBeams(
         const group = groups.get(track);
         if (!group) return;
         groups.delete(track);
-        if (group.nodes.length >= 2) attachments.push(createBeamLayoutAttachment(group.nodes));
+        if (group.nodes.length >= 2) attachments.push(createAutoBeam(group.nodes));
     };
 
     const flushAll = () => {

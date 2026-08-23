@@ -1,6 +1,7 @@
 import type { Painter, TextMeasurer } from "../render/types.js";
 import type { Extent, Track } from "../lowering/track.js";
 import type { Fraction } from "../fraction.js";
+import type { SourceSpan } from "../parser/types.js";
 import type { HorizontalLayoutHook } from "./model.js";
 
 /** 轴对齐矩形，是所有排版几何的公共部分 */
@@ -193,6 +194,10 @@ export interface LayoutDecoration {
 export interface LayoutAttachment {
     box: Rect;  // 由引擎写入：上一次 layout 返回区域的并集
     layer: "background" | "foreground"; // 相对于 Temporal 主体的绘制层 "background"比内容先绘制
+    /** 对应的源码范围；自动生成图形可覆盖其首末宿主的源码 */
+    readonly sourceSpan?: SourceSpan;
+    /** 由引擎写入的最终布局区域，供命中测试等布局消费者使用 */
+    regions?: readonly LayoutRegion[];
     /** 横向求解前：调整弹簧参数或注册横向布局 hook，不得改变对象/列顺序 */
     prepareHorizontal?(context: HorizontalLineView[]): void;
     /**

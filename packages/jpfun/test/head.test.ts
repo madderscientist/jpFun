@@ -207,6 +207,17 @@ H.tempo: 90
         "head state temporals must participate directly in the global state flow");
 });
 
+test("H.signature 为调号和拍号保留各自源码范围", () => {
+    const source = `H.signature: 1 = C  4 / 4`;
+    const objects = compileScore(source).layout.objects;
+    const key = objects.find(object => object.ast instanceof ASTFunctionNode && object.ast.callName === "key")!;
+    const meter = objects.find(object => object.ast instanceof ASTFunctionNode && object.ast.callName === "meter")!;
+    assert(source.slice(key.ast.sourceSpan.start, key.ast.sourceSpan.end) === "1 = C",
+        "signature key must map only to the 1=tonality source");
+    assert(source.slice(meter.ast.sourceSpan.start, meter.ast.sourceSpan.end) === "4 / 4",
+        "signature meter must map only to the fraction source");
+});
+
 test("head 可以与正文共享逻辑谱面行", () => {
     const layout = layoutOf(`@head(center={@text(A)}) 1`);
     const headText = layout.objects.find(object =>

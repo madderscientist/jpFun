@@ -232,9 +232,9 @@ export function layoutDocument(
         placement = placeVertically();
         // 最终区域只更新绘制外接盒，不再累计没有后续消费者的轨道占用
         for (const attachment of result.attachments) {
-            unionLayoutBoxes(
-                attachment.box,
-                attachment.layout?.(placement.attachmentContext) ?? [],
+            writeAttachmentRegions(
+                attachment,
+                attachment.layout?.(placement.attachmentContext),
             );
         }
     }
@@ -403,10 +403,10 @@ function registerAttachmentRegions(
     lines: readonly LayoutLine[],
     visualAxisOf: (line: number, track: Track) => number,
 ) {
-    unionLayoutBoxes(attachment.box, regions ?? []);
+    const resolvedRegions = writeAttachmentRegions(attachment, regions);
     let expandedTrackOccupancy = false;
 
-    for (const region of regions ?? []) {
+    for (const region of resolvedRegions) {
         if (region.line === void 0 || !region.track) continue;
         const line = lines[region.line];
         if (!line) throw new Error(`Layout attachment referenced invalid line ${region.line}`);
@@ -421,6 +421,17 @@ function registerAttachmentRegions(
         includeTrackExtent(line.attachmentExtents, region.track, top, bottom);
     }
     return expandedTrackOccupancy;
+}
+
+/** 保存 attachment 当前 pass 的最终区域，并同步更新其外接盒 */
+function writeAttachmentRegions(
+    attachment: LayoutAttachment,
+    regions: readonly LayoutRegion[] | void,
+): readonly LayoutRegion[] {
+    const resolvedRegions = regions ?? [];
+    attachment.regions = resolvedRegions;
+    unionLayoutBoxes(attachment.box, resolvedRegions);
+    return resolvedRegions;
 }
 
 /** 一条谱面行的纵向解 */

@@ -190,7 +190,7 @@ class TupletLayoutAttachment implements LayoutAttachment {
     /** lowering 固化的连音语义；重复 layout 时保持不变 */
     private readonly endPoints: readonly VisualTemporalNode[];
     private readonly actual: number;
-    private readonly sourceSpan: SourceSpan;
+    readonly sourceSpan: SourceSpan;
 
     /** 由端点最大字号冻结的绘制规格 */
     private readonly style: TextStyle;

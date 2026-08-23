@@ -112,6 +112,7 @@ class BoxLayoutAttachment implements LayoutAttachment {
     private readonly owner: BoxFunction;
     private fixedStart: VisualTemporalNode | null = null;
     private wallOffset = 0;
+    get sourceSpan() { return this.owner.sourceSpan; }
 
     constructor(
         members: Rect[],

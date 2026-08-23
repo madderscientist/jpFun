@@ -5,10 +5,10 @@ import {
 } from "jpfun";
 import { createDiagnosticsController } from "./diagnostics.js";
 import { PLAYGROUND_EXAMPLE } from "./example.js";
-import { createSourceEditor } from "./editor.js";
+import { createSourceEditor, revealSourcePosition } from "./editor.js";
 import { publishSemanticAst } from "./jpfun-language.js";
 import { requiredElement } from "./platform.js";
-import { createPreviewController } from "./preview.js";
+import { createPreviewController, type PreviewController } from "./preview.js";
 import { initializeTheme } from "./theme.js";
 import { createWorkspaceController } from "./workspace.js";
 
@@ -20,21 +20,31 @@ const sourceSize = requiredElement<HTMLElement>("#sourceSize");
 
 let fatal = false;
 let renderTimer: number | undefined;
+let preview: PreviewController;
 initializeTheme();
 const editor = createSourceEditor({
     parent: editorHost,
     doc: PLAYGROUND_EXAMPLE,
     onCompile: compileAndRender,
     onDocChanged() {
+        preview.invalidateNavigation();
         updateSourceSize();
         scheduleRender();
     },
+    onCursorClick(position) {
+        preview.focusSourcePosition(position);
+    },
 });
-const preview = createPreviewController();
 const workspace = createWorkspaceController(editor);
+preview = createPreviewController({
+    onNavigateSource(range, select) {
+        workspace.revealSource();
+        revealSourcePosition(editor, range, select);
+    },
+});
 const diagnostics = createDiagnosticsController({
     editor,
-    showSource: () => workspace.showSource("source"),
+    showSource: workspace.revealSource,
 });
 
 function source(): string {

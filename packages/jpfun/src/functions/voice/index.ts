@@ -612,6 +612,7 @@ class VoicesBraceAttachment implements LayoutAttachment {
     private readonly ast: VoicesFunction;
     private bars: { x: number; y: number; w: number; h: number }[] = [];
     private hooks: { x: number; y: number; scale: number; dir: -1 | 1 }[] = [];
+    get sourceSpan() { return this.ast.sourceSpan; }
 
     constructor(names: VoiceNameTemporal[], ast: VoicesFunction) {
         this.names = names;
@@ -689,6 +690,7 @@ class VoiceLyricsAttachment implements LayoutAttachment {
     /** 同一个 voice 的声部名事件，歌词行名称向它的对齐点右对齐 */
     private nameHost: VoiceNameTemporal;
     private preparedText: PreparedLyricText[] = [];
+    get sourceSpan() { return this.nameHost.ast.sourceSpan; }
 
     constructor(temporalMembers: TemporalNodeBase[], nameHost: VoiceNameTemporal) {
         this.temporalMembers = temporalMembers;

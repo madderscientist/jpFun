@@ -32,6 +32,7 @@ interface SourceEditorOptions {
     doc: string;
     onCompile: () => void;
     onDocChanged: () => void;
+    onCursorClick: (position: number) => void;
 }
 
 // 默认不折行，Alt+Z 就地重配
@@ -141,6 +142,14 @@ export function createSourceEditor(options: SourceEditorOptions): EditorView {
                 jpFunLanguage,
                 selectedWhitespaceField,
                 selectionStatePlugin,
+                EditorView.domEventHandlers({
+                    click(event, view) {
+                        if (event.button !== 0) return false;
+                        const found = view.posAndSideAtCoords({ x: event.clientX, y: event.clientY });
+                        if (found) options.onCursorClick(found.pos + Math.min(0, found.assoc));
+                        return false;
+                    },
+                }),
                 lintGutter(),
                 lineWrapping.of([]),
                 keymap.of([
@@ -179,8 +188,14 @@ export function setSourceDiagnostics(editor: EditorView, items: readonly Diagnos
 }
 
 export function revealSourceRange(editor: EditorView, range: SourceRange) {
+    revealSourcePosition(editor, range, true);
+}
+
+export function revealSourcePosition(editor: EditorView, range: SourceRange, select: boolean) {
     editor.dispatch({
-        selection: { anchor: range.from, head: range.to },
+        selection: select
+            ? { anchor: range.from, head: range.to }
+            : { anchor: range.from },
         effects: EditorView.scrollIntoView(range.from, { y: "center" }),
     });
     editor.focus();

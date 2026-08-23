@@ -7,6 +7,7 @@ type RightTab = "preview" | "problems";
 
 export interface WorkspaceController {
     showSource(tab: LeftTab): void;
+    revealSource(): void;
     showResult(tab: RightTab): void;
 }
 
@@ -47,6 +48,11 @@ export function createWorkspaceController(editor: EditorView): WorkspaceControll
         problemsPane.hidden = tab !== "problems";
         previewTools.hidden = tab !== "preview";
         for (const button of rightTabs) button.setAttribute("aria-selected", String(button.dataset.rightTab === tab));
+    }
+
+    function revealSource() {
+        showSource("source");
+        if (workspace.dataset.view === "preview") setViewMode("split");
     }
 
     function setEditorWidth(percent: number) {
@@ -100,5 +106,5 @@ export function createWorkspaceController(editor: EditorView): WorkspaceControll
 
     // 面板显隐、视图切换、拖分隔条都会改 editorHost 尺寸，重测量统一从这里走
     new ResizeObserver(() => editor.requestMeasure()).observe(editorHost);
-    return { showSource, showResult };
+    return { showSource, revealSource, showResult };
 }

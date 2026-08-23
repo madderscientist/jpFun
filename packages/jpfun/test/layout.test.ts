@@ -73,6 +73,8 @@ test("完全被宿主包含的附件不触发重排", () => {
     assert(layoutCalls === 1, "contained track occupancy must not trigger a redundant relayout");
     assert(noExpansionResult.attachments[0].box.h === host.box.h,
         "a single-pass attachment must retain its measured bounds");
+    assert(noExpansionResult.attachments[0].regions?.length === 1,
+        "a single-pass attachment must retain its measured regions");
 });
 
 test("撑开轨道的附件在最终基线上重新布局", () => {
@@ -94,6 +96,32 @@ test("撑开轨道的附件在最终基线上重新布局", () => {
     assert(layoutCalls === 2, "an attachment with track occupancy must be re-laid out on final axes");
     assert(nearly(withOccupancyResult.attachments[0].box.y, finalAxis - 100),
         "a re-laid attachment must expose bounds from its final geometry");
+    assert(nearly(withOccupancyResult.attachments[0].regions?.[0]?.y ?? Infinity, finalAxis - 100),
+        "a re-laid attachment must expose regions from its final geometry");
+});
+
+test("可见附件保留最终区域与源码范围", () => {
+    const samples = [
+        `@box({1/@a 2/@b @tie(a,b) @beam(a,b)}, 2px, 1px) @tuplet({3 4}, 3)`,
+        `@voices(@voice({1 2}, A, "你 好"), @voice({3 4}, B))`,
+    ];
+    for (const source of samples) {
+        const layout = compileScore(source).layout;
+        const visibleAttachments = layout.attachments.filter(attachment => attachment.box.w > 0 || attachment.box.h > 0);
+        assert(visibleAttachments.length > 0, "the source mapping sample must create visible attachments");
+        for (const attachment of visibleAttachments) {
+            assert(attachment.sourceSpan, "every visible built-in attachment must expose a source span");
+            assert(attachment.sourceSpan.start >= 0 && attachment.sourceSpan.end <= source.length,
+                "attachment source spans must stay inside the document");
+            assert(attachment.regions && attachment.regions.length > 0,
+                "every visible built-in attachment must expose final layout regions");
+        }
+    }
+
+    const autoSource = `1/ 2/`;
+    const autoBeam = compileScore(autoSource).layout.attachments.find(attachment => attachment.box.w > 0);
+    assert(autoBeam?.sourceSpan?.start === 0 && autoBeam.sourceSpan.end === autoSource.length,
+        "an automatic attachment must map to the source range covered by its endpoints");
 });
 
 test("字号选项与解析期字号驱动所有几何缩放", () => {
