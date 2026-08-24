@@ -4,8 +4,9 @@ import type { DocumentLayoutResult } from "../src/layout/engine.js";
 import { renderLayoutPagesToCanvas } from "../src/render/canvas.js";
 import { layoutPageBounds } from "../src/render/paint.js";
 import { renderLayoutPagesToSvg, SvgPainter } from "../src/render/svg.js";
-import type { PathCommand } from "../src/render/types.js";
-import { assert, expectSnapshot, layoutOf, recordCommands } from "./helpers.js";
+import { CanvasTextMeasurer, canvasFont } from "../src/render/text.js";
+import type { PathCommand, TextStyle } from "../src/render/types.js";
+import { assert, expectSnapshot, layoutOf, nearly, recordCommands } from "./helpers.js";
 
 function allNumbersFinite(value: unknown): boolean {
     if (typeof value === "number") return Number.isFinite(value);
@@ -137,4 +138,27 @@ test("Canvas 后端能执行描边、曲线与文本绘制", () => {
 test("综合样例的绘制规模基线", () => {
     expectSnapshot("render-metrics",
         `commands=${commands.length} svgBytes=${svg.length} canvasCalls=${canvasCalls.length}`);
+});
+
+test("CanvasTextMeasurer 用绘制时的同一份字体串测量", () => {
+    const seen: string[] = [];
+    const context = {
+        set font(value: string) { seen.push(value); },
+        get font() { return seen.at(-1) ?? ""; },
+        measureText: () => ({ width: 40 }),
+    } as unknown as CanvasRenderingContext2D;
+    const measurer = new CanvasTextMeasurer(context);
+    const style: TextStyle = { fontSize: 20, fontFamily: "Cascadia Mono", fontWeight: "bold" };
+
+    const metrics = measurer.measureText("abc", style);
+    assert(seen.length === 1 && seen[0] === canvasFont(style),
+        "the measurer must select the exact font string CanvasPainter draws with");
+    assert(nearly(metrics.w, 40), "width must come from the host font metrics");
+    assert(nearly(metrics.h, 20) && nearly(metrics.baseline, 16),
+        "height and baseline must keep the deterministic em-box convention");
+
+    measurer.measureText("abc", style);
+    assert(seen.length === 1, "repeated measurements of one string must be cached");
+    measurer.measureText("abc", { ...style, fontSize: 30 });
+    assert(seen.length === 2, "a different style must not reuse the cached width");
 });

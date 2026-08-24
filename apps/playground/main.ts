@@ -1,4 +1,5 @@
 import {
+    CanvasTextMeasurer,
     DEFAULT_FONT_SIZE,
     Diagnostic,
     compileScore,
@@ -21,6 +22,8 @@ const sourceSize = requiredElement<HTMLElement>("#sourceSize");
 let fatal = false;
 let renderTimer: number | undefined;
 let preview: PreviewController;
+// 排版必须按最终绘制的字体测量，否则字形宽度会与盒子对不上
+const textMeasurer = new CanvasTextMeasurer(document.createElement("canvas").getContext("2d")!);
 initializeTheme();
 const editor = createSourceEditor({
     parent: editorHost,
@@ -78,7 +81,11 @@ function showError(error: unknown) {
 function compileAndRender() {
     const startedAt = performance.now();
     try {
-        const compiled = compileScore(source(), { fontSize: DEFAULT_FONT_SIZE, rowGap: 18 });
+        const compiled = compileScore(source(), {
+            fontSize: DEFAULT_FONT_SIZE,
+            rowGap: 18,
+            textMeasurer,
+        });
         diagnostics.render(compiled.parser.diagnostics);
         preview.render(compiled);
         publishSemanticAst(editor, compiled.ast);

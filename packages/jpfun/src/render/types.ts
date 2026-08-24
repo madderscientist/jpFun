@@ -2,7 +2,7 @@
  * 字形的排版度量
  *
  * 这里的坐标都位于字形自己的局部坐标系中
- * 不依赖 SVG text 或 Canvas 字体测量结果
+ * 数值来源由具体的 TextMeasurer 决定
  */
 export interface GlyphMetrics {
     w: number;          // 字形实际占用宽度

@@ -14,21 +14,72 @@ import {
 const texts = (source: string) => recordCommands(layoutOf(source))
     .filter(command => command.kind === "text");
 
+const CONTENT_LEFT = 40;
+const CONTENT_RIGHT = 754;
+const PAGE_CENTER = (CONTENT_LEFT + CONTENT_RIGHT) / 2;
+// 居中由两根强弹簧的对称性保证，但求解器按合力收敛，落到坐标上留下亚像素残差
+const SOLVER_TOLERANCE = 0.05;
+
+const textObjects = (source: string) => {
+    const found = new Map<string, ReturnType<typeof layoutOf>["objects"][number]>();
+    for (const object of layoutOf(source).objects) {
+        const ast = object.ast;
+        if (!(ast instanceof ASTFunctionNode) || ast.callName !== "text"
+            || !("lines" in ast) || !Array.isArray(ast.lines)) continue;
+        const text = ast.lines[0];
+        if (typeof text === "string" && !found.has(text)) found.set(text, object);
+    }
+    return found;
+};
+
 test("head 使用全局弹簧分开左中右三槽", () => {
     const source = `@head(
         left={@text(L)},
         center={@text(C)},
         right={@text(R)}
     ) @br() 1`;
-    const layout = layoutOf(source);
     const commands = texts(source);
     const left = commands.find(command => command.text === "L")!;
     const center = commands.find(command => command.text === "C")!;
     const right = commands.find(command => command.text === "R")!;
     assert(left.x < center.x && center.x < right.x, "head slots must form distinct horizontal regions");
-    const centerObject = layout.objects.find(object => object.box.x === center.x)!;
-    assert(nearly(centerObject.box.x + centerObject.box.anchor, 397),
+    const centerBox = textObjects(source).get("C")!.box;
+    assert(Math.abs(centerBox.x + centerBox.w / 2 - PAGE_CENTER) < SOLVER_TOLERANCE,
         "center slot must align to the page content center");
+});
+
+test("center 的位置与两侧内容宽度无关", () => {
+    const midOf = (left: string, right: string) => {
+        const box = textObjects(
+            `@head(left={@text(${left})}, center={@text(C)}, right={@text(${right})}) @br() 1`
+        ).get("C")!.box;
+        return box.x + box.w / 2;
+    };
+    const base = midOf("L", "R");
+    assert(nearly(midOf("LLLLLLLLLLLLLLLLLLLL", "R"), base),
+        "a wider left slot must not move the center slot at all");
+    assert(nearly(midOf("L", "RRRRRRRRRRRRRRRRRRRR"), base),
+        "a wider right slot must not move the center slot at all");
+    assert(Math.abs(base - PAGE_CENTER) < SOLVER_TOLERANCE,
+        "the center slot must sit on the page content centre line");
+});
+
+test("侧槽各行贴住纸面左右边缘", () => {
+    const layout = layoutOf(`H.signature: 1=C 4/4
+H.tempo: 94
+H.author: 作者
+@br()
+1`);
+    const byName = (name: string) => layout.objects.find(object =>
+        object.ast instanceof ASTFunctionNode && object.ast.callName === name)!;
+    const key = byName("key");
+    const tempo = byName("tempo");
+    const author = byName("text");
+    assert(Math.abs(key.box.x - CONTENT_LEFT) < SOLVER_TOLERANCE
+        && Math.abs(tempo.box.x - CONTENT_LEFT) < SOLVER_TOLERANCE,
+        "every left row must start at the page content left edge");
+    assert(Math.abs(author.box.x + author.box.w - CONTENT_RIGHT) < SOLVER_TOLERANCE,
+        "the right slot must end at the page content right edge");
 });
 
 test("head 侧栏底部对齐且较高侧贴住标题下侧", () => {
@@ -156,6 +207,13 @@ H.left: @text(A) @text(B)
         object.ast instanceof ASTFunctionNode && object.ast.callName === "note"
     ).length === 1,
         "consecutive H declarations must compile as one head block");
+
+    const boxes = textObjects(source);
+    for (const name of ["标题", "副标题"]) {
+        const box = boxes.get(name)!.box;
+        assert(Math.abs(box.x + box.w / 2 - PAGE_CENTER) < SOLVER_TOLERANCE,
+            "every center row must sit on the page content centre line");
+    }
 });
 
 test("H 显式 call 与 brace 的内部换行不终止声明", () => {
@@ -193,6 +251,19 @@ test("H 显式内容使用完整全局 attachment 生命周期", () => {
 1`));
     const box = commands.find(command => command.kind === "rect");
     assert(box && nearly(box.w, 300), "fixed-width box inside H.title must run its global horizontal hook");
+});
+
+// 侧槽在弹簧链上收缩成一个点，但块内的相对布局保留在刚性列的偏移里
+test("侧槽内的定宽 box 保留自己的宽度且不影响 center", () => {
+    const source = `H.left: @box({@text(A) @text(B)}, width=300px)
+H.title: 标题
+@br()
+1`;
+    const box = recordCommands(layoutOf(source)).find(command => command.kind === "rect");
+    assert(box && nearly(box.w, 300), "a fixed-width box inside a side slot must keep its width");
+    const title = textObjects(source).get("标题")!.box;
+    assert(Math.abs(title.x + title.w / 2 - PAGE_CENTER) < SOLVER_TOLERANCE,
+        "a fixed-width box inside a side slot must not shift the center slot");
 });
 
 test("H 调号速度直接作用于后续正文", () => {

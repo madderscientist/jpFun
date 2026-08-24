@@ -1,4 +1,5 @@
 import { ErrorDiagnostic } from "../../diagnostic.js";
+import { layoutHorizontalRegion, type HorizontalLayoutHookContext } from "../../layout/model.js";
 import type { HorizontalLineView, LayoutBox } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { Extent, MeasureFn, TrackArrangement, TrackPlacement } from "../../lowering/track.js";
@@ -35,6 +36,7 @@ const TEXT_PRESET = {
     title: [2, "center"], subtitle: [0.85, "center"], author: [0.8, "right"],
 } as const;
 const ITEM_GAP_EM = 0.25;
+// 也决定居中精度：值越大弹簧越软，求解器按合力收敛后残留的坐标误差越大
 const HEAD_STRETCH = 10_000;
 
 function sugarRow(span: SourceSpan, content: ASTNodeBase[]) {
@@ -46,6 +48,42 @@ function sugarRow(span: SourceSpan, content: ASTNodeBase[]) {
 function findLineEnd(source: string, start: number, end = source.length) {
     while (start < end && source[start] !== "\r" && source[start] !== "\n") start++;
     return start;
+}
+
+/**
+ * 让一个槽的两个边界代表它在弹簧链上应占的横向范围
+ *
+ * 先在本区间自然求解（宽度不限，因此更窄的 hook 已固化的布局原样保留），再移动边界：
+ * 侧槽的两个边界重合成一个点，center 的两个边界贴住内容的几何左右沿。
+ * 整段随即固化，最终求解合并成一根刚性列，而刚性列的宽度只取首末边界，
+ * 中间列的相对布局原样保留。
+ */
+function layoutHeadSlot(
+    { columns, rows, start, end, X, fixed, options }: HorizontalLayoutHookContext,
+    occupiesWidth: boolean,
+) {
+    layoutHorizontalRegion(
+        columns.slice(start, end + 1),
+        rows,
+        X.subarray(start, end + 1),
+        fixed.subarray(start, end),
+        Infinity,
+        options,
+    );
+
+    let left = Infinity;
+    let right = -Infinity;
+    for (let c = start + 1; c < end; c++) {
+        for (let r = 0; r < rows; r++) {
+            left = Math.min(left, X[c] - columns[c][r].WL);
+            right = Math.max(right, X[c] + columns[c][r].WR);
+        }
+    }
+
+    if (occupiesWidth && left <= right) {
+        X[start] = left;
+        X[end] = right;
+    } else X[end] = X[start];
 }
 
 /** 行从上到下紧贴排列；capture 让 Head 在同一遍测量里取得整组范围 */
@@ -169,14 +207,19 @@ class HeadSlotNode extends ASTNodeBase {
  *    key、meter 等默认仍各自占列，并非一个 Head 槽只有一列。Track 只表达纵向行，
  *    不取代横向列。Head 因此仍可行内使用或嵌套，box、tie 等 attachment 也沿用
  *    正常生命周期。
- * 3. 横向求解前，left.start 的回调将左右最外侧设为自由边，并增强四个槽间边界
- *    的弹簧；全局求解由此得到 left、center、right 的区域及 center 的居中位置。
- *    center 内容保留这次求出的全局列坐标。
- * 4. left/right 的全局列只用于求出槽边界和初始位置。纵向放置完成后，left.start
- *    以边界为准，按顶层 AST 单元重新写入两侧成员的 box.x：left 向右、right 向左
- *    紧凑排列，单元间留 0.25em。因此 TimeColumn 拓扑没有消失，但两侧最终 x 不再
- *    等于全局列锚点；复合内容整体平移。随后重新调用成员的 `onPlaced`，使折叠成员
- *    同步最终坐标，attachment 再读取这些坐标生成几何。
+ * 3. 横向求解前，left.start 的回调把最外侧设为自由边、让 center 向两侧撑开，
+ *    并为三个槽各注册一个 layoutHeadSlot。每个槽的两个边界因此代表本块在弹簧链上
+ *    应占的横向范围：left/right 收缩成一个点，center 贴住内容的几何左右沿。
+ * 4. 于是链形如 `点 - 强弹簧 - center - 强弹簧 - 点`。两根强弹簧参数相同、压缩量
+ *    必然相等，两个点又被自由的墙对称顶在纸面两侧，因此 center 的几何中心精确落在
+ *    内容区中线，与两侧内容多宽、多少行无关。center 的求解坐标即最终坐标，不参与
+ *    后置重排。两个代价是刻意接受的：侧槽不占横向流，所以内容过宽时会与 center 的
+ *    第二行及以后重叠，引擎不再阻止；强弹簧靠“把整行撑到必然过满”成立，所以同一
+ *    谱面行上的普通内容会被挤到几乎没有间隙，行内 head 只适合极短的内容。
+ * 5. 纵向放置完成后，left.start 以两个点为准，按顶层 AST 单元重新写入两侧成员的
+ *    box.x：left 向右、right 向左紧凑排列，单元间留 0.25em。因此 TimeColumn 拓扑
+ *    没有消失，但两侧最终 x 不再等于全局列锚点；复合内容整体平移。随后重新调用
+ *    成员的 `onPlaced`，使折叠成员同步最终坐标，attachment 再读取这些坐标生成几何。
  *
  * Head 只协调布局，不建立局部列或局部 attachment 系统。内部内容须为零时长，且不能主动换谱面行。
  */
@@ -406,13 +449,16 @@ H.left: / H.center: / H.right: 接受对应槽的任意零时长 DSL 内容
             throw new ErrorDiagnostic("E_HEAD_INTERNAL_BREAK", "@head 的内容不能跨谱面行", this.sourceSpan);
         }
         const [left, center, right] = this.slots;
-        // 外边界自由伸展，四个内边界用强弹簧把 center 稳定在页面中央
+        // 最外侧不受墙的推力，两个点才能落在纸面边缘
         left.start.springConfig.alpha_L = 0;
         right.end.springConfig.alpha_R = 0;
-        this.stretch(left.end, "R");
+        // 串联弹簧的静长是两端之和、刚度由软端主导，所以只需 center 自己向两侧撑开
         this.stretch(center.start, "L");
         this.stretch(center.end, "R");
-        this.stretch(right.start, "L");
+        for (const slot of this.slots) {
+            line.registerHorizontalLayoutHook(slot.start, slot.end,
+                context => layoutHeadSlot(context, slot === center));
+        }
     }
 
     alignHead() {
@@ -447,7 +493,7 @@ H.left: / H.center: / H.right: 接受对应槽的任意零时长 DSL 内容
     private stretch(node: VisualTemporalNode, side: "L" | "R") {
         const alpha = side === "L" ? "alpha_L" : "alpha_R";
         const beta = side === "L" ? "beta_L" : "beta_R";
-        // alpha 拉大槽间空间；beta 反向缩放，避免弹簧刚度随 alpha 一起失控
+        // alpha 撑开槽间空间；beta 反向缩放，避免弹簧刚度随 alpha 一起失控
         node.springConfig[alpha] = node.springConfig[alpha]! * HEAD_STRETCH;
         node.springConfig[beta] = node.springConfig[beta]! * 3 / HEAD_STRETCH;
     }

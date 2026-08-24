@@ -384,10 +384,17 @@ function solveHorizontal(
 /**
  * 在一段已经归一化的列上排版
  *
+ * 三条对调用方成立的契约（`@head` 正是靠第一条声明“本段在外层链上等效于多宽”）：
+ * - 返回时本区间的 fixed 全部置 1；连续固定列在外层合并为一根刚性列，它的物理宽度
+ *   **只取首末列**（`WL = 首列.WL`，`WR = X[末] - X[首] + 末列.WR`），中间列的宽度不参与
+ *   外层求解，相对位置则原样保留。
+ * - limit 传 Infinity 表示不压缩，得到的是本区间的自然布局。
+ * - X 是区间局部坐标，从 0 开始重排，调用方自行平移。
+ *
  * @param columns 当前区间的归一化列矩阵，列数必须等于 X.length
  * @param rows fillPlaceholders 得到的 Track 数；每列超出 rows 的元素不参与求解
  * @param X 当前区间的 anchor 坐标；通常是全行 X 的 subarray。是求解结果
- * @param fixed 当前区间的 gap 是否已经固定，长度必须为 X.length - 1；通常是全行 fixed 的 subarray。fixed[i]==1 表示第 i、i+1 列只能整体移动
+ * @param fixed 当前区间的 gap 是否已经固定，长度必须为 X.length - 1；通常是全行 fixed 的 subarray。fixed[i]==1 表示第 i、i+1 列只能整体移动。既是输入也是输出
  * @param limit 当前区间左右墙之间的可用宽度
  * @param options 已补齐默认值的求解参数
  * @param fill 空间有余量时，是否让首尾贴墙并把余量平均分到自由间隙

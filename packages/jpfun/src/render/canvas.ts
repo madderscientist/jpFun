@@ -1,5 +1,6 @@
 import type { DocumentLayoutResult } from "../layout/engine.js";
 import { layoutPageBounds, paintLayoutPages } from "./paint.js";
+import { canvasFont } from "./text.js";
 import type { PaintStyle, Painter, PathCommand, PathTransform, TextStyle } from "./types.js";
 
 function tracePath(
@@ -72,7 +73,7 @@ export class CanvasPainter implements Painter {
         this.context.save();
         applyOpacity(this.context, style);
         this.context.fillStyle = style.fill ?? "#000";
-        this.context.font = `${style.fontWeight ?? "normal"} ${style.fontSize}px ${style.fontFamily ?? "sans-serif"}`;
+        this.context.font = canvasFont(style);
         this.context.textAlign = style.textAlign ?? "left";
         this.context.textBaseline = "alphabetic";
         this.context.fillText(text, x, y);
