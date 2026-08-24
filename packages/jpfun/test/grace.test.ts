@@ -102,6 +102,41 @@ test("连续倚音合并成一条整线", () => {
         "a grace run must still merge when its composite is folded into a chord");
 });
 
+test("倚音槽里的零时长标记只随块排版，不承担节奏", () => {
+    const marked = layoutGrace(`{@key(F) 1}>2`);
+    assert(marked.result.attachments.length === 0,
+        "a zero-duration mark must not be beamed to the grace note beside it");
+    assert(layoutGrace(`{3 2}>1`).result.attachments.length === 1,
+        "two real grace notes must still merge into one beam");
+
+    const markedLine = marked.commands.filter(command => command.kind === "line")[0];
+    const soloLine = preGrace.commands.filter(command => command.kind === "line")[0];
+    assert(markedLine !== undefined && nearly(markedLine.x2 - markedLine.x1, soloLine.x2 - soloLine.x1),
+        "the grace note keeps exactly its own div line, not one stretched across the mark");
+
+    const keyText = marked.commands
+        .filter(command => command.kind === "text")
+        .find(command => command.text === "1=");
+    assert(keyText !== undefined && markedLine.x1 > keyText.x,
+        "the div line must stay under the grace digit, clear of the mark");
+
+    // 标记在视觉上是隔断：它两侧的倚音不是邻居，不能连成一条跨过标记的梁
+    const split = layoutGrace(`{2 @key(F) 1}>2`);
+    const splitKey = split.commands
+        .filter(command => command.kind === "text")
+        .find(command => command.text === "1=");
+    const splitLines = split.commands.filter(command => command.kind === "line");
+    assert(split.result.attachments.length === 0,
+        "a mark standing between two grace notes must break the beam run");
+    assert(splitKey !== undefined && splitLines.length === 2
+        && splitLines.every(line => line.x2 < splitKey.x || line.x1 > splitKey.x),
+        "each side of the mark keeps its own div line instead of one crossing the mark");
+
+    // 隔断只在标记处切一次，标记之后仍然相邻的倚音照常合并
+    assert(layoutGrace(`{2 @key(F) 1 3}>2`).result.attachments.length === 1,
+        "grace notes following the mark must still merge into one beam");
+});
+
 test("后置倚音不动宿主对齐点，两侧倚音共用一条肩线", () => {
     const postGrace = layoutGrace(`1<2`);
     const postGraceNode = postGrace.result.objects[0];

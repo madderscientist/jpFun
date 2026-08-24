@@ -23,6 +23,7 @@ import {
     FunctionDef,
     SourceSpan,
 } from "../ASTtypes.js";
+import { createBeamLayoutAttachment } from "../beam/layout.js";
 import { DIV_ADDON_KEY } from "../div/index.js";
 
 /** 倚音相对宿主的字号比例 */
@@ -295,7 +296,15 @@ class GraceFunction extends ASTFunctionNode {
                 }
             }
         });
-        return [new GraceTemporal(this, host!, graces, this.side)];
+
+        const composite = new GraceTemporal(this, host!, graces, this.side);
+        // 倚音同段无条件全部相连，只被零时长标记切断，所以 grace 一定认识 beam，允许耦合
+        // 折叠成员不进全局时间列，autobeam 看不到它们，要手动调用且强制连接
+        for (const run of composite.graceRuns) {
+            if (run.length < 2) continue;
+            ctx.addLayoutAttachment(createBeamLayoutAttachment([...run], false, this.grace.sourceSpan));
+        }
+        return [composite];
     }
 
     override toString(source: string) {
@@ -328,6 +337,8 @@ export class GraceTemporal extends TemporalNodeBase {
 
     readonly host: VisualTemporalNode;
     readonly graces: readonly VisualTemporalNode[];
+    /** 承担节奏的倚音成员，按零时长标记切段；同段视觉上首尾相接，无条件连成一束减时线 */
+    readonly graceRuns: readonly (readonly VisualTemporalNode[])[];
     readonly side: GraceSide;
 
     /** 成员相对本盒左上角的局部偏移，onPlaced 时同步为绝对坐标 */
@@ -335,7 +346,6 @@ export class GraceTemporal extends TemporalNodeBase {
     private graceOffsets: LayoutPoint[] = [];
     /** 倚音线起点，同样是局部偏移 */
     private hookOrigin: LayoutPoint | null = null;
-
 
     constructor(
         ast: GraceFunction,
@@ -358,16 +368,25 @@ export class GraceTemporal extends TemporalNodeBase {
         host.addon = void 0;
         // 成员不进入全局 columns，对外由复合体代表：写在成员上的标签仍可做关系端点
         host.foldedInto = this;
-        // 倚音在书写上就是一串相邻音符，交给系统当作连梁候选
-        this.foldedRun = graces;
 
+        const runs: VisualTemporalNode[][] = [];
+        let run: VisualTemporalNode[] = [];
         for (const grace of graces) {
             grace.foldedInto = this;
+            // 调号、速度这类零时长标记不承担节奏，还会在视觉上把倚音串切断
+            if (grace.T.isZero()) {
+                if (run.length > 0) runs.push(run);
+                run = [];
+                continue;
+            }
+            run.push(grace);
             // 倚音默认就是八分音符：补一条减时线，书面时值随之减半
             const addon = grace.addon = { ...grace.addon };
             addon[DIV_ADDON_KEY] = (Number(addon[DIV_ADDON_KEY]) || 0) + 1;
             grace.T.divPow2();
         }
+        if (run.length > 0) runs.push(run);
+        this.graceRuns = runs;
     }
 
     /** 成员共享全局时间状态，按发声顺序固化 */
@@ -463,11 +482,12 @@ export class GraceTemporal extends TemporalNodeBase {
         // 宿主没有肩线时它自己的盒顶就是肩线；有则上面那轮转发已经带偏移抬好了
         this.ports[SHOULDER_PORT] ??= { x: this.box.anchor, y: this.hostOffset.y };
 
-        // 钩形曲线挂在靠近宿主的那个倚音成员下方
-        const near = this.side === "pre" ? this.graces.length - 1 : 0;
-        const anchorGrace = this.graces[near];
-        this.hookOrigin = anchorGrace ? {
-            x: this.graceOffsets[near].x + anchorGrace.box.anchor,
+        // 钩形曲线挂在靠近宿主的那个倚音成员下方，零时长标记不承接它
+        const near = this.side === "pre"
+            ? this.graceRuns.at(-1)?.at(-1)
+            : this.graceRuns[0]?.[0];
+        this.hookOrigin = near ? {
+            x: this.graceOffsets[this.graces.indexOf(near)].x + near.box.anchor,
             y: graceTop + lift + graceHeight,
         } : null;
     }

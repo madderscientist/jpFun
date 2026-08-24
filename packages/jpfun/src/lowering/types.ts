@@ -101,15 +101,6 @@ export class TemporalNodeBase implements TimeLineEvent {
     foldedInto?: TemporalNodeBase;
 
     /**
-     * 折叠在本节点内、共处一条横线且首尾相接的可见成员
-     *
-     * 声明它等于承诺这一串在视觉上就是连续邻居，接管者可以整串处理而不必再判断时间关系。
-     * 宿主与和弦成员都不在其中：前者另处一条基线，后者是纵向叠放。
-     * 【目前专门为 grace 中倚音部分的 autobeam 设计】
-     */
-    foldedRun?: readonly VisualTemporalNode[];
-
-    /**
      * 请求在自己所在时间列之前换几行，默认 0
      */
     breakBefore = 0;
