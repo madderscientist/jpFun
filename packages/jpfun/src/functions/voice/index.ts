@@ -15,7 +15,6 @@ import type {
     LayoutBox,
     LayoutPrepareContext,
     LayoutRegion,
-    Rect,
 } from "../../layout/types.js";
 import type { Painter, PathCommand, TextStyle } from "../../render/types.js";
 
@@ -605,13 +604,10 @@ const BRACE_HOOK_COMMANDS: readonly PathCommand[] = [
  * 因此不需要反查任何轨道信息。
  */
 class VoicesBraceAttachment implements LayoutAttachment {
-    box: Rect = { x: 0, y: 0, w: 0, h: 0 };
     layer = "background" as const;
 
     private readonly names: VoiceNameTemporal[];
     private readonly ast: VoicesFunction;
-    private bars: { x: number; y: number; w: number; h: number }[] = [];
-    private hooks: { x: number; y: number; scale: number; dir: -1 | 1 }[] = [];
     get sourceSpan() { return this.ast.sourceSpan; }
 
     constructor(names: VoiceNameTemporal[], ast: VoicesFunction) {
@@ -619,17 +615,15 @@ class VoicesBraceAttachment implements LayoutAttachment {
         this.ast = ast;
     }
 
-    layout() {
-        this.bars = [];
-        this.hooks = [];
-        if (this.names.length < 2) return [];
+    createGeometry() {
+        if (this.names.length < 2) return { regions: [], paint() {} };
 
         const first = this.names[0].box;
         const last = this.names[this.names.length - 1].box;
         const em = this.ast.size;
         const top = first.y + first.visualAxis - em * 0.5;
         const bottom = last.y + last.visualAxis + em * 0.5;
-        if (bottom - top < 1e-6) return [];
+        if (bottom - top < 1e-6) return { regions: [], paint() {} };
 
         // 各部分尺寸都以粗竖线宽度为单位，比例取自常见简谱软件的括线
         const stem = Math.max(2.5, em * 0.19);
@@ -637,7 +631,7 @@ class VoicesBraceAttachment implements LayoutAttachment {
         const drop = stem * BRACE_HOOK_DROP;
         const x = first.x + first.anchor + this.ast.braceSpace * 0.3 + stem / 2;
 
-        this.bars = [
+        const bars = [
             { x: x - stem / 2, y: top, w: stem, h: bottom - top },
             {
                 x: x + stem * 1.33 - stem * 0.165,
@@ -646,50 +640,50 @@ class VoicesBraceAttachment implements LayoutAttachment {
                 h: bottom - top - stem * 1.34,
             },
         ];
-        this.hooks = [
+        const hooks: { x: number; y: number; scale: number; dir: -1 | 1 }[] = [
             { x, y: top, scale: stem, dir: -1 },
             { x, y: bottom, scale: stem, dir: 1 },
         ];
 
         // 括线画在声部名左侧的空白里，只参与画布边界，不抢任何轨道的纵向空间
-        return [{
+        const regions = [{
             x: x - stem / 2,
             y: top - drop,
             w: reach + stem / 2,
             h: bottom - top + drop * 2,
         }];
-    }
-
-    paint(painter: Painter) {
-        for (const bar of this.bars) {
-            painter.drawRect(bar.x, bar.y, bar.w, bar.h, { fill: "#000" });
-        }
-        for (const hook of this.hooks) {
-            painter.drawPath(
-                BRACE_HOOK_COMMANDS,
-                { fill: "#000" },
-                { x: hook.x, y: hook.y, scaleX: hook.scale, scaleY: hook.scale * hook.dir },
-            );
-        }
+        return {
+            regions,
+            paint(painter: Painter) {
+                for (const bar of bars) {
+                    painter.drawRect(bar.x, bar.y, bar.w, bar.h, { fill: "#000" });
+                }
+                for (const hook of hooks) {
+                    painter.drawPath(
+                        BRACE_HOOK_COMMANDS,
+                        { fill: "#000" },
+                        { x: hook.x, y: hook.y, scaleX: hook.scale, scaleY: hook.scale * hook.dir },
+                    );
+                }
+            },
+        };
     }
 }
 
 /** 一段已经定位好的歌词文本，同时就是报给引擎的占用区域 */
-interface PreparedLyricText extends LayoutRegion {
+type PreparedLyricText = LayoutRegion & {
     text: string;          // 最终绘制的 token 或歌词行名称
     style: TextStyle;      // 当前文本使用的字体和颜色
     textBaselineY: number; // 字体 baseline 距文本盒顶部的距离
-}
+};
 
 class VoiceLyricsAttachment implements LayoutAttachment {
-    box: Rect = { x: 0, y: 0, w: 0, h: 0 };
     layer = "foreground" as const;
 
     /** lowering 会持续向这个数组加入 voice 内容产生的 temporal */
     private temporalMembers: TemporalNodeBase[];
     /** 同一个 voice 的声部名事件，歌词行名称向它的对齐点右对齐 */
     private nameHost: VoiceNameTemporal;
-    private preparedText: PreparedLyricText[] = [];
     get sourceSpan() { return this.nameHost.ast.sourceSpan; }
 
     constructor(temporalMembers: TemporalNodeBase[], nameHost: VoiceNameTemporal) {
@@ -697,26 +691,27 @@ class VoiceLyricsAttachment implements LayoutAttachment {
         this.nameHost = nameHost;
     }
 
-    layout(context: AttachmentLayoutContext) {
-        this.updateGeometry(context);
+    createGeometry(context: AttachmentLayoutContext) {
+        const preparedText = this.prepareGeometry(context);
         // 同一行同一轨的多行歌词由引擎合并成一段占用
-        return this.preparedText;
+        return {
+            regions: preparedText,
+            paint(painter: Painter) {
+                for (const item of preparedText) {
+                    painter.drawText(item.text, item.x, item.y + item.textBaselineY, item.style);
+                }
+            },
+        };
     }
 
-    paint(painter: Painter) {
-        for (const item of this.preparedText) {
-            painter.drawText(item.text, item.x, item.y + item.textBaselineY, item.style);
-        }
-    }
-
-    private updateGeometry(context: AttachmentLayoutContext) {
+    private prepareGeometry(context: AttachmentLayoutContext) {
         const { lyrics, size } = this.nameHost.ast;
-        this.preparedText.length = 0;
+        const preparedText: PreparedLyricText[] = [];
 
         const targets = this.temporalMembers
             .filter(isVisualTemporalNode)
             .filter(node => node.ports?.["lyric"]);
-        if (targets.length === 0 || lyrics.length === 0) return;
+        if (targets.length === 0 || lyrics.length === 0) return preparedText;
 
         // 每个 system+track 的歌词共用一条基线
         // 装饰高度先汇总为下边界，不进入单个 token 的 y 计算
@@ -750,7 +745,7 @@ class VoiceLyricsAttachment implements LayoutAttachment {
                 if (!text || bottom === undefined) continue;
 
                 const metrics = context.textMeasurer.measureText(text, lyricStyle);
-                this.preparedText.push({
+                preparedText.push({
                     text,
                     style: lyricStyle,
                     textBaselineY: metrics.baseline,
@@ -766,7 +761,7 @@ class VoiceLyricsAttachment implements LayoutAttachment {
             if (!lyric.name || !labelBox || labelBottom === undefined) continue;
 
             const metrics = context.textMeasurer.measureText(lyric.name, nameStyle);
-            this.preparedText.push({
+            preparedText.push({
                 text: lyric.name,
                 style: nameStyle,
                 textBaselineY: metrics.baseline,
@@ -778,5 +773,6 @@ class VoiceLyricsAttachment implements LayoutAttachment {
                 track: labelTrack,
             });
         }
+        return preparedText;
     }
 }

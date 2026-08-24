@@ -18,7 +18,7 @@ interface LayoutBox extends Rect {
 
 `prepareLayout` 写入固有的 `w/h/anchor/visualAxis`，布局器原地写回 `x/y`。全局横向对齐点是 `x + anchor`，全局视觉轴是 `y + visualAxis`。字号在 parse 时冻结为 AST 上的 px 值，布局只读取它。
 
-`layoutDocument` 会修改 Temporal、attachment 和 spring config，因此一份 `LoweringResult` 只布局一次；重新布局应重新 lowering。
+`layoutDocument` 会修改 Temporal 和 spring config，因此一份 `LoweringResult` 只布局一次；重新布局应重新 lowering。
 
 ## 布局阶段
 
@@ -30,11 +30,11 @@ interface LayoutBox extends Rect {
 4. 每行独立进行横向求解，写回 `box.x`；
 5. 汇总主体纵向占用，沿 Track 树求轴和自然行高；
 6. 分页，写回 `box.y`，调用 `onPlaced`；
-7. 调用 attachment 的 `layout`，收集外接盒和轨道占用；
-8. attachment 扩张轨道占用时，再进行一次纵向放置和 attachment 布局；
+7. 调用 attachment 的 `createGeometry`，原子生成本轮 regions、可选轨道占用与绘制闭包；
+8. attachment 扩张轨道占用时，再进行一次纵向放置并重新生成 geometry；
 9. 合并页面、主体和 attachment 的最终边界。
 
-`prepareHorizontal` 每个对象只调用一次；`onPlaced` 和 `LayoutAttachment.layout` 必须幂等。第二次 attachment 布局只更新最终几何，不继续触发迭代。
+`prepareHorizontal` 每个对象只调用一次；`onPlaced` 可能调用两次，`createGeometry` 每次返回独立结果，首轮可以被丢弃；第二轮是最终结果，不继续迭代。因为只有首轮的占用参与求解，`createGeometry` 必须是主体坐标的纯函数：相对本轨视觉轴的占用不能随轮次变化，否则引擎会静默采用第二轮。
 
 ## 纵向布局与分页
 
@@ -97,9 +97,11 @@ place(root, -ext.top)
 below 只向下扩张；主体内部或上方几何由具体 Temporal 的 `prepareLayout` 处理，需要独立纵向占用的对象使用 attachment。所有装饰完成后才调用 `finalizeLayout`。
 
 ## 纵向占用
-`LayoutAttachment.layout` 返回全局坐标中的 `LayoutRegion[]`。所有区域都计入 attachment 外接盒；同时提供 `line + track` 的区域还会折算为该轨道相对视觉轴的占用。
+`LayoutAttachment.createGeometry` 返回本轮 `AttachmentGeometry`。其中全局坐标的 `regions` 始终用于最终外接盒、绘制与命中；缺省也作为轨道占用。不能把完整绘制边界归给单一 Track 的对象可以单独返回 `occupancy`，例如跨轨 `@tie` 只申报自己到该轨主体上沿那一段，否则两轨之间的空档会被重复计入较高的那条轨；本行没有主体可以接管下半截时，就只能申报几何自身。
 
-`getHostExtent(line, track)` 只返回可见主体的稳定占用，不包含 attachment。当前 attachment 之间不互相避让，因此实现不应依赖注册顺序。
+引擎从最终 geometry 生成只读 `PlacedAttachment`，所以 `LoweringResult.attachments` 是语义定义，`DocumentLayoutResult.attachments` 是最终几何，两者不再共享半成品 `box/regions` 状态。
+
+`getHostExtent(line, track)` 只返回可见主体的稳定占用，不包含 attachment。attachment 之间不互相避让；确实需要读取另一个 attachment 边界的（例如 `@box` 框住写在框内的 `@tie`）用 `getAttachmentBox`：几何按 lowering 注册顺序生成，而分组总在组内对象之后注册，所以只能读取在自己之前的对象。归属只按 lowering 作用域判定：写在 box 外的关系不会因为端点在框内就被框住。
 
 ### 写一个跨行 attachment
 
@@ -107,7 +109,7 @@ below 只向下扩张；主体内部或上方几何由具体 Temporal 的 `prepa
 2. 首末段连接端点与内容区边界；
 3. 为每个中间逻辑行生成一段，即使该行没有可见主体；
 4. 每段返回准确的 `line + track` 占用；
-5. `layout` 每次从主体几何重新计算，不累加上一次结果。
+5. `createGeometry` 每次返回新的完整结果，不修改或累加上一次结果。
 
 ## 一行元素的布局：弹簧模型
 基本理念：

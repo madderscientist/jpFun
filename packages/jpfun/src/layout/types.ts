@@ -72,6 +72,8 @@ export interface AttachmentLayoutContext extends LayoutPrepareContext {
     getVisualAxis(line: number, track: Track): number;
     /** 只包含可见主体的轴局部占用（top 通常为负），不受 attachment 或最终分页坐标影响 */
     getHostExtent(line: number, track: Track): Readonly<Extent> | undefined;
+    /** 读取本轮已完成的 attachment 边界；分组在 endLoweringGroup 才注册，因而组内对象必然排在分组之前 */
+    getAttachmentBox(attachment: LayoutAttachment): Readonly<Rect>;
 }
 
 
@@ -186,27 +188,41 @@ export interface LayoutDecoration {
 }
 
 /**
- * 不占用时间、附着于一个或多个主体对象的独立排版对象
+ * 一次 attachment 放置产生的完整几何
  *
- * tie、beam、box 和歌词都使用这个接口
- * 它们不进入时间列，只需要报出自己占住的矩形，外接盒与纵向占用都由引擎从中导出
+ * 每次 createGeometry 都必须返回一个新结果；首轮试测可能被丢弃，只有最终结果会 paint。
+ */
+export interface AttachmentGeometry {
+    /** 绘制与命中的真实边界；同时是外接盒和缺省的 Track 占用 */
+    readonly regions: readonly LayoutRegion[];
+    /** 可选的 Track 占用；缺省时直接使用 regions */
+    readonly occupancy?: readonly LayoutRegion[];
+    paint(painter: Painter): void;
+}
+
+/**
+ * lowering 产生的无时间关系定义
+ *
+ * 实例只保存语义输入和一次横向准备状态，不保存最终 box、regions 或绘制几何。
  */
 export interface LayoutAttachment {
-    box: Rect;  // 由引擎写入：上一次 layout 返回区域的并集
-    layer: "background" | "foreground"; // 相对于 Temporal 主体的绘制层 "background"比内容先绘制
+    /** 相对于 Temporal 主体的绘制层；background 比内容先绘制 */
+    readonly layer: "background" | "foreground";
     /** 对应的源码范围；自动生成图形可覆盖其首末宿主的源码 */
     readonly sourceSpan?: SourceSpan;
-    /** 由引擎写入的最终布局区域，供命中测试等布局消费者使用 */
-    regions?: readonly LayoutRegion[];
     /** 横向求解前：调整弹簧参数或注册横向布局 hook，不得改变对象/列顺序 */
     prepareHorizontal?(context: HorizontalLineView[]): void;
-    /**
-     * 根据当前视觉轴生成完整几何，并返回自己占住的区域
-     * 首次返回带 line + track 且扩张主体占用的区域时，引擎会重新求轴并再次调用；
-     * 因此实现必须幂等（每次从主体几何重算，不能做累加）
-     */
-    layout?(context: AttachmentLayoutContext): readonly LayoutRegion[] | void;
-    paint(painter: Painter): void;  // 只读最终几何并发出绘制命令
+    createGeometry(context: AttachmentLayoutContext): AttachmentGeometry;
+}
+
+/** layoutDocument 输出的最终 attachment 快照 */
+export interface PlacedAttachment {
+    readonly box: Readonly<Rect>;
+    readonly regions: readonly LayoutRegion[];
+    /** 相对于 Temporal 主体的绘制层；background 比内容先绘制 */
+    readonly layer: "background" | "foreground";
+    readonly sourceSpan?: SourceSpan;
+    paint(painter: Painter): void;
 }
 
 /**
@@ -215,7 +231,7 @@ export interface LayoutAttachment {
  * 总是计入外接盒；同时声明 line 和 track 时，还会折算成该轨道的纵向占用
  * 只想影响画布边界、不想撑高行的图形（括线、边框）省略归属即可
  */
-export interface LayoutRegion extends Rect {
-    line?: number;
-    track?: Track;
-}
+export type LayoutRegion = Rect & (
+    | { line: number; track: Track }
+    | { line?: never; track?: never }
+);

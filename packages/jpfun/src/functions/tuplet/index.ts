@@ -1,6 +1,6 @@
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import { Fraction } from "../../fraction.js";
-import type { AttachmentLayoutContext, LayoutAttachment, Rect } from "../../layout/types.js";
+import type { AttachmentLayoutContext, LayoutAttachment } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { Track } from "../../lowering/track.js";
 import {
@@ -184,7 +184,6 @@ export const TupletNode: ASTFunctionClass = TupletFunction;
  * layout 根据最终宿主坐标测量数字和括线，paint 只回放已冻结的绝对几何。
  */
 class TupletLayoutAttachment implements LayoutAttachment {
-    box: Rect = { x: 0, y: 0, w: 0, h: 0 };
     layer = "foreground" as const;
 
     /** lowering 固化的连音语义；重复 layout 时保持不变 */
@@ -195,12 +194,6 @@ class TupletLayoutAttachment implements LayoutAttachment {
     /** 由端点最大字号冻结的绘制规格 */
     private readonly style: TextStyle;
     private readonly size: number;
-
-    /** 当前 layout pass 计算出的绝对几何，供 paint 直接读取 */
-    private lines: [x1: number, y1: number, x2: number, y2: number][] = [];
-    private textX = 0;
-    private textBaseline = 0;
-    private strokeWidth = 1;
 
     constructor(endPoints: readonly VisualTemporalNode[], actual: number, sourceSpan: SourceSpan) {
         this.endPoints = endPoints;
@@ -227,7 +220,7 @@ class TupletLayoutAttachment implements LayoutAttachment {
         }
     }
 
-    layout(context: AttachmentLayoutContext) {
+    createGeometry(context: AttachmentLayoutContext) {
         const first = this.endPoints[0];
         const last = this.endPoints[this.endPoints.length - 1];
 
@@ -247,38 +240,41 @@ class TupletLayoutAttachment implements LayoutAttachment {
         // hostExtent 是相对轨道视觉轴的主体占用；转为绝对坐标后再向上放置括线。
         const axis = context.getVisualAxis(first.layoutLine, first.track);
         const hostTop = axis + (context.getHostExtent(first.layoutLine, first.track)?.top ?? 0);
-        this.strokeWidth = Math.max(1, this.size * 0.055);
+        const strokeWidth = Math.max(1, this.size * 0.055);
         const lineY = hostTop - hostGap - Math.max(hookHeight, metrics.h / 2);
         const hookBottom = lineY + hookHeight;
-        this.textX = center;
-        this.textBaseline = lineY - metrics.h / 2 + metrics.baseline;
+        const textBaseline = lineY - metrics.h / 2 + metrics.baseline;
         const textLeft = center - metrics.w / 2 - textGap;
         const textRight = center + metrics.w / 2 + textGap;
         // 先记录左右横线，再记录两端向下的短钩；短跨度允许省略横线但保留端钩
-        this.lines = [];
-        if (textLeft > left) this.lines.push([left, lineY, textLeft, lineY]);
-        if (textRight < right) this.lines.push([textRight, lineY, right, lineY]);
-        this.lines.push([left, lineY, left, hookBottom], [right, lineY, right, hookBottom]);
+        const lines: [x1: number, y1: number, x2: number, y2: number][] = [];
+        if (textLeft > left) lines.push([left, lineY, textLeft, lineY]);
+        if (textRight < right) lines.push([textRight, lineY, right, lineY]);
+        lines.push([left, lineY, left, hookBottom], [right, lineY, right, hookBottom]);
 
         // region 同时包含文字与描边，并声明 line/track 让纵向求解为括线腾出空间
-        const halfStroke = this.strokeWidth / 2;
+        const halfStroke = strokeWidth / 2;
         const top = Math.min(lineY - metrics.h / 2, lineY - halfStroke);
         const bottom = Math.max(lineY + metrics.h / 2, hookBottom + halfStroke);
-        return [{
+        const regions = [{
             x: left - halfStroke,
             y: top,
-            w: right - left + this.strokeWidth,
+            w: right - left + strokeWidth,
             h: bottom - top,
             line: first.layoutLine,
             track: first.track,
         }];
-    }
-
-    paint(painter: Painter) {
-        const lineStyle = { stroke: "#000", strokeWidth: this.strokeWidth };
-        for (const [x1, y1, x2, y2] of this.lines) {
-            painter.drawLine(x1, y1, x2, y2, lineStyle);
-        }
-        painter.drawText(String(this.actual), this.textX, this.textBaseline, this.style);
+        const text = String(this.actual);
+        const style = this.style;
+        return {
+            regions,
+            paint(painter: Painter) {
+                const lineStyle = { stroke: "#000", strokeWidth };
+                for (const [x1, y1, x2, y2] of lines) {
+                    painter.drawLine(x1, y1, x2, y2, lineStyle);
+                }
+                painter.drawText(text, center, textBaseline, style);
+            },
+        };
     }
 }

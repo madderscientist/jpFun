@@ -165,6 +165,19 @@ function beatAt(time: Fraction): number {
     return Math.floor(time.numerator / time.denominator);
 }
 
+/** 折叠成员不进全局时间列，但书写上就是相邻音符，因此整串始终相连，不看拍点 */
+function createFoldedRunBeams(result: LoweringResult): LayoutAttachment[] {
+    const attachments: LayoutAttachment[] = [];
+    // 复合体可能又被当作宿主或和弦成员折叠进去，只有这张表能同时看到嵌套各层
+    for (const nodes of result.astToTemporal.values()) {
+        for (const node of nodes) {
+            const run = node.foldedRun;
+            if (run && run.length >= 2) attachments.push(createAutoBeam([...run]));
+        }
+    }
+    return attachments;
+}
+
 /**
  * 多个独立 div 的默认连接规则
  *
@@ -269,5 +282,6 @@ export function createAutomaticBeamAttachments(result: LoweringResult): LayoutAt
     return [
         ...createScopeBeams(scopes, explicitEndpoints),
         ...createAdjacentBeams(result, nodeScopes, explicitEndpoints),
+        ...createFoldedRunBeams(result),
     ];
 }

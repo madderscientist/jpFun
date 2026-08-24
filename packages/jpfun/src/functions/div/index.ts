@@ -22,6 +22,37 @@ export function claimDivLine(host: LayoutHost, level: number) {
     if (port) port.claimed = true;
 }
 
+/** 接管绘制的函数必须用同一条公式，否则同一条减时线会因为谁画而粗细不一 */
+export function divLineWidth(size: number) {
+    return Math.max(1, size * 0.055);
+}
+
+/**
+ * 逐级产出连续提供该级端口的下标区间（含两端，长度至少为 2）
+ *
+ * 端口按级递增排布是 div 的内部约定，接管绘制的函数只按这里给出的区间连线
+ */
+export function* divLineRuns(hosts: readonly LayoutHost[]) {
+    for (let level = 0; ; level++) {
+        let hasPorts = false;
+        let from = -1;
+        // 多扫一位，让最后一段也走同一条收尾分支
+        for (let i = 0; i <= hosts.length; i++) {
+            const ports = hosts[i]?.ports;
+            const left = ports?.[divLinePortName(level, "left")];
+            const right = ports?.[divLinePortName(level, "right")];
+            if (left || right) hasPorts = true;
+            if (left && right) {
+                if (from < 0) from = i;
+                continue;
+            }
+            if (from >= 0 && i - from >= 2) yield { level, from, to: i - 1 };
+            from = -1;
+        }
+        if (!hasPorts) return;
+    }
+}
+
 function parseAutoBeamFlag(raw: unknown): boolean {
     if (typeof raw === "boolean") return raw;
     if (typeof raw === "number") return raw !== 0;
@@ -111,7 +142,7 @@ class DivFunction extends ASTFunctionNode {
         if (count === 0) return null;
 
         const lineGap = host.ast.size * 0.14;
-        const strokeWidth = Math.max(1, host.ast.size * 0.055);
+        const strokeWidth = divLineWidth(host.ast.size);
         const lineBlockHeight = (count - 1) * lineGap + strokeWidth;
         let lineLeft = 0;
         let lineRight = 0;

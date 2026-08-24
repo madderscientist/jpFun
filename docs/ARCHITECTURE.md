@@ -72,7 +72,8 @@ AST 保存语法结构、已固化参数和源码位置。解析完成后，AST 
 | `LoweringResult` | 时间列、attachments、Track 树及 AST 到事件的索引 | [`lowering/types.ts`](../packages/jpfun/src/lowering/types.ts) |
 | `TemporalNodeBase` | 一次编译中的时间事件及其可选视觉主体 | [`lowering/types.ts`](../packages/jpfun/src/lowering/types.ts) |
 | `LayoutBox` | 主体的尺寸、位置和对齐轴 | [`layout/types.ts`](../packages/jpfun/src/layout/types.ts) |
-| `LayoutAttachment` | 跨主体几何与纵向占用协议 | [`layout/types.ts`](../packages/jpfun/src/layout/types.ts) |
+| `LayoutAttachment` | 跨主体关系的语义定义与横向准备协议 | [`layout/types.ts`](../packages/jpfun/src/layout/types.ts) |
+| `AttachmentGeometry` / `PlacedAttachment` | 单次放置的原子几何 / 最终只读关系结果 | [`layout/types.ts`](../packages/jpfun/src/layout/types.ts) |
 | `Painter` | 与 SVG、Canvas 无关的最小绘制接口 | [`render/types.ts`](../packages/jpfun/src/render/types.ts) |
 
 这些契约比具体算法更适合作为扩展依据。弹簧模型、分页、Track 求解等实现细节应留在对应模块内部。
@@ -103,6 +104,8 @@ AST 保存语法结构、已固化参数和源码位置。解析完成后，AST 
 ```
 
 函数不需要完整经历每一步。例如设置类函数可以只有时间语义而没有 `LayoutBox`；装饰函数可以只写入 addon 并注册 decoration handler；关系函数可以只生成 attachment。
+
+Attachment 与 Temporal 的阶段边界不同：lowering 中的 `LayoutAttachment` 只保存关系语义；主体坐标确定后由 `createGeometry` 生成可丢弃的单轮几何；最终 `PlacedAttachment` 才暴露 `box/regions/paint`。
 
 ## 改动应该放在哪里
 

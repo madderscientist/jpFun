@@ -1,6 +1,6 @@
 import { test } from "node:test";
 
-import type { LayoutAttachment } from "../src/layout/types.js";
+import type { PlacedAttachment } from "../src/layout/types.js";
 import type { PathCommand } from "../src/render/types.js";
 import { assert, attachmentCommands, commandsOfKind, layoutOf, nearly } from "./helpers.js";
 
@@ -12,7 +12,7 @@ function tieApexHeight(path: { commands: readonly PathCommand[] }) {
 }
 
 /** 跨行段是一条水平带，取它的下沿才能和轨上最高的宿主比较 */
-function horizontalBandBottom(attachment: LayoutAttachment, segment: number) {
+function horizontalBandBottom(attachment: PlacedAttachment, segment: number) {
     const path = attachmentCommands(attachment).filter(command => command.kind === "path")[segment];
     assert(path?.kind === "path", `Expected tie segment ${segment}`);
     return Math.max(...path.commands.flatMap(command => command.op === "L" ? [command.y] : []));
@@ -117,6 +117,33 @@ test("连音线可以跨行与跨轨，并避开轨上最高的宿主", () => {
     assert(compactCrossTrackTie.pages.length === 1, "a cross-track tie must not duplicate its height across tracks");
     assert(compactTieBox.y >= 10 - 1e-6 && compactTieBox.y + compactTieBox.h <= 140 + 1e-6,
         "a cross-track tie must stay inside the measured page content area");
+});
+
+test("跨轨连音线只占用主体上方，不撑开两条轨之间的间距", () => {
+    // 弧的下半截属于另一条轨；若整段都记给较高的那条轨，两支之间的空档会被重复计入
+    const measure = (source: string) => {
+        const [lower, upper] = layoutOf(source).objects;
+        return { gap: lower.box.y - upper.box.y, top: upper.box.y };
+    };
+    const plain = measure(`@stack({1@a},{2@b})`);
+    const tied = measure(`@stack({1@a},{2@b}) @tie(a,b,height=60px)`);
+
+    assert(nearly(plain.gap, tied.gap),
+        `a cross-track tie must not widen the branch gap: ${plain.gap.toFixed(2)} -> ${tied.gap.toFixed(2)}`);
+    assert(tied.top - plain.top > 40,
+        "a cross-track tie must still reserve its own height above the upper track");
+});
+
+test("跨越空谱面行的连音线只占自己的带宽", () => {
+    // 空行没有主体可以让出下半截，此时整段弧带就是它自己的全部占用
+    const regions = layoutOf(`@page(gap=0px) 1@a @br(3) 2@b @tie(a,b)`).attachments[0].regions;
+    const middle = regions
+        .filter(region => region.line === 1 || region.line === 2)
+        .sort((left, right) => left.y - right.y);
+    assert(middle.length === 2, "a tie crossing empty systems must draw one band per system");
+    assert(nearly(middle[1].y - middle[0].y, middle[0].h),
+        `an empty system must reserve only the tie band:`
+        + ` ${(middle[1].y - middle[0].y).toFixed(2)} vs ${middle[0].h.toFixed(2)}`);
 });
 
 test("跨页连音线每个逻辑系统一段，几何保持有限", () => {

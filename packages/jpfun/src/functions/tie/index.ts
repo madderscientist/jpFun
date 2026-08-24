@@ -9,7 +9,6 @@ import type {
     AttachmentLayoutContext,
     LayoutAttachment,
     LayoutPoint,
-    Rect,
 } from "../../layout/types.js";
 import type { Painter, PathCommand } from "../../render/types.js";
 import type { Track } from "../../lowering/track.js";
@@ -176,30 +175,28 @@ function pathBounds(commands: readonly PathCommand[]) {
 }
 
 class TieLayoutAttachment implements LayoutAttachment {
-    box: Rect = {
-        x: 0,
-        y: 0,
-        w: 0,
-        h: 0,
-    };
     layer = "foreground" as const;
     readonly sourceSpan: SourceSpan;
 
     readonly endPoints: VisualTemporalNode[];
     private readonly height: number;
-    private segments: TieSegment[] = [];
-    /** 弧带中部厚度；两端收尖到 0 */
-    private thickness = 1;
+    /** 弧带中部厚度；两端收尖到 0。端点字号不随布局变化，可以一次算定 */
+    private readonly thickness: number;
 
     constructor(endPoints: VisualTemporalNode[], height: number, sourceSpan: SourceSpan) {
         this.endPoints = endPoints;
         this.height = height;
         this.sourceSpan = sourceSpan;
+        const size = endPoints.reduce(
+            (current, endpoint) => Math.max(current, endpoint.ast.size),
+            0,
+        );
+        this.thickness = Math.max(1.2, size * THICKNESS_RATIO);
     }
 
-    layout(context: AttachmentLayoutContext) {
-        this.updateGeometry(context);
-        return this.segments.map(segment => ({
+    createGeometry(context: AttachmentLayoutContext) {
+        const segments = this.createSegments(context);
+        const regions = segments.map(segment => ({
             x: segment.left,
             y: segment.top,
             w: segment.right - segment.left,
@@ -207,13 +204,31 @@ class TieLayoutAttachment implements LayoutAttachment {
             line: segment.line,
             track: segment.track,
         }));
-    }
-
-    paint(painter: Painter) {
-        for (const segment of this.segments) {
-            // 弧带本身就是闭合轮廓，直接填充就能得到两端收尖、中部较粗的乐谱弧线
-            painter.drawPath(segment.commands, { fill: "#000" });
-        }
+        const occupancy = segments.map(segment => {
+            // 只申报主体上方那一段，下半截由主体自己占；本行没有主体时就只有弧带本身
+            const hostExtent = context.getHostExtent(segment.line, segment.track);
+            const bottom = hostExtent
+                ? Math.max(segment.top, context.getVisualAxis(segment.line, segment.track) + hostExtent.top)
+                : segment.bottom;
+            return {
+                x: segment.left,
+                y: segment.top,
+                w: segment.right - segment.left,
+                h: bottom - segment.top,
+                line: segment.line,
+                track: segment.track,
+            };
+        });
+        return {
+            regions,
+            occupancy,
+            paint(painter: Painter) {
+                for (const segment of segments) {
+                    // 弧带本身就是闭合轮廓，直接填充就能得到两端收尖、中部较粗的乐谱弧线
+                    painter.drawPath(segment.commands, { fill: "#000" });
+                }
+            },
+        };
     }
 
     private absolutePort(node: VisualTemporalNode, name: string): LayoutPoint {
@@ -232,13 +247,8 @@ class TieLayoutAttachment implements LayoutAttachment {
     }
 
     /** 根据端点固化后的行号选择同行弧线或跨行分段。 */
-    private updateGeometry(context: AttachmentLayoutContext) {
-        const size = this.endPoints.reduce(
-            (current, endpoint) => Math.max(current, endpoint.ast.size),
-            0,
-        );
-        this.segments.length = 0;
-        this.thickness = Math.max(1.2, size * THICKNESS_RATIO);
+    private createSegments(context: AttachmentLayoutContext) {
+        const segments: TieSegment[] = [];
 
         for (let i = 1; i < this.endPoints.length; i++) {
             let startNode = this.endPoints[i - 1];
@@ -254,44 +264,45 @@ class TieLayoutAttachment implements LayoutAttachment {
                     + (context.getHostExtent(startNode.layoutLine, startNode.track)?.top ?? 0);
                 const endTop = context.getVisualAxis(endNode.layoutLine, endNode.track)
                     + (context.getHostExtent(endNode.layoutLine, endNode.track)?.top ?? 0);
-                this.addArc(
+                segments.push(this.arcSegment(
                     start,
                     end,
                     startNode.layoutLine,
                     startTop <= endTop ? startNode.track : endNode.track,
-                );
+                ));
                 continue;
             }
 
             // 首行先起弧，再沿水平段延伸到当前谱面行最右侧
-            this.addOpeningSegment(
+            segments.push(this.openingSegment(
                 start,
                 context.originX + context.width,
                 this.plateauY(context, startNode.layoutLine, startNode.track, start.y),
                 startNode.layoutLine,
                 startNode.track,
-            );
+            ));
 
             // 中间行可能没有任何可见对象，仍然需要逐行补一段水平线
             for (let line = startNode.layoutLine + 1; line < endNode.layoutLine; line++) {
-                this.addHorizontalSegment(
+                segments.push(this.horizontalSegment(
                     context.originX,
                     context.originX + context.width,
                     this.plateauY(context, line, startNode.track),
                     line,
                     startNode.track,
-                );
+                ));
             }
 
             // 末行从最左侧进入，经过水平段后落弧到终点
-            this.addClosingSegment(
+            segments.push(this.closingSegment(
                 context.originX,
                 end,
                 this.plateauY(context, endNode.layoutLine, endNode.track, end.y),
                 endNode.layoutLine,
                 endNode.track,
-            );
+            ));
         }
+        return segments;
     }
 
     /** 沿用普通端点的抬高量，但基准至少是当前 Track 的最高主体。 */
@@ -307,7 +318,7 @@ class TieLayoutAttachment implements LayoutAttachment {
     }
 
     /** 一条三次贝塞尔的外缘配上反向内缘，得到两端收尖、中部最厚的乐谱弧线 */
-    private addArc(
+    private arcSegment(
         startInput: LayoutPoint,
         endInput: LayoutPoint,
         line: number,
@@ -330,11 +341,11 @@ class TieLayoutAttachment implements LayoutAttachment {
             { op: "Z" },
         ];
 
-        this.addSegment(commands, line, track);
+        return makeSegment(commands, line, track);
     }
 
     /** 跨行首段：从端点起弧，随后水平延伸到右边界 */
-    private addOpeningSegment(
+    private openingSegment(
         start: LayoutPoint,
         right: number,
         plateauY: number,
@@ -347,7 +358,7 @@ class TieLayoutAttachment implements LayoutAttachment {
         const controlX = start.x + run * 0.45;
         const bottom = plateauY + this.thickness;
 
-        this.addSegment([
+        return makeSegment([
             { op: "M", x: start.x, y: start.y },
             { op: "Q", cx: controlX, cy: plateauY, x: curveX, y: plateauY },
             { op: "L", x: right, y: plateauY },
@@ -359,7 +370,7 @@ class TieLayoutAttachment implements LayoutAttachment {
     }
 
     /** 跨行末段：从左边界水平进入，最后落弧到端点 */
-    private addClosingSegment(
+    private closingSegment(
         left: number,
         end: LayoutPoint,
         plateauY: number,
@@ -372,7 +383,7 @@ class TieLayoutAttachment implements LayoutAttachment {
         const controlX = end.x - run * 0.45;
         const bottom = plateauY + this.thickness;
 
-        this.addSegment([
+        return makeSegment([
             { op: "M", x: left, y: plateauY },
             { op: "L", x: curveX, y: plateauY },
             { op: "Q", cx: controlX, cy: plateauY, x: end.x, y: end.y },
@@ -382,14 +393,14 @@ class TieLayoutAttachment implements LayoutAttachment {
         ], line, track);
     }
 
-    private addHorizontalSegment(
+    private horizontalSegment(
         left: number,
         right: number,
         y: number,
         line: number,
         track: Track,
     ) {
-        this.addSegment([
+        return makeSegment([
             { op: "M", x: left, y },
             { op: "L", x: right, y },
             { op: "L", x: right, y: y + this.thickness },
@@ -397,13 +408,12 @@ class TieLayoutAttachment implements LayoutAttachment {
             { op: "Z" },
         ], line, track);
     }
+}
 
-    private addSegment(
-        commands: PathCommand[],
-        line: number,
-        track: Track,
-    ) {
-        const bounds = pathBounds(commands);
-        this.segments.push({ commands, line, track, ...bounds });
-    }
+function makeSegment(
+    commands: PathCommand[],
+    line: number,
+    track: Track,
+): TieSegment {
+    return { commands, line, track, ...pathBounds(commands) };
 }

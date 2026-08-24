@@ -19,12 +19,13 @@ import {
     type DocumentLayoutPage,
 } from "./page.js";
 import type {
+    AttachmentGeometry,
     AttachmentLayoutContext,
     HorizontalLineView,
     LayoutAttachment,
     LayoutHost,
     LayoutPrepareContext,
-    LayoutRegion,
+    PlacedAttachment,
     Rect,
 } from "./types.js";
 
@@ -39,7 +40,7 @@ export type { DocumentLayoutPage } from "./page.js";
 export interface DocumentLayoutResult {
     diagnostics: Diagnostic[];       // parser 与 lowering 传入的诊断信息
     objects: VisualTemporalNode[];   // 已准备尺寸并获得最终坐标的可见事件
-    attachments: LayoutAttachment[]; // box、tie、beam、歌词等非时间对象
+    attachments: PlacedAttachment[]; // box、tie、beam、歌词等非时间对象的最终几何
     bounds: Rect;                    // 所有对象和辅助对象的最终外接矩形
     lineCount: number;               // 按 br 切分后的谱面行数量
     pages: DocumentLayoutPage[];     // 全局坐标中的页面边界与谱面行范围
@@ -91,7 +92,8 @@ export function unionLayoutBoxes(target: Rect, boxes: Iterable<Rect>): boolean {
  * box 的尺寸、命名端口及装饰几何都尚未生成。
  *
  * 执行后，box 的 x/y 仍只是局部初值；固有宽高、弹簧参数、端口和装饰均已对应本轮 context 冻结，可以进入横向求解。
- * ports 和 decorations 在本次 pass 中从空容器开始建立。
+ *
+ * ports 和 decorations 每轮从空容器重建，因此端口上的一次性标记（如 div 的 claimed）不会跨 pass 残留。
  *
  * 具有内部几何的复合节点（例如 up 的和弦成员）可以对自己的子对象调用同一个函数，
  * 从而保证子对象与顶层对象经过完全一致的准备流程。
@@ -205,7 +207,7 @@ export function layoutDocument(
             node.onPlaced?.();
         }
 
-        const attachmentContext: AttachmentLayoutContext = {
+        const attachmentContext: Omit<AttachmentLayoutContext, "getAttachmentBox"> = {
             ...context,
             width: contentWidth,
             originX,
@@ -218,27 +220,23 @@ export function layoutDocument(
 
     // 3. 首次纵向放置后测量 attachment；只有有效轨道占用扩张时才重新求解
     let placement = placeVertically();
-    let needsRelayout = false;
-    for (const attachment of result.attachments) {
-        if (registerAttachmentRegions(
-            attachment,
-            attachment.layout?.(placement.attachmentContext),
-            lines,
-            placement.attachmentContext.getVisualAxis,
-        )) needsRelayout = true;
-    }
+    let measured = measureAttachments(result.attachments, placement.attachmentContext);
 
-    if (needsRelayout) {
+    if (registerAttachmentOccupancy(measured, lines, placement.attachmentContext.getVisualAxis)) {
         placement = placeVertically();
-        // 最终区域只更新绘制外接盒，不再累计没有后续消费者的轨道占用
-        for (const attachment of result.attachments) {
-            writeAttachmentRegions(
-                attachment,
-                attachment.layout?.(placement.attachmentContext),
-            );
-        }
+        measured = measureAttachments(result.attachments, placement.attachmentContext);
     }
     const pages = placement.pages;
+    const attachments = result.attachments.map<PlacedAttachment>((attachment, index) => {
+        const { geometry, box } = measured[index];
+        return {
+            box,
+            regions: geometry.regions,
+            layer: attachment.layer,
+            sourceSpan: attachment.sourceSpan,
+            paint(painter) { geometry.paint(painter); },
+        };
+    });
 
     const bounds: Rect = {
         x: 0, y: 0,
@@ -249,14 +247,14 @@ export function layoutDocument(
     function* layoutBoxes(): Iterable<Rect> {
         for (const pageResult of pages) yield pageResult.bounds;
         for (const node of objects) yield node.box;
-        for (const attachment of result.attachments) yield attachment.box;
+        for (const attachment of attachments) yield attachment.box;
     }
     unionLayoutBoxes(bounds, layoutBoxes());
 
     return {
         diagnostics: result.diagnostics,
         objects,
-        attachments: result.attachments,
+        attachments,
         bounds,
         lineCount: lines.length,
         pages,
@@ -391,47 +389,64 @@ function measureRowGaps(
     return gaps;
 }
 
+interface MeasuredAttachment {
+    geometry: AttachmentGeometry;
+    box: Rect;
+}
+
 /**
- * 把一个 attachment 首次报出的区域折算成外接盒与轨道占用
+ * 按 lowering 注册顺序原子生成本轮几何
  *
- * 只声明了矩形的区域仅影响画布边界；同时声明 line 与 track 才会撑开谱面行。
- * 返回值表示区域是否扩张了主体与先前区域的合并占用，因而需要最终重排。
+ * 分组的 attachment 总在组内对象之后注册，所以读取依赖不需要额外排序
  */
-function registerAttachmentRegions(
-    attachment: LayoutAttachment,
-    regions: readonly LayoutRegion[] | void,
+function measureAttachments(
+    attachments: readonly LayoutAttachment[],
+    baseContext: Omit<AttachmentLayoutContext, "getAttachmentBox">,
+) {
+    const measured = new Map<LayoutAttachment, MeasuredAttachment>();
+    const context: AttachmentLayoutContext = {
+        ...baseContext,
+        getAttachmentBox(dependency) {
+            const resolved = measured.get(dependency);
+            if (!resolved) throw new Error("Layout attachment dependency has not been measured");
+            return resolved.box;
+        },
+    };
+
+    return attachments.map(attachment => {
+        const geometry = attachment.createGeometry(context);
+        const box: Rect = { x: 0, y: 0, w: 0, h: 0 };
+        unionLayoutBoxes(box, geometry.regions);
+        const item = { geometry, box };
+        measured.set(attachment, item);
+        return item;
+    });
+}
+
+/** 把首轮几何折算成轨道占用，返回它是否超出了主体与先前区域的合并占用 */
+function registerAttachmentOccupancy(
+    measured: readonly MeasuredAttachment[],
     lines: readonly LayoutLine[],
     visualAxisOf: (line: number, track: Track) => number,
 ) {
-    const resolvedRegions = writeAttachmentRegions(attachment, regions);
-    let expandedTrackOccupancy = false;
+    let needsRelayout = false;
 
-    for (const region of resolvedRegions) {
-        if (region.line === void 0 || !region.track) continue;
-        const line = lines[region.line];
-        if (!line) throw new Error(`Layout attachment referenced invalid line ${region.line}`);
-        const axis = visualAxisOf(region.line, region.track);
-        const top = region.y - axis;
-        const bottom = region.y + region.h - axis;
-        const hostExtent = line.hostExtents.get(region.track);
-        const attachmentExtent = line.attachmentExtents.get(region.track);
-        const previousTop = Math.min(hostExtent?.top ?? Infinity, attachmentExtent?.top ?? Infinity);
-        const previousBottom = Math.max(hostExtent?.bottom ?? -Infinity, attachmentExtent?.bottom ?? -Infinity);
-        if (top < previousTop || bottom > previousBottom) expandedTrackOccupancy = true;
-        includeTrackExtent(line.attachmentExtents, region.track, top, bottom);
+    for (const { geometry } of measured) {
+        for (const region of geometry.occupancy ?? geometry.regions) {
+            if (region.line === void 0) continue;
+            const line = lines[region.line];
+            const axis = visualAxisOf(region.line, region.track);
+            const top = region.y - axis;
+            const bottom = region.y + region.h - axis;
+            const hostExtent = line.hostExtents.get(region.track);
+            const attachmentExtent = line.attachmentExtents.get(region.track);
+            const previousTop = Math.min(hostExtent?.top ?? Infinity, attachmentExtent?.top ?? Infinity);
+            const previousBottom = Math.max(hostExtent?.bottom ?? -Infinity, attachmentExtent?.bottom ?? -Infinity);
+            if (top < previousTop || bottom > previousBottom) needsRelayout = true;
+            includeTrackExtent(line.attachmentExtents, region.track, top, bottom);
+        }
     }
-    return expandedTrackOccupancy;
-}
-
-/** 保存 attachment 当前 pass 的最终区域，并同步更新其外接盒 */
-function writeAttachmentRegions(
-    attachment: LayoutAttachment,
-    regions: readonly LayoutRegion[] | void,
-): readonly LayoutRegion[] {
-    const resolvedRegions = regions ?? [];
-    attachment.regions = resolvedRegions;
-    unionLayoutBoxes(attachment.box, resolvedRegions);
-    return resolvedRegions;
+    return needsRelayout;
 }
 
 /** 一条谱面行的纵向解 */

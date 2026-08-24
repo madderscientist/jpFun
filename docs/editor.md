@@ -132,7 +132,7 @@ playground 把每个 `layout.pages[i].bounds` 展示成独立纸张，纵向排�
 
 多页缩放锚点按「具体页面 + 页面内归一化坐标」保存，页间距不会被误算进缩放比例。SVG 只更新已有根元素的 CSS 尺寸；Canvas 按当前缩放和 `devicePixelRatio` 重绘，连续滚轮事件合并到一个 animation frame。发生致命错误时会清空当前编译结果，之后缩放不会把上一次成功的谱面重新画回来。
 
-源码与谱面使用同一份后端无关映射：可见 Temporal 读取 `ast.sourceSpan + box`，attachment 读取 `sourceSpan + regions`。除了顶层 `layout.objects`，前端还从 `lowering.astToTemporal` 收集已完成布局的折叠成员，因此 grace/up 内部的音符与各层复合体仍可分别命中。`regions` 是 attachment 最后一次布局返回的实际区域，发生条件纵向重排时由引擎覆盖成最终坐标；自动 beam 的 span 取首末端点及其生效 div 作用域的并集。只有一个可见后代、且父 AST 本身没有可见 Temporal、也没有独立 attachment 的函数包装才会并入对象范围，因此 `1/` 的音符和减时线都对应完整 `1/`，而 grace 操作符不会吞掉内部音符的 span，`@box` 仍由自己的 attachment 定位。
+源码与谱面使用同一份后端无关映射：可见 Temporal 读取 `ast.sourceSpan + box`，最终 `PlacedAttachment` 读取 `sourceSpan + regions`。除了顶层 `layout.objects`，前端还从 `lowering.astToTemporal` 收集已完成布局的折叠成员，因此 grace/up 内部的音符与各层复合体仍可分别命中。`regions` 来自最终 attachment geometry，试测轮不会暴露给消费者；自动 beam 的 span 取首末端点及其生效 div 作用域的并集。只有一个可见后代、且父 AST 本身没有可见 Temporal、也没有独立 attachment 的函数包装才会并入对象范围，因此 `1/` 的音符和减时线都对应完整 `1/`，而 grace 操作符不会吞掉内部音符的 span，`@box` 仍由自己的 attachment 定位。
 
 playground 只在鼠标点击源码时触发右侧同步，键盘移动光标不触发；注释、空白及没有可见输出的声明会清除强调而不猜最近对象。文档一改就立即丢弃上一轮导航映射，等防抖编译完成后再恢复，旧谱面不会把新文档跳到错误 span。命中后预览滚到对应页，并从目标中心播放双层圆形波纹。谱面第一次 click 立即把光标放到 span 起点；500ms 内同一位置的第二次 click 扩展为完整 span 选区，但第一击不等待这个窗口。从「预览」单栏触发时自动恢复拆分视图，第二击即使因布局变化落到别的 DOM 元素，也由 document 捕获层完成原 range 的选中。
 

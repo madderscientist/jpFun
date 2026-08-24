@@ -14,11 +14,12 @@ import type {
     LayoutAttachment,
     LayoutHost,
     LayoutPoint,
-    Rect,
 } from "../../layout/types.js";
 import {
     claimDivLine,
     divLinePortName,
+    divLineRuns,
+    divLineWidth,
 } from "../div/index.js";
 
 interface BeamLine {
@@ -111,24 +112,24 @@ export function collectExplicitBeamEndpoints(
 }
 
 class BeamLayoutAttachment implements LayoutAttachment {
-    box: Rect = {
-        x: 0,
-        y: 0,
-        w: 0,
-        h: 0,
-    };
     layer = "foreground" as const;
 
     readonly endPoints: TemporalNodeBase[];
     readonly explicit: boolean;
     readonly sourceSpan: SourceSpan;
-    private lines: BeamLine[] = [];
-    private strokeWidth = 1;
+    /** 端点字号不随布局变化，装饰尺寸可以一次算定 */
+    private readonly fontSize: number;
+    private readonly strokeWidth: number;
 
     constructor(endPoints: TemporalNodeBase[], explicit: boolean, sourceSpan: SourceSpan) {
         this.endPoints = endPoints;
         this.explicit = explicit;
         this.sourceSpan = sourceSpan;
+        this.fontSize = endPoints.reduce(
+            (size, endpoint) => isVisualTemporalNode(endpoint) ? Math.max(size, endpoint.ast.size) : size,
+            0,
+        );
+        this.strokeWidth = divLineWidth(this.fontSize);
     }
 
     /** 同一 beam 组内的相邻元素使用更短的自然弹簧间距 */
@@ -148,86 +149,65 @@ class BeamLayoutAttachment implements LayoutAttachment {
         }
     }
 
-    layout(context: AttachmentLayoutContext) {
-        this.updateGeometry(context);
-        const halfStroke = this.strokeWidth / 2;
-        return this.lines.map(line => ({
-            x: Math.min(line.start.x, line.end.x) - halfStroke,
-            y: Math.min(line.start.y, line.end.y) - halfStroke,
-            w: Math.abs(line.end.x - line.start.x) + this.strokeWidth,
-            h: Math.abs(line.end.y - line.start.y) + this.strokeWidth,
+    createGeometry(context: AttachmentLayoutContext) {
+        const lines = this.collectLines(context);
+        const strokeWidth = this.strokeWidth;
+        // 减时线永远水平，butt 端帽只在纵向占半个描边
+        const regions = lines.map(line => ({
+            x: Math.min(line.start.x, line.end.x),
+            y: line.start.y - strokeWidth / 2,
+            w: Math.abs(line.end.x - line.start.x),
+            h: strokeWidth,
             line: line.line,
             track: line.track,
         }));
+        return {
+            regions,
+            paint(painter: Painter) {
+                for (const line of lines) {
+                    painter.drawLine(
+                        line.start.x,
+                        line.start.y,
+                        line.end.x,
+                        line.end.y,
+                        { stroke: "#000", strokeWidth },
+                    );
+                }
+            },
+        };
     }
 
-    paint(painter: Painter) {
-        for (const line of this.lines) {
-            painter.drawLine(
-                line.start.x,
-                line.start.y,
-                line.end.x,
-                line.end.y,
-                { stroke: "#000", strokeWidth: this.strokeWidth },
-            );
-        }
-    }
-
-    private absolutePort(node: VisualTemporalNode, name: string): LayoutPoint | null {
+    private absolutePort(node: VisualTemporalNode, name: string): LayoutPoint {
         const port = node.ports[name];
-        if (!port) return null;
         return {
             x: node.box.x + port.x,
             y: node.box.y + port.y,
         };
     }
 
-    private updateGeometry(context: AttachmentLayoutContext) {
-        this.lines.length = 0;
-
+    private collectLines(context: AttachmentLayoutContext) {
+        const lines: BeamLine[] = [];
         const available = this.endPoints.filter(isVisualTemporalNode);
-        if (available.length < 2) return;
-        // 选择端点的使用最大字号作为装饰尺寸
-        const fontSize = available.reduce(
-            (size, endpoint) => Math.max(size, endpoint.ast.size),
-            0,
-        );
-        this.strokeWidth = Math.max(1, fontSize * 0.07);
+        if (available.length < 2) return lines;
 
-        // 每一级只合并连续提供该级 div 端口的对象
-        for (let level = 0; ; level++) {
-            const spanGroups: BeamSpan[][] = [];
-            let spans: BeamSpan[] = [];
-            let hasPorts = false;
-
-            for (const node of available) {
-                const left = this.absolutePort(node, divLinePortName(level, "left"));
-                const right = this.absolutePort(node, divLinePortName(level, "right"));
-                if (left || right) hasPorts = true;
-                if (!left || !right) {
-                    if (spans.length > 0) spanGroups.push(spans);
-                    spans = [];
-                    continue;
-                }
+        for (const { level, from, to } of divLineRuns(available)) {
+            const spans: BeamSpan[] = [];
+            for (let i = from; i <= to; i++) {
+                const node = available[i];
                 spans.push({
-                    left,
-                    right,
+                    left: this.absolutePort(node, divLinePortName(level, "left")),
+                    right: this.absolutePort(node, divLinePortName(level, "right")),
                     line: node.layoutLine,
                     track: node.track,
                     node,
                 });
             }
-            if (spans.length > 0) spanGroups.push(spans);
-            if (!hasPorts) break;
-
-            for (const group of spanGroups) {
-                if (group.length >= 2) this.addSystemLines(group, context, level);
-            }
+            this.addSystemLines(spans, context, level, lines);
         }
 
         // 显式关系允许连接没有 div 端口的任意可见对象
-        if (this.lines.length === 0 && this.explicit) {
-            const gap = fontSize * 0.12;
+        if (lines.length === 0 && this.explicit) {
+            const gap = this.fontSize * 0.12;
             const spans: BeamSpan[] = available.map(node => {
                 const point = {
                     x: node.box.x + node.box.anchor,
@@ -241,8 +221,9 @@ class BeamLayoutAttachment implements LayoutAttachment {
                     node,
                 };
             });
-            this.addSystemLines(spans, context, null);
+            this.addSystemLines(spans, context, null, lines);
         }
+        return lines;
     }
 
     /** 同一级减时线按谱面行拆开，跨行时连接到对应页面边界 */
@@ -250,6 +231,7 @@ class BeamLayoutAttachment implements LayoutAttachment {
         spans: BeamSpan[],
         context: AttachmentLayoutContext,
         connectedLevel: number | null,
+        lines: BeamLine[],
     ) {
         const firstLine = Math.min(...spans.map(item => item.line));
         const lastLine = Math.max(...spans.map(item => item.line));
@@ -265,7 +247,7 @@ class BeamLayoutAttachment implements LayoutAttachment {
             if (current.length === 0) {
                 const visualAxis = context.getVisualAxis(line, fallbackTrack);
                 const y = visualAxis + visualAxisOffset;
-                this.lines.push({
+                lines.push({
                     start: { x: context.originX, y },
                     end: { x: context.originX + context.width, y },
                     line,
@@ -287,7 +269,7 @@ class BeamLayoutAttachment implements LayoutAttachment {
                 for (const span of current) claimDivLine(span.node, connectedLevel);
             }
 
-            this.lines.push({
+            lines.push({
                 start,
                 end,
                 line,

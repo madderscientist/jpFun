@@ -1,5 +1,7 @@
 import { test } from "node:test";
 
+import type { DocumentLayoutResult } from "../src/layout/engine.js";
+import type { Rect } from "../src/layout/types.js";
 import { assert, expectLayoutError, expectSnapshot, layoutOf, nearly } from "./helpers.js";
 
 test("关系对象向上让位，box 包含它们的完整范围", () => {
@@ -32,6 +34,46 @@ test("关系对象向上让位，box 包含它们的完整范围", () => {
         `attachments=${relationResult.attachments.length} tieTop=${tie.box.y.toFixed(2)}`
         + ` visualAxis=${(firstNote.box.y + firstNote.box.visualAxis).toFixed(2)}`);
 });
+
+test("box 的边框覆盖成员自身的图形，只有写在框内的关系才撑框", () => {
+    // 减时线是成员自己的装饰，@beam 只是改由谁绘制，写在框内框外都必须落在框里
+    for (const source of [
+        `@box({1/ 2/},padding=0px,stroke=1px)`,
+        `@box({1/@a 2/@b},padding=0px,stroke=1px) @beam(a,b)`,
+    ]) {
+        const layout = layoutOf(source);
+        const frame = layout.attachments.find(item => item.layer === "background");
+        const beam = layout.attachments.find(item => item.layer === "foreground");
+        assert(frame && beam, `${source} must create a box and a beam`);
+        assert(contains(frame.box, beam.box), `a box must contain the div lines of its members: ${source}`);
+    }
+
+    // 连音线拱在主体上方：写在框外时不该把框撑高，写在框内时必须被框住
+    const outsideSource = `@box({1/@a 2/@b},padding=0px,stroke=1px) @tie(a,b)`;
+    const outside = layoutOf(outsideSource);
+    const outsideFrame = outside.attachments.find(item => item.layer === "background")!;
+    assert(!contains(outsideFrame.box, tieOf(outside, outsideSource).box),
+        "a tie declared outside the box must not be captured merely because its endpoints are inside");
+
+    const insideSource = `@box({1/@a 2/@b @tie(a,b)},padding=0px,stroke=1px)`;
+    const inside = layoutOf(insideSource);
+    const insideFrame = inside.attachments.find(item => item.layer === "background")!;
+    assert(contains(insideFrame.box, tieOf(inside, insideSource).box),
+        "a tie declared inside the box must be captured");
+});
+
+function contains(outer: Rect, inner: Rect) {
+    return outer.x <= inner.x
+        && outer.y <= inner.y
+        && outer.x + outer.w >= inner.x + inner.w
+        && outer.y + outer.h >= inner.y + inner.h;
+}
+
+function tieOf(layout: DocumentLayoutResult, source: string) {
+    const tie = layout.attachments.find(item => item.sourceSpan?.start === source.indexOf("@tie"));
+    assert(tie, `${source} must create a tie`);
+    return tie;
+}
 
 test("固定宽度的 box 约束成员跨度并均匀分配余宽", () => {
     const adaptiveBox = layoutOf(`@box({1 2 3},padding=0px,stroke=0px)`).attachments[0];

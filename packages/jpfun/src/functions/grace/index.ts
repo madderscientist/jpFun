@@ -23,7 +23,7 @@ import {
     FunctionDef,
     SourceSpan,
 } from "../ASTtypes.js";
-import { claimDivLine, DIV_ADDON_KEY, divLinePortName } from "../div/index.js";
+import { DIV_ADDON_KEY } from "../div/index.js";
 
 /** 倚音相对宿主的字号比例 */
 const GRACE_SCALE = 0.7;
@@ -319,8 +319,7 @@ const HOOK_WIDTH = 0.07;
 const GRACE_RISE = 0.18;
 /** 倚音向宿主借时值的上限，防止宿主被偷光 */
 const MAX_STEAL_RATIO = 0.75;
-/** 减时线粗细占字号的比例 */
-const DIV_LINE_WIDTH = 0.055;
+
 
 /** 倚音复合体：宿主与倚音都折叠在这一个盒子里，对外只是一个可见事件 */
 export class GraceTemporal extends TemporalNodeBase {
@@ -336,7 +335,7 @@ export class GraceTemporal extends TemporalNodeBase {
     private graceOffsets: LayoutPoint[] = [];
     /** 倚音线起点，同样是局部偏移 */
     private hookOrigin: LayoutPoint | null = null;
-    private divLines: { x1: number; x2: number; y: number }[] = [];
+
 
     constructor(
         ast: GraceFunction,
@@ -359,6 +358,8 @@ export class GraceTemporal extends TemporalNodeBase {
         host.addon = void 0;
         // 成员不进入全局 columns，对外由复合体代表：写在成员上的标签仍可做关系端点
         host.foldedInto = this;
+        // 倚音在书写上就是一串相邻音符，交给系统当作连梁候选
+        this.foldedRun = graces;
 
         for (const grace of graces) {
             grace.foldedInto = this;
@@ -462,8 +463,6 @@ export class GraceTemporal extends TemporalNodeBase {
         // 宿主没有肩线时它自己的盒顶就是肩线；有则上面那轮转发已经带偏移抬好了
         this.ports[SHOULDER_PORT] ??= { x: this.box.anchor, y: this.hostOffset.y };
 
-        this.connectGraceDivLines();
-
         // 钩形曲线挂在靠近宿主的那个倚音成员下方
         const near = this.side === "pre" ? this.graces.length - 1 : 0;
         const anchorGrace = this.graces[near];
@@ -471,50 +470,6 @@ export class GraceTemporal extends TemporalNodeBase {
             x: this.graceOffsets[near].x + anchorGrace.box.anchor,
             y: graceTop + lift + graceHeight,
         } : null;
-    }
-
-    /**
-     * 把相邻倚音成员的同级减时线连成整条
-     *
-     * 折叠成员不进入全局时间列，自动连梁看不到它们，只能由复合体自己连。
-     */
-    private connectGraceDivLines() {
-        this.divLines.length = 0;
-        if (this.graces.length < 2) return;
-
-        for (let level = 0; ; level++) {
-            let hasPorts = false;
-            let run: number[] = [];
-            const flush = () => {
-                if (run.length >= 2) {
-                    const first = run[0];
-                    const last = run[run.length - 1];
-                    const leftPort = this.graces[first].ports[divLinePortName(level, "left")];
-                    const rightPort = this.graces[last].ports[divLinePortName(level, "right")];
-                    this.divLines.push({
-                        x1: this.graceOffsets[first].x + leftPort.x,
-                        x2: this.graceOffsets[last].x + rightPort.x,
-                        y: this.graceOffsets[first].y + leftPort.y,
-                    });
-                    for (const index of run) claimDivLine(this.graces[index], level);
-                }
-                run = [];
-            };
-
-            for (let i = 0; i < this.graces.length; i++) {
-                const ports = this.graces[i].ports;
-                const left = ports[divLinePortName(level, "left")];
-                const right = ports[divLinePortName(level, "right")];
-                if (left || right) hasPorts = true;
-                if (!left || !right) {
-                    flush();
-                    continue;
-                }
-                run.push(i);
-            }
-            flush();
-            if (!hasPorts) break;
-        }
     }
 
     /** 引擎每次改变本节点坐标后，按准备阶段保存的局部偏移重算成员绝对坐标 */
@@ -536,14 +491,8 @@ export class GraceTemporal extends TemporalNodeBase {
             for (const decoration of member.decorations) decoration.paint(painter);
         }
 
-        const graceEm = this.ast.size * GRACE_SCALE;
-        const divWidth = Math.max(0.8, graceEm * DIV_LINE_WIDTH);
-        for (const line of this.divLines) {
-            const y = this.box.y + line.y;
-            painter.drawLine(this.box.x + line.x1, y, this.box.x + line.x2, y, { stroke: "#000", strokeWidth: divWidth });
-        }
-
         if (!this.hookOrigin) return;
+        const graceEm = this.ast.size * GRACE_SCALE;
         const hookOrigin = this.hookOrigin;
         const dir = this.side === "pre" ? 1 : -1;
         painter.drawPath(

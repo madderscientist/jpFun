@@ -51,23 +51,24 @@ test("完全被宿主包含的附件不触发重排", () => {
     assert(host, "the contained occupancy test requires one visual host");
     let layoutCalls = 0;
     noExpansion.attachments.push({
-        box: { x: 0, y: 0, w: 0, h: 0 },
         layer: "foreground",
-        layout(context) {
+        createGeometry(context) {
             layoutCalls++;
             const axis = context.getVisualAxis(0, host.track);
             const extent = context.getHostExtent(0, host.track);
             assert(extent, "the contained occupancy test requires a host extent");
-            return [{
-                x: 10,
-                y: axis + extent.top,
-                w: 30,
-                h: extent.bottom - extent.top,
-                line: 0,
-                track: host.track,
-            }];
+            return {
+                regions: [{
+                    x: 10,
+                    y: axis + extent.top,
+                    w: 30,
+                    h: extent.bottom - extent.top,
+                    line: 0,
+                    track: host.track,
+                }],
+                paint() {},
+            };
         },
-        paint() {},
     });
     const noExpansionResult = layoutDocument(noExpansion, layoutContext);
     assert(layoutCalls === 1, "contained track occupancy must not trigger a redundant relayout");
@@ -83,20 +84,21 @@ test("撑开轨道的附件在最终基线上重新布局", () => {
     assert(host, "the occupancy test requires one visual host");
     let layoutCalls = 0;
     withOccupancy.attachments.push({
-        box: { x: 0, y: 0, w: 0, h: 0 },
         layer: "foreground",
-        layout(context) {
+        createGeometry(context) {
             layoutCalls++;
-            return [{ x: 10, y: context.getVisualAxis(0, host.track) - 100, w: 30, h: 10, line: 0, track: host.track }];
+            return {
+                regions: [{ x: 10, y: context.getVisualAxis(0, host.track) - 100, w: 30, h: 10, line: 0, track: host.track }],
+                paint() {},
+            };
         },
-        paint() {},
     });
     const withOccupancyResult = layoutDocument(withOccupancy, layoutContext);
     const finalAxis = host.box.y + host.box.visualAxis;
     assert(layoutCalls === 2, "an attachment with track occupancy must be re-laid out on final axes");
     assert(nearly(withOccupancyResult.attachments[0].box.y, finalAxis - 100),
         "a re-laid attachment must expose bounds from its final geometry");
-    assert(nearly(withOccupancyResult.attachments[0].regions?.[0]?.y ?? Infinity, finalAxis - 100),
+    assert(nearly(withOccupancyResult.attachments[0].regions[0].y, finalAxis - 100),
         "a re-laid attachment must expose regions from its final geometry");
 });
 

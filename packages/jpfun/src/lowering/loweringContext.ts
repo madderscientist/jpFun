@@ -27,7 +27,7 @@ import { Track } from "./track.js";
  * 大多数 AST 函数通过以下入口参与 lowering（按时间顺序）：
  * - [hook] loweringEnter/loweringExit：进入或离开节点时生成 TemporalNode、管理作用域
  * - [API] LoweringContext.beginLoweringGroup/endLoweringGroup：通常在 enter/exit 中被调用，以栈方式观察当前子树产生的 TemporalNode 和 attachment
- * - [API] LoweringContext.addLayoutAttachment：注册不推进时间的独立排版对象，供 tie、beam 等函数使用；若当前位于分组中，其 box 也会加入外层分组
+ * - [API] LoweringContext.addLayoutAttachment：注册不推进时间的关系定义，供 tie、beam 等函数使用；当前外层分组会收到该定义
  * - [config] timeFlowModel：声明子节点按 sequence 或 parallel 推进时间；parallel 还要声明音轨复用键与纵向排列策略
  * - [hook] Temporal.onTimeState：锚点归并后固化调性、速度等状态
  * - [hook] loweringAugment：最终列和 layoutLine 固化后扫描结果并生成要追加的 attachment

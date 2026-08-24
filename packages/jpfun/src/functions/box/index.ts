@@ -4,7 +4,7 @@ import { isVisualTemporalNode, type VisualTemporalNode } from "../../lowering/ty
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import { unionLayoutBoxes } from "../../layout/engine.js";
 import { layoutHorizontalRegion } from "../../layout/model.js";
-import type { HorizontalLineView, LayoutAttachment, Rect } from "../../layout/types.js";
+import type { AttachmentLayoutContext, HorizontalLineView, LayoutAttachment, Rect } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";
 
 class BoxFunction extends ASTFunctionNode {
@@ -62,17 +62,16 @@ class BoxFunction extends ASTFunctionNode {
       * 进入目标内容前只开始收集所有成员矩形的引用
      */
     override loweringEnter(ctx: LoweringContext) {
-          const members: Rect[] = [];
         const temporalMembers: VisualTemporalNode[] = [];
+        const childAttachments: LayoutAttachment[] = [];
         ctx.beginLoweringGroup(this, {
-            attachment: new BoxLayoutAttachment(members, temporalMembers, this),
+            attachment: new BoxLayoutAttachment(temporalMembers, childAttachments, this),
             onTemporal(node) {
                 if (!isVisualTemporalNode(node)) return;
-                members.push(node.box);
                 temporalMembers.push(node);
             },
             onAttachment(attachment) {
-                members.push(attachment.box);
+                childAttachments.push(attachment);
             },
         });
         return [];
@@ -98,29 +97,23 @@ class BoxFunction extends ASTFunctionNode {
 export const BoxNode: ASTFunctionClass = BoxFunction;
 
 class BoxLayoutAttachment implements LayoutAttachment {
-    box: Rect = {
-        x: 0,
-        y: 0,
-        w: 0,
-        h: 0,
-    };
     layer = "background" as const;
 
-    /** 同一个数组会在 lowering 递归过程中持续加入成员盒引用 */
-    private readonly members: Rect[];
     private readonly temporalMembers: VisualTemporalNode[];
+    /** 写在 box 内的关系对象；lowering 递归中持续加入，因而总在 box 自身之前完成几何 */
+    private readonly childAttachments: LayoutAttachment[];
     private readonly owner: BoxFunction;
     private fixedStart: VisualTemporalNode | null = null;
     private wallOffset = 0;
     get sourceSpan() { return this.owner.sourceSpan; }
 
     constructor(
-        members: Rect[],
         temporalMembers: VisualTemporalNode[],
+        childAttachments: LayoutAttachment[],
         owner: BoxFunction,
     ) {
-        this.members = members;
         this.temporalMembers = temporalMembers;
+        this.childAttachments = childAttachments;
         this.owner = owner;
     }
 
@@ -203,39 +196,44 @@ class BoxLayoutAttachment implements LayoutAttachment {
      * box 必须等所有成员获得最终 x 和 y 后再求边界
      * stroke 以矩形边界为中心绘制，因此外接盒额外包含半个线宽
      */
-    layout() {
+    createGeometry(context: AttachmentLayoutContext) {
         const { padding, stroke } = this.owner;
         const rect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+        const members = [
+            ...this.temporalMembers.map(member => member.box),
+            ...this.childAttachments.map(attachment => context.getAttachmentBox(attachment)),
+        ];
         // 未命名歌词等 attachment 会保留全零盒，不能让它把边框拉到文档原点
-        if (!unionLayoutBoxes(rect, this.members.filter(member => member.w > 0 || member.h > 0))) return [];
+        if (!unionLayoutBoxes(rect, members.filter(member => member.w > 0 || member.h > 0))) {
+            return { regions: [], paint() {} };
+        }
 
         const inset = padding + stroke / 2;
-        // 边框不抢轨道纵向空间，只参与画布边界；this.box 由引擎写回
+        // 边框不抢轨道纵向空间，只参与画布边界
         const fixedX = this.fixedStart
             ? this.fixedStart.box.x + this.fixedStart.box.anchor + this.wallOffset
             : rect.x;
-        return [{
+        const region = {
             x: fixedX - inset,
             y: rect.y - inset,
             w: (this.fixedStart ? this.owner.width : rect.w) + inset * 2,
             h: rect.h + inset * 2,
-        }];
-    }
-
-    paint(painter: Painter) {
-        if (this.box.w === 0 && this.box.h === 0) return;
-
-        const stroke = this.owner.stroke;
-        const inset = stroke / 2;
-        painter.drawRect(
-            this.box.x + inset,
-            this.box.y + inset,
-            Math.max(0, this.box.w - stroke),
-            Math.max(0, this.box.h - stroke),
-            {
-                stroke: "#000",
-                strokeWidth: stroke,
+        };
+        return {
+            regions: [region],
+            paint(painter: Painter) {
+                const strokeInset = stroke / 2;
+                painter.drawRect(
+                    region.x + strokeInset,
+                    region.y + strokeInset,
+                    Math.max(0, region.w - stroke),
+                    Math.max(0, region.h - stroke),
+                    {
+                        stroke: "#000",
+                        strokeWidth: stroke,
+                    },
+                );
             },
-        );
+        };
     }
 }

@@ -78,7 +78,7 @@ test("宿主的修饰在 loweringFinalize 还给宿主自己", () => {
         "the host div line must stay under the host digit instead of spanning the composite");
 });
 
-test("连续倚音由复合体自己连成一条整线", () => {
+test("连续倚音合并成一条整线", () => {
     const twoGraces = layoutGrace(`{3 2}>1`);
     const twoGraceLines = twoGraces.commands.filter(command => command.kind === "line");
     const singleGraceLine = preGrace.commands.filter(command => command.kind === "line")[0];
@@ -94,6 +94,12 @@ test("连续倚音由复合体自己连成一条整线", () => {
         "grace notes must align on their visual axis even when one carries octave dots");
     assert(unevenGraces.commands.filter(command => command.kind === "line").length === 1,
         "octave dots must not break the merged grace beam line");
+
+    // 复合体可能又被当作宿主或和弦成员折叠进去，内层的合并仍要生效
+    assert(layoutGrace(`6>4<{3 5}`).commands.filter(command => command.kind === "line").length === 2,
+        "a grace run must still merge when its composite is folded as another grace's host");
+    assert(layoutGrace(`{{2 3}>1}^5`).commands.filter(command => command.kind === "line").length === 1,
+        "a grace run must still merge when its composite is folded into a chord");
 });
 
 test("后置倚音不动宿主对齐点，两侧倚音共用一条肩线", () => {

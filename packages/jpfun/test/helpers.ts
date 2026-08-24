@@ -9,7 +9,7 @@ import { defaultFunctions } from "../src/functions/default.js";
 import { createLayoutPrepareContext } from "../src/layout/default.js";
 import { layoutDocument, type DocumentLayoutResult } from "../src/layout/engine.js";
 import { paintLayout } from "../src/render/paint.js";
-import type { LayoutAttachment } from "../src/layout/types.js";
+import type { PlacedAttachment } from "../src/layout/types.js";
 import { LoweringContext } from "../src/lowering/loweringContext.js";
 import { ParserContext } from "../src/parser/parserContext.js";
 import { preprocessSource } from "../src/parser/preprocess.js";
@@ -75,7 +75,7 @@ export function commandsOfKind<K extends RecordedPaintCommand["kind"]>(
     );
 }
 
-export function attachmentCommands(attachment: LayoutAttachment) {
+export function attachmentCommands(attachment: PlacedAttachment) {
     const recording = new RecordingPainter();
     attachment.paint(recording);
     return recording.commands;

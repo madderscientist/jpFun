@@ -77,7 +77,7 @@ export function createPreviewNavigationMap(compiled: CompileScoreResult): Previe
     const visualAsts = new Set<ASTNodeBase>([...objects].map(object => object.ast));
 
     for (const attachment of compiled.layout.attachments) {
-        if (!attachment.sourceSpan || !attachment.regions || attachment.regions.length === 0) continue;
+        if (!attachment.sourceSpan || attachment.regions.length === 0) continue;
         hitTargets.push({
             span: attachment.sourceSpan,
             regions: attachment.regions,
