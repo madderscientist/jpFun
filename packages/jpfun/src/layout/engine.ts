@@ -211,6 +211,7 @@ export function layoutDocument(
             ...context,
             width: contentWidth,
             originX,
+            pages: pages.map(item => item.bounds),
             getVisualAxis: visualAxisOf,
             getHostExtent: (line, track) => lines[line]?.hostExtents.get(track),
         };

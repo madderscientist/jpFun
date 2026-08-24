@@ -159,6 +159,7 @@ test("CanvasTextMeasurer 用绘制时的同一份字体串测量", () => {
 
     measurer.measureText("abc", style);
     assert(seen.length === 1, "repeated measurements of one string must be cached");
-    measurer.measureText("abc", { ...style, fontSize: 30 });
-    assert(seen.length === 2, "a different style must not reuse the cached width");
+    const largerStyle: TextStyle = { ...style, fontSize: 30 };
+    measurer.measureText("abc", largerStyle);
+    assert(seen.at(-1) === canvasFont(largerStyle), "a different style must not reuse the cached width");
 });

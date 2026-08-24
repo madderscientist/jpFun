@@ -1,4 +1,5 @@
 import {
+    layoutPageBounds,
     renderLayoutPagesToCanvas,
     renderLayoutPagesToSvg,
     type CompileScoreResult,
@@ -30,11 +31,6 @@ interface PreviewControllerOptions {
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 3;
-const PAGE_NUMBER_FONT_SIZE = 16;       // 页码字号
-const PAGE_NUMBER_BOTTOM_INSET = 14;    // 页码距离页面底边的视觉间距
-const PAGE_NUMBER_COLOR = "#606060";
-const PAGE_NUMBER_FONT_FAMILY = 'Bahnschrift, "Noto Sans SC", "Microsoft YaHei UI", sans-serif';
-const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const HIT_TOLERANCE = 6;
 const DOUBLE_CLICK_DELAY = 500;
 const DOUBLE_CLICK_DISTANCE = 8;
@@ -63,31 +59,10 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
 
     document.head.append(printStyle);
 
-    function pageBounds(compiled: CompileScoreResult) {
-        return compiled.layout.pages.length > 0
-            ? compiled.layout.pages.map(page => page.bounds)
-            : [compiled.layout.bounds];
-    }
-
     function createSvgPages(compiled: CompileScoreResult) {
-        const bounds = pageBounds(compiled);
         const container = document.createElement("div");
         container.innerHTML = renderLayoutPagesToSvg(compiled.layout, { background: "#ffffff" }).join("");
-        const pages = [...container.querySelectorAll<SVGSVGElement>(":scope > svg")];
-        for (const [index, svg] of pages.entries()) {
-            const page = bounds[index];
-            if (!page) continue;
-            const text = document.createElementNS(SVG_NAMESPACE, "text");
-            text.setAttribute("x", String(page.x + page.w / 2));
-            text.setAttribute("y", String(page.y + page.h - PAGE_NUMBER_BOTTOM_INSET));
-            text.setAttribute("text-anchor", "middle");
-            text.setAttribute("font-family", PAGE_NUMBER_FONT_FAMILY);
-            text.setAttribute("font-size", String(PAGE_NUMBER_FONT_SIZE));
-            text.setAttribute("fill", PAGE_NUMBER_COLOR);
-            text.textContent = `${index + 1} / ${pages.length}`;
-            svg.append(text);
-        }
-        return pages;
+        return [...container.querySelectorAll<SVGSVGElement>(":scope > svg")];
     }
 
     function mountPages(pages: readonly (SVGSVGElement | HTMLCanvasElement)[]) {
@@ -117,8 +92,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
     function renderCanvas(compiled: CompileScoreResult) {
         const ratio = window.devicePixelRatio || 1;
         const contexts: CanvasRenderingContext2D[] = [];
-        const bounds = pageBounds(compiled);
-        const pages = bounds.map(page => {
+        const pages = layoutPageBounds(compiled.layout).map(page => {
             const width = Math.max(1, Math.ceil(page.w));
             const height = Math.max(1, Math.ceil(page.h));
             const canvas = document.createElement("canvas");
@@ -135,17 +109,6 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
             return canvas;
         });
         renderLayoutPagesToCanvas(compiled.layout, contexts);
-        for (const [index, context] of contexts.entries()) {
-            const page = bounds[index];
-            if (!page) continue;
-            context.save();
-            context.fillStyle = PAGE_NUMBER_COLOR;
-            context.font = `${PAGE_NUMBER_FONT_SIZE}px ${PAGE_NUMBER_FONT_FAMILY}`;
-            context.textAlign = "center";
-            context.textBaseline = "alphabetic";
-            context.fillText(`${index + 1} / ${contexts.length}`, page.w / 2, page.h - PAGE_NUMBER_BOTTOM_INSET);
-            context.restore();
-        }
         mountPages(pages);
     }
 
@@ -182,12 +145,12 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
 
     function focusRegion(region: Rect, reveal: boolean) {
         if (!result) return;
-        const pages = pageBounds(result);
+        const pages = layoutPageBounds(result.layout);
         const centerY = region.y + region.h / 2;
         const pageIndex = pages.findIndex(page => centerY >= page.y && centerY <= page.y + page.h);
-        const pageBoundsValue = pages[pageIndex];
+        const pageRect = pages[pageIndex];
         const page = host.children[pageIndex];
-        if (!pageBoundsValue || !(page instanceof HTMLElement)) return;
+        if (!pageRect || !(page instanceof HTMLElement)) return;
         const surface = page.querySelector<SVGSVGElement | HTMLCanvasElement>(":scope > svg, :scope > canvas");
         const overlay = page.querySelector<HTMLElement>(":scope > .preview-overlay");
         if (!surface || !overlay) return;
@@ -203,9 +166,9 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         const pageElementBounds = page.getBoundingClientRect();
         const centerX = region.x + region.w / 2;
         const x = surfaceBounds.left - pageElementBounds.left
-            + (centerX - pageBoundsValue.x) / pageBoundsValue.w * surfaceBounds.width;
+            + (centerX - pageRect.x) / pageRect.w * surfaceBounds.width;
         const y = surfaceBounds.top - pageElementBounds.top
-            + (centerY - pageBoundsValue.y) / pageBoundsValue.h * surfaceBounds.height;
+            + (centerY - pageRect.y) / pageRect.h * surfaceBounds.height;
 
         if (reveal) {
             const scrollBounds = scroll.getBoundingClientRect();
@@ -213,8 +176,8 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
             scroll.scrollTop += pageElementBounds.top + y - scrollBounds.top - scroll.clientHeight / 2;
         }
 
-        const regionWidth = region.w / pageBoundsValue.w * surfaceBounds.width;
-        const regionHeight = region.h / pageBoundsValue.h * surfaceBounds.height;
+        const regionWidth = region.w / pageRect.w * surfaceBounds.width;
+        const regionHeight = region.h / pageRect.h * surfaceBounds.height;
         const diameter = Math.min(140, Math.max(48, Math.max(regionWidth, regionHeight) + 32));
         const marker = document.createElement("span");
         marker.className = "preview-focus-ripple";
@@ -333,7 +296,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
             updateZoomLabel();
             return;
         }
-        const width = Math.max(...pageBounds(result).map(bounds => bounds.w), 1);
+        const width = Math.max(...layoutPageBounds(result.layout).map(bounds => bounds.w), 1);
         setZoom(scroll.clientWidth / width);
     }
 
@@ -341,7 +304,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         clearPrint();
         document.body.classList.add("print-ready");
         if (!result) return;
-        const [paper] = pageBounds(result);
+        const [paper] = layoutPageBounds(result.layout);
         printHost.replaceChildren(...createSvgPages(result));
         printStyle.textContent = `@media print { @page { size: ${paper.w}px ${paper.h}px; margin: 0; } }`;
     }
@@ -417,7 +380,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         const page = target.closest<HTMLElement>(".preview-page");
         if (!page || page.parentElement !== host) return;
         const pageIndex = [...host.children].indexOf(page);
-        const bounds = pageBounds(result)[pageIndex];
+        const bounds = layoutPageBounds(result.layout)[pageIndex];
         const surface = page.querySelector<SVGSVGElement | HTMLCanvasElement>(":scope > svg, :scope > canvas");
         if (!bounds || !surface) return;
         const surfaceBounds = surfaceContentBounds(surface);

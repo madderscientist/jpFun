@@ -42,7 +42,7 @@
 | 诊断 | `parser.diagnostics` + 抛出的错误 | `DiagnosticCollection` |
 | 谱面预览 | `renderLayoutPagesToSvg` / `renderLayoutPagesToCanvas` | Webview |
 | 源码 / 谱面双向定位 | `object.ast.sourceSpan + box`、`attachment.sourceSpan + regions` | Webview 消息 + `TextEditor.selection` |
-| 分页、缩放、页码与打印 | `layout.pages` + 前端页面组装 | Webview / Webview 打印 |
+| 分页、缩放与打印 | `layout.pages` + 前端页面组装 | Webview / Webview 打印 |
 | 注释/括号 | `languageData` | `language-configuration.json` |
 
 ## 语法着色
@@ -138,9 +138,7 @@ playground 只在鼠标点击源码时触发右侧同步，键盘移动光标不
 
 右侧命中先去掉纸张元素的 CSS 边框，再把 SVG/Canvas 内容盒像素按当前纸张 `bounds` 还原成全局布局坐标，然后在 region 外扩 6px 范围内选择面积最小、距离最近的目标。由此细 beam、tie 等关系图形优先于覆盖它们的大盒子，SVG 和 Canvas 不需要各自维护 DOM source marker。
 
-每页底部中央由 playground 追加 `当前页/总页数`，单页也显示 `1/1`。页码同时进入 SVG、Canvas 和打印结果，但**不属于 core 布局或 Painter 协议**，不会改变 `@page` 的边距，也不参与谱面行高计算。
-
-打印前会立即重新编译，并用同一批带页码的分页 SVG 建立独立打印树；动态 `@page size` 与布局纸张尺寸一致，工作台本身在打印媒体中隐藏，每个 SVG 后强制分页。打印结束后清空临时节点和样式。若重新编译失败，打印树保持为空，不会打印过期谱面。
+打印前会立即重新编译，并用同一批分页 SVG 建立独立打印树；动态 `@page size` 与布局纸张尺寸一致，工作台本身在打印媒体中隐藏，每个 SVG 后强制分页。打印结束后清空临时节点和样式。若重新编译失败，打印树保持为空，不会打印过期谱面。
 
 VS Code 里放 Webview。`jpfun` 是纯 ESM 且不依赖 DOM，所以编译可以放在扩展主进程、只把 SVG 字符串 postMessage 给 webview（这样能复用同一份编译结果做诊断），也可以整个跑在 webview 里。
 

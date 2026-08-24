@@ -4,8 +4,11 @@ import { layoutDocument } from "../src/layout/engine.js";
 import { DEFAULT_PAGE_CONFIG, normalizePageConfig } from "../src/layout/page.js";
 import { isVisualTemporalNode } from "../src/lowering/types.js";
 import { compileScore } from "../src/pipeline.js";
+import { paintLayoutPages } from "../src/render/paint.js";
+import { RecordingPainter } from "../src/render/recording.js";
 import {
     assert,
+    attachmentCommands,
     expectCompileError,
     expectLayoutError,
     expectLoweringError,
@@ -102,7 +105,7 @@ test("非法页面参数指向它的声明，高度 0 固化为无限", () => {
     assert(negativeHeightSource.slice(negativeHeightDiagnostic.span.start, negativeHeightDiagnostic.span.end)
         === "@page(height=-1px, gap=5px)", "an invalid page diagnostic must point to the page declaration");
 
-    for (const source of [`@page(top=-1px) 1`, `@page(gap=-1px) 1`]) {
+    for (const source of [`@page(top=-1px) 1`, `@page(gap=-1px) 1`, `@page(bottom=15px, numbering="1") 1`]) {
         expectCompileError(source, "E_INVALID_PAGE_CONFIG");
     }
 
@@ -156,4 +159,41 @@ test("放不下的内容和无效的版心各自报错", () => {
         `@page(width=200px, height=20px, top=10px, bottom=10px) 1`,
         "E_INVALID_PAGE_CONFIG",
     );
+});
+
+test("页码是 @page 自己注册的 attachment，逐页浮在下边距带内", () => {
+    const paged = layoutOf(`
+@page(width=200px, height=100px, top=10px, bottom=20px, left=20px, right=20px, gap=5px, numbering="1 / 1")
+1 @br() 2 @br() 3 @br() 4 @br() 5 @br() 6
+`);
+    assert(paged.attachments.length === 1, "numbering must contribute exactly one attachment");
+    const [numbering] = paged.attachments;
+    const numbers = attachmentCommands(numbering)
+        .filter(command => command.kind === "text");
+    assert(numbers.map(command => command.text).join("|") === "1 / 3|2 / 3|3 / 3",
+        "each page must render one number whose last counting symbol is the total page count");
+    assert(numbering.regions.every(region => region.line === void 0),
+        "page numbers live in the margin and must not claim any track");
+
+    for (const [index, command] of numbers.entries()) {
+        const { x, y, w, h } = paged.pages[index].bounds;
+        assert(command.style.textAlign === "center" && nearly(command.x, x + w / 2),
+            "page numbers must be centered on their own page");
+        assert(command.y > y + h - 20 && command.y < y + h,
+            "page numbers must stay inside their own bottom margin band");
+    }
+
+    const pagePainters = paged.pages.map(() => new RecordingPainter());
+    paintLayoutPages(paged, pagePainters);
+    assert(
+        pagePainters.every((painter, index) => painter.commands
+            .filter(command => command.kind === "text" && command.text === `${index + 1} / 3`).length === 1),
+        "the paged painter must route each page number to its own page",
+    );
+
+    assert(layoutOf(`@page(width=200px) 1`).attachments.length === 0,
+        "a document without numbering must not create the attachment");
+    const single = attachmentCommands(layoutOf(`@page(bottom=16px, numbering="-- 1 --") 1`).attachments[0]);
+    assert(single.length === 1 && single[0].kind === "text" && single[0].text === "-- 1 --",
+        "a single counting symbol must render the current page only, and bottom may equal the font size");
 });

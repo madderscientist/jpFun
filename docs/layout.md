@@ -2,23 +2,9 @@
 
 ## 核心对象
 
-每个可见 Temporal 直接拥有一个扁平 `LayoutBox`：
-```ts
-interface Rect {
-	x: number;
-	y: number;
-	w: number;
-	h: number;
-}
-interface LayoutBox extends Rect {
-	anchor: number;      // 横向对齐点到左边界
-	visualAxis: number;  // 轨道视觉轴到盒顶
-}
-```
+每个可见 Temporal 直接拥有一个扁平 `LayoutBox`：`x/y/w/h` 加两个基准——`anchor` 是横向对齐点到左边界的距离，`visualAxis` 是轨道视觉轴到盒顶的距离。`prepareLayout` 写入固有的 `w/h/anchor/visualAxis`，布局器原地写回 `x/y`；全局横向对齐点是 `x + anchor`，全局视觉轴是 `y + visualAxis`。字号在 parse 时冻结为 AST 上的 px 值，布局只读取。
 
-`prepareLayout` 写入固有的 `w/h/anchor/visualAxis`，布局器原地写回 `x/y`。全局横向对齐点是 `x + anchor`，全局视觉轴是 `y + visualAxis`。字号在 parse 时冻结为 AST 上的 px 值，布局只读取它。
-
-`layoutDocument` 会修改 Temporal 和 spring config，因此一份 `LoweringResult` 只布局一次；重新布局应重新 lowering。
+`layoutDocument` 会修改 Temporal 和 spring config，所以一份 `LoweringResult` 只布局一次，重新布局要重新 lowering。
 
 ## 布局阶段
 
@@ -34,7 +20,7 @@ interface LayoutBox extends Rect {
 8. attachment 扩张轨道占用时，再进行一次纵向放置并重新生成 geometry；
 9. 合并页面、主体和 attachment 的最终边界。
 
-`prepareHorizontal` 每个对象只调用一次；`onPlaced` 可能调用两次，`createGeometry` 每次返回独立结果，首轮可以被丢弃；第二轮是最终结果，不继续迭代。因为只有首轮的占用参与求解，`createGeometry` 必须是主体坐标的纯函数：相对本轨视觉轴的占用不能随轮次变化，否则引擎会静默采用第二轮。
+`prepareHorizontal` 每个对象只调用一次；`onPlaced` 可能调用两次；`createGeometry` 每次返回独立结果，首轮可被丢弃，第二轮就是最终结果，不再迭代。只有首轮占用参与求解，所以 `createGeometry` 必须是主体坐标的纯函数——相对本轨视觉轴的占用一旦随轮次变化，引擎会静默采用第二轮。
 
 ## 纵向布局与分页
 
@@ -52,27 +38,23 @@ solve(track):
 place(root, -ext.top)
 ```
 
-`measure` 只决定成员在分组局部坐标中的相对位置，因此所有分组都能先完成测量；可选的 `place` 在宿主占用完整后决定整组平移。两者都是分组声明的静态策略。引擎只负责递归和合并占用，不认识 stack、voices 等具体函数。行高取全行占用的并集，不做横向感知的二维压缩。attachment 即使位于空逻辑行，也可通过 `line + track` 引入纵向占用。
+`measure` 只决定成员在分组局部坐标里的相对位置，所以所有分组都能先测量完；可选的 `place` 在宿主占用完整后决定整组平移。两者都是分组声明的静态策略，引擎只负责递归与合并占用，不认识 stack、voices。行高取全行占用的并集，不做横向感知的二维压缩。attachment 即使位于空逻辑行，也能通过 `line + track` 引入纵向占用。
 
-`page.ts` 只消费自然行高，产出页面边界和每行全局顶部 `lineTops`；它不读取 Track 或具体对象。`@page` 的长度在 parse 时固化为 px，可用内容宽度是页宽减左右边距。`height=0` 表示无限高；有限页面至少容纳一行，完整非末页可拉伸行距。
+`page.ts` 只消费自然行高，产出页面边界和每行全局顶部 `lineTops`，不读取 Track 或具体对象。`@page` 的长度在 parse 时固化为 px，可用内容宽度是页宽减左右边距；`height=0` 表示无限高，有限页面至少容纳一行，完整非末页可拉伸行距。
+
+`@page(numbering=...)` 的页码由 `@page` 自己注册成 foreground attachment，按 `AttachmentLayoutContext.pages` 逐页在下边距带内垂直居中，字体字号颜色写死；regions 不带 `line + track`，所以只进画布边界、不占行高。模式串里的 `1` 是计数符号，最后一个取总页数，其余取当前页，`"1 / 1"` 因此得到 `2 / 5`。
 
 非法页面配置抛出 `E_INVALID_PAGE_CONFIG`。单行高于内容区时，有可见源码内容则抛出 `E_PAGE_OVERFLOW`；无法归因到源码的 attachment-only 空行保留分页器的结构化错误。
 
 ## 横向求解前准备
 
-`HorizontalSpringConfig` 保存 `alpha_L/R`、`mu_L/R` 和 `beta_L/R`。引擎在固有尺寸完成后先通过 `completeSpringConfig` 补齐六个字段，然后才运行 hook，因此具体函数不需要判断缺省值。hook 修改 `alpha` 不会隐式重算已经补齐的 `beta`。
+`HorizontalSpringConfig` 保存 `alpha_L/R`、`mu_L/R`、`beta_L/R`。引擎在固有尺寸完成后先用 `completeSpringConfig` 补齐六个字段再运行 hook，所以具体函数不用判断缺省值；hook 改 `alpha` 不会隐式重算已补齐的 `beta`。
 
-`LayoutAttachment.prepareHorizontal` 接收 `HorizontalLineView[]`，整篇只调用一次，每个元素是每条谱面行的只读视图：
-- `index` 是谱面行号，与 `host.layoutLine` 同一坐标系；
-- `trackRuns` 是同一 Track 上按列序排好的主体，相邻两项即视觉上的前后邻居；
-- `columnOf(host)` 给出时间列下标，不在本行返回 -1；
-- `registerHorizontalLayoutHook(from, to, hook)` 注册横向布局 hook；同一行内按跨度从小到大执行。
-
-引擎随后创建归一化的 `LayoutElement` 矩阵。hook 按跨度从小到大稳定执行，共享同一组列坐标 `X` 和固定间隙标记 `fixed`。具体函数可以调整弹簧参数或调用区域布局，引擎不解释其业务含义。
+`LayoutAttachment.prepareHorizontal` 整篇只调用一次，参数是每条谱面行的只读视图 `HorizontalLineView`：`index` 与 `host.layoutLine` 同坐标系；`trackRuns` 是同一 Track 上按列序排好的主体，相邻两项即视觉上的前后邻居；`columnOf(host)` 给出时间列下标，不在本行返回 -1；`registerHorizontalLayoutHook(from, to, hook)` 注册的 hook 在同一行内按跨度从小到大稳定执行，共享同一组列坐标 `X` 和固定间隙标记 `fixed`。具体函数可以调整弹簧参数或调用区域布局，引擎不解释业务含义。
 
 ### 局部横向求解
 
-`layoutHorizontal` 每行只做一次占位补齐，随后创建共享的列坐标 `X` 和 gap 标记 `fixed`。局部 hook 和最终整行布局都调用 `layoutHorizontalRegion`：
+`layoutHorizontal` 每行只做一次占位补齐，随后创建共享的 `X` 与 `fixed`。局部 hook 和最终整行布局都调用 `layoutHorizontalRegion`：
 
 1. 连续 fixed 列先折叠成刚性虚拟列。虚拟列的左边界参数继承最左元素，右边界参数继承最右元素；普通元素的 `duration_L/R` 相同，虚拟列分别保留首尾时长。
 2. 私有自由求解器继续使用原来的预排列、墙力、CG 与阻尼迭代，不理解 hook 或 fixed。
@@ -89,19 +71,19 @@ place(root, -ext.top)
 - `dot`：附点锚点；缺省为目标右边界和视觉轴，目标可同时覆盖 x/y
 - `lyric`：歌词水平对齐点
 
-端口是可选覆盖：消费者必须定义缺省行为。装饰 handler 可以在扩张盒子的同时发布依赖最终几何的端口。
+端口是可选覆盖，消费者必须定义缺省行为。装饰 handler 可以在扩张盒子的同时发布依赖最终几何的端口。
 
 ## 下方装饰空间
-`LayoutDecoration.below` 声明主体下方空间：`order` 决定由近到远的顺序，`gap` 和 `height` 决定占用，`place(y)` 接收相对盒顶的位置。`place` 可以保存绘制几何和发布端口，但不应修改 `box.h` 或读取尚未确定的 `box.y`。
+`LayoutDecoration.below` 声明主体下方空间：`order` 决定由近到远的顺序，`gap` 和 `height` 决定占用，`place(y)` 接收相对盒顶的位置，可以保存绘制几何和发布端口，但不应修改 `box.h` 或读取尚未确定的 `box.y`。
 
-below 只向下扩张；主体内部或上方几何由具体 Temporal 的 `prepareLayout` 处理，需要独立纵向占用的对象使用 attachment。所有装饰完成后才调用 `finalizeLayout`。
+below 只向下扩张；主体内部或上方几何由具体 Temporal 的 `prepareLayout` 处理，需要独立纵向占用的对象改用 attachment。所有装饰完成后才调用 `finalizeLayout`。
 
 ## 纵向占用
-`LayoutAttachment.createGeometry` 返回本轮 `AttachmentGeometry`。其中全局坐标的 `regions` 始终用于最终外接盒、绘制与命中；缺省也作为轨道占用。不能把完整绘制边界归给单一 Track 的对象可以单独返回 `occupancy`，例如跨轨 `@tie` 只申报自己到该轨主体上沿那一段，否则两轨之间的空档会被重复计入较高的那条轨；本行没有主体可以接管下半截时，就只能申报几何自身。
+`createGeometry` 返回本轮 `AttachmentGeometry`：全局坐标的 `regions` 始终用于最终外接盒、绘制与命中，缺省也当作轨道占用；无法把完整绘制边界归给单一 Track 的对象另外返回 `occupancy`，例如跨轨 `@tie` 只申报自己到该轨主体上沿那一段，否则两轨之间的空档会被重复计入较高的那条轨（本行没有主体接管下半截时只能申报几何自身）。
 
-引擎从最终 geometry 生成只读 `PlacedAttachment`，所以 `LoweringResult.attachments` 是语义定义，`DocumentLayoutResult.attachments` 是最终几何，两者不再共享半成品 `box/regions` 状态。
+引擎从最终 geometry 生成只读 `PlacedAttachment`，所以 `LoweringResult.attachments` 是语义定义、`DocumentLayoutResult.attachments` 是最终几何，两者不共享半成品状态。
 
-`getHostExtent(line, track)` 只返回可见主体的稳定占用，不包含 attachment。attachment 之间不互相避让；确实需要读取另一个 attachment 边界的（例如 `@box` 框住写在框内的 `@tie`）用 `getAttachmentBox`：几何按 lowering 注册顺序生成，而分组总在组内对象之后注册，所以只能读取在自己之前的对象。归属只按 lowering 作用域判定：写在 box 外的关系不会因为端点在框内就被框住。
+`getHostExtent(line, track)` 只返回可见主体的稳定占用，不含 attachment。attachment 之间不互相避让；确实要读另一个 attachment 边界的（例如 `@box` 框住写在框内的 `@tie`）用 `getAttachmentBox`——几何按 lowering 注册顺序生成，而分组总在组内对象之后注册，所以只能读到排在自己之前的。归属只按 lowering 作用域判定：写在框外的关系不会因为端点在框内就被框住。
 
 ### 写一个跨行 attachment
 
@@ -139,18 +121,18 @@ $$
 | $L$ | $0$ | $\alpha \beta$ |
 | $L < \Delta l$ | $L - \Delta l$ | $\alpha \beta - l\mu$ |
 
-这样设计的理由：当多个元素并排时，若空间充足，则随便排（一般紧挨）；若空间不足，则弹簧压缩，压缩的过程中能保证 margin 之间的比例不变。由于长度为0时力为与元素无关的常数，因此所有元素的 margin 会同时被压缩到0长度，保证不会出现某个元素首先 margin 为负的情况。继续压缩，此时增量斜率全部相同，各处重叠的程度相同。
+这样设计是为了：空间充足时元素随便排（一般紧挨）；空间不足时弹簧压缩，且 margin 之间的比例保持不变；长度为 0 时力是与元素无关的常数 $\alpha\beta$，所以所有 margin 同时被压到 0，不会有某个元素先变负；再压下去各处增量斜率相同，重叠程度一致。
 
-实际处理时，两个物体之间的弹簧可以用串联等价为一根弹簧，就好计算很多了。
+两个物体之间的弹簧可以串联等价成一根，实际计算走这条路。
 
 ## 多行元素的布局
-即有的元素是跨行强行绑定的，要求垂直对齐。此时将一列视为一个整体，每行的受力叠加在该列上，最终求受力平衡位置。
+有的元素跨行强行绑定、要求垂直对齐。此时把一列视为整体，每行的受力叠加在该列上，求受力平衡位置。
 
-此时应该是无法保证不会先出现某个元素margin为负的情况了，所以 $\mu$ 应该比较大，保证穿透的程度较小。实测稍微比 $\alpha\beta$ 大几倍就足够了，不用远大于。
+这时无法再保证不会有某个元素的 margin 先变负，所以 $\mu$ 要大一些以压低穿透程度。实测比 $\alpha\beta$ 大几倍就够，不用远大于。
 
 ## 缺点
-1. 需要迭代求解。调了很多种优化算法，发现都不怎么适用：梯度变化极大。最后还是限制了每次的最大步长，并用余弦退火调整学习率，才勉强能稳定收敛。考虑到这是分段线性的凸优化，后来直接用了共轭梯度法（CG），效果非常好，不仅精度提升大幅减少了迭代次数。
-2. 穿墙有些难避免。当前的做法是给跨墙很大的弹性系数，但这又会导致数据不稳定（使用CG后倒是不存在数值问题了），穿墙仍然会存在。当然算法上是可以实现的，只要设置好初始条件不会穿墙，后面迭代注意边界就行了，但实现起来比较麻烦。还是倾向于用更大的 $\mu$ 来减少穿墙程度（这里要远大于）。
+1. 必须迭代求解。梯度变化极大，通用优化器都不好用（限制最大步长 + 余弦退火才勉强稳定收敛）；因为本质是分段线性凸优化，最终改用共轭梯度法（CG），精度和迭代次数都好得多。
+2. 穿墙难以完全避免。目前靠给跨墙弹簧很大的弹性系数缓解（CG 之后不再有数值问题），但穿墙仍会发生。算法上可以根治——初始条件不穿墙、迭代时守住边界即可——只是实现麻烦，所以仍倾向于用远大于 $\alpha\beta$ 的 $\mu$ 把穿透压到最小。
 
 ## 实现说明
 零时长事件使用最小时长参与弹簧计算，避免刚度公式除零。实际时长会进行幂次变换，使视觉间距不与音乐时值保持生硬的线性比例。

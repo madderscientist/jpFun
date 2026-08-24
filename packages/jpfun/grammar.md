@@ -29,7 +29,7 @@
     - `strict`: bool类型，开启后如果函数未定义不再忽略，一些宽容的语法糖也将被禁止
     - `autobeam`: bool类型，默认 `true`；设为 `false` 后，不同 `div` 函数之间不会自动连接
 
-- `@page(width, height, top, bottom, left, right, gap)` 设置文档页面
+- `@page(width, height, top, bottom, left, right, gap, numbering)` 设置文档页面
     - 只能在文档顶层声明一次；嵌套声明或后续重复声明会产生诊断并被忽略
     - 所有参数都是长度，parse 时按当时的 `em` 固化为 px
     - 默认：`width=794px`、`height=0px`（无限高）、上下边距 `48px`、左右边距 `40px`、`gap=1em`

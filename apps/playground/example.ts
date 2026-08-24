@@ -2,7 +2,7 @@
  * 预览工具的默认谱例
  */
 export const PLAYGROUND_EXAMPLE = `% ===== jpFun 语法示例 ===== %
-@page(width=860px, height=0px, top=42px, bottom=42px, left=38px, right=38px, gap=1.2em)
+@page(width=860px, height=0px, top=42px, bottom=42px, left=38px, right=38px, gap=1.2em, numbering="1 / 1")
 
 H.title: jpFun 简谱示例
 H.subtitle: 函数式排版语言
