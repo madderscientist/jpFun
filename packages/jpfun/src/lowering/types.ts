@@ -43,11 +43,13 @@ export interface LoweringResult {
 /**
  * lowering 递归作用域的通用观察者
  *
- * onTemporal 在事件加入时间列、推进时间游标前调用。
+ * 回调按当前作用域栈由内向外执行；onTemporal 在事件加入时间列、推进时间游标前调用。
  */
 export interface LoweringGroup {
     attachment?: LayoutAttachment;
+    /** 观察组内生成的事件 */
     onTemporal?(node: TemporalNodeBase): void;
+    /** 观察组内注册的关系对象 */
     onAttachment?(attachment: LayoutAttachment): void;
 }
 

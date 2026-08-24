@@ -177,7 +177,10 @@ export class LoweringContext {
      */
     addLayoutAttachment(attachment: LayoutAttachment) {
         this.attachments.push(attachment);
-        for (const { group } of this.activeLoweringGroups) group.onAttachment?.(attachment);
+        // 由内向外分组，符合嵌套作用域语义
+        for (let i = this.activeLoweringGroups.length - 1; i >= 0; i--) {
+            this.activeLoweringGroups[i].group.onAttachment?.(attachment);
+        }
     }
 
     /**
@@ -316,7 +319,9 @@ export class LoweringContext {
         for (const event of events) {
             this.initEvent(event, owner, timeOffset, track);
             this.indexTemporal(event);
-            for (const { group } of this.activeLoweringGroups) group.onTemporal?.(event);
+            for (let i = this.activeLoweringGroups.length - 1; i >= 0; i--) {
+                this.activeLoweringGroups[i].group.onTemporal?.(event);
+            }
             const end = (eventEnd ??= new Fraction()).copyFrom(event.t).add(event.T);
             if (end.compare(timeOffset) > 0) timeOffset.copyFrom(end);
             columns.push(new TimeColumn(event));

@@ -1,4 +1,5 @@
 import { ASTFunctionClass } from "./ASTtypes.js";
+import { AdjustNode } from "./adjust/index.js";
 import { BarNode } from "./bar/index.js";
 import { BeamNode } from "./beam/index.js";
 import { BoxNode } from "./box/index.js";
@@ -32,6 +33,7 @@ export const defaultFunctions: ASTFunctionClass[] = [
     GraceNode,  // 倚音
     TieNode, BeamNode,
     BoxNode,
+    AdjustNode,   // 手工微调
     SetNode, KeyNode, MeterNode, TempoNode,    // 设置
     TextNode,
 ];
