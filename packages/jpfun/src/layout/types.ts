@@ -211,8 +211,8 @@ export interface LayoutAttachment {
     readonly layer: "background" | "foreground";
     /** 对应的源码范围；自动生成图形可覆盖其首末宿主的源码 */
     readonly sourceSpan?: SourceSpan;
-    /** 横向求解前：调整弹簧参数或注册横向布局 hook，不得改变对象/列顺序 */
-    prepareHorizontal?(context: HorizontalLineView[]): void;
+    /** 横向求解前：可测量资源、调整弹簧参数或注册横向布局 hook，不得改变对象/列顺序 */
+    prepareHorizontal?(lines: HorizontalLineView[], context: LayoutPrepareContext): void;
     createGeometry(context: AttachmentLayoutContext): AttachmentGeometry;
 }
 

@@ -11,6 +11,7 @@ import {
 import type { Extent, MeasureFn, Track } from "../../lowering/track.js";
 import type {
     AttachmentLayoutContext,
+    HorizontalLineView,
     LayoutAttachment,
     LayoutBox,
     LayoutPrepareContext,
@@ -689,6 +690,33 @@ class VoiceLyricsAttachment implements LayoutAttachment {
     constructor(temporalMembers: TemporalNodeBase[], nameHost: VoiceNameTemporal) {
         this.temporalMembers = temporalMembers;
         this.nameHost = nameHost;
+    }
+
+    prepareHorizontal(lines: HorizontalLineView[], context: LayoutPrepareContext) {
+        const targets = this.temporalMembers
+            .filter(isVisualTemporalNode)
+            .filter(node => node.ports?.["lyric"]);
+        const { lyrics, size } = this.nameHost.ast;
+        if (targets.length === 0 || lyrics.length === 0) return;
+
+        const style: TextStyle = { fontSize: size * LYRIC_SIZE_RATIO, fill: "#000" };
+        for (let i = 0; i < targets.length; i++) {
+            const target = targets[i];
+            let halfWidth = 0;
+            for (const lyric of lyrics) {
+                const text = lyric.tokens[i];
+                if (text) halfWidth = Math.max(halfWidth, context.textMeasurer.measureText(text, style).w / 2);
+            }
+            if (halfWidth === 0) continue;
+            // 只扩大求解占用；视觉盒和端口不动，音符内部几何因此保持原位。
+            lines[target.layoutLine]?.registerHorizontalLayoutHook(target, target, ({ columns, start }) => {
+                const element = columns[start].find(item => item.time === target);
+                if (!element) return;
+                const lyricOffset = target.ports["lyric"].x - target.box.anchor;
+                element.WL = Math.max(element.WL, halfWidth - lyricOffset);
+                element.WR = Math.max(element.WR, halfWidth + lyricOffset);
+            });
+        }
     }
 
     createGeometry(context: AttachmentLayoutContext) {

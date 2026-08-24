@@ -177,9 +177,7 @@ export class LoweringContext {
      */
     addLayoutAttachment(attachment: LayoutAttachment) {
         this.attachments.push(attachment);
-        for (const { group } of this.activeLoweringGroups) {
-            group.onAttachment?.(attachment);
-        }
+        for (const { group } of this.activeLoweringGroups) group.onAttachment?.(attachment);
     }
 
     /**
@@ -318,9 +316,7 @@ export class LoweringContext {
         for (const event of events) {
             this.initEvent(event, owner, timeOffset, track);
             this.indexTemporal(event);
-            for (const { group } of this.activeLoweringGroups) {
-                group.onTemporal?.(event);
-            }
+            for (const { group } of this.activeLoweringGroups) group.onTemporal?.(event);
             const end = (eventEnd ??= new Fraction()).copyFrom(event.t).add(event.T);
             if (end.compare(timeOffset) > 0) timeOffset.copyFrom(end);
             columns.push(new TimeColumn(event));

@@ -146,7 +146,7 @@ export function layoutDocument(
     // 2. 横向弹簧布局，得到 box.x
     const views = buildLineViews(lines, options.globalC);
     for (const object of objects) object.prepareHorizontal?.(views[object.layoutLine]);
-    for (const attachment of result.attachments) attachment.prepareHorizontal?.(views);
+    for (const attachment of result.attachments) attachment.prepareHorizontal?.(views, context);
     for (const line of lines) {
         const elements = line.columns.map(column =>
             column.map(node => layoutElement(node.springConfig, node.box, node, options.globalC))

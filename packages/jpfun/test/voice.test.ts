@@ -38,6 +38,15 @@ test("歌词行共用基线且随声部字号缩放", () => {
     assert(nearly(scaledLyric.style.fontSize, 32.8), "voice lyric size must use the voice parse-time font size");
 });
 
+test("长英文歌词把宽度折算到对应音符", () => {
+    const result = layoutOf(`@voice({1/ 2/}, , "internationalization characterization")`);
+    const regions = result.attachments[0].regions;
+
+    assert(regions.length === 2, "both lyric tokens must produce regions");
+    assert(regions[0].x + regions[0].w <= regions[1].x,
+        "adjacent long lyric tokens must not overlap");
+});
+
 test("跨行歌词在每个含词的系统各用一条基线", () => {
     const crossLineVoiceResult = layoutOf(`@voice({1 2 @br() 3 4}, , "一 二 三 四")`);
     const crossLineLyrics = crossLineVoiceResult.attachments[0];
