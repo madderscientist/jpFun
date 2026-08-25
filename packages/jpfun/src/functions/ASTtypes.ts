@@ -106,10 +106,13 @@ export class ASTTextNode extends ASTNodeBase {}
 // 主要用途是高亮等编辑器功能
 export class ASTLabelNode extends ASTNodeBase {
     label: string;
-    // parent 就是指向的节点
-    constructor(sourceSpan: SourceSpan, label: string, parent: ASTNodeBase) {
+    /** 被标注的节点。parent 是树结构、会被容器改写，不能用来表达这层关系 */
+    readonly target: ASTNodeBase;
+
+    constructor(sourceSpan: SourceSpan, label: string, target: ASTNodeBase, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
         this.label = label;
+        this.target = target;
     }
 
     override toString(_: string) {

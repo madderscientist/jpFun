@@ -261,7 +261,7 @@ export class ParserContext {
                     if (!tgt) {
                         this.diagnostics.push(Diagnostic.warning.LabelWithoutTarget(node.label, node.span));
                     } else if (tgt.label !== void 0) {
-                        this.diagnostics.push(Diagnostic.warning.LabelAlreadyExists(node.label, tgt.label, node.span));
+                        this.diagnostics.push(Diagnostic.warning.TargetAlreadyLabeled(node.label, tgt.label, node.span));
                     } else {
                         tgt.label = node.label;
                         // 同时创建一个LabelNode 供编辑器等工具使用

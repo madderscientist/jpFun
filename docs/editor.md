@@ -39,6 +39,8 @@
 | 函数文档悬浮 | `syntax.calls` + `def` | `HoverProvider` |
 | 去糖写法悬浮 | `compileScore().ast` | 同上 |
 | 去糖替换 | `node.toString(source)` | `CodeActionProvider`（见下） |
+| 标签跳转定义 | `syntax.tokens` + `ASTLabelNode.target` | `DefinitionProvider` |
+| 标签重命名 | `syntax.tokens` | `RenameProvider` |
 | 诊断 | `parser.diagnostics` + 抛出的错误 | `DiagnosticCollection` |
 | 谱面预览 | `renderLayoutPagesToSvg` / `renderLayoutPagesToCanvas` | Webview |
 | 源码 / 谱面双向定位 | `object.ast.sourceSpan + box`、`attachment.sourceSpan + regions` | Webview 消息 + `TextEditor.selection` |
@@ -99,6 +101,40 @@ playground 接管了 CodeMirror 默认的悬浮关闭时机：悬浮框优先放
 
 > 移植差异：VS Code 的 Hover 只接受 `MarkdownString`，放不了真按钮。两种替代：在 Markdown 里放 `command:` 链接（需要 `isTrusted`），或者把「替换为函数调用」做成 `CodeActionProvider` 的 refactor——后者更符合 VS Code 习惯，而且能在选中一段时批量提供。
 
+## 标签跳转与重命名
+
+`Ctrl`/`Cmd` + 点击一个标签引用，光标跳到**被标注对象**（不是声明 `@x`，因为想知道的是「这个端点到底是哪个音符」）。按住修饰键时，鼠标下可跳转的标签会出现下划线和手型。只有**引用**可跳，声明、音符、注释里的同名文字都不响应。
+
+`F2` 重命名：光标停在声明或引用上都行，该组全部出现处变成**多光标**，直接打字就同步改完。没有弹窗，靠的是 `EditorState.allowMultipleSelections`。
+
+### 作用域规则
+
+两个功能共用同一条规则，它抄自 `parseArgWithType` 的 `label` 分支：
+
+> 一个引用绑定到「它所属函数调用之前、从后往前第一个同名声明」。
+
+所以**同一个标签名可以反复使用**，这是正常写法而不是错误：
+
+```
+1@x 2@y @tie(x,y) 3@x 4@y @tie(x,y)
+```
+
+两条延音线各连各的——第一条的 `x` 指 `1`（`3@x` 在它之后，被排除），第二条的 `x` 指 `3`（两个声明都在前面，取最靠后的）。**因此 `F2` 必须按符号而不是按名字全改**，否则会误伤无关的另一组。「管辖」关系就是上面那条规则反过来用：一个声明管辖所有「反查回来等于它」的引用，因此两个功能只需一份实现。
+
+词法层判据用的是「声明起点 < 该调用的 `span.start`」，而核心比的是「被标注对象起点 < `funcStart`」。二者**等价**：要产生分歧得让函数调用夹在对象和它的标签之间（`1 @tie(x) @x`），而那种写法解析器本来就报 `E_UNKNOWN_LABEL`。
+
+### 分层与降级
+
+找声明全在**词法层**，零延迟、永不失效；只有最后一跳「声明 → 被标注对象」需要 AST，读 `ASTLabelNode.target`。AST 不可用时（编译失败、刚改过文档）退到声明 `@x` 自身，位置只差几个字符。`F2` 完全不依赖 AST。
+
+读 `target` 而不是 `parent`：`ASTLabelNode.parent` 是 AST 树上的容器，会被 `ASTBraceNode` 等容器在构造时改写；`target` 才稳定指向被标注的节点。
+
+### 与谱面的联动
+
+跳转后右侧谱面会对目标音符播放与普通点击一样的波纹强调。这个通知**不能挂在 `click` 事件上**：为了拦住 CodeMirror 默认的「Ctrl+点击加多光标」，跳转必须在 `mousedown` 就截断并 `preventDefault`，而之后浏览器未必再合成 `click`。playground 的做法是让跳转的 transaction 带上一个 `labelJumped` effect，`updateListener` 扫到它再通知外层。
+
+> 移植差异：VS Code 里这两个功能有现成扩展点，不用自己处理鼠标。`DefinitionProvider` 返回被标注对象的 `Location` 即可，修饰键下划线、`F12`、悬浮预览都是编辑器内建的；重命名实现 `RenameProvider`（可选 `prepareRename` 把范围限定在名字部分，不含 `@`），返回的 `WorkspaceEdit` 内容就是上面那组 range。
+
 ## 诊断
 
 - **非致命**（警告 + 被显式吞掉的错误）在 `parser.diagnostics` 里，编译照常完成。
@@ -134,7 +170,7 @@ playground 把每个 `layout.pages[i].bounds` 展示成独立纸张，纵向排�
 
 源码与谱面使用同一份后端无关映射：可见 Temporal 读取 `ast.sourceSpan + box`，最终 `PlacedAttachment` 读取 `sourceSpan + regions`。除了顶层 `layout.objects`，前端还从 `lowering.astToTemporal` 收集已完成布局的折叠成员，因此 grace/up 内部的音符与各层复合体仍可分别命中。`regions` 来自最终 attachment geometry，试测轮不会暴露给消费者；自动 beam 的 span 取首末端点及其生效 div 作用域的并集。只有一个可见后代、且父 AST 本身没有可见 Temporal、也没有独立 attachment 的函数包装才会并入对象范围，因此 `1/` 的音符和减时线都对应完整 `1/`，而 grace 操作符不会吞掉内部音符的 span，`@box` 仍由自己的 attachment 定位。
 
-playground 只在鼠标点击源码时触发右侧同步，键盘移动光标不触发；注释、空白及没有可见输出的声明会清除强调而不猜最近对象。文档一改就立即丢弃上一轮导航映射，等防抖编译完成后再恢复，旧谱面不会把新文档跳到错误 span。命中后预览滚到对应页，并从目标中心播放双层圆形波纹。谱面第一次 click 立即把光标放到 span 起点；500ms 内同一位置的第二次 click 扩展为完整 span 选区，但第一击不等待这个窗口。从「预览」单栏触发时自动恢复拆分视图，第二击即使因布局变化落到别的 DOM 元素，也由 document 捕获层完成原 range 的选中。
+playground 只在鼠标点击源码或标签跳转时触发右侧同步，键盘移动光标不触发；注释、空白及没有可见输出的声明会清除强调而不猜最近对象。文档一改就立即丢弃上一轮导航映射，等防抖编译完成后再恢复，旧谱面不会把新文档跳到错误 span。命中后预览滚到对应页，并从目标中心播放双层圆形波纹。谱面第一次 click 立即把光标放到 span 起点；500ms 内同一位置的第二次 click 扩展为完整 span 选区，但第一击不等待这个窗口。从「预览」单栏触发时自动恢复拆分视图，第二击即使因布局变化落到别的 DOM 元素，也由 document 捕获层完成原 range 的选中。
 
 右侧命中先去掉纸张元素的 CSS 边框，再把 SVG/Canvas 内容盒像素按当前纸张 `bounds` 还原成全局布局坐标，然后在 region 外扩 6px 范围内选择面积最小、距离最近的目标。由此细 beam、tie 等关系图形优先于覆盖它们的大盒子，SVG 和 Canvas 不需要各自维护 DOM source marker。
 
@@ -161,9 +197,9 @@ closeBrackets: { brackets: ["(", "{", "[", "\""] }
 
 移植时不用找，它们确实不存在：
 
-- **跳转定义 / 查找引用**（标签 → 音符）。`ASTLabelNode.target` 已经指向被标注的节点，做起来不难，但还没做。
+- **查找引用**（从音符列出所有引用它的地方）。数据已经有了——`F2` 内部就在算「一个声明管辖哪些引用」，只是没做成列表 UI。
 - **语义高亮**：标签没绑上、未知函数名等应该标红，现在没有。需要遍历 AST 而不是 token。
-- **重命名标签**、**格式化**、**代码折叠**。
+- **格式化**、**代码折叠**。
 - **实际播放**。播放标签只有禁用的走带、范围、节拍器和声部混音占位控件。
 - **增量解析**。现在每次按键全文重扫词法层。乐谱规模够用；真要做，先做区间重扫（按行/大括号边界），别一上来就上节点复用——`span` 是绝对 offset，且 AST 会改写 grammar 阶段的 span 对象，这两条都要先解决。
 

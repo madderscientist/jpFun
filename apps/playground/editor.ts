@@ -20,7 +20,7 @@ import {
     ViewPlugin,
 } from "@codemirror/view";
 import { Diagnostic, ErrorDiagnostic } from "jpfun";
-import { jpFunLanguage } from "./jpfun-language.js";
+import { jpFunLanguage, labelJumped } from "./jpfun-language.js";
 
 export interface SourceRange {
     from: number;
@@ -145,6 +145,7 @@ export function createSourceEditor(options: SourceEditorOptions): EditorView {
                 EditorView.domEventHandlers({
                     click(event, view) {
                         if (event.button !== 0) return false;
+                        if (event.ctrlKey || event.metaKey) return false;   // 标签跳转自己发通知
                         const found = view.posAndSideAtCoords({ x: event.clientX, y: event.clientY });
                         if (found) options.onCursorClick(found.pos + Math.min(0, found.assoc));
                         return false;
@@ -164,6 +165,12 @@ export function createSourceEditor(options: SourceEditorOptions): EditorView {
                 editorTheme,
                 EditorView.updateListener.of(update => {
                     if (update.docChanged) options.onDocChanged();
+                    for (const transaction of update.transactions) {
+                        // 标签跳转不走 click，所以自己发通知让谱面同步强调
+                        for (const effect of transaction.effects) {
+                            if (effect.is(labelJumped)) options.onCursorClick(effect.value);
+                        }
+                    }
                 }),
             ],
         }),

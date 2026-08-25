@@ -88,7 +88,7 @@ class UpFunction extends ASTFunctionNode {
         // 对 label 的特判: 目标变为label到被标记的节点范围内的所有节点
         if (leftNode instanceof ASTLabelNode) {
             const labelNode = leftNode;
-            let tgt = labelNode.parent;  // 被打标签的节点
+            let tgt: ASTNodeBase | null = labelNode.target;
             // 在本层这个节点位于哪里（标签节点可能被wrap）
             while (tgt && !ctx.nodes.includes(tgt)) tgt = tgt.parent;
             for (let j = left - 1; j >= 0; j--) {

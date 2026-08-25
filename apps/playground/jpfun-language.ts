@@ -1,7 +1,7 @@
 import { snippetCompletion, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
-import { EditorState, RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
-import { activateHover, closeHoverTooltips, Decoration, EditorView, hoverTooltip, ViewPlugin, type Tooltip } from "@codemirror/view";
-import { analyzeScoreSyntax, ASTFunctionNode, ASTNodeBase, defaultFunctions, resolveArgType, type CallInfo, type FunctionDef, type SourceSpan, type SyntaxTokenKind } from "jpfun";
+import { EditorSelection, EditorState, RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
+import { activateHover, closeHoverTooltips, Decoration, EditorView, hoverTooltip, keymap, ViewPlugin, type DecorationSet, type Tooltip } from "@codemirror/view";
+import { analyzeScoreSyntax, ASTFunctionNode, ASTLabelNode, ASTNodeBase, defaultFunctions, resolveArgType, type CallInfo, type FunctionDef, type SourceSpan, type SyntaxAnalysis, type SyntaxToken, type SyntaxTokenKind } from "jpfun";
 
 const syntaxClasses: Record<SyntaxTokenKind, string> = {
     comment: "cm-jpfun-comment",
@@ -238,6 +238,179 @@ function complete(context: CompletionContext): CompletionResult | null {
     return options.length ? { from: word.from, options, validFor: /^[\w.-]*$/ } : null;
 }
 
+//====== 标签导航与重命名 ======//
+
+/** 跳转修饰键：Windows/Linux 用 Ctrl，macOS 用 Cmd */
+function jumpModifier(event: MouseEvent | KeyboardEvent) {
+    return event.ctrlKey || event.metaKey;
+}
+
+/** 声明写作 `@x`，引用是关系函数参数里的裸名字 */
+function isDeclaration(state: EditorState, token: SyntaxToken) {
+    return state.doc.sliceString(token.span.start, token.span.start + 1) === "@";
+}
+
+/** 名字本身占的区间，声明要跳过开头的 `@`；重命名直接把它变成选区 */
+function labelNameRange(state: EditorState, token: SyntaxToken) {
+    return {
+        from: token.span.start + (isDeclaration(state, token) ? 1 : 0),
+        to: token.span.end,
+    };
+}
+
+function labelName(state: EditorState, token: SyntaxToken) {
+    const range = labelNameRange(state, token);
+    return state.doc.sliceString(range.from, range.to);
+}
+
+function labelTokenAt(analysis: SyntaxAnalysis, pos: number): SyntaxToken | null {
+    return analysis.tokens.find(token =>
+        token.kind === "label" && pos >= token.span.start && pos <= token.span.end) ?? null;
+}
+
+/**
+ * 引用绑定到哪个声明。规则抄自 parserContext 的 label 参数解析：
+ * 在引用所属调用之前，从后往前第一个同名声明。同一个名字因此可以被反复使用
+ */
+function declarationFor(state: EditorState, analysis: SyntaxAnalysis, reference: SyntaxToken): SyntaxToken | null {
+    const call = callAt(analysis.calls, reference.span.start);
+    if (!call) return null;
+    const name = labelName(state, reference);
+    let found: SyntaxToken | null = null;
+    for (const token of analysis.tokens) {
+        if (token.span.start >= call.span.start) break;   // tokens 已按起点升序
+        if (token.kind === "label" && isDeclaration(state, token) && labelName(state, token) === name) found = token;
+    }
+    return found;
+}
+
+/** target 指向被标注对象；parent 是树结构、会被容器改写，不能拿来问这个 */
+function labelTargetSpan(node: ASTNodeBase, declaration: SourceSpan): SourceSpan | null {
+    if (node instanceof ASTLabelNode && node.sourceSpan.start === declaration.start) {
+        return node.target.sourceSpan;
+    }
+    for (const child of node.children ?? []) {
+        const found = labelTargetSpan(child, declaration);
+        if (found) return found;
+    }
+    return null;
+}
+
+/** 光标落在标签引用上时，算出它指的谱面对象写在源码哪里 */
+function labelJumpAt(state: EditorState, pos: number) {
+    const { analysis } = state.field(syntaxField);
+    const reference = labelTokenAt(analysis, pos);
+    if (!reference || isDeclaration(state, reference)) return null;
+    const declaration = declarationFor(state, analysis, reference);
+    if (!declaration) return null;
+    const ast = state.field(semanticField);
+    // 编译失败或刚改过文档时没有 AST，退到声明自身，只差几个字符
+    const target = (ast && labelTargetSpan(ast, declaration.span)) ?? declaration.span;
+    return { reference: reference.span, target };
+}
+
+const setLabelLink = StateEffect.define<SourceSpan | null>();
+const labelLinkMark = Decoration.mark({ class: "cm-jpfun-label-link" });
+
+const labelLinkField = StateField.define<DecorationSet>({
+    create: () => Decoration.none,
+    update(value, transaction) {
+        for (const effect of transaction.effects) {
+            if (effect.is(setLabelLink)) {
+                return effect.value
+                    ? Decoration.set([labelLinkMark.range(effect.value.start, effect.value.end)])
+                    : Decoration.none;
+            }
+        }
+        return transaction.docChanged ? Decoration.none : value;
+    },
+    provide: field => EditorView.decorations.from(field),
+});
+
+/** 按住 Ctrl 时给鼠标下的可跳转标签加下划线，松开或移开就撤掉 */
+const labelLinkControl = ViewPlugin.define(view => {
+    const listeners = new AbortController();
+    const signal = listeners.signal;
+    let point: { x: number; y: number } | null = null;
+    let shown: SourceSpan | null = null;
+
+    const refresh = (held: boolean) => {
+        const pos = held && point ? view.posAtCoords(point) : null;
+        const next = pos === null ? null : labelJumpAt(view.state, pos)?.reference ?? null;
+        if (next?.start === shown?.start && next?.end === shown?.end) return;
+        shown = next;
+        view.dispatch({ effects: setLabelLink.of(next) });
+    };
+
+    view.dom.addEventListener("mousemove", event => {
+        point = { x: event.clientX, y: event.clientY };
+        refresh(jumpModifier(event));
+    }, { signal });
+    view.dom.addEventListener("mouseleave", () => { point = null; refresh(false); }, { signal });
+    const onModifier = (event: KeyboardEvent) => refresh(jumpModifier(event));
+    window.addEventListener("keydown", onModifier, { signal });
+    window.addEventListener("keyup", onModifier, { signal });
+    window.addEventListener("blur", () => refresh(false), { signal });   // 切走窗口收不到 keyup
+
+    return { destroy() { listeners.abort(); } };
+});
+
+/** 跳转后的光标位置。不能靠 click 事件通知：mousedown 里 preventDefault 后它未必派发 */
+export const labelJumped = StateEffect.define<number>();
+
+/** CodeMirror 默认 Ctrl+点击是加多光标，必须在 mousedown 就截断 */
+const labelLinkClick = EditorView.domEventHandlers({
+    mousedown(event, view) {
+        if (event.button !== 0 || !jumpModifier(event)) return false;
+        const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+        const jump = pos === null ? null : labelJumpAt(view.state, pos);
+        if (!jump) return false;
+        view.dispatch({
+            selection: { anchor: jump.target.start },
+            effects: [
+                setLabelLink.of(null),
+                labelJumped.of(jump.target.start),
+                EditorView.scrollIntoView(jump.target.start, { y: "center" }),
+            ],
+        });
+        view.focus();   // 截断后浏览器不会自己转移焦点
+        return true;
+    },
+});
+
+/** 一个声明连同它管辖的引用。同名标签可以属于不同的组，所以不能按名字全改 */
+function labelSymbolAt(state: EditorState, pos: number) {
+    const { analysis } = state.field(syntaxField);
+    const token = labelTokenAt(analysis, pos);
+    if (!token) return null;
+    const declaration = isDeclaration(state, token) ? token : declarationFor(state, analysis, token);
+    if (!declaration) return null;
+    const name = labelName(state, declaration);
+    const ranges = [labelNameRange(state, declaration)];
+    for (const other of analysis.tokens) {
+        if (other.kind !== "label" || isDeclaration(state, other) || labelName(state, other) !== name) continue;
+        if (declarationFor(state, analysis, other) !== declaration) continue;
+        ranges.push(labelNameRange(state, other));
+    }
+    return ranges;
+}
+
+/** 重命名不弹输入框：把这一组变成多光标，直接打字就同步改 */
+function renameLabel(view: EditorView) {
+    const head = view.state.selection.main.head;
+    const ranges = labelSymbolAt(view.state, head);
+    if (!ranges) return false;
+    // 光标停在声明的 `@` 上时不落在任何名字区间内，退回第一个
+    const main = ranges.findIndex(range => head >= range.from && head <= range.to);
+    view.dispatch({
+        selection: EditorSelection.create(
+            ranges.map(range => EditorSelection.range(range.from, range.to)),
+            Math.max(0, main),
+        ),
+    });
+    return true;
+}
+
 export const jpFunLanguage = [
     EditorState.languageData.of(() => [{
         commentTokens: { line: "%" },
@@ -248,6 +421,10 @@ export const jpFunLanguage = [
     semanticField,
     functionHover,
     hoverControl,
+    labelLinkField,
+    labelLinkControl,
+    labelLinkClick,
+    keymap.of([{ key: "F2", run: renameLabel }]),
     EditorView.baseTheme({
         ".cm-jpfun-comment": { color: "var(--syntax-comment)", fontStyle: "italic" },
         ".cm-jpfun-string": { color: "var(--syntax-string)" },
@@ -259,6 +436,7 @@ export const jpFunLanguage = [
         ".cm-jpfun-atom": { color: "var(--syntax-number)", fontWeight: "600" },
         ".cm-jpfun-operator": { color: "var(--syntax-keyword)" },
         ".cm-jpfun-punctuation": { color: "var(--syntax-comment)" },
+        ".cm-jpfun-label-link": { textDecoration: "underline", cursor: "pointer" },
         ".cm-jpfun-doc": { maxWidth: "420px", maxHeight: "260px", overflow: "auto", whiteSpace: "pre-wrap" },
         ".cm-jpfun-desugar": {
             display: "flex",

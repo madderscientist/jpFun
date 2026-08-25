@@ -1,8 +1,9 @@
 import { test } from "node:test";
 
+import { ASTLabelNode, ASTNodeBase } from "../src/functions/ASTtypes.js";
 import { preprocessSource } from "../src/parser/preprocess.js";
 import { analyzeScoreSyntax } from "../src/pipeline.js";
-import { assert, createParser, expectDiagnostic, expectSnapshot } from "./helpers.js";
+import { assert, createParser, expectDiagnostic, expectSnapshot, parse } from "./helpers.js";
 
 const source = [
     "line-a \\\\",
@@ -134,4 +135,34 @@ test("参数不足的调用在严格与宽容模式下各自处理", () => {
         "non-strict content parsing must record the swallowed error");
     assert(lenientParser.diagnostics.some(item => item.code === "W_INVALID_CONTENT"),
         "non-strict content parsing must report its fallback");
+});
+
+test("标签的 target 指向被标注对象，不随容器改写", () => {
+    const labelsOf = (root: ASTNodeBase) => {
+        const found: ASTLabelNode[] = [];
+        const visit = (node: ASTNodeBase) => {
+            if (node instanceof ASTLabelNode) found.push(node);
+            for (const child of node.children ?? []) visit(child);
+        };
+        visit(root);
+        return found;
+    };
+
+    // 根 ASTBraceNode 会把顶层节点的 parent 改写成自己，target 必须幸免
+    const flat = parse(`1@x 2@y`);
+    const flatLabels = labelsOf(flat);
+    assert(flatLabels.length === 2, "every bound label must stay reachable through children");
+    assert(flatLabels[0].target.sourceSpan.start === 0 && flatLabels[1].target.sourceSpan.start === 4,
+        "a label target must be the annotated node, not the container that adopted the label");
+    assert(flatLabels.every(label => label.parent === flat),
+        "parent must keep meaning the AST container");
+
+    // 同名标签可以反复使用，各自指向自己那个对象
+    const reused = labelsOf(parse(`1@x 2@y @tie(x,y) 3@x 4@y @tie(x,y)`));
+    assert(reused.filter(label => label.label === "x").map(label => label.target.sourceSpan.start).join() === "0,18",
+        "reusing a label name must bind each declaration to its own object");
+
+    const nested = labelsOf(parse(`@div({1@x})`));
+    assert(nested.length === 1 && nested[0].target.sourceSpan.start === 6,
+        "a label nested in braces must still point at the annotated node");
 });

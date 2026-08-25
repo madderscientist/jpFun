@@ -124,7 +124,7 @@ class GraceFunction extends ASTFunctionNode {
         let replaceFrom = left;
         // 对 label 的特判: 目标变为label到被标记的节点范围内的所有节点
         if (leftNode instanceof ASTLabelNode) {
-            let tgt = leftNode.parent;
+            let tgt: ASTNodeBase | null = leftNode.target;
             while (tgt && !ctx.nodes.includes(tgt)) tgt = tgt.parent;
             for (let j = left - 1; j >= 0; j--) {
                 if (ctx.nodes[j] === tgt) {

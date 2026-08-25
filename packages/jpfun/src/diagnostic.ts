@@ -237,10 +237,10 @@ Diagnostic.warning = {
             span
         );
     },
-    LabelAlreadyExists: (newLabel: string, oldLabel: string, span: SourceSpan) => {
+    TargetAlreadyLabeled: (newLabel: string, oldLabel: string, span: SourceSpan) => {
         return new WarningDiagnostic(
-            "W_LABEL_ALREADY_EXISTS",
-            `标签 "${newLabel}" 的目标已经叫 "${oldLabel}"；标签将被忽略`,
+            "W_TARGET_ALREADY_LABELED",
+            `目标已标注为 "${oldLabel}"，"${newLabel}" 将被忽略`,
             span
         );
     },
