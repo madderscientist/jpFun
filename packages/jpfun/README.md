@@ -28,6 +28,28 @@ import { compileScore } from "jpfun";
 
 CommonJS `require("jpfun")` is not supported.
 
+## Browser via CDN
+
+A bundled, minified build ships with the package, so no build step is needed for a plain web page. Load it with a `<script>` tag and use the `jpfun` global:
+
+```html
+<script src="https://unpkg.com/jpfun"></script>
+<script>
+  const { compileScore, renderLayoutPagesToSvg } = jpfun;
+  document.body.innerHTML = renderLayoutPagesToSvg(compileScore("1 2 3 | 4 -").layout)[0];
+</script>
+```
+
+For ES modules, jsDelivr bundles the package on the fly:
+
+```html
+<script type="module">
+  import { compileScore } from "https://cdn.jsdelivr.net/npm/jpfun/+esm";
+</script>
+```
+
+Both URLs resolve to the latest published version. In production, append an exact version (`jpfun@x.y.z`) so that publishing a new release cannot change an existing page.
+
 ## Quick Start
 
 ```ts
@@ -59,6 +81,21 @@ if (context) {
   renderLayoutPagesToCanvas(result.layout, [context]);
 }
 ```
+
+## Text Measurement
+
+Layout depends on text widths, so `compileScore` needs a `TextMeasurer`. The default one estimates every character at a fixed fraction of the font size. That keeps results platform-independent, which is what tests and server-side rendering want, but it does not match the real glyph widths of a browser font — narrow letters are overestimated, so right-aligned text and `@box` bounds drift visibly.
+
+In a browser, pass `CanvasTextMeasurer` so that measurement agrees with what the renderer draws:
+
+```ts
+import { compileScore, CanvasTextMeasurer } from "jpfun";
+
+const context = document.createElement("canvas").getContext("2d")!;
+const result = compileScore(source, { textMeasurer: new CanvasTextMeasurer(context) });
+```
+
+This applies to SVG output too, since measurement happens during layout rather than during painting. The context is only used for measuring and need not be the canvas you render into.
 
 ## Compilation Pipeline
 

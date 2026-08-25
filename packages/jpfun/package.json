@@ -5,6 +5,8 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "unpkg": "./dist/jpfun.min.js",
+  "jsdelivr": "./dist/jpfun.min.js",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -36,7 +38,8 @@
   },
   "scripts": {
     "clean": "node -e \"for (const path of ['dist', 'tsconfig.tsbuildinfo']) require('node:fs').rmSync(path, { recursive: true, force: true })\"",
-    "build": "pnpm run clean && tsc -p tsconfig.json",
+    "build": "pnpm run clean && tsc -p tsconfig.json && pnpm run build:bundle",
+    "build:bundle": "esbuild dist/index.js --bundle --minify --format=iife --global-name=jpfun --target=es2022 --legal-comments=none --banner:js=\"/*! jpfun | Apache-2.0 | github.com/madderscientist/jpFun */\" --outfile=dist/jpfun.min.js",
     "prepack": "pnpm run build",
     "typecheck": "tsc -p test/tsconfig.json",
     "test": "node --import tsx --test \"test/*.test.ts\"",
@@ -53,6 +56,7 @@
   "license": "Apache-2.0",
   "devDependencies": {
     "@types/node": "^26.2.0",
+    "esbuild": "^0.25.0",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2"
   }
