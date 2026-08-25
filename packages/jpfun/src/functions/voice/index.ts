@@ -1,7 +1,8 @@
 import { ASTNodeBase, ASTBraceNode, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../ASTtypes.js";
 import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
-import { findRightParen, removeQuote } from "../../parser/parse-utils/call-utils.js";
-import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
+import { findRightParen } from "../../parser/parse-utils/call-utils.js";
+import { findClosingQuote, removeQuote } from "../../parser/parse-utils/string-utils.js";
+import { GrammarNode, GrammarSugarNode, type CallArgumentInfo } from "../../parser/grammarType.js";
 import { ParserContext, skipSpaces } from "../../parser/parserContext.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import {
@@ -108,36 +109,27 @@ L: ...
             }; return { next: pos, node };
         } else {
             // 字符串收集
-            let lystart = pos = skipSpaces(source, pos, end);
+            pos = skipSpaces(source, pos, end);
             if (pos >= end) return null;    // 没有内容了 不去糖
-            let lyend = end;
-            const quote = source[pos];
+            let lyric: string;
             // 双引号才是字符串，单引号不是
-            if (quote === '"') {
-                // 有引号的 直接以引号为界切分
-                lystart = ++pos;
-                let escaped = false;
-                for (; pos < end; pos++) {
-                    const ch = source[pos];
-                    if (escaped) escaped = false;
-                    else if (ch === "\\") escaped = true;
-                    else if (ch === quote) break;
-                }
-                if (pos >= end) throw Diagnostic.error.UnterminatedString({
-                    start: lystart - 1, end
-                });
-                lyend = pos++;  // 跳过结尾引号
+            if (source[pos] === '"') {
+                // 未闭合就不去糖，词法层每次击键都跑，不能抛
+                const close = findClosingQuote(source, pos, end);
+                if (close < 0) return null;
+                lyric = removeQuote(source.slice(pos, close + 1));
+                pos = close + 1;
             } else {
                 // 没有引号的 以换行符为界切分 预处理已经跳过了转义的换行符了
-                for (; pos < end; pos++) {
-                    if (source[pos] === '\n') break;
-                } lyend = pos;
+                const from = pos;
+                while (pos < end && source[pos] !== '\n') pos++;
+                lyric = source.slice(from, pos).trim();
             }
             const node: GrammarSugarNode = {
                 kind: "sugar",
                 data: {
                     class: VoiceFunction,
-                    lyric: source.slice(lystart, lyend).trim(),
+                    lyric,
                     name,
                 },
                 span: { start, end: pos },
@@ -313,12 +305,13 @@ L: ...
                 this.addLyric(key, value);
                 continue;
             }
-            const v = ctx.parseArgWithType((value as SourceSpan).start, (value as SourceSpan).end, "string", span.start);
+            const arg = value as CallArgumentInfo;
+            const v = ctx.parseArgWithType(arg.valueSpan, "string", span.start);
             if (v === null) {
                 ctx.diagnostics.push(new WarningDiagnostic(
                     "W_VOICE_INVALID_LYRIC",
                     `@voice 的歌词参数值解析失败, 参数[${key}]将被忽略`,
-                    value as SourceSpan
+                    arg.valueSpan
                 ));
             } else this.addLyric(key, v as string);
         }
@@ -458,14 +451,14 @@ L: la la la
                     );
                 } continue;
             }
-            // 是用 SourceSpan 体现的原始参数
-            const v = ctx.parseArgWithType((value as SourceSpan).start, (value as SourceSpan).end, "content", span.start);
+            const arg = value as CallArgumentInfo;
+            const v = ctx.parseArgWithType(arg.valueSpan, "content", span.start);
             if (v instanceof VoiceFunction) this.addVoice(v);
             else {
                 throw new ErrorDiagnostic(
                     "E_VOICES_INVALID_CHILD",
                     `@voices 的参数必须是 @voice 函数，但发现了其他类型 ${v?.constructor.name}`,
-                    value as SourceSpan
+                    arg.valueSpan
                 );
             }
         }

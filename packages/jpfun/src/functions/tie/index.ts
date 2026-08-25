@@ -1,4 +1,5 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass, type LengthValue } from "../ASTtypes.js";
+import type { CallArgumentInfo } from "../../parser/grammarType.js";
 import { Diagnostic, ErrorDiagnostic } from "../../diagnostic.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import {
@@ -38,17 +39,15 @@ class TieFunction extends ASTFunctionNode {
         for (const [key, value] of args) {
             if (key === "height") {
                 const length = ctx.parseArgWithType(
-                    (value as SourceSpan).start,
-                    (value as SourceSpan).end,
-                    "length",
-                    sourceSpan.start,
+                    (value as CallArgumentInfo).valueSpan,
+                    "length", sourceSpan.start
                 ) as LengthValue | null;
                 if (length) height = Math.max(0, ctx.length2px(length));
                 continue;
             }
             const v = value instanceof ASTFunctionNode
                 ? value
-                : ctx.parseArgWithType((value as SourceSpan).start, (value as SourceSpan).end, "label", sourceSpan.start);
+                : ctx.parseArgWithType((value as CallArgumentInfo).valueSpan, "label", sourceSpan.start);
             if (v !== null) this.endPoints.push(v as ASTFunctionNode);
         }
         // 数目不足，则找最近的；用 unshift 而不是按下标赋值，否则空洞会让 length 虚高、骗过下面的校验

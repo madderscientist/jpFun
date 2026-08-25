@@ -1,6 +1,6 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode, ASTBraceNode, ASTLabelNode } from "../ASTtypes.js";
 import { ParserContext } from "../../parser/parserContext.js";
-import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
+import { GrammarNode, GrammarSugarNode, type CallArgumentInfo } from "../../parser/grammarType.js";
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import type { MeasureFn, PlaceFn, TrackPlacement } from "../../lowering/track.js";
 
@@ -148,7 +148,7 @@ class StackFunction extends ASTFunctionNode {
                 this.addContent(value);
                 continue;
             }
-            const c = ctx.parseArgWithType((value as SourceSpan).start, (value as SourceSpan).end, "content", span.start);
+            const c = ctx.parseArgWithType((value as CallArgumentInfo).valueSpan, "content", span.start);
             if (c !== null) {
                 this.addContent(c as ASTNodeBase);
             }

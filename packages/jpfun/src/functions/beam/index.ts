@@ -1,5 +1,6 @@
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, SourceSpan } from "../ASTtypes.js";
 import { ParserContext } from "../ASTtypes.js";
+import type { CallArgumentInfo } from "../../parser/grammarType.js";
 import { Diagnostic, ErrorDiagnostic } from "../../diagnostic.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { TemporalNodeBase } from "../../lowering/types.js";
@@ -29,7 +30,7 @@ class BeamFunction extends ASTFunctionNode {
         for (const [, value] of args) {
             const parsed = value instanceof ASTFunctionNode
                 ? value
-                : ctx.parseArgWithType((value as SourceSpan).start, (value as SourceSpan).end, "label", sourceSpan.start);
+                : ctx.parseArgWithType((value as CallArgumentInfo).valueSpan, "label", sourceSpan.start);
             if (parsed instanceof ASTFunctionNode) this.endPoints.push(parsed);
         }
 

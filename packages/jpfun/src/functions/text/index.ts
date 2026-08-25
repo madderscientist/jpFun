@@ -1,5 +1,7 @@
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, ParserContext, SourceSpan, LengthValue } from "../ASTtypes.js";
 import { ErrorDiagnostic } from "../../diagnostic.js";
+import { findClosingQuote, removeQuote } from "../../parser/parse-utils/string-utils.js";
+import type { GrammarCallNodeTyped } from "../../parser/grammarType.js";
 import { DEFAULT_KEY, TemporalNodeBase } from "../../lowering/types.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
@@ -10,7 +12,8 @@ class TextFunction extends ASTFunctionNode {
     static override def = {
         name: ["text"],
         description: "文本标记。括号内可直接换行，支持 left、center、right 对齐",
-        example: `@text(进入主题)`,
+        example: `@text(进入主题)
+语法糖：直接写双引号字符串，如 "进入主题"；可跨行，引号未配对则不生效`,
         allowExtraArgs: false,
         args: [
             {
@@ -37,6 +40,21 @@ class TextFunction extends ASTFunctionNode {
             }
         ],
     };
+
+    static override deSugarAtom(source: string, start: number, end: number) {
+        if (source[start] !== '"') return null;
+        const close = findClosingQuote(source, start, end);
+        if (close < 0) return null; // 未闭合就不去糖，与预处理“配对才算字符串”一致
+        const node: GrammarCallNodeTyped = {
+            kind: "call",
+            typed: true,
+            name: "text",
+            args: new Map([[0, removeQuote(source.slice(start, close + 1))]]),
+            span: { start, end: close + 1 },
+            syntaxKind: "string",
+        };
+        return { next: close + 1, node };
+    }
 
     lines: string[];
     size: number;

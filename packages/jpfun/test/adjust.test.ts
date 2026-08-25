@@ -137,7 +137,7 @@ test("负 dw/dh 缩小占位但最终尺寸保持非负", () => {
 });
 
 test("没有作用对象时报警告", () => {
-    const result = lower(`@adjust(@set(autobeam=false), dy=-4px)`);
+    const result = lower(`@adjust(@set(div.autobeam=false), dy=-4px)`);
     assert(result.diagnostics.some(item => item.code === "W_ADJUST_NO_TARGET"), "落空的微调必须给出警告");
 });
 

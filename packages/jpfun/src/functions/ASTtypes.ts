@@ -1,4 +1,5 @@
 ﻿import type { SourceSpan, LengthValue, deSugarAtomFunction, deSugarRelationFunction } from "../parser/types.js";
+import type { CallArgumentInfo } from "../parser/grammarType.js";
 import type { ParserContext } from "../parser/parserContext.js";
 import { Diagnostic } from "../diagnostic.js";
 import type { Fraction } from "../fraction.js";
@@ -181,8 +182,14 @@ export function resolveArgType(def: FunctionDef, name: string | undefined, index
     return def.args[index]?.type ?? (def.allowExtraArgs ? def.extraArgType : undefined);
 }
 
-// 类型未知的额外参数（未声明的命名参数，或没有 extraArgType 的位置参数）保留 SourceSpan
-export type FunctionArgs = Map<string | number, paramValue | SourceSpan>; // 参数值映射，key可以是位置索引（0,1,2...）或命名参数名
+/** 别名里的第一个是主名；`@set` 的 key 和 `getArgValue` 的前缀必须用同一个 */
+export function primaryName(def: FunctionDef): string {
+    return Array.isArray(def.name) ? def.name[0] : def.name;
+}
+
+// 类型未知的额外参数（未声明的命名参数，或没有 extraArgType 的位置参数）保留整条 CallArgumentInfo：
+// 这些参数由函数自己解析并报诊断，所以名字和值的 span 都得给
+export type FunctionArgs = Map<string | number, paramValue | CallArgumentInfo>; // 参数值映射，key可以是位置索引（0,1,2...）或命名参数名
 
 // 所有函数节点的基类，提供通用的参数提取方法和标签功能
 // 非正常函数则实例化该函数 特征是getDef为undefined
@@ -202,9 +209,7 @@ export class ASTFunctionNode extends ASTNodeBase {
     // 静态访问: 类名.def 或 类名.prototype.def
 
     get callName(): string {
-        const names = this.def?.name;
-        if (!names) return "";
-        return Array.isArray(names) ? names[0] : names;
+        return this.def ? primaryName(this.def) : "";
     }
 
     // 去糖函数 详见 ParserContext 中 deSugarAtomFns 和 deSugarRelationFns 的定义
@@ -219,8 +224,7 @@ export class ASTFunctionNode extends ASTNodeBase {
         const def = this.def;
         if (!def) return [];
         const defArgs: FunctionArgDef[] = def.args;
-        // 使用第一个名称作为前缀
-        const prefix = Array.isArray(def.name) ? def.name[0] : def.name;
+        const prefix = primaryName(def);
         return defArgs.map((argDef, index) => {
             let argNameL = argDef.name ? argDef.name.toLowerCase() : null; // 统一小写处理
             // 先查询是否传递

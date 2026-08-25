@@ -1,9 +1,10 @@
 import type { SourceSpan } from "./types.js";
+import { findClosingQuote } from "./parse-utils/string-utils.js";
 
 /**
  * 预处理核心模块（单次扫描）：
  * 1. 构建 lineStarts（用于 offset -> 行列映射）
- * 2. 处理 `%` 行注释：仅在非字符串上下文触发，注释文本等长替换为空格
+ * 2. 处理 `%` 行注释：仅在非字符串上下文触发，注释文本等长替换为空格；引号必须配对才算字符串
  * 3. 处理行尾连续反斜杠：
  *    - 设行尾连续 `\` 个数为 n；
  *    - 第 1/3/5... 个 `\` 替换为空格，第 2/4/6... 个保留；
@@ -93,6 +94,7 @@ export function preprocessSource(source: string): {
      *   当前行末尾候选连续 `\` 片段（允许后面跟空白），用于换行处一次性判定
      */
     let inQuote: number = 0;
+    let noPairedQuoteAfter: boolean = false;
     let escaped: boolean = false;
     let pendingCommentStart: number = -1;
     let lastSignificantIndex: number = -1;
@@ -153,7 +155,12 @@ export function preprocessSource(source: string): {
         }
 
         if (ch === CHAR_QUOTE_DOUBLE) {
-            inQuote = ch;
+            // 配对才算字符串，否则一个孤立引号会让后文的 `%` 全部失去注释语义
+            // 一次前瞻失败即证明剩余源码里没有可配对的引号，置位后不再前瞻，整体仍是 O(n)
+            if (!noPairedQuoteAfter) {
+                if (findClosingQuote(source, i, sourceLength) < 0) noPairedQuoteAfter = true;
+                else inQuote = ch;
+            }
             updateLineTailState(i, ch);
             i++;
             continue;

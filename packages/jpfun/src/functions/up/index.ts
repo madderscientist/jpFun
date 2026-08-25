@@ -1,6 +1,6 @@
 import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode, ASTLabelNode, ASTBraceNode } from "../ASTtypes.js";
 import { ParserContext } from "../../parser/parserContext.js";
-import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
+import { GrammarNode, GrammarSugarNode, type CallArgumentInfo } from "../../parser/grammarType.js";
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import {
     ANCHOR_KEY,
@@ -169,7 +169,7 @@ class UpFunction extends ASTFunctionNode {
                 this.addContent(value, ctx);
                 continue;
             }
-            const c = ctx.parseArgWithType((value as SourceSpan).start, (value as SourceSpan).end, "content", span.start);
+            const c = ctx.parseArgWithType((value as CallArgumentInfo).valueSpan, "content", span.start);
             if (c !== null) {
                 this.addContent(c as ASTNodeBase, ctx);
             }

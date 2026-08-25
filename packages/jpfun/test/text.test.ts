@@ -1,6 +1,7 @@
 import { test } from "node:test";
 
 import { ASTFunctionNode } from "../src/functions/ASTtypes.js";
+import { analyzeScoreSyntax } from "../src/pipeline.js";
 import { assert, commandsOfKind, expectCompileError, layoutOf, nearly, parse, recordCommands } from "./helpers.js";
 
 /** 只写一个 @text 时它就是唯一的可见对象 */
@@ -81,4 +82,38 @@ test("align=right 时锚点取末字符中心，各行取整块右缘", () => {
 
 test("align 只接受 left、center 和 right", () => {
     expectCompileError(`@text("上行", align=middle)`, "E_TEXT_INVALID_ALIGN");
+});
+
+test("双引号语法糖等价于 @text", () => {
+    const sugar = textBox(`"进入"`).box;
+    const explicit = textBox(`@text("进入")`).box;
+    assert(nearly(sugar.w, explicit.w) && nearly(sugar.h, explicit.h) && nearly(sugar.anchor, explicit.anchor),
+        "sugar and explicit call must produce the same box");
+});
+
+test("语法糖里的逗号、括号和换行都属于文本", () => {
+    const commands = commandsOfKind(`"a,b)c\n第二行"`, "text");
+    assert(commands.map(command => command.text).join("|") === "a,b)c|第二行",
+        "argument separators lose their meaning inside a string literal");
+});
+
+test("字符串把 \\X 反转义成 X", () => {
+    const sugar = commandsOfKind(`"说\\"你好\\""`, "text");
+    const explicit = commandsOfKind(`@text("说\\"你好\\"")`, "text");
+    assert(sugar[0].text === `说"你好"`, `escaped quote must survive, got ${sugar[0].text}`);
+    assert(explicit[0].text === sugar[0].text, "both paths must share one unescape rule");
+});
+
+test("引号未配对时不去糖也不抛出", () => {
+    const source = `"没闭合 1 2`;
+    assert(!analyzeScoreSyntax(source).syntax.tokens.some(token => token.kind === "string"),
+        "an unpaired quote must not be colored as a string");
+    assert(layoutOf(source).objects.length === 2, "the notes after an unpaired quote must still compile");
+});
+
+test("语法糖着色为字符串并覆盖两侧引号", () => {
+    const source = `1 "渐强"`;
+    const tokens = analyzeScoreSyntax(source).syntax.tokens.filter(token => token.kind === "string");
+    assert(tokens.length === 1 && source.slice(tokens[0].span.start, tokens[0].span.end) === `"渐强"`,
+        "the string token must cover the quotes themselves");
 });

@@ -13,7 +13,7 @@ import {
 } from "./helpers.js";
 
 test("autobeam 开关在解析期就冻结在 div 节点上", () => {
-    const autoBeamFlagAst = parse(`1/ @set(autobeam=false) 2/`);
+    const autoBeamFlagAst = parse(`1/ @set(div.autobeam=false) 2/`);
     const parsedDivs = autoBeamFlagAst.content.filter(node => node instanceof DivNode);
     assert(parsedDivs.length === 2, "two divided notes must create two DivNode instances");
     assert(parsedDivs[0].autoBeamEnabled, "autobeam must default to enabled during parsing");
@@ -45,17 +45,27 @@ test("一个 div 作用域总是连成一条梁，层数决定线数", () => {
 });
 
 test("autobeam=false 只断开分写的 div，不断开一个作用域内部", () => {
-    const disabledAutoBeamResult = layoutOf(`@set(autobeam=false) 1/ 2// 3/`);
+    const disabledAutoBeamResult = layoutOf(`@set(div.autobeam=false) 1/ 2// 3/`);
     assert(disabledAutoBeamResult.attachments.length === 0, "autobeam=false must keep separately written divs independent");
     assert(
         disabledAutoBeamResult.objects.every(object => object.springConfig.alpha_L === 6 && object.springConfig.alpha_R === 6),
         "independent divs must keep their base spring lengths when autobeam is disabled",
     );
 
-    const disabledScopeBeamResult = layoutOf(`@set(autobeam=false) @div({1 2}, 1)`);
+    const disabledScopeBeamResult = layoutOf(`@set(div.autobeam=false) @div({1 2}, 1)`);
     assert(disabledScopeBeamResult.attachments.length === 1, "autobeam=false must not disable connections inside one div");
     assert(nearly(disabledScopeBeamResult.objects[0].springConfig.alpha_R as number, 4.8), "one div scope must shorten its inside right spring");
     assert(nearly(disabledScopeBeamResult.objects[1].springConfig.alpha_L as number, 4.8), "one div scope must shorten its inside left spring");
+});
+
+test("autobeam 可以只关掉单个 div", () => {
+    // 两份源码只差 autobeam 这一个参数
+    const connected = layoutOf(`1/ @div(2, 1) 3/`).attachments;
+    assert(connected.length === 1, "three adjacent divs must connect by default");
+
+    // 被关掉的 div 是分隔符而不是被跳过，所以两侧也连不起来
+    const broken = layoutOf(`1/ @div(2, 1, autobeam=false) 3/`).attachments;
+    assert(broken.length === 0, "a disabled div must break the run instead of being skipped");
 });
 
 test("自动连梁在拍点、换行、小节线与并行轨处分组", () => {
@@ -72,27 +82,27 @@ test("自动连梁在拍点、换行、小节线与并行轨处分组", () => {
 });
 
 test("显式 @beam 只连接相邻端点，否则报错", () => {
-    const explicitBeamResult = layoutOf(`@set(autobeam=false) 1/@a 2/@b @beam(a,b)`);
+    const explicitBeamResult = layoutOf(`@set(div.autobeam=false) 1/@a 2/@b @beam(a,b)`);
     assert(explicitBeamResult.attachments.length === 1, "explicit beam must connect separate divs while autobeam is disabled");
 
     for (const source of [
-        `@set(autobeam=false) 1/@a 2/ 3/@b @beam(a,b)`,
-        `@set(autobeam=false) 1/@a @br() 2/@b @beam(a,b)`,
-        `@set(autobeam=false) @stack({1/@a}, {2/@b}) @beam(a,b)`,
-        `@set(autobeam=false) 1/@a 2/@b @beam(b,a)`,
+        `@set(div.autobeam=false) 1/@a 2/ 3/@b @beam(a,b)`,
+        `@set(div.autobeam=false) 1/@a @br() 2/@b @beam(a,b)`,
+        `@set(div.autobeam=false) @stack({1/@a}, {2/@b}) @beam(a,b)`,
+        `@set(div.autobeam=false) 1/@a 2/@b @beam(b,a)`,
     ]) {
         expectLoweringError(source, "E_NON_ADJACENT_BEAM");
     }
 
-    const parallelExplicitBeamResult = layoutOf(`@set(autobeam=false) @stack({1/@a 2/@b @beam(a,b)}, {3})`);
+    const parallelExplicitBeamResult = layoutOf(`@set(div.autobeam=false) @stack({1/@a 2/@b @beam(a,b)}, {3})`);
     assert(parallelExplicitBeamResult.attachments.length === 1, "events on another track must not break explicit beam adjacency");
 });
 
 test("写在 up 成员上的标签是合法的 beam 端点", () => {
     for (const source of [
-        `@set(autobeam=false) @up(1/@a, 3) 2/@b @beam(a,b)`,
-        `@set(autobeam=false) @up(1, 3/@a) 2/@b @beam(a,b)`,
-        `@set(autobeam=false) @up(@up(1/@a, 3), 5) 2/@b @beam(a,b)`,
+        `@set(div.autobeam=false) @up(1/@a, 3) 2/@b @beam(a,b)`,
+        `@set(div.autobeam=false) @up(1, 3/@a) 2/@b @beam(a,b)`,
+        `@set(div.autobeam=false) @up(@up(1/@a, 3), 5) 2/@b @beam(a,b)`,
     ]) {
         assert(layoutOf(source).attachments.length === 1, `label on an up member must beam through its chord: ${source}`);
     }
@@ -134,7 +144,7 @@ test("减时线在数字与下八度点之间保持水平", () => {
     assert(divVisualGap >= -2 && divVisualGap < 1, "div line must stay close to the number box with at most a slight overlap");
 });
 
-const EXPLICIT_BEAM = `@set(autobeam=false) 1/@a 2/@b @beam(a,b)`;
+const EXPLICIT_BEAM = `@set(div.autobeam=false) 1/@a 2/@b @beam(a,b)`;
 
 test("减时线的合并与拆分遵循连梁语义", () => {
     assert(commandsOfKind(`@div({1@a 2@b @beam(a,b)}, 1)`, "line").length === 1,
@@ -143,9 +153,9 @@ test("减时线的合并与拆分遵循连梁语义", () => {
         "an unconnected divided note must keep one local line");
     assert(commandsOfKind(`1/ 2// 3/`, "line").length === 2,
         "default auto beam must merge the shared level and keep one inner beamlet");
-    assert(commandsOfKind(`@set(autobeam=false) 1/ 2// 3/`, "line").length === 4,
+    assert(commandsOfKind(`@set(div.autobeam=false) 1/ 2// 3/`, "line").length === 4,
         "disabled auto beam must paint separately written div lines locally");
-    assert(commandsOfKind(`@set(autobeam=false) @div({1 2}, 1)`, "line").length === 1,
+    assert(commandsOfKind(`@set(div.autobeam=false) @div({1 2}, 1)`, "line").length === 1,
         "one div scope must keep one merged line while auto beam is disabled");
     assert(commandsOfKind(EXPLICIT_BEAM, "line").length === 1,
         "explicit beam must replace local lines while auto beam is disabled");

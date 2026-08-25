@@ -1,7 +1,8 @@
 import { deSugarAtomFunction, deSugarRelationFunction, LengthValue, SourceSpan } from "./types.js";
 import { Diagnostic } from "../diagnostic.js";
 import { GrammarBraceNode, GrammarCallNode, GrammarCallNodeRaw, GrammarLabelNode, GrammarNode, type CallArgumentInfo, type SyntaxAnalysis, type SyntaxTokenKind } from "./grammarType.js";
-import { readCall, trimRange, removeQuote } from "./parse-utils/call-utils.js";
+import { readCall, trimRange } from "./parse-utils/call-utils.js";
+import { removeQuote } from "./parse-utils/string-utils.js";
 import { readBrace } from "./parse-utils/brace-utils.js";
 import { readLabel } from "./parse-utils/label-utils.js";
 import { parseLength } from "./parse-utils/length-utils.js";
@@ -24,6 +25,11 @@ export const DEFAULT_FONT_SIZE = 22;
 const DEFAULT_STRICT_MODE = false;
 export const DEFAULT_OCTAVE = 4;
 
+/** 系统变量，供 `@set` 读取 */
+export const SYSTEM_VARIABLE_TYPES: Record<string, paramType> = {
+    fontsize: "length",
+    strict: "boolean",
+};
 
 // 解析上下文
 export class ParserContext {
@@ -118,12 +124,8 @@ export class ParserContext {
     get fontSize(): number {
         return this.variables["fontsize"] ?? DEFAULT_FONT_SIZE;
     }
-    set fontSize(size: number | string) {
-        if (typeof size === "string") {
-            const l = parseLength(size);
-            if (l instanceof Diagnostic) throw l;
-            this.variables["fontsize"] = this.length2px(l);
-        } else this.variables["fontsize"] = size;
+    set fontSize(size: number) {
+        this.variables["fontsize"] = size;
     }
 
     get strict(): boolean {
@@ -131,6 +133,12 @@ export class ParserContext {
     }
     set strict(value: boolean) {
         this.variables["strict"] = value;
+    }
+
+    setVariable(name: string, value: paramValue) {
+        if (name === "fontsize") this.fontSize = this.length2px(value as LengthValue);
+        else if (name === "strict") this.strict = value as boolean;
+        else this.variables[name] = value;
     }
 
     registerFunctions(functionClasses: ASTFunctionClass[]) {
@@ -415,10 +423,10 @@ export class ParserContext {
                                 callNode.name, defArgs.length, i + 1, arg.valueSpan
                             )
                         );
-                    } else args.set(key, arg.valueSpan);
+                    } else args.set(key, arg);
                     continue;
                 }
-                const value = this.parseArgWithType(arg.valueSpan.start, arg.valueSpan.end, type, callNode.span.start);
+                const value = this.parseArgWithType(arg.valueSpan, type, callNode.span.start);
                 if (value !== null) args.set(key, value);
             }
             return new callFNClass(callNode.span, args, this, null);
@@ -432,9 +440,9 @@ export class ParserContext {
      * funcStart 是为了找到该函数之前的label的位置 因为如果content先解析会污染 labelableNodes
      * 解析成功返回值 解析失败返回null
      */
-    parseArgWithType(argStart: number, argEnd: number, type?: paramType, funcStart?: number): paramValue | null {
+    parseArgWithType(span: SourceSpan, type?: paramType, funcStart?: number): paramValue | null {
         // 先去空白
-        const r = trimRange(this.source, argStart, argEnd);
+        const r = trimRange(this.source, span.start, span.end);
         const start = r.start, end = r.end;
         if (start >= end) return null; // 纯空白参数视为未提供
         // 类型匹配
@@ -473,7 +481,7 @@ export class ParserContext {
                 }
             case "label":
                 // 应对潜在的问题: 如果先解析了content会导致ctx.lavelableNodes被污染
-                funcStart ??= argStart;
+                funcStart ??= span.start;
                 // label情况下返回对象 从后向前查找以支持标签覆盖
                 for (let i = this.labelableNodes.length - 1; i >= 0; i--) {
                     const node = this.labelableNodes[i];

@@ -53,16 +53,6 @@ export function* divLineRuns(hosts: readonly LayoutHost[]) {
     }
 }
 
-function parseAutoBeamFlag(raw: unknown): boolean {
-    if (typeof raw === "boolean") return raw;
-    if (typeof raw === "number") return raw !== 0;
-    if (typeof raw === "string") {
-        const normalized = raw.trim().toLowerCase();
-        if (normalized === "true" || normalized === "1" || normalized === "on") return true;
-        if (normalized === "false" || normalized === "0" || normalized === "off") return false;
-    } return true;
-}
-
 class DivFunction extends ASTFunctionNode {
     static override def = {
         name: [DIV_FUNC_NAME, "/"],
@@ -84,6 +74,11 @@ class DivFunction extends ASTFunctionNode {
                 name: "n",
                 type: "number" as const,
                 default: 1,
+            },
+            {
+                name: "autobeam",
+                type: "boolean" as const,
+                default: true,
             },
         ]
     };
@@ -225,9 +220,7 @@ class DivFunction extends ASTFunctionNode {
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
-        [this.content, this.n] = this.getArgValue(args, ctx) as [ASTNodeBase, number];
-        // beam loweringAugment 只读取这个快照，不读取之后可能已经变化的 ParserContext
-        this.autoBeamEnabled = parseAutoBeamFlag(ctx.variables["autobeam"]);
+        [this.content, this.n, this.autoBeamEnabled] = this.getArgValue(args, ctx) as [ASTNodeBase, number, boolean];
         // div 允许修饰任意 都会加下划线
         this.content.parent = this;
         const n = Math.max(0, Math.trunc(this.n));
