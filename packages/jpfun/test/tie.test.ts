@@ -51,6 +51,68 @@ test("连音线弧高随字号缩放，也接受显式长度", () => {
     assert(nearly(tieApexHeight(explicitHeightPath), 10), "tie height must honor its fixed length argument");
 });
 
+test("up 成员标签连接该成员，整体标签连接整个 up", () => {
+    const tieStartY = (source: string) => {
+        const result = layoutOf(source);
+        const chord = result.objects[0] as typeof result.objects[number] & {
+            members: readonly (typeof result.objects[number])[];
+        };
+        const path = attachmentCommands(result.attachments[0]).find(command => command.kind === "path");
+        assert(path?.kind === "path" && path.commands[0]?.op === "M", "the up tie must start with a path move");
+        const member = chord.members[0];
+        return {
+            actual: path.commands[0].y,
+            member: member.box.y + (member.ports["tie.top"]?.y ?? 0),
+            chord: chord.box.y + chord.ports["tie.top"].y,
+        };
+    };
+
+    const memberTie = tieStartY(`{1@x}^{@1(C4)} 2@y @tie(x,y)`);
+    assert(nearly(memberTie.actual, memberTie.member) && !nearly(memberTie.actual, memberTie.chord),
+        "a tie from an up member label must use that member's own top port");
+
+    const chordTie = tieStartY(`{1^@1(C4)}@x 2@y @tie(x,y)`);
+    assert(nearly(chordTie.actual, chordTie.chord) && !nearly(chordTie.actual, chordTie.member),
+        "a tie from an up label must use the whole chord's top port");
+});
+
+test("grace 内部标签连接成员，外部标签穿透到宿主", () => {
+    const tieStart = (source: string) => {
+        const result = layoutOf(source);
+        const grace = result.objects[0] as typeof result.objects[number] & {
+            host: typeof result.objects[number];
+            graces: readonly (typeof result.objects[number])[];
+        };
+        const path = attachmentCommands(result.attachments[0]).find(command => command.kind === "path");
+        assert(path?.kind === "path" && path.commands[0]?.op === "M", "the grace tie must start with a path move");
+        const graceMember = grace.graces[0];
+        return {
+            actual: { x: path.commands[0].x, y: path.commands[0].y },
+            host: {
+                x: grace.host.box.x + (grace.host.ports["tie.top"]?.x ?? grace.host.box.anchor),
+                y: grace.host.box.y + (grace.host.ports["tie.top"]?.y ?? 0),
+            },
+            grace: {
+                x: graceMember.box.x + (graceMember.ports["tie.top"]?.x ?? graceMember.box.anchor),
+                y: graceMember.box.y + (graceMember.ports["tie.top"]?.y ?? 0),
+            },
+            composite: {
+                x: grace.box.x + (grace.ports["tie.top"]?.x ?? grace.box.anchor),
+                y: grace.box.y + (grace.ports["tie.top"]?.y ?? 0),
+            },
+        };
+    };
+
+    const graceTie = tieStart(`@grace({1},{2@x}) 3@y @tie(x,y)`);
+    assert(nearly(graceTie.actual.x, graceTie.grace.x) && nearly(graceTie.actual.y, graceTie.grace.y),
+        "a label on a grace member must use that member's own port");
+
+    const hostTie = tieStart(`@grace({1},{2})@x 3@y @tie(x,y)`);
+    assert(nearly(hostTie.actual.x, hostTie.host.x) && nearly(hostTie.actual.y, hostTie.host.y)
+        && !nearly(hostTie.actual.y, hostTie.composite.y),
+    "a label after grace must delegate to the host's labelable node");
+});
+
 test("跨系统连音线按首、中、尾分段绘制", () => {
     const crossLineTiePaths = commandsOfKind(`1@a @br() 2@b @tie(a,b)`, "path");
     assert(crossLineTiePaths.length === 2, "a two-system tie must emit first and final segments");

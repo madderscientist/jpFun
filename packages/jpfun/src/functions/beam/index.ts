@@ -1,6 +1,6 @@
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, SourceSpan } from "../ASTtypes.js";
 import { ParserContext } from "../ASTtypes.js";
-import { ErrorDiagnostic } from "../../diagnostic.js";
+import { Diagnostic, ErrorDiagnostic } from "../../diagnostic.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { TemporalNodeBase } from "../../lowering/types.js";
 import { createAutomaticBeamAttachments } from "./auto.js";
@@ -37,7 +37,7 @@ class BeamFunction extends ASTFunctionNode {
         let k = ctx.labelableNodes.length - 1;
         while (this.endPoints.length < 2 && k >= 0) {
             const candidate = ctx.labelableNodes[k--];
-            if (this.endPoints.includes(candidate)) continue;
+            if (!candidate || this.endPoints.includes(candidate)) continue;
             this.endPoints.unshift(candidate);
         }
 
@@ -48,16 +48,19 @@ class BeamFunction extends ASTFunctionNode {
 
     /** 与 tie 一样，只注册不推进时间的关系排版对象 */
     override loweringEnter(ctx: LoweringContext) {
-
         const endPoints: TemporalNodeBase[] = [];
         for (const ast of this.endPoints) {
             // 暂时只用最后一个；理应有且仅有一个
-            const temporal = ctx.getTemporalNodes(ast).at(-1);
+            let temporal = ctx.getTemporalNodes(ast).at(-1);
+            while (temporal?.foldedInto) temporal = temporal.foldedInto;
             if (!temporal) continue;
             endPoints.push(temporal);
         }
 
-        if (endPoints.length < 2) return [];
+        if (endPoints.length < 2) {
+            ctx.diagnostics.push(Diagnostic.warning.UnresolvedEndpoint("beam", this.sourceSpan));
+            return [];
+        }
         ctx.addLayoutAttachment(createBeamLayoutAttachment(endPoints, true, this.sourceSpan));
         return [];
     }

@@ -1,5 +1,5 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass, type LengthValue } from "../ASTtypes.js";
-import { ErrorDiagnostic } from "../../diagnostic.js";
+import { Diagnostic, ErrorDiagnostic } from "../../diagnostic.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import {
     isVisualTemporalNode,
@@ -51,12 +51,12 @@ class TieFunction extends ASTFunctionNode {
                 : ctx.parseArgWithType((value as SourceSpan).start, (value as SourceSpan).end, "label", sourceSpan.start);
             if (v !== null) this.endPoints.push(v as ASTFunctionNode);
         }
-        // 数目不足，则找最近的
+        // 数目不足，则找最近的；用 unshift 而不是按下标赋值，否则空洞会让 length 虚高、骗过下面的校验
         let k = ctx.labelableNodes.length - 1;
-        for (let i = this.endPoints.length; i < 2; i++) {
-            while (k >= 0 && this.endPoints.includes(ctx.labelableNodes[k])) k--;
-            if (k < 0) break;
-            this.endPoints[1 - i] = ctx.labelableNodes[k--];    // 保持顺序
+        while (this.endPoints.length < 2 && k >= 0) {
+            const candidate = ctx.labelableNodes[k--];
+            if (!candidate || this.endPoints.includes(candidate)) continue;
+            this.endPoints.unshift(candidate);
         }
         if (this.endPoints.length < 2) throw new ErrorDiagnostic("E_NOT_ENOUGH_ARGS", "@tie 连音线需要至少两个端点", sourceSpan);
         this.height = height;
@@ -67,7 +67,6 @@ class TieFunction extends ASTFunctionNode {
      * lowering 只把 AST 端点解析成稳定的 temporal 对象引用
      */
     override loweringEnter(ctx: LoweringContext) {
-
         const endPoints: VisualTemporalNode[] = [];
         for (const ast of this.endPoints) {
             const temporal = ctx.getTemporalNodes(ast).at(-1);
@@ -75,7 +74,10 @@ class TieFunction extends ASTFunctionNode {
             endPoints.push(temporal);
         }
 
-        if (endPoints.length < 2) return [];
+        if (endPoints.length < 2) {
+            ctx.diagnostics.push(Diagnostic.warning.UnresolvedEndpoint("tie", this.sourceSpan));
+            return [];
+        }
         ctx.addLayoutAttachment(new TieLayoutAttachment(endPoints, this.height, this.sourceSpan));
         return [];
     }

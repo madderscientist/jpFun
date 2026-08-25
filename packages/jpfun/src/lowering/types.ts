@@ -98,7 +98,7 @@ export class TemporalNodeBase implements TimeLineEvent {
      * 被折叠进哪个宿主的盒子（由宿主自己设置）
      *
      * 折叠成员不进入全局 columns，在时间流里没有独立位置，
-     * 因此它对外（标签、关系函数端点）一律由宿主代表；嵌套折叠沿链上溯。
+     * 按全局事件工作的消费者可以沿链上溯到宿主。
      */
     foldedInto?: TemporalNodeBase;
 

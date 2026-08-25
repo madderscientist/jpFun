@@ -199,3 +199,14 @@ test("写在倚音内部的标签仍是合法的关系端点", () => {
     // & 的堆叠靠并行 Track，而折叠成员不进引擎，放行只会退化成横排
     expectLoweringError(`{1 & 3}/>2`, "E_GRACE_PARALLEL_CONTENT");
 });
+
+test("grace 外部标签穿透宿主后仍保留完整关系左操作数", () => {
+    for (const source of [
+        `@grace({1},{2})@x ^ 3`,
+        `@grace({1},{2})@x & 3`,
+        `@grace({1},{2})@x > 3`,
+    ]) {
+        assert(layoutOf(source).objects.length > 0,
+            `a labeled grace must remain the complete left relation operand: ${source}`);
+    }
+});

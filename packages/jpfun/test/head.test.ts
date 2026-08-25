@@ -1,6 +1,15 @@
 import { test } from "node:test";
 
-import { ASTFunctionNode } from "../src/functions/ASTtypes.js";
+import {
+    ASTFunctionNode,
+    type ASTFunctionClass,
+    type ASTNodeBase,
+    type FunctionArgs,
+    type ParserContext,
+    type SourceSpan,
+} from "../src/functions/ASTtypes.js";
+import { defaultFunctions } from "../src/functions/default.js";
+import { TemporalNodeBase } from "../src/lowering/types.js";
 import { compileScore } from "../src/pipeline.js";
 import {
     assert,
@@ -19,6 +28,43 @@ const CONTENT_RIGHT = 754;
 const PAGE_CENTER = (CONTENT_LEFT + CONTENT_RIGHT) / 2;
 // 居中由两根强弹簧的对称性保证，但求解器按合力收敛，落到坐标上留下亚像素残差
 const SOLVER_TOLERANCE = 0.05;
+
+class HeadEndpointFunction extends ASTFunctionNode {
+    static override def = {
+        name: ["headendpoint"],
+        description: "test-only zero-duration label endpoint",
+        example: "@headendpoint()",
+        allowExtraArgs: false,
+        args: [],
+    };
+
+    readonly size: number;
+
+    constructor(span: SourceSpan, _args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
+        super(span, parent);
+        this.size = ctx.fontSize;
+    }
+
+    override labelable() { return this; }
+    override loweringEnter() { return [new HeadEndpointTemporal(this)]; }
+}
+
+class HeadEndpointTemporal extends TemporalNodeBase {
+    declare ast: HeadEndpointFunction;
+
+    constructor(ast: HeadEndpointFunction) {
+        super();
+        this.ast = ast;
+        this.initLayoutBox();
+    }
+
+    override prepareLayout() {
+        this.box!.w = this.box!.h = this.ast.size * 0.5;
+        this.box!.anchor = this.box!.visualAxis = this.ast.size * 0.25;
+    }
+}
+
+const HeadEndpointNode: ASTFunctionClass = HeadEndpointFunction;
 
 const textObjects = (source: string) => {
     const found = new Map<string, ReturnType<typeof layoutOf>["objects"][number]>();
@@ -328,9 +374,10 @@ test("head 去糖结果按槽和视觉行换行缩进", () => {
 });
 
 test("head 内关系 attachment 使用真实全局端点", () => {
-    const commands = recordCommands(layoutOf(`@head(center={{
-        @up(@text(A))@a @up(@text(B))@b @tie(a,b)
-    }}) @br() 1`));
+    const result = compileScore(`@head(center={{
+        @headendpoint()@a @headendpoint()@b @tie(a,b)
+    }}) @br() 1`, { functions: [...defaultFunctions, HeadEndpointNode] });
+    const commands = recordCommands(result.layout);
     assert(commands.some(command => command.kind === "path"),
         "tie inside head must paint through the global attachment lifecycle");
 });

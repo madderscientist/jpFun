@@ -78,8 +78,8 @@ class StackFunction extends ASTFunctionNode {
             if (ctx.nodes[left] instanceof ASTTextNode) continue;
             break;
         }
-        let overNode: any = left >= 0 ? ctx.nodes[left] : null;
-        if (overNode === null) {
+        let leftNode: ASTNodeBase | null = left >= 0 ? ctx.nodes[left] : null;
+        if (leftNode === null) {
             throw new ErrorDiagnostic(
                 "E_STACK_NO_TARGET",
                 "@stack语法糖错误: 左边没有找到可叠加的目标",
@@ -89,24 +89,26 @@ class StackFunction extends ASTFunctionNode {
         /** 左操作数在 ctx.nodes 中的起点；只有这一段会被 stack 吞并，更早的节点必须保留 */
         let replaceFrom = left;
         // 对 label 的特判: 目标变为label到被标记的节点范围内的所有节点
-        if (overNode instanceof ASTLabelNode) {
-            const tgt = overNode.parent;
+        if (leftNode instanceof ASTLabelNode) {
+            const labelNode = leftNode;
+            let tgt = labelNode.parent;  // 被打标签的节点
+            // 在本层这个节点位于哪里（标签节点可能被wrap）
+            while (tgt && !ctx.nodes.includes(tgt)) tgt = tgt.parent;
             for (let j = left - 1; j >= 0; j--) {
                 if (ctx.nodes[j] === tgt) {
-                    overNode = new ASTBraceNode({
+                    leftNode = new ASTBraceNode({
                         start: tgt.sourceSpan.start,
-                        end: overNode.sourceSpan.end,
+                        end: labelNode.sourceSpan.end,
                     }, ctx.nodes.slice(j, left + 1), null);
                     replaceFrom = j;
                     break;
                 }
             }
         }
-        if (!(overNode instanceof StackFunction)) {
-            const newNode = new StackFunction(n.span, new Map(), ctx);
-            newNode.addContent(overNode);
-            overNode = newNode;
-        }
+        // 左操作数收敛成一个 stack，后续合并都在它身上进行
+        const host = leftNode instanceof StackFunction
+            ? leftNode
+            : new StackFunction(n.span, new Map(), ctx).addContent(leftNode);
         // 找到下一个非文本节点 通过全量后续解析的方式进行 还是有些trick
         const storage = ctx.nodes;
         ctx.nodes = [];
@@ -115,9 +117,9 @@ class StackFunction extends ASTFunctionNode {
             // 后向跳过文本节点 和上面保持一致
             const right = ctx.nodes[i];
             if (right instanceof ASTTextNode) continue;
-            (overNode as StackFunction).addContent(right);
+            host.addContent(right);
             storage.length = replaceFrom;
-            storage.push(overNode);
+            storage.push(host);
             while (++i < ctx.nodes.length) storage.push(ctx.nodes[i]);
             ctx.nodes = storage;
             return nodes.length;
@@ -153,15 +155,15 @@ class StackFunction extends ASTFunctionNode {
         }
     }
 
-    addContent(node: ASTNodeBase) {
-        if (node instanceof StackFunction) this.combine(node);
-        else {
-            this.contents.push(node);
-            node.parent = this;
-            const s = node.sourceSpan;
-            this.sourceSpan.start = Math.min(this.sourceSpan.start, s.start);
-            this.sourceSpan.end = Math.max(this.sourceSpan.end, s.end);
-        }
+    /** 遇到另一个 stack 就展平；返回存活的那个，调用者必须改用返回值 */
+    addContent(node: ASTNodeBase): StackFunction {
+        if (node instanceof StackFunction) return this.combine(node);
+        this.contents.push(node);
+        node.parent = this;
+        const s = node.sourceSpan;
+        this.sourceSpan.start = Math.min(this.sourceSpan.start, s.start);
+        this.sourceSpan.end = Math.max(this.sourceSpan.end, s.end);
+        return this;
     }
 
     override toString(source: string) {
@@ -169,6 +171,7 @@ class StackFunction extends ASTFunctionNode {
         return `@stack(\n  ${contentStrs.split('\n').join('\n  ')}\n)`;
     }
 
+    // stack 不实现 labelable、不进候选表，所以被吞并的空壳不会被 @tie() 取到，无需像 up 那样撤销登记
     combine(ano: StackFunction): StackFunction {
         this.sourceSpan.start = Math.min(this.sourceSpan.start, ano.sourceSpan.start);
         this.sourceSpan.end = Math.max(this.sourceSpan.end, ano.sourceSpan.end);

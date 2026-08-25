@@ -183,19 +183,9 @@ export class LoweringContext {
         }
     }
 
-    /**
-     * 查询 AST 节点在当前 lowering 中产生的所有 temporal 节点
-     *
-     * 被折叠进别人盒子的成员没有独立的全局位置，统一上溯到宿主，
-     * 所以写在成员上的标签等价于写在整个复合节点上。
-     */
+    /** 查询 AST 自己产生的 temporal；是否沿 foldedInto 投影由调用者决定 */
     getTemporalNodes(ast: ASTNodeBase): readonly TemporalNodeBase[] {
-        const nodes = this.astToTemporal.get(ast);
-        if (!nodes) return [];
-        return nodes.map(node => {
-            while (node.foldedInto) node = node.foldedInto;
-            return node;
-        });
+        return this.astToTemporal.get(ast) ?? [];
     }
 
     /**

@@ -1,9 +1,10 @@
 import { test } from "node:test";
 
+import { ASTFunctionNode, type ASTNodeBase } from "../src/functions/ASTtypes.js";
 import type { LayoutBox } from "../src/layout/types.js";
 import { ANCHOR_KEY, DEFAULT_KEY } from "../src/lowering/types.js";
 import type { TemporalNodeBase, VisualTemporalNode } from "../src/lowering/types.js";
-import { assert, expectLoweringError, layoutOf, lower, nearly, recordCommands } from "./helpers.js";
+import { assert, expectLoweringError, layoutOf, lower, nearly, parse, recordCommands } from "./helpers.js";
 
 const loweredUp = lower(`@up(1, #3', @text("上层")) 4`);
 const upTemporal = loweredUp.columns[0][0] as TemporalNodeBase & {
@@ -32,6 +33,25 @@ test("up 继承成员的锚点合并组，并拒绝非法子节点", () => {
     );
     expectLoweringError(`@up({1 2}, 3)`, "E_UP_INVALID_CHILD");
     expectLoweringError(`@up({@tempo(90) 1}, 3)`, "E_UP_INVALID_CHILD");
+});
+
+test("up 成员标签与整体标签保持各自的 AST 承载者", () => {
+    const labeledFunction = (source: string, label: string) => {
+        let found: ASTFunctionNode | undefined;
+        const visit = (node: ASTNodeBase) => {
+            if (node instanceof ASTFunctionNode && node.label === label) found = node;
+            for (const child of node.children ?? []) visit(child);
+        };
+        visit(parse(source));
+        return found;
+    };
+
+    assert(labeledFunction(`{1@x}^{@1(C4)}`, "x")?.callName === "note",
+        "a label written on an up member must stay on that member");
+    assert(labeledFunction(`{1^@1(C4)}@x`, "x")?.callName === "up",
+        "a label written after the grouped relation must target the whole up");
+    assert(!labeledFunction(`{@1(C4)^@tempo(94)}@x`, "x"),
+        "an up without any labelable member must not become labelable itself");
 });
 
 test("堆叠成员共享第一个成员的时值，零时长成员保持 0", () => {

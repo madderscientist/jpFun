@@ -240,7 +240,14 @@ Diagnostic.warning = {
     LabelAlreadyExists: (newLabel: string, oldLabel: string, span: SourceSpan) => {
         return new WarningDiagnostic(
             "W_LABEL_ALREADY_EXISTS",
-            `标签 "${newLabel}" 已经存在(为 "${oldLabel}")；新标签将覆盖旧标签`,
+            `标签 "${newLabel}" 的目标已经叫 "${oldLabel}"；标签将被忽略`,
+            span
+        );
+    },
+    UnresolvedEndpoint: (functionName: string, span: SourceSpan) => {
+        return new WarningDiagnostic(
+            "W_UNRESOLVED_ENDPOINT",
+            `@${functionName} 有端点找不到对应的谱面对象；该关系将被忽略`,
             span
         );
     },

@@ -48,8 +48,8 @@ export class ParserContext {
     /** 第二轮关系型去糖：得到函数节点。用于依赖 ASTNode 的语法糖 */
     deSugarRelationFns: deSugarRelationFunction[];
 
-    /** .labelable() 返回的承载节点会被加入其中，供标签绑定使用 */
-    labelableNodes: ASTFunctionNode[];
+    /** .labelable() 返回的承载节点；null 是边界标记，标签绑定不能越过它 */
+    labelableNodes: (ASTFunctionNode | null)[];
 
     nodes: ASTNodeBase[]; // 解析结果
 
@@ -58,7 +58,7 @@ export class ParserContext {
         diagnostics?: Diagnostic[];
         variables?: Map<string, any>;
         functions?: Map<string, ASTFunctionClass>;
-        labelableNodes?: ASTFunctionNode[];
+        labelableNodes?: (ASTFunctionNode | null)[];
         toConsume?: ASTNodeBase[];
         commentSpans?: SourceSpan[];    // 预处理阶段识别的注释区间，供语法分析和编辑器高亮使用
     }) {
@@ -110,11 +110,9 @@ export class ParserContext {
 
     pushNode(node: ASTNodeBase) {
         this.nodes.push(node);
-        if (node instanceof ASTFunctionNode) {
-            // 标签绑到节点自己指定的承载者上
-            const target = node.labelable();
-            if (target) this.labelableNodes.push(target);
-        }
+        // 未实现的对标签透明不入表，null 入表成为边界
+        const target = (node as ASTFunctionNode).labelable?.();
+        if (target !== undefined) this.labelableNodes.push(target);
     }
 
     get fontSize(): number {
@@ -258,21 +256,16 @@ export class ParserContext {
                     this.nodes.push(new ASTBraceNode(node.span, subParser.parse(node.span.start + 1, node.span.end - 1), null));
                     break;
                 case "label":
-                    const labelList = this.labelableNodes;
-                    if (labelList.length > 0) {
-                        const tgt = labelList[labelList.length - 1];
-                        if (tgt.label !== void 0)
-                            this.diagnostics.push(Diagnostic.warning.LabelAlreadyExists(node.label, tgt.label, node.span));
+                    // 透明节点不入表，所以表尾就是绑定终点：null 是边界，已被占用的承载者同样到此为止
+                    const tgt = this.labelableNodes.at(-1);
+                    if (!tgt) {
+                        this.diagnostics.push(Diagnostic.warning.LabelWithoutTarget(node.label, node.span));
+                    } else if (tgt.label !== void 0) {
+                        this.diagnostics.push(Diagnostic.warning.LabelAlreadyExists(node.label, tgt.label, node.span));
+                    } else {
                         tgt.label = node.label;
                         // 同时创建一个LabelNode 供编辑器等工具使用
-                        const labelNode = new ASTLabelNode(
-                            node.span, node.label, tgt
-                        );
-                        // 处理待消费列表只处理没有parent的 而label是有parent的 label其实无所谓parent
-                        this.nodes.push(labelNode);
-                    } else {
-                        // 没有可标签化的节点，报错但继续解析
-                        this.diagnostics.push(Diagnostic.warning.LabelWithoutTarget(node.label, node.span));
+                        this.nodes.push(new ASTLabelNode(node.span, node.label, tgt));
                     } break;
                 case "sugar":
                     for (const fn of this.deSugarRelationFns) {
@@ -484,6 +477,7 @@ export class ParserContext {
                 // label情况下返回对象 从后向前查找以支持标签覆盖
                 for (let i = this.labelableNodes.length - 1; i >= 0; i--) {
                     const node = this.labelableNodes[i];
+                    if (!node) continue;    // 边界标记不参与按名查找
                     if (node.sourceSpan.start >= funcStart) continue; // 只能绑定在函数定义之前的节点上
                     if (node.label == text) return node;   // 标签需要严格匹配
                 }

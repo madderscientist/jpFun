@@ -185,9 +185,9 @@ export type FunctionArgs = Map<string | number, paramValue | SourceSpan>; // 参
 // 非正常函数则实例化该函数 特征是getDef为undefined
 export class ASTFunctionNode extends ASTNodeBase {
     /**
-     * 返回真正承载标签的 AST 节点，null 表示不可被标注
+     * 不实现 = 对标签透明，绑定继续向前找；返回 null = 边界，绑定到此为止；返回节点 = 标签承载者
      */
-    labelable(): ASTFunctionNode | null { return null; }
+    labelable?(): ASTFunctionNode | null;
     label?: string; // 可选的标签名，只对 labelable() 选中的节点有效; 或者是label节点
 
     // 获取函数定义 对于未知函数，不定义def
@@ -234,6 +234,22 @@ export class ASTFunctionNode extends ASTNodeBase {
         const name = this.callName;
         if (!name) return super.toString(source);
         return `@${name} `;
+    }
+
+    /**
+     * 在子树里找标签承载者
+     * 未实现 labelable = 透明，继续下潜；实现了就采信它的返回值，null 即拒绝，不再往里找。
+     * 拒绝时别退回去遍历 children —— grace 的 labelable() 内部已经走过整棵子树
+     * 只有函数节点声明 labelable，别的节点读到的必是 undefined，所以无需 instanceof
+     */
+    static findLabelable(node: ASTNodeBase): ASTFunctionNode | null {
+        const self = node as ASTFunctionNode;
+        if (self.labelable) return self.labelable();
+        for (const child of node.children ?? []) {
+            const target = ASTFunctionNode.findLabelable(child);
+            if (target) return target;
+        }
+        return null;
     }
 
     /**

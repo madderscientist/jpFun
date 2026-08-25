@@ -81,7 +81,7 @@ class GraceFunction extends ASTFunctionNode {
         ],
     };
 
-    override labelable() { return this; }
+    override labelable() { return ASTFunctionNode.findLabelable(this.host); }
 
     static override deSugarAtom(source: string, start: number, _end: number) {
         let char = source[start];
@@ -124,7 +124,8 @@ class GraceFunction extends ASTFunctionNode {
         let replaceFrom = left;
         // 对 label 的特判: 目标变为label到被标记的节点范围内的所有节点
         if (leftNode instanceof ASTLabelNode) {
-            const tgt = leftNode.parent;
+            let tgt = leftNode.parent;
+            while (tgt && !ctx.nodes.includes(tgt)) tgt = tgt.parent;
             for (let j = left - 1; j >= 0; j--) {
                 if (ctx.nodes[j] === tgt) {
                     leftNode = new ASTBraceNode({
@@ -232,6 +233,7 @@ class GraceFunction extends ASTFunctionNode {
                 span,
             );
         }
+        this.adopt(this.host);
         this.setGrace(this.grace, scale);
         this.size = ctx.fontSize;
     }

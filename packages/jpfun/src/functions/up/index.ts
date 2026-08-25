@@ -49,8 +49,10 @@ class UpFunction extends ASTFunctionNode {
         args: [],
     };
 
-    /** 和弦自己会产生 UpTemporal，标签直接指向整个和弦（内部没有 note 时也能标注） */
-    override labelable() { return this; }
+    /** 至少有一个成员能承载标签时，和弦本身才能作为整体被标注 */
+    override labelable() {
+        return this.contents.some(ASTFunctionNode.findLabelable) ? this : null;
+    }
 
     static override deSugarAtom(source: string, start: number, _end: number) {
         if (source[start] === '^') {
@@ -62,7 +64,7 @@ class UpFunction extends ASTFunctionNode {
         } return null;
     }
 
-    // 这段代码同 stack
+    // 左操作数的取法同 stack；合并策略不同：up 要让被引用的一方存活
     static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
         const n = nodes[at++] as GrammarSugarNode;
         if (!(n.kind === "sugar" && n.data === UpFunction)) return null;
@@ -73,8 +75,8 @@ class UpFunction extends ASTFunctionNode {
             if (ctx.nodes[left] instanceof ASTTextNode) continue;
             break;
         }
-        let overNode: any = left >= 0 ? ctx.nodes[left] : null;
-        if (overNode === null) {
+        let leftNode: ASTNodeBase | null = left >= 0 ? ctx.nodes[left] : null;
+        if (leftNode === null) {
             throw new ErrorDiagnostic(
                 "UP_NO_TARGET",
                 "@up语法糖错误: 左边没有找到可叠加的目标",
@@ -84,24 +86,26 @@ class UpFunction extends ASTFunctionNode {
         /** 左操作数在 ctx.nodes 中的起点；只有这一段会被 up 吞并，更早的节点必须保留 */
         let replaceFrom = left;
         // 对 label 的特判: 目标变为label到被标记的节点范围内的所有节点
-        if (overNode instanceof ASTLabelNode) {
-            const tgt = overNode.parent;
+        if (leftNode instanceof ASTLabelNode) {
+            const labelNode = leftNode;
+            let tgt = labelNode.parent;  // 被打标签的节点
+            // 在本层这个节点位于哪里（标签节点可能被wrap）
+            while (tgt && !ctx.nodes.includes(tgt)) tgt = tgt.parent;
             for (let j = left - 1; j >= 0; j--) {
                 if (ctx.nodes[j] === tgt) {
-                    overNode = new ASTBraceNode({
+                    leftNode = new ASTBraceNode({
                         start: tgt.sourceSpan.start,
-                        end: overNode.sourceSpan.end,
+                        end: labelNode.sourceSpan.end,
                     }, ctx.nodes.slice(j, left + 1), null);
                     replaceFrom = j;
                     break;
                 }
             }
         }
-        if (!(overNode instanceof UpFunction)) {
-            const newNode = new UpFunction(n.span, new Map(), ctx);
-            newNode.addContent(overNode);
-            overNode = newNode;
-        }
+        // 左操作数收敛成一个 up，后续合并都在它身上进行
+        const host = leftNode instanceof UpFunction
+            ? leftNode
+            : new UpFunction(n.span, new Map(), ctx).addContent(leftNode, ctx);
         // 找到下一个非文本节点 通过全量后续解析的方式进行 还是有些trick
         const storage = ctx.nodes;
         ctx.nodes = [];
@@ -110,11 +114,17 @@ class UpFunction extends ASTFunctionNode {
             // 后向跳过文本节点 和上面保持一致
             const right = ctx.nodes[i];
             if (right instanceof ASTTextNode) continue;
-            (overNode as UpFunction).addContent(right);
+            // 右操作数可能已被 @tie() 等按引用取走（它就在刚才解析的剩余里），
+            // 而新建的左包装无人引用，所以合并时让右边存活
+            const merged = right instanceof UpFunction
+                ? UpFunction.flatten(right, host, ctx)
+                : host.addContent(right, ctx);
             storage.length = replaceFrom;
-            storage.push(overNode);
+            storage.push(merged);
             while (++i < ctx.nodes.length) storage.push(ctx.nodes[i]);
             ctx.nodes = storage;
+            // 语法糖不走 pushNode，这里补登记；null 同样入表，和显式 @up(...) 一样成为边界
+            ctx.labelableNodes.push(merged.labelable());
             return nodes.length;
         }
         throw new ErrorDiagnostic(
@@ -156,38 +166,48 @@ class UpFunction extends ASTFunctionNode {
         this.size = ctx.fontSize;
         for (const [, value] of args) {
             if (value instanceof ASTNodeBase) {
-                this.addContent(value);
+                this.addContent(value, ctx);
                 continue;
             }
             const c = ctx.parseArgWithType((value as SourceSpan).start, (value as SourceSpan).end, "content", span.start);
             if (c !== null) {
-                this.addContent(c as ASTNodeBase);
+                this.addContent(c as ASTNodeBase, ctx);
             }
         }
     }
 
-    addContent(node: ASTNodeBase) {
-        if (node instanceof UpFunction) this.combine(node);
-        else {
-            this.contents.push(node);
-            node.parent = this;
-            const s = node.sourceSpan;
-            this.sourceSpan.start = Math.min(this.sourceSpan.start, s.start);
-            this.sourceSpan.end = Math.max(this.sourceSpan.end, s.end);
-        }
+    /** 遇到另一个 up 就展平；返回存活的那个，调用者必须改用返回值 */
+    addContent(node: ASTNodeBase, ctx: ParserContext): UpFunction {
+        if (node instanceof UpFunction) return UpFunction.flatten(this, node, ctx);
+        this.contents.push(node);
+        node.parent = this;
+        this.growSpan(node.sourceSpan);
+        return this;
     }
 
     override toString(source: string) {
         return `@up(${this.contents.map(c => c.toString(source)).join(", ")})`;
     }
 
-    combine(ano: UpFunction): UpFunction {
-        this.sourceSpan.start = Math.min(this.sourceSpan.start, ano.sourceSpan.start);
-        this.sourceSpan.end = Math.max(this.sourceSpan.end, ano.sourceSpan.end);
-        for (const c of ano.contents) c.parent = this;
-        this.contents.push(...ano.contents);
-        ano.contents.length = 0;
-        return this;
+    private growSpan(s: SourceSpan) {
+        this.sourceSpan.start = Math.min(this.sourceSpan.start, s.start);
+        this.sourceSpan.end = Math.max(this.sourceSpan.end, s.end);
+    }
+
+    /**
+     * 展平两个 up：drop 的成员并入 keep 后变成空壳，必须同时撤销它的候选登记 ——
+     * 空壳已不在 AST 里，留在表中会让 @tie() 取到解析不出 Temporal 的孤儿端点。
+     */
+    private static flatten(keep: UpFunction, drop: UpFunction, ctx: ParserContext): UpFunction {
+        for (const c of drop.contents) c.parent = keep;
+        // 成员顺序跟随源码；比较必须在 growSpan 之前
+        if (drop.sourceSpan.start < keep.sourceSpan.start) keep.contents.unshift(...drop.contents);
+        else keep.contents.push(...drop.contents);
+        keep.growSpan(drop.sourceSpan);
+        drop.contents.length = 0;
+        const stale = ctx.labelableNodes.indexOf(drop);
+        if (stale >= 0) ctx.labelableNodes.splice(stale, 1);
+        return keep;
     }
 }
 
@@ -226,7 +246,7 @@ class UpTemporal extends TemporalNodeBase {
             // 否则和弦内部会出现多余的减时线或附点
             member.addon = void 0;
             // 成员不进入全局 columns，对外由和弦代表：
-            // 写在成员上的标签因此能直接做 @beam / @tie 的端点
+            // beam 使用和弦事件，tie 仍可沿 AST 索引读取被标注成员的具体几何
             member.foldedInto = this;
         }
     }

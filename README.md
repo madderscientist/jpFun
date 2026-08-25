@@ -69,6 +69,6 @@ pnpm run test:update       # 重写测试快照基线
 - [完整语法规范](packages/jpfun/grammar.md)
 
 ## todo
-- [x] 节奏型，可以加上校验抛出警告
-- [x] 标题、作者等
-- [x] VSCode 插件
+- [ ] VSCode 插件
+- [ ] 教程网站，wiki
+- [ ] 播放
