@@ -15,12 +15,14 @@ import {
 } from "./preview-navigation.js";
 
 type PreviewBackend = "svg" | "canvas";
+export type ImageExportFormat = "svg" | "png" | "jpeg";
 
 export interface PreviewController {
     render(result: CompileScoreResult): void;
     showError(message: string): void;
     invalidateNavigation(): void;
     focusSourcePosition(position: number): void;
+    download(format: ImageExportFormat, ppi: number): Promise<void>;
     preparePrint(): void;
     clearPrint(): void;
 }
@@ -34,9 +36,28 @@ const MAX_ZOOM = 3;
 const HIT_TOLERANCE = 6;
 const DOUBLE_CLICK_DELAY = 500;
 const DOUBLE_CLICK_DISTANCE = 8;
+const CSS_PIXELS_PER_INCH = 96;
 
 function isPreviewBackend(value: string | undefined): value is PreviewBackend {
     return value === "svg" || value === "canvas";
+}
+
+function savePage(blob: Blob, format: ImageExportFormat, page: number, pageCount: number) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `score${pageCount > 1 ? `-${page + 1}` : ""}.${format}`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function canvasBlob(canvas: HTMLCanvasElement, format: "png" | "jpeg"): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+        canvas.toBlob(blob => {
+            if (blob) resolve(blob);
+            else reject(new Error(`无法生成 ${format.toUpperCase()} 文件`));
+        }, `image/${format}`, format === "jpeg" ? 0.95 : void 0);
+    });
 }
 
 export function createPreviewController(options: PreviewControllerOptions): PreviewController {
@@ -315,6 +336,47 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         printHost.replaceChildren();
     }
 
+    async function download(format: ImageExportFormat, ppi: number) {
+        if (!result) throw new Error("当前没有可导出的谱面");
+        const pages = layoutPageBounds(result.layout);
+
+        if (format === "svg") {
+            const files = renderLayoutPagesToSvg(result.layout);
+            for (const [index, svg] of files.entries()) {
+                savePage(
+                    new Blob([svg], { type: "image/svg+xml;charset=utf-8" }),
+                    format,
+                    index,
+                    files.length,
+                );
+            }
+            return;
+        }
+
+        const scale = ppi / CSS_PIXELS_PER_INCH;
+        const contexts = pages.map(page => {
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.max(1, Math.ceil(page.w * scale));
+            canvas.height = Math.max(1, Math.ceil(page.h * scale));
+            const context = canvas.getContext("2d");
+            if (!context) throw new Error("Canvas 2D context is unavailable");
+            if (format === "jpeg") {
+                context.fillStyle = "#ffffff";
+                context.fillRect(0, 0, canvas.width, canvas.height);
+            }
+            context.scale(scale, scale);
+            return context;
+        });
+        renderLayoutPagesToCanvas(result.layout, contexts);
+
+        for (const [index, { canvas }] of contexts.entries()) {
+            const blob = await canvasBlob(canvas, format);
+            savePage(blob, format, index, contexts.length);
+            canvas.width = 1;
+            canvas.height = 1;
+        }
+    }
+
     const closeZoomMenu = createDropdown(zoomButton, zoomMenu);
 
     for (const tab of backendTabs) {
@@ -426,6 +488,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         },
         invalidateNavigation,
         focusSourcePosition,
+        download,
         preparePrint,
         clearPrint,
     };

@@ -12,9 +12,9 @@
             <section class="editor-panel" aria-label="源码编辑器">
                 <div class="pane-toolbar">
                     <div class="pane-tabs" role="tablist" aria-label="编辑工作区">
-                        <button class="pane-tab" id="sourceTab" type="button" role="tab" data-left-tab="source" aria-selected="true" aria-controls="sourcePane">
-                            <span class="file-dot" aria-hidden="true"></span>
-                            score.jpfun
+                        <button class="pane-tab" id="sourceTab" type="button" role="tab" data-left-tab="source" aria-selected="true" aria-controls="sourcePane" title="再次点击以打开本地曲谱">
+                            <span class="file-dot" id="fileDirty" aria-hidden="true"></span>
+                            <span class="source-name" id="sourceName">score.jpfun</span>
                         </button>
                         <button class="pane-tab" id="playbackTab" type="button" role="tab" data-left-tab="playback" aria-selected="false" aria-controls="playbackPane">
                             <span class="tab-icon" aria-hidden="true">▶</span>
@@ -141,6 +141,49 @@
                         <div class="backend-tabs" role="tablist" aria-label="渲染后端">
                             <button class="backend-tab" role="tab" data-backend="svg" aria-selected="true">SVG</button>
                             <button class="backend-tab" role="tab" data-backend="canvas" aria-selected="false">Canvas</button>
+                        </div>
+                        <div class="export-control">
+                            <button
+                                class="tool-button export-button"
+                                id="exportButton"
+                                type="button"
+                                aria-haspopup="dialog"
+                                aria-expanded="false"
+                                aria-label="导出谱面"
+                                title="导出谱面"
+                            >
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                    <path d="M11 7L8 10M8 10L5 7M8 10L8 3" stroke="currentColor" stroke-width="1.25" stroke-miterlimit="10" stroke-linecap="square"></path>
+                                    <path d="M3 13H13" stroke="currentColor" stroke-width="1.25"></path>
+                                </svg>
+                            </button>
+                            <div class="export-menu" id="exportMenu" role="dialog" aria-label="导出谱面" hidden>
+                                <div class="export-menu-header">
+                                    <strong>导出谱面</strong>
+                                    <span>全部页面</span>
+                                </div>
+                                <div class="export-formats">
+                                    <button type="button" data-export-format="pdf">
+                                        <strong>PDF</strong><span>打印</span>
+                                    </button>
+                                    <button type="button" data-export-format="svg">
+                                        <strong>SVG</strong><span>矢量</span>
+                                    </button>
+                                    <label class="export-ppi">
+                                        <span>PNG / JPEG</span>
+                                        <span class="export-ppi-input">
+                                            <input id="exportPpi" type="number" min="72" max="600" step="1" value="144" inputmode="numeric" aria-label="位图精度" />
+                                            <span>PPI</span>
+                                        </span>
+                                    </label>
+                                    <button type="button" data-export-format="png">
+                                        <strong>PNG</strong><span>透明</span>
+                                    </button>
+                                    <button type="button" data-export-format="jpeg">
+                                        <strong>JPEG</strong><span>白底</span>
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

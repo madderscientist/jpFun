@@ -15,7 +15,10 @@ function isViewMode(value: string | null | undefined): value is ViewMode {
     return value === "editor" || value === "split" || value === "preview";
 }
 
-export function createWorkspaceController(editor: EditorView): WorkspaceController {
+export function createWorkspaceController(
+    editor: EditorView,
+    options?: { onSourceTabReselect(): void },
+): WorkspaceController {
     const workspace = requiredElement<HTMLElement>("#workspace");
     const divider = requiredElement<HTMLElement>("#workspaceDivider");
     const editorHost = requiredElement<HTMLElement>("#sourceEditor");
@@ -92,7 +95,14 @@ export function createWorkspaceController(editor: EditorView): WorkspaceControll
         });
     }
     for (const button of leftTabs) {
-        button.addEventListener("click", () => showSource(button.dataset.leftTab === "playback" ? "playback" : "source"));
+        button.addEventListener("click", () => {
+            const tab = button.dataset.leftTab === "playback" ? "playback" : "source";
+            if (tab === "source" && button.getAttribute("aria-selected") === "true") {
+                options?.onSourceTabReselect();
+            } else {
+                showSource(tab);
+            }
+        });
     }
     for (const button of rightTabs) {
         button.addEventListener("click", () => showResult(button.dataset.rightTab === "problems" ? "problems" : "preview"));

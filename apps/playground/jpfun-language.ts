@@ -437,14 +437,22 @@ export const jpFunLanguage = [
         ".cm-jpfun-operator": { color: "var(--syntax-keyword)" },
         ".cm-jpfun-punctuation": { color: "var(--syntax-comment)" },
         ".cm-jpfun-label-link": { textDecoration: "underline", cursor: "pointer" },
-        ".cm-jpfun-doc": { maxWidth: "420px", maxHeight: "260px", overflow: "auto", whiteSpace: "pre-wrap" },
+        ".cm-jpfun-doc": {
+            display: "flex",
+            flexDirection: "column",
+            maxWidth: "420px",
+            maxHeight: "260px",
+            overflow: "hidden",
+            whiteSpace: "pre-wrap",
+        },
         ".cm-jpfun-desugar": {
             display: "flex",
+            flexShrink: "0",
             alignItems: "flex-start",
             gap: "8px",
-            position: "sticky",   // 内容滚动时替换按钮也要留在视野内
-            top: "0",
+            maxHeight: "120px",
             padding: "8px 10px",
+            overflow: "hidden",
             background: "var(--surface)",
             borderBottom: "1px solid var(--line-subtle)",
         },
@@ -454,7 +462,8 @@ export const jpFunLanguage = [
             color: "var(--syntax-function)",
             fontFamily: '"Cascadia Mono", "SFMono-Regular", Consolas, monospace',
             whiteSpace: "pre",     // 等价写法是代码，宁可横向滚动也不折行
-            overflowX: "auto",
+            maxHeight: "94px",
+            overflow: "auto",
             lineHeight: "1.5",     // 横向滚动使它成为裁剪容器，行高不够中文字形会被切掉
         },
         ".cm-jpfun-desugar-apply": {
@@ -470,6 +479,11 @@ export const jpFunLanguage = [
             cursor: "pointer",
         },
         ".cm-jpfun-desugar-apply:hover": { background: "var(--editor-active)" },
-        ".cm-jpfun-doc-body": { padding: "8px 10px", color: "var(--editor-muted)" },
+        ".cm-jpfun-doc-body": {
+            minHeight: "0",
+            padding: "8px 10px",
+            overflow: "auto",
+            color: "var(--editor-muted)",
+        },
     }),
 ];
