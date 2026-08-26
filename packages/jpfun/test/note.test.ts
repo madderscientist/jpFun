@@ -4,7 +4,8 @@ import type { ASTFunctionNode } from "../src/functions/ASTtypes.js";
 import { layoutDocument } from "../src/layout/engine.js";
 import { isVisualTemporalNode, type VisualTemporalNode } from "../src/lowering/types.js";
 import type { PathCommand } from "../src/render/types.js";
-import { assert, layoutContext, layoutOf, lower, nearly, recordCommands } from "./helpers.js";
+import { compileScore } from "../src/pipeline.js";
+import { assert, expectCompileError, layoutContext, layoutOf, lower, nearly, recordCommands } from "./helpers.js";
 
 /** 固定图形只给出路径命令，取包围盒才能和数字盒比较位置 */
 function commandBounds(commands: readonly PathCommand[]) {
@@ -152,6 +153,42 @@ test("小节线几何中心与数字视觉中心对齐", () => {
         [...alignedNumberCenters, ...alignedBarCenters].every(center => nearly(center, alignedNumberCenters[0])),
         "bar geometry centers must align with number visual centers",
     );
+});
+
+test("不规范的调性先按音高归一化，读不懂才退回 C4，严格模式一律报错", () => {
+    /** 源码里数字 1 解析出的 MIDI，说明最终生效的到底是哪个调 */
+    const tonicOf = (tonality: string) => {
+        const compiled = compileScore(`@1(${tonality}) 1`);
+        const note = compiled.layout.objects[1] as VisualTemporalNode & { resolvedMidi: number };
+        return { midi: note.resolvedMidi, diagnostics: compiled.lowering.diagnostics };
+    };
+
+    // parseNoteName 比 tonality2Midi 宽松得多，这些以前会一路蒙混到 lowering 才崩
+    const cases: [string, number][] = [
+        ["C##", 62],    // 超过一个变音记号：按音高换字母 -> D4
+        ["Cbb", 58],    // 一路降到上一个八度 -> Bb3
+        ["B#4", 72],    // 升到下一个八度 -> C5
+        ["Cn", 60],     // 还原号
+        ["c", 60],      // 小写
+        ["5'", 79],     // 数字音名加相对八度 -> G5
+    ];
+    for (const [tonality, midi] of cases) {
+        const { midi: actual, diagnostics } = tonicOf(tonality);
+        assert(actual === midi, `调性 "${tonality}" 应归一化到 MIDI ${midi}，实际 ${actual}`);
+        assert(diagnostics.some(item => item.code === "W_KEY_TONALITY"),
+            `调性 "${tonality}" 归一化后应报 W_KEY_TONALITY`);
+        expectCompileError(`@set(strict=true) @1(${tonality}) 1`, "E_KEY_TONALITY");
+    }
+
+    for (const tonality of ["X", "H4"]) {
+        assert(tonicOf(tonality).midi === 60, `读不懂的调性 "${tonality}" 应退回 C4`);
+        expectCompileError(`@set(strict=true) @1(${tonality}) 1`, "E_KEY_TONALITY");
+    }
+
+    for (const tonality of ["C4", "F#3", "Bb", "5"]) {
+        assert(!tonicOf(tonality).diagnostics.some(item => item.code === "W_KEY_TONALITY"),
+            `合法调性 "${tonality}" 不应报警`);
+    }
 });
 
 test("tempo 与 key 自己上谱，set 纯词法，不可见事件不分配布局资源", () => {

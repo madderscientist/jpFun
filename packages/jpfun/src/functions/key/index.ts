@@ -1,11 +1,38 @@
 import { TemporalNodeBase } from "../../lowering/types.js";
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, LengthValue, ParserContext, SourceSpan } from "../ASTtypes.js";
-import { Diagnostic, WarningDiagnostic } from "../../diagnostic.js";
+import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { parseNoteName } from "../note/noteNameFSM.js";
+import { acc2Offset, NoteNameMap, tonality2Midi } from "../../parser/parse-utils/note-utils.js";
 import { paintAccidental, placeAccidentals, type PlacedAccidental } from "../note/accidentals.js";
 import { JIANPU_NUMBER_FONT } from "../note/index.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
+
+/**
+ * 把宽松的调性写法收敛成 tonality2Midi 认得的 [音名][最多一个 #b][绝对八度]
+ *
+ * 本来就合法就原样返回，彻底读不懂返回 null
+ * `C###` 这种超过一个变音记号的写法按实际音高换字母（→ D#4），落在黑键上则跟随原来的升降方向拼写
+ */
+function normalizeTonality(tonality: string): string | null {
+    try {
+        tonality2Midi(tonality, 4);
+        return tonality;
+    } catch { /* 落到下面归一化 */ }
+
+    const parsed = parseNoteName(tonality.replace(/^[a-g]/, letter => letter.toUpperCase()));
+    if (parsed instanceof Diagnostic) return null;
+    const pitchClass = NoteNameMap[parsed.name];
+    if (pitchClass === undefined) return null;
+
+    const offset = acc2Offset(parsed.acc ?? "", false);
+    const octave = parsed.absOctave ? parsed.octave ?? 4 : 4 + (parsed.octave ?? 0);
+    const midi = (octave + 1) * 12 + pitchClass + offset;
+    // NoteNameMap 里同一音高的升号拼写在前、降号在后，正好用来挑方向；数字音名不参与拼写
+    const spellings = Object.keys(NoteNameMap).filter(name =>
+        NoteNameMap[name] === ((midi % 12) + 12) % 12 && /^[A-G]/.test(name));
+    return (offset < 0 ? spellings.at(-1)! : spellings[0]) + (Math.floor(midi / 12) - 1);
+}
 
 class KeyFunction extends ASTFunctionNode {
     static override def = {
@@ -44,19 +71,23 @@ class KeyFunction extends ASTFunctionNode {
         this.tonality = tonality;
         this.size = ctx.length2px(size);
 
-        const parsed = parseNoteName(tonality);
-        if (parsed instanceof Diagnostic) {
+        const normalized = normalizeTonality(tonality);
+        if (normalized !== tonality) {
+            if (ctx.strict) throw new ErrorDiagnostic(
+                "E_KEY_TONALITY",
+                `@key 无法解析调性 "${tonality}"`,
+                sourceSpan
+            );
+            this.tonality = normalized ?? 'C4';
             ctx.diagnostics.push(new WarningDiagnostic(
                 "W_KEY_TONALITY",
-                `@1 无法解析调性 "${tonality}"，将按原文显示`,
+                `@key 的调性 "${tonality}" 不是规范写法，已自动切换到 ${this.tonality}`,
                 sourceSpan,
             ));
-            this.displayName = tonality;
-            this.displayAcc = "";
-        } else {
-            this.displayName = parsed.name;
-            this.displayAcc = parsed.acc ?? "";
         }
+        // 归一化保证了格式是 [音名][最多一个 #b][八度]
+        this.displayName = this.tonality[0];
+        this.displayAcc = this.tonality[1] === "#" || this.tonality[1] === "b" ? this.tonality[1] : "";
     }
 
     override loweringEnter() {
