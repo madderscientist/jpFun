@@ -1,8 +1,14 @@
 import type { GlyphMetrics, TextMeasurer, TextStyle } from "./types.js";
 
+/** 未指定字体族时，普通文本使用的字体栈 */
+export const DEFAULT_TEXT_FONT = "sans-serif";
+
+/** 简谱数字及同类谱面数字使用的字体栈 */
+export const JIANPU_NUMBER_FONT = '"Cascadia Mono", Consolas, "Liberation Mono", "Noto Sans Mono", monospace';
+
 /** Canvas 的 font 简写；测量与绘制必须用同一份，否则量到的不是将要画出的字形 */
 export function canvasFont(style: TextStyle): string {
-    return `${style.fontWeight ?? "normal"} ${style.fontSize}px ${style.fontFamily ?? "sans-serif"}`;
+    return `${style.fontWeight ?? "normal"} ${style.fontSize}px ${style.fontFamily ?? DEFAULT_TEXT_FONT}`;
 }
 
 /** 默认文本测量保持确定性，不依赖浏览器和操作系统字体。 */

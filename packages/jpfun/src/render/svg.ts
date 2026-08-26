@@ -1,5 +1,6 @@
 import type { DocumentLayoutResult } from "../layout/engine.js";
 import { layoutPageBounds, paintLayoutPages } from "./paint.js";
+import { DEFAULT_TEXT_FONT } from "./text.js";
 import type { PaintStyle, Painter, PathCommand, PathTransform, TextStyle } from "./types.js";
 
 export interface SvgRenderOptions {
@@ -77,7 +78,7 @@ export class SvgPainter implements Painter {
     private body: string[] = [];
 
     drawText(text: string, x: number, y: number, style: TextStyle) {
-        const family = style.fontFamily ?? "sans-serif";
+        const family = style.fontFamily ?? DEFAULT_TEXT_FONT;
         const weight = style.fontWeight ?? "normal";
         const fill = style.fill ?? "#000";
         const textAnchor = style.textAlign === "center"

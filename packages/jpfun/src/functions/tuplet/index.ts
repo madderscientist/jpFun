@@ -19,7 +19,7 @@ import {
     type ParserContext,
     type SourceSpan,
 } from "../ASTtypes.js";
-import { JIANPU_NUMBER_FONT } from "../note/index.js";
+import { JIANPU_NUMBER_FONT } from "../../render/text.js";
 
 /**
  * tuplet 的比例要等内容全部展开后才能推导，因此 enter 阶段只收集事件引用，

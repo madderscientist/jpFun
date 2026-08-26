@@ -4,7 +4,7 @@ import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic
 import { parseNoteName } from "../note/noteNameFSM.js";
 import { acc2Offset, NoteNameMap, tonality2Midi } from "../../parser/parse-utils/note-utils.js";
 import { paintAccidental, placeAccidentals, type PlacedAccidental } from "../note/accidentals.js";
-import { JIANPU_NUMBER_FONT } from "../note/index.js";
+import { JIANPU_NUMBER_FONT } from "../../render/text.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
 

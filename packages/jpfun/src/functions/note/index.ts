@@ -4,6 +4,7 @@ import { parseNoteName } from "./noteNameFSM.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
 import type { LayoutBox, LayoutDecoration, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
+import { JIANPU_NUMBER_FONT } from "../../render/text.js";
 import { paintAccidental, placeAccidentals, type PlacedAccidental } from "./accidentals.js";
 
 class NoteFunction extends ASTFunctionNode {
@@ -120,9 +121,6 @@ import { resolveLetterNameToJianpu, resolveNoteMidi } from "../../parser/parse-u
 
 // 8 是隐形占位，9 是只打拍不发音的节拍记号，空串表示不绘制
 const NOTE_GLYPH: Record<string, string> = { "8": "", "9": "X" };
-
-/** 简谱数字的字体栈；谱面上其他地方写简谱数字（如 @key 的 `1=`）要用同一个 */
-export const JIANPU_NUMBER_FONT = '"Cascadia Mono", Consolas, "Liberation Mono", "Noto Sans Mono", monospace';
 
 class NoteTemporalNode extends TemporalNodeBase {
     declare ast: NoteFunction;

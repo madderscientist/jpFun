@@ -12,7 +12,7 @@ import {
     type ParserContext,
     type SourceSpan,
 } from "../ASTtypes.js";
-import { JIANPU_NUMBER_FONT } from "../note/index.js";
+import { JIANPU_NUMBER_FONT } from "../../render/text.js";
 
 class MeterFunction extends ASTFunctionNode {
     static override def = {

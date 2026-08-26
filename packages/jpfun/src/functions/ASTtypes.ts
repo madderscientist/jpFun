@@ -23,18 +23,13 @@ export function functionAddonKey<const Name extends string>(name: Name): `@${Nam
 }
 
 export class ASTNodeBase {
-    sourceSpan: SourceSpan; // 和源码的映射
-    parent: ASTNodeBase | null;
     // 空数组表示应该有 null表示自己就是叶子 和 timeFlowMode 的默认实现对应
     get children(): ASTNodeBase[] | null { return null; }
 
     constructor(
-        sourceSpan: SourceSpan,
-        parent: ASTNodeBase | null = null
-    ) {
-        this.sourceSpan = sourceSpan;
-        this.parent = parent;
-    }
+        public sourceSpan: SourceSpan,  // 源码区间
+        public parent: ASTNodeBase | null = null,
+    ) {}
 
     /**
      * lowering 固化后的 attachment 生成钩子
