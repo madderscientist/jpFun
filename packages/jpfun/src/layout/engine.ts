@@ -18,6 +18,7 @@ import {
     PageLayoutError,
     type DocumentLayoutPage,
 } from "./page.js";
+import { isLayoutAttachment } from "./types.js";
 import type {
     AttachmentGeometry,
     AttachmentLayoutContext,
@@ -127,6 +128,7 @@ export function layoutDocument(
     context: LayoutPrepareContext,
     options: DocumentLayoutOptions = {},
 ): DocumentLayoutResult {
+    const layoutAttachments = result.attachments.filter(isLayoutAttachment);
     const page = normalizePageConfig(result.page);
     const contentWidth = page.width - page.marginLeft - page.marginRight;
     const originX = page.marginLeft;
@@ -146,7 +148,7 @@ export function layoutDocument(
     // 2. 横向弹簧布局，得到 box.x
     const views = buildLineViews(lines, options.globalC);
     for (const object of objects) object.prepareHorizontal?.(views[object.layoutLine]);
-    for (const attachment of result.attachments) attachment.prepareHorizontal?.(views, context);
+    for (const attachment of layoutAttachments) attachment.prepareHorizontal?.(views, context);
     for (const line of lines) {
         const elements = line.columns.map(column =>
             column.map(node => layoutElement(node.springConfig, node.box, node, options.globalC))
@@ -221,14 +223,14 @@ export function layoutDocument(
 
     // 3. 首次纵向放置后测量 attachment；只有有效轨道占用扩张时才重新求解
     let placement = placeVertically();
-    let measured = measureAttachments(result.attachments, placement.attachmentContext);
+    let measured = measureAttachments(layoutAttachments, placement.attachmentContext);
 
     if (registerAttachmentOccupancy(measured, lines, placement.attachmentContext.getVisualAxis)) {
         placement = placeVertically();
-        measured = measureAttachments(result.attachments, placement.attachmentContext);
+        measured = measureAttachments(layoutAttachments, placement.attachmentContext);
     }
     const pages = placement.pages;
-    const attachments = result.attachments.map<PlacedAttachment>((attachment, index) => {
+    const attachments = layoutAttachments.map<PlacedAttachment>((attachment, index) => {
         const { geometry, box } = measured[index];
         return {
             box,

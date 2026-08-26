@@ -41,7 +41,7 @@ export class ASTNodeBase {
      *
      * 普通 loweringEnter/loweringExit 在递归遍历 AST 时执行，
      * 此时尚未完成锚点归并，事件的 t、track 和 layoutLine 不可用，因此需要观察完整事件流的功能不能在普通 hook 中可靠决定分组。
-     * 该 hook 读取 LoweringResult 并返回新建的 LayoutAttachment，LoweringContext 将返回值追加到当前文档或 fragment 的 attachments，不会把它们放入时间列或推进时间。
+    * 该 hook 读取 LoweringResult 并返回新建的 LoweringAttachment，LoweringContext 将返回值追加到当前文档或 fragment 的 attachments，不会把它们放入时间列或推进时间。
      *
      * 例：autobeam 扫描最终列，按轨道、谱面行、拍点和显式 beam 端点决定分组，再生成 BeamLayoutAttachment
      */

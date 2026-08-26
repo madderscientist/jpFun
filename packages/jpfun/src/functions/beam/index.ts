@@ -62,7 +62,7 @@ class BeamFunction extends ASTFunctionNode {
             ctx.diagnostics.push(Diagnostic.warning.UnresolvedEndpoint("beam", this.sourceSpan));
             return [];
         }
-        ctx.addLayoutAttachment(createBeamLayoutAttachment(endPoints, true, this.sourceSpan));
+        ctx.addAttachment(createBeamLayoutAttachment(endPoints, true, this.sourceSpan));
         return [];
     }
 }

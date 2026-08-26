@@ -227,7 +227,9 @@ class UpTemporal extends TemporalNodeBase {
         this.ast = ast;
         this.members = members;
 
-        if (members[0]) this.T.copyFrom(members[0].T);
+        // 节奏由第一个有时值的成员决定；否则 `$p ^ 1` 这类写法会把整个和弦压成零时长
+        const lead = members.find(member => !member.T.isZero()) ?? members[0];
+        if (lead) this.T.copyFrom(lead.T);
         this.mergeKey = DEFAULT_KEY;
         this.initLayoutBox();
 

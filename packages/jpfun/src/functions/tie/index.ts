@@ -77,7 +77,7 @@ class TieFunction extends ASTFunctionNode {
             ctx.diagnostics.push(Diagnostic.warning.UnresolvedEndpoint("tie", this.sourceSpan));
             return [];
         }
-        ctx.addLayoutAttachment(new TieLayoutAttachment(endPoints, this.height, this.sourceSpan));
+        ctx.addAttachment(new TieLayoutAttachment(endPoints, this.height, this.sourceSpan));
         return [];
     }
 

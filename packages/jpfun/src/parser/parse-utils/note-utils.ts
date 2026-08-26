@@ -1,5 +1,6 @@
 import { Diagnostic } from "../../diagnostic.js";
 
+/** 同一音高的两种拼写升在前、降在后，反查拼写时依赖这个顺序 */
 export const NoteNameMap: Record<string, number> = {
     "C": 0,
     "C#": 1, "Db": 1,
@@ -93,24 +94,15 @@ function offsetToAccidental(offset: number): string {
 // 把绝对字母音高转换成“相对当前调性的简谱显示信息”。
 // 这里保留字母拼写带来的调内级数信息，因此像 key=D 时的 C 会被解释成 b7，而不是 #6。
 export function resolveLetterNameToJianpu(name: string, acc: string, octave: number, keySignature: string): RelativeJianpuPitch | null {
-    const tonicLetter = keySignature[0];
-    const tonicMidi = tonality2Midi(keySignature, 4);
-    const tonicPitchClass = wrapPitchClass(tonicMidi);
-    const notePitchClass = wrapPitchClass(resolveNoteMidi(name, acc, octave, keySignature) ?? NaN);
-
-    const tonicIndex = LETTER_ORDER.indexOf(tonicLetter as typeof LETTER_ORDER[number]);
+    const tonicIndex = LETTER_ORDER.indexOf(keySignature[0] as typeof LETTER_ORDER[number]);
     const noteIndex = LETTER_ORDER.indexOf(name as typeof LETTER_ORDER[number]);
-    if (tonicIndex < 0 || noteIndex < 0 || Number.isNaN(notePitchClass)) {
-        return null;
-    }
-
-    const degreeIndex = (noteIndex - tonicIndex + LETTER_ORDER.length) % LETTER_ORDER.length;
-    const expectedPitchClass = wrapPitchClass(tonicPitchClass + MAJOR_SCALE_OFFSETS[degreeIndex]);
-    const accidentalOffset = normalizeAccidentalOffset(notePitchClass - expectedPitchClass);
     const actualMidi = resolveNoteMidi(name, acc, octave, keySignature);
-    if (actualMidi === null) {
-        return null;
-    }
+    if (tonicIndex < 0 || noteIndex < 0 || actualMidi === null) return null;
+
+    const tonicMidi = tonality2Midi(keySignature, 4);
+    const degreeIndex = (noteIndex - tonicIndex + LETTER_ORDER.length) % LETTER_ORDER.length;
+    const expectedPitchClass = wrapPitchClass(tonicMidi + MAJOR_SCALE_OFFSETS[degreeIndex]);
+    const accidentalOffset = normalizeAccidentalOffset(wrapPitchClass(actualMidi) - expectedPitchClass);
 
     const octaveOffset = (actualMidi - tonicMidi - MAJOR_SCALE_OFFSETS[degreeIndex] - accidentalOffset) / 12;
     return {

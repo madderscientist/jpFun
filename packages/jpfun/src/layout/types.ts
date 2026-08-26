@@ -3,6 +3,7 @@ import type { Extent, Track } from "../lowering/track.js";
 import type { Fraction } from "../fraction.js";
 import type { SourceSpan } from "../parser/types.js";
 import type { HorizontalLayoutHook } from "./model.js";
+import type { LoweringAttachment } from "../lowering/types.js";
 
 /** 轴对齐矩形，是所有排版几何的公共部分 */
 export interface Rect {
@@ -91,6 +92,7 @@ export interface LayoutHost extends TimeLineEvent {
     box: LayoutBox;
     springConfig: HorizontalSpringConfig;
     ports: Record<string, LayoutPoint>;
+    readonly mergeKey: number;  // 为了识别 ANCHOR 而留的
     readonly layoutLine: number;
     readonly ast: { readonly size: number }; // 具体视觉函数在 parse 时冻结 px 字号
 }
@@ -206,7 +208,7 @@ export interface AttachmentGeometry {
  *
  * 实例只保存语义输入和一次横向准备状态，不保存最终 box、regions 或绘制几何。
  */
-export interface LayoutAttachment {
+export interface LayoutAttachment extends LoweringAttachment {
     /** 相对于 Temporal 主体的绘制层；background 比内容先绘制 */
     readonly layer: "background" | "foreground";
     /** 对应的源码范围；自动生成图形可覆盖其首末宿主的源码 */
@@ -214,6 +216,9 @@ export interface LayoutAttachment {
     /** 横向求解前：可测量资源、调整弹簧参数或注册横向布局 hook，不得改变对象/列顺序 */
     prepareHorizontal?(lines: HorizontalLineView[], context: LayoutPrepareContext): void;
     createGeometry(context: AttachmentLayoutContext): AttachmentGeometry;
+}
+export function isLayoutAttachment(attachment: LoweringAttachment): attachment is LayoutAttachment {
+    return typeof (attachment as Partial<LayoutAttachment>).createGeometry === "function";
 }
 
 /** layoutDocument 输出的最终 attachment 快照 */

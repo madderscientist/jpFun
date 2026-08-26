@@ -1,16 +1,14 @@
 import { Diagnostic } from "../diagnostic.js";
 import { Fraction } from "../fraction.js";
 import { ASTFunctionClass, ASTNodeBase } from "../functions/ASTtypes.js";
-import type {
-    LayoutAttachment,
-    PageConfig,
-} from "../layout/types.js";
+import type { PageConfig } from "../layout/types.js";
 import {
     ANCHOR_KEY,
     TemporalNodeBase,
     type LoweringAugmenter,
     type LoweringFinalizer,
     type LoweringGroup,
+    type LoweringAttachment,
     type LoweringResult,
 } from "./types.js";
 import { Track } from "./track.js";
@@ -27,7 +25,7 @@ import { Track } from "./track.js";
  * 大多数 AST 函数通过以下入口参与 lowering（按时间顺序）：
  * - [hook] loweringEnter/loweringExit：进入或离开节点时生成 TemporalNode、管理作用域
  * - [API] LoweringContext.beginLoweringGroup/endLoweringGroup：通常在 enter/exit 中被调用，以栈方式观察当前子树产生的 TemporalNode 和 attachment
- * - [API] LoweringContext.addLayoutAttachment：注册不推进时间的关系定义，供 tie、beam 等函数使用；当前外层分组会收到该定义
+ * - [API] LoweringContext.addAttachment：注册不推进时间的附属对象；当前外层分组会收到该对象
  * - [config] timeFlowModel：声明子节点按 sequence 或 parallel 推进时间；parallel 还要声明音轨复用键与纵向排列策略
  * - [hook] Temporal.onTimeState：锚点归并后固化调性、速度等状态
  * - [hook] loweringAugment：最终列和 layoutLine 固化后扫描结果并生成要追加的 attachment
@@ -38,8 +36,8 @@ export class LoweringContext {
     private loweringFinalizers: LoweringFinalizer[] = [];
     private cnt = 0;  // 生成唯一id的计数器
 
-    /** 不推进时间的关系对象和分组对象 */
-    private attachments: LayoutAttachment[] = [];
+    /** 不推进时间的附属对象 */
+    private attachments: LoweringAttachment[] = [];
 
     /** 当前完整文档的页面配置 */
     private page?: PageConfig;
@@ -152,7 +150,7 @@ export class LoweringContext {
         const active = this.activeLoweringGroups.pop();
         if (!active) throw new Error("No active lowering group to end");
         if (active.owner !== owner) throw new Error("Lowering groups must end in reverse order");
-        if (active.group.attachment) this.addLayoutAttachment(active.group.attachment);
+        if (active.group.attachment) this.addAttachment(active.group.attachment);
         return active.group;
     }
 
@@ -161,11 +159,11 @@ export class LoweringContext {
         if (this.activeLoweringGroups.length > 0)
             throw new Error("Lowering groups must be closed before post-processing");
 
-        const additions: LayoutAttachment[] = [];
+        const additions: LoweringAttachment[] = [];
         for (const augment of this.loweringAugmenters) {
             for (const attachment of augment(result)) additions.push(attachment);
         }
-        for (const attachment of additions) this.addLayoutAttachment(attachment);
+        for (const attachment of additions) this.addAttachment(attachment);
         // 进行校验或者其他动作
         for (const finalize of this.loweringFinalizers) finalize(result);
         return result;
@@ -175,7 +173,7 @@ export class LoweringContext {
      * 注册不推进时间的排版对象
      * 被 tie、beam、box 等函数使用
      */
-    addLayoutAttachment(attachment: LayoutAttachment) {
+    addAttachment(attachment: LoweringAttachment) {
         this.attachments.push(attachment);
         // 由内向外分组，符合嵌套作用域语义
         for (let i = this.activeLoweringGroups.length - 1; i >= 0; i--) {

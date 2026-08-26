@@ -80,8 +80,8 @@ type TimeFlowModel =
 
 时间状态不能更早固化，因为并行分支的锚点归并仍可能修改事件时间。调性、速度等依赖时间顺序的语义，应在 `onTimeState` 中从共享状态读取并冻结到 Temporal，而不是修改 AST。
 
-### 4. 生成跨事件关系
-时间列、Track 和行号全部稳定后，Lowering 才处理需要观察完整结果的关系：
+### 4. 生成附属对象
+时间列、Track 和行号全部稳定后，Lowering 才处理需要观察完整结果的 attachment：
 
 1. 所有 `loweringAugment` 读取同一份结果快照，生成额外 attachment。
 2. 新 attachment 统一加入结果。
@@ -92,7 +92,7 @@ type TimeFlowModel =
 ## Temporal、Attachment 与 Decoration
 三者用途不同：
 - **Temporal**：占据时间流，进入 `columns`，例如音符、小节线和控制事件。
-- **LayoutAttachment**：不推进时间，连接或包围一个或多个主体，例如 tie、beam、box 和歌词。
+- **LoweringAttachment**：不推进时间，连接或包围一个或多个主体，例如 tie、beam、box 和歌词。
 - **LayoutDecoration**：属于单个主体的局部装饰，例如附点和减时线；Lowering 只把已冻结的语义放进 Temporal 的 `addon`，layout 再据此创建装饰。
 
 `LoweringGroup` 是收集局部范围的通用工具：`onTemporal` 观察事件，`onAttachment` 观察嵌套 attachment，退出时还可以提交自己的 attachment。核心引擎因此不必认识 `dot`、`div`、`box` 等具体函数。
@@ -102,7 +102,7 @@ type TimeFlowModel =
 interface LoweringResult {
     diagnostics: Diagnostic[];
     columns: TemporalNodeBase[][];
-    attachments: LayoutAttachment[];
+    attachments: LoweringAttachment[];
     astToTemporal: Map<ASTNodeBase, TemporalNodeBase[]>;
     duration: Fraction;
     rootTrack: Track;
@@ -111,7 +111,7 @@ interface LoweringResult {
 ```
 - `diagnostics`：与 parser 及后续 layout 共享的诊断数组。
 - `columns`：按时间和对齐规则组织的事件列。
-- `attachments`：不推进时间的排版关系。
+- `attachments`：不推进时间的中立附属对象，由 layout/playback 按能力消费。
 - `astToTemporal`：AST 到事件的一对多索引。
 - `duration`：整份文档的总时长。
 - `rootTrack`：纵向音轨树的根。
@@ -127,7 +127,7 @@ interface LoweringResult {
 | 自己产生事件 | `loweringEnter` / `loweringExit` 返回 Temporal |
 | 包裹并修饰一段内容 | `timeFlowModel` + `LoweringGroup` |
 | 让多个分支同时发生 | `timeFlowModel` 的 `parallel` 模式 |
-| 连接已有主体 | `LayoutAttachment` |
+| 创建布局附件或声明跨事件语义 | `LoweringAttachment` + 能力接口 |
 | 必须观察最终事件流 | `loweringAugment` / `loweringFinalize` |
 
 下面的代码省略了解析和绘制部分，只展示当前实现中的 lowering 思路。
@@ -221,13 +221,13 @@ class BeamFunction extends ASTFunctionNode {
 }
 ```
 
-`loweringAugment` 根据完整列生成 attachment；`loweringFinalize` 在所有新增关系就位后做校验。把这一步放到遍历之后，可以避免函数根据尚未稳定的 `t`、`track` 或 `layoutLine` 提前作出错误判断。
+`loweringAugment` 根据完整列生成 attachment；`loweringFinalize` 在所有新增 attachment 就位后做校验。把这一步放到遍历之后，可以避免函数根据尚未稳定的 `t`、`track` 或 `layoutLine` 提前作出错误判断。
 
 ### 最小接入步骤
 1. 将函数类放入传给 `compileScore` 的函数列表。
 2. 若函数产生时间主体，定义 Temporal，并从 `loweringEnter` 或 `loweringExit` 返回。
 3. 用 `timeFlowModel` 声明子节点是 `sequence`、`parallel`，还是不由通用引擎展开。
-4. 范围修饰使用 `LoweringGroup`，跨主体关系使用 `LayoutAttachment`。
+4. 范围修饰使用 `LoweringGroup`；附属对象使用 `LoweringAttachment`，并实现需要的 layout/playback 能力接口。
 5. 依赖最终时间流的逻辑放入静态 augment/finalize hook。
 
 实现入口见 [`src/lowering/loweringContext.ts`](../packages/jpfun/src/lowering/loweringContext.ts)，数据结构见 [`src/lowering/types.ts`](../packages/jpfun/src/lowering/types.ts)，音轨模型见 [`src/lowering/track.ts`](../packages/jpfun/src/lowering/track.ts)。下一阶段参见 [Layout](layout.md)。

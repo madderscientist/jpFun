@@ -2,6 +2,7 @@ import { test } from "node:test";
 
 import { DIV_ADDON_KEY } from "../src/functions/div/index.js";
 import { layoutDocument } from "../src/layout/engine.js";
+import type { LayoutAttachment } from "../src/layout/types.js";
 import { isVisualTemporalNode } from "../src/lowering/types.js";
 import { compileScore } from "../src/pipeline.js";
 import { assert, expectSnapshot, layoutContext, lower, nearly } from "./helpers.js";
@@ -50,7 +51,7 @@ test("完全被宿主包含的附件不触发重排", () => {
     const host = noExpansion.columns[0]?.find(isVisualTemporalNode);
     assert(host, "the contained occupancy test requires one visual host");
     let layoutCalls = 0;
-    noExpansion.attachments.push({
+    const containedRelation: LayoutAttachment = {
         layer: "foreground",
         createGeometry(context) {
             layoutCalls++;
@@ -69,7 +70,8 @@ test("完全被宿主包含的附件不触发重排", () => {
                 paint() {},
             };
         },
-    });
+    };
+    noExpansion.attachments.push(containedRelation);
     const noExpansionResult = layoutDocument(noExpansion, layoutContext);
     assert(layoutCalls === 1, "contained track occupancy must not trigger a redundant relayout");
     assert(noExpansionResult.attachments[0].box.h === host.box.h,
@@ -83,7 +85,7 @@ test("撑开轨道的附件在最终基线上重新布局", () => {
     const host = withOccupancy.columns.flat().find(isVisualTemporalNode);
     assert(host, "the occupancy test requires one visual host");
     let layoutCalls = 0;
-    withOccupancy.attachments.push({
+    const expandingRelation: LayoutAttachment = {
         layer: "foreground",
         createGeometry(context) {
             layoutCalls++;
@@ -92,7 +94,8 @@ test("撑开轨道的附件在最终基线上重新布局", () => {
                 paint() {},
             };
         },
-    });
+    };
+    withOccupancy.attachments.push(expandingRelation);
     const withOccupancyResult = layoutDocument(withOccupancy, layoutContext);
     const finalAxis = host.box.y + host.box.visualAxis;
     assert(layoutCalls === 2, "an attachment with track occupancy must be re-laid out on final axes");

@@ -151,7 +151,7 @@ class TupletFunction extends ASTFunctionNode {
         // 括线只依附可见主体；时值缩放本身仍覆盖所有收集到的事件。
         const visible = positive.filter(isVisualTemporalNode);
         if (visible.length >= 2) {
-            ctx.addLayoutAttachment(new TupletLayoutAttachment(visible, actual, this.sourceSpan));
+            ctx.addAttachment(new TupletLayoutAttachment(visible, actual, this.sourceSpan));
         }
         return [];
     }

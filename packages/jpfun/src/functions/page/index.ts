@@ -146,7 +146,7 @@ export class PageFunction extends ASTFunctionNode {
         if (!ctx || !this.config) return [];
         ctx.setPageConfig(this.config);
         if (this.numbering) {
-            ctx.addLayoutAttachment(
+            ctx.addAttachment(
                 new PageNumberAttachment(this.sourceSpan, this.numbering, this.config.marginBottom),
             );
         }

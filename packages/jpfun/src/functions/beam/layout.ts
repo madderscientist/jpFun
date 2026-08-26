@@ -15,6 +15,7 @@ import type {
     LayoutHost,
     LayoutPoint,
 } from "../../layout/types.js";
+import type { LoweringAttachment } from "../../lowering/types.js";
 import {
     claimDivLine,
     divLinePortName,
@@ -101,7 +102,7 @@ export function validateExplicitBeamAttachments(result: LoweringResult) {
 
 /** 自动分组在 loweringAugment 当下读取已经注册的显式 beam 端点 */
 export function collectExplicitBeamEndpoints(
-    attachments: readonly LayoutAttachment[],
+    attachments: readonly LoweringAttachment[],
 ): Set<TemporalNodeBase> {
     const result = new Set<TemporalNodeBase>();
     for (const attachment of attachments) {

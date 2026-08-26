@@ -26,15 +26,12 @@ const CHAR_QUOTE_DOUBLE = 34;
 const CHAR_BACKSLASH = 92;
 const CHAR_PERCENT = 37;
 
-// 高频创建空格串，按长度缓存，减少 repeat 带来的重复分配
-// 考虑到后续会频繁解析 保留此全局量
-const SPACE_CACHE = new Map<number, string>();
+// 掩码几乎都是短注释和续行反斜杠，长的既少重复又要一直占着内存，所以只缓存短的
+const MAX_CACHED_SPACES = 32;
+const SHORT_SPACES: string[] = [];
 function getSpaces(length: number): string {
-    let cached = SPACE_CACHE.get(length);
-    if (cached !== undefined) return cached;
-    cached = " ".repeat(length);
-    SPACE_CACHE.set(length, cached);
-    return cached;
+    if (length > MAX_CACHED_SPACES) return " ".repeat(length);
+    return SHORT_SPACES[length] ??= " ".repeat(length);
 }
 
 /**

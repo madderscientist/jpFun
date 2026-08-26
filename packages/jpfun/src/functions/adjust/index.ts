@@ -2,7 +2,8 @@ import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, LengthVal
 import { WarningDiagnostic } from "../../diagnostic.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import { isVisualTemporalNode, type LoweringGroup, type VisualTemporalNode } from "../../lowering/types.js";
-import type {
+import {
+    isLayoutAttachment,
     AttachmentLayoutContext,
     LayoutAttachment,
     LayoutPrepareContext,
@@ -71,6 +72,7 @@ class AdjustFunction extends ASTFunctionNode {
                 offsetTemporal(node, this);
             },
             onAttachment: attachment => {
+                if (!isLayoutAttachment(attachment)) return;
                 targets.attachment++;
                 offsetAttachment(attachment, targets, this.dx, this.dy);
             },

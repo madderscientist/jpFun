@@ -81,7 +81,7 @@ below 只向下扩张；主体内部或上方几何由具体 Temporal 的 `prepa
 ## 纵向占用
 `createGeometry` 返回本轮 `AttachmentGeometry`：全局坐标的 `regions` 始终用于最终外接盒、绘制与命中，缺省也当作轨道占用；无法把完整绘制边界归给单一 Track 的对象另外返回 `occupancy`，例如跨轨 `@tie` 只申报自己到该轨主体上沿那一段，否则两轨之间的空档会被重复计入较高的那条轨（本行没有主体接管下半截时只能申报几何自身）。
 
-引擎从最终 geometry 生成只读 `PlacedAttachment`，所以 `LoweringResult.attachments` 是语义定义、`DocumentLayoutResult.attachments` 是最终几何，两者不共享半成品状态。
+引擎从 `LoweringResult.attachments` 中筛出具备 `LayoutAttachment` 能力的对象，再从最终 geometry 生成只读 `PlacedAttachment`；`DocumentLayoutResult.attachments` 只保存最终几何，两者不共享半成品状态。
 
 `getHostExtent(line, track)` 只返回可见主体的稳定占用，不含 attachment。attachment 之间不互相避让；确实要读另一个 attachment 边界的（例如 `@box` 框住写在框内的 `@tie`）用 `getAttachmentBox`——几何按 lowering 注册顺序生成，而分组总在组内对象之后注册，所以只能读到排在自己之前的。归属只按 lowering 作用域判定：写在框外的关系不会因为端点在框内就被框住。
 

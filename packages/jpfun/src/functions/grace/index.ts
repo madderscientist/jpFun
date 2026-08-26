@@ -304,7 +304,7 @@ class GraceFunction extends ASTFunctionNode {
         // 折叠成员不进全局时间列，autobeam 看不到它们，要手动调用且强制连接
         for (const run of composite.graceRuns) {
             if (run.length < 2) continue;
-            ctx.addLayoutAttachment(createBeamLayoutAttachment([...run], false, this.grace.sourceSpan));
+            ctx.addAttachment(createBeamLayoutAttachment([...run], false, this.grace.sourceSpan));
         }
         return [composite];
     }

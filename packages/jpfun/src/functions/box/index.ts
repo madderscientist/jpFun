@@ -4,7 +4,7 @@ import { isVisualTemporalNode, type VisualTemporalNode } from "../../lowering/ty
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import { unionLayoutBoxes } from "../../layout/engine.js";
 import { layoutHorizontalRegion } from "../../layout/model.js";
-import type { AttachmentLayoutContext, HorizontalLineView, LayoutAttachment, Rect } from "../../layout/types.js";
+import { isLayoutAttachment, type AttachmentLayoutContext, type HorizontalLineView, type LayoutAttachment, type Rect } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";
 
 class BoxFunction extends ASTFunctionNode {
@@ -71,7 +71,7 @@ class BoxFunction extends ASTFunctionNode {
                 temporalMembers.push(node);
             },
             onAttachment(attachment) {
-                childAttachments.push(attachment);
+                if (isLayoutAttachment(attachment)) childAttachments.push(attachment);
             },
         });
         return [];
