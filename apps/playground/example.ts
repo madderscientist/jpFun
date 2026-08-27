@@ -60,6 +60,6 @@ L: 满天都是小星星
 
 @1(D4)  % 设置调性
 N: @set(note.color=#f0f) @box({#1,// n2/ b3'.-}, padding=0.2em)
-N: F7#/^@text(D调的F#) {5@x 6/@y} & {6/ 7<#4} C3/ ^ E3
+N: F7#/^@text(D调的F#) {5@x 6/@y} & {6/^$tr {7_$p}<#4} C3/ ^ E3
 @tie(x,y)
 `;

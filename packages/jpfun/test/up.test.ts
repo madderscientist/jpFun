@@ -151,3 +151,60 @@ test("叠在音符上方的状态标记传出和弦，但不撑宽横向占位",
     assert((graceState.objects[2] as { activeBpm?: number }).activeBpm === 150,
         "a tempo written inside a grace must escape the composite too");
 });
+
+/** 谱面上从高到低的数字顺序；y 越小越靠上 */
+const stackOrder = (source: string) => recordCommands(layoutOf(source))
+    .filter(command => command.kind === "text")
+    .sort((a, b) => a.y - b.y)
+    .map(command => command.text)
+    .join("");
+
+/** 逐位比较两份源码画出的文字位置 */
+const glyphPositions = (source: string) => recordCommands(layoutOf(source))
+    .filter(command => command.kind === "text")
+    .map(command => `${command.text}@${command.y.toFixed(4)}`)
+    .join(" ");
+
+test("_ 把成员叠到宿主下方，^ 叠到上方", () => {
+    assert(stackOrder(`1 ^ 3`) === "31", "^ 必须把后写的成员放在宿主上方");
+    assert(stackOrder(`1 _ 3`) === "13", "_ 必须把后写的成员放在宿主下方");
+    assert(glyphPositions(`1 _ 3`) === glyphPositions(`@down(1, 3)`),
+        "_ 语法糖必须与 @down 显式调用逐位一致");
+    // 宿主留在轨道基线上，所以只向下堆叠时视觉轴不会被抬高
+    const upward = layoutOf(`1 ^ 3`).objects[0] as VisualTemporalNode;
+    const downward = layoutOf(`1 _ 3`).objects[0] as VisualTemporalNode;
+    assert(nearly(upward.box.h, downward.box.h), "两个方向撑开的总高度必须相同");
+    assert(downward.box.visualAxis < upward.box.visualAxis,
+        "向下堆叠不得抬高视觉轴，否则宿主会离开轨道基线");
+});
+
+test("^ 与 _ 混写时全部绑到同一个宿主，像 LaTeX 上下标", () => {
+    // 1 是基，2 和 4 是上标，3 和 5 是下标；写成嵌套或链式必须完全一致
+    assert(stackOrder(`1^2_3^4_5`) === "42135",
+        "混写的上下标必须全部绑到第一个宿主，而不是逐层嵌套");
+    assert(glyphPositions(`1^2_3^4_5`) === glyphPositions(`@down(@up(1, 2, 4), 3, 5)`),
+        "链式混写必须等价于按方向分组的显式调用");
+    // 方向不会串：反过来写只是交换上下标
+    assert(stackOrder(`1 _ 3 ^ 5`) === "513", "先写下标再写上标必须仍然绑到同一个宿主");
+});
+
+test("混写折叠体的 toString 是可解析的等价写法", () => {
+    const foldNode = (source: string) => {
+        let found: ASTFunctionNode | undefined;
+        const visit = (node: ASTNodeBase) => {
+            if (node instanceof ASTFunctionNode && (node.callName === "up" || node.callName === "down")) found ??= node;
+            for (const child of node.children ?? []) visit(child);
+        };
+        visit(parse(source));
+        return found;
+    };
+    // hover 的「替换」按钮直接用这段文本改写源码，写不出来就会生成非法代码
+    const source = `1^2_3^4_5`;
+    const desugared = foldNode(source)!.toString(source);
+    assert(desugared.startsWith("@down(@up("), `混写必须输出嵌套形式，实际是 ${desugared}`);
+    assert(glyphPositions(desugared) === glyphPositions(source),
+        "替换成去糖写法之后谱面必须逐位不变");
+    assert(foldNode(`1 ^ 3`)!.toString(`1 ^ 3`).startsWith("@up("),
+        "纯向上的折叠体仍然输出 @up(...)");
+});
+

@@ -12,12 +12,14 @@ import { KeyNode } from "./key/index.js";
 import { MeterNode } from "./meter/index.js";
 import { BrNode } from "./br/index.js";
 import { NoteNode } from "./note/index.js";
-import { UpNode } from "./up/index.js";
+import { UpNode, DownNode } from "./up/index.js";
 import { PageNode } from "./page/index.js";
 import { StackNode } from "./stack/index.js";
+import { SymbolNode } from "./symbol/index.js";
 import { SetNode } from "./set/index.js";
 import { TempoNode } from "./tempo/index.js";
 import { TextNode } from "./text/index.js";
+import { VoltaNode } from "./volta/index.js";
 import { TieNode } from "./tie/index.js";
 import { TupletNode } from "./tuplet/index.js";
 import { VoiceNode, VoicesNode } from "./voice/index.js";
@@ -29,11 +31,11 @@ export const defaultFunctions: ASTFunctionClass[] = [
     BrNode,     // 排版
     PageNode, HeadNode,   // 文档页面与谱头
     StackNode,  // 时间同步
-    UpNode,
+    UpNode, DownNode,
     GraceNode,  // 倚音
     TieNode, BeamNode,
-    BoxNode,
+    BoxNode, VoltaNode,
     AdjustNode,   // 手工微调
     SetNode, KeyNode, MeterNode, TempoNode,    // 设置
-    TextNode,
+    TextNode, SymbolNode,
 ];

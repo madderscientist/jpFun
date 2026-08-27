@@ -6,10 +6,12 @@ import {
     isVisualTemporalNode,
     type VisualTemporalNode,
 } from "../../lowering/types.js";
+import { pathBounds } from "../../layout/path.js";
 import type {
     AttachmentLayoutContext,
     LayoutAttachment,
     LayoutPoint,
+    Rect,
 } from "../../layout/types.js";
 import type { Painter, PathCommand } from "../../render/types.js";
 import type { Track } from "../../lowering/track.js";
@@ -88,14 +90,10 @@ class TieFunction extends ASTFunctionNode {
 
 export const TieNode: ASTFunctionClass = TieFunction;
 
-interface TieSegment {
+interface TieSegment extends Rect {
     commands: PathCommand[];
     line: number;
     track: Track;
-    left: number;
-    top: number;
-    right: number;
-    bottom: number;
 }
 
 /** 二次贝塞尔在某一维上的内部极值 */
@@ -106,73 +104,6 @@ function quadExtremum(p0: number, p1: number, p2: number): number | null {
     if (t <= 0 || t >= 1) return null;
     const u = 1 - t;
     return u * u * p0 + 2 * u * t * p1 + t * t * p2;
-}
-
-/** 三次贝塞尔在某一维上的内部极值，最多两个 */
-function cubicExtrema(p0: number, p1: number, p2: number, p3: number, out: number[]) {
-    // 导数为 3(qa*t^2 + qb*t + a)，下面的 a 就是常数项
-    const a = p1 - p0;
-    const b = p2 - p1;
-    const c = p3 - p2;
-    const qa = a - 2 * b + c;
-    const qb = 2 * (b - a);
-
-    const push = (t: number) => {
-        if (t <= 0 || t >= 1) return;
-        const u = 1 - t;
-        out.push(u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3);
-    };
-
-    if (Math.abs(qa) < 1e-9) {
-        if (Math.abs(qb) > 1e-9) push(-a / qb);
-        return;
-    }
-    const disc = qb * qb - 4 * qa * a;
-    if (disc < 0) return;
-    const root = Math.sqrt(disc);
-    push((-qb + root) / (2 * qa));
-    push((-qb - root) / (2 * qa));
-}
-
-/**
- * 精确求出路径的外接矩形
- *
- * 控制点不直接计入：贝塞尔曲线并不会到达控制点，
- * 直接用它会把弧顶高估约三分之一，从而让上方的轨道被无谓推开
- */
-function pathBounds(commands: readonly PathCommand[]) {
-    let left = Infinity;
-    let top = Infinity;
-    let right = -Infinity;
-    let bottom = -Infinity;
-    const includeX = (x: number) => { left = Math.min(left, x); right = Math.max(right, x); };
-    const includeY = (y: number) => { top = Math.min(top, y); bottom = Math.max(bottom, y); };
-
-    let cx = 0;
-    let cy = 0;
-    const extrema: number[] = [];
-
-    for (const command of commands) {
-        if (command.op === "Z") continue;
-        if (command.op === "Q") {
-            const ex = quadExtremum(cx, command.cx, command.x);
-            if (ex !== null) includeX(ex);
-            const ey = quadExtremum(cy, command.cy, command.y);
-            if (ey !== null) includeY(ey);
-        } else if (command.op === "C") {
-            extrema.length = 0;
-            cubicExtrema(cx, command.cx1, command.cx2, command.x, extrema);
-            for (const value of extrema) includeX(value);
-            extrema.length = 0;
-            cubicExtrema(cy, command.cy1, command.cy2, command.y, extrema);
-            for (const value of extrema) includeY(value);
-        }
-        includeX(cx = command.x);
-        includeY(cy = command.y);
-    }
-
-    if (!Number.isFinite(left)) return { left: 0, top: 0, right: 0, bottom: 0 };
-    return { left, top, right, bottom };
 }
 
 class TieLayoutAttachment implements LayoutAttachment {
@@ -197,25 +128,18 @@ class TieLayoutAttachment implements LayoutAttachment {
 
     createGeometry(context: AttachmentLayoutContext) {
         const segments = this.createSegments(context);
-        const regions = segments.map(segment => ({
-            x: segment.left,
-            y: segment.top,
-            w: segment.right - segment.left,
-            h: segment.bottom - segment.top,
-            line: segment.line,
-            track: segment.track,
-        }));
+        const regions = segments.map(({ commands, ...region }) => region);
         const occupancy = segments.map(segment => {
             // 只申报主体上方那一段，下半截由主体自己占；本行没有主体时就只有弧带本身
             const hostExtent = context.getHostExtent(segment.line, segment.track);
             const bottom = hostExtent
-                ? Math.max(segment.top, context.getVisualAxis(segment.line, segment.track) + hostExtent.top)
-                : segment.bottom;
+                ? Math.max(segment.y, context.getVisualAxis(segment.line, segment.track) + hostExtent.top)
+                : segment.y + segment.h;
             return {
-                x: segment.left,
-                y: segment.top,
-                w: segment.right - segment.left,
-                h: bottom - segment.top,
+                x: segment.x,
+                y: segment.y,
+                w: segment.w,
+                h: bottom - segment.y,
                 line: segment.line,
                 track: segment.track,
             };
