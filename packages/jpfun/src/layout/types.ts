@@ -106,6 +106,8 @@ export interface LayoutHost extends TimeLineEvent {
 export interface HorizontalLineView {
     /** 谱面行号，与 host.layoutLine 同一坐标系 */
     readonly index: number;
+    /** 本行按横向顺序排列的可见时间列 */
+    readonly columns: readonly (readonly LayoutHost[])[];
     /** 同一 Track 上按时间列顺序排好的主体，相邻两项即视觉上的前后邻居 */
     readonly trackRuns: ReadonlyMap<Track, readonly LayoutHost[]>;
     /** 主体所在时间列下标；不在本行时返回 -1 */
@@ -213,7 +215,11 @@ export interface LayoutAttachment extends LoweringAttachment {
     readonly layer: "background" | "foreground";
     /** 对应的源码范围；自动生成图形可覆盖其首末宿主的源码 */
     readonly sourceSpan?: SourceSpan;
-    /** 横向求解前：可测量资源、调整弹簧参数或注册横向布局 hook，不得改变对象/列顺序 */
+    /**
+     * 横向求解前：可测量资源、调整弹簧参数或注册横向布局 hook，不得改变对象/列顺序
+     *
+     * 此时 box 的固有尺寸 w/h/anchor/visualAxis 已是终值，只有 x/y 未定
+     */
     prepareHorizontal?(lines: HorizontalLineView[], context: LayoutPrepareContext): void;
     createGeometry(context: AttachmentLayoutContext): AttachmentGeometry;
 }

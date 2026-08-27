@@ -356,6 +356,7 @@ function buildLineViews(lines: readonly LayoutLine[], force?: number): Horizonta
 
         return {
             index,
+            columns: line.columns,
             trackRuns,
             columnOf: host => columnIndex.get(host) ?? -1,
             registerHorizontalLayoutHook(from, to, hook) {
