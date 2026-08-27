@@ -63,11 +63,7 @@ function applyOpacity(context: CanvasRenderingContext2D, style?: PaintStyle) {
  * 调用方可以在构造前配置 context，再使用同一个布局结果绘制
  */
 export class CanvasPainter implements Painter {
-    private context: CanvasRenderingContext2D;
-
-    constructor(context: CanvasRenderingContext2D) {
-        this.context = context;
-    }
+    constructor(private readonly context: CanvasRenderingContext2D) {}
 
     drawText(text: string, x: number, y: number, style: TextStyle) {
         this.context.save();
