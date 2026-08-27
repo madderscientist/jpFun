@@ -1,6 +1,7 @@
 import { LengthValue, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
 import { ANCHOR_KEY, TemporalNodeBase } from "../../lowering/types.js";
+import type { PlaybackColumnOf, PlaybackCursor, PlaybackFlow, PlaybackFlowHook } from "../../playback/types.js";
 import type { HorizontalLineView, LayoutBox, LayoutHost } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";
 
@@ -72,7 +73,7 @@ class BarFunction extends ASTFunctionNode {
     }
 
     override loweringEnter() {
-        return [new BarTemporalNode(this)];
+        return [this.type >= 2 ? new RepeatBarTemporalNode(this) : new BarTemporalNode(this)];
     }
 
     override toString() {
@@ -203,5 +204,40 @@ class BarTemporalNode extends TemporalNodeBase {
                 { fill: "#000" },
             );
         }
+    }
+}
+
+
+/** 反复段起点标记：`:|` 靠它找回跳目标，遍数也按它计数 */
+const REPEAT_START = "repeat.start";
+
+/**
+ * 某一列此刻处在所属反复段的第几遍
+ *
+ * 遍数是回跳的直接后果，所以和跳转规则一样归小节线所有；房子只消费这个数。
+ * 没有 `|:` 时整首曲子就是一段。
+ */
+export function repeatPass(cursor: PlaybackCursor, column: number): number {
+    return cursor.visits(cursor.seek(REPEAT_START, column, -1) ?? 0);
+}
+
+/** 只有反复线参与播放顺序；普通小节线太多，进控制流扫描是纯开销 */
+class RepeatBarTemporalNode extends BarTemporalNode implements PlaybackFlow {
+    /** 只在 type>=2 时创建，所以剩下的三种是：2 段首、3 段尾、4 两者都是 */
+    playbackMarks(): readonly string[] {
+        return this.ast.type === 3 ? [] : [REPEAT_START];
+    }
+
+    /** 每条反复线只回跳一次，所以连写几条就是几遍 */
+    playbackFlow(columnOf: PlaybackColumnOf): PlaybackFlowHook | undefined {
+        if (this.ast.type === 2) return;
+        const at = columnOf(this);
+        if (at === undefined) return;
+        return {
+            range: [at, at],
+            run: cursor => cursor.visits(at) > 1
+                ? undefined
+                : { kind: "jump", column: cursor.seek(REPEAT_START, at, -1) ?? 0 },
+        };
     }
 }

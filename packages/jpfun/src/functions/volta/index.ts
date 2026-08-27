@@ -13,6 +13,8 @@ import {
     type VisualTemporalNode,
 } from "../../lowering/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
+import type { PlaybackColumnOf, PlaybackFlow, PlaybackFlowHook } from "../../playback/types.js";
+import { repeatPass } from "../bar/index.js";
 import {
     ASTFunctionNode,
     type ASTFunctionClass,
@@ -110,7 +112,7 @@ function barIn(column: readonly LayoutHost[] | undefined) {
     return column[0];
 }
 
-class VoltaAttachment implements LayoutAttachment {
+class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
     layer = "foreground" as const;
 
     /** 首末端点列最上方的对象、区间最大字号与紧邻的小节线，横向准备时填入 */
@@ -130,6 +132,22 @@ class VoltaAttachment implements LayoutAttachment {
 
     get passes() { return this.ast.passes; }
     get sourceSpan(): SourceSpan { return this.ast.sourceSpan; }
+
+    /** 房子只决定跳不跳过本列；遍数怎么数、什么时候回跳都归小节线 */
+    playbackFlow(columnOf: PlaybackColumnOf): PlaybackFlowHook | undefined {
+        const from = columnOf(this.from);
+        const to = columnOf(this.to);
+        if (from === undefined || to === undefined) return;
+        const start = Math.min(from, to);
+        const end = Math.max(from, to);
+        return {
+            range: [start, end],
+            // 这里还是会和 bar 耦合。但只有bar有反复功能，不值得抽取为系统机制
+            run: cursor => this.passes.includes(repeatPass(cursor, start))
+                ? undefined
+                : { kind: "jump", column: end + 1 },
+        };
+    }
 
     prepareHorizontal(lines: HorizontalLineView[]) {
         if (!isVisualTemporalNode(this.from) || !isVisualTemporalNode(this.to)) return;

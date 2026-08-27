@@ -341,7 +341,7 @@ function includeTrackExtent(
  */
 function buildLineViews(lines: readonly LayoutLine[], force?: number): HorizontalLineView[] {
     return lines.map((line, index) => {
-        const columnIndex = new Map<LayoutHost, number>();
+        const columnIndex = new Map<LayoutHost, number>();  // 不考虑被折叠的。要查询的话需要从 foldedInto 追溯到宿主
         const trackRuns = new Map<Track, VisualTemporalNode[]>();
 
         for (let i = 0; i < line.columns.length; i++) {
