@@ -28,6 +28,22 @@ export type LoweringAugmenter = (result: LoweringResult) => Iterable<LoweringAtt
 export type LoweringFinalizer = (result: LoweringResult) => void;
 
 /**
+ * 沿记谱顺序流动的时间状态
+ *
+ * 速度、力度、调性是系统级字段：有确定的类型和初值，任何时刻都能直接读，不用写兼容分支。
+ * 其余键由具体函数自行约定，核心不认识。
+ */
+export interface TimeState {
+    bpm: number;
+    velocity: number;
+    keySignature: string;
+    [key: string]: any;
+}
+export const DEFAULT_BPM = 120;
+export const DEFAULT_VELOCITY = 80;
+export const DEFAULT_TONALITY = "C4";
+
+/**
  * lowering 的输出
  *
  * - columns 时间列，是横向弹簧模型的输入
@@ -170,7 +186,7 @@ export class TemporalNodeBase implements TimeLineEvent {
      * 时间状态 修改&冻结 入口
      * 调用时机在时间位置已经确定之后，处理“调性、速度、拍号”等时间信息的固化
      */
-    onTimeState?(state: Record<string, any>): void;
+    onTimeState?(state: TimeState): void;
 
     /**
      * 根据已经固化的语义生成固有尺寸

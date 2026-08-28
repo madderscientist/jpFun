@@ -7,6 +7,7 @@ import type { Track } from "../../lowering/track.js";
 import {
     isVisualTemporalNode,
     TemporalNodeBase,
+    type TimeState,
     type VisualTemporalNode,
 } from "../../lowering/types.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
@@ -392,7 +393,7 @@ export class GraceTemporal extends TemporalNodeBase {
     }
 
     /** 成员共享全局时间状态，按发声顺序固化 */
-    override onTimeState(state: Record<string, any>) {
+    override onTimeState(state: TimeState) {
         // 同步时间的修改。比如tuplet修改的是GraceTemporal.T，这里要把它传给成员
         this.host.T.copyFrom(this.T);
         const members = this.side === "pre"

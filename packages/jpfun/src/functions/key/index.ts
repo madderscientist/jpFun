@@ -1,4 +1,4 @@
-import { TemporalNodeBase } from "../../lowering/types.js";
+import { DEFAULT_TONALITY, TemporalNodeBase, type TimeState } from "../../lowering/types.js";
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, LengthValue, ParserContext, SourceSpan } from "../ASTtypes.js";
 import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { parseNoteName } from "../note/noteNameFSM.js";
@@ -78,7 +78,7 @@ class KeyFunction extends ASTFunctionNode {
                 `@key 无法解析调性 "${tonality}"`,
                 sourceSpan
             );
-            this.tonality = normalized ?? 'C4';
+            this.tonality = normalized ?? DEFAULT_TONALITY;
             ctx.diagnostics.push(new WarningDiagnostic(
                 "W_KEY_TONALITY",
                 `@key 的调性 "${tonality}" 不是规范写法，已自动切换到 ${this.tonality}`,
@@ -125,7 +125,7 @@ class KeyTemporalNode extends TemporalNodeBase {
         this.initLayoutBox();
     }
 
-    override onTimeState(state: Record<string, any>) {
+    override onTimeState(state: TimeState) {
         state.keySignature = this.ast.tonality;
     }
 

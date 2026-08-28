@@ -2,7 +2,6 @@ import { WarningDiagnostic } from "../diagnostic.js";
 import type { LoweringResult, TemporalNodeBase } from "../lowering/types.js";
 import type { PlaybackCursor, PlaybackFlow, PlaybackFlowHook } from "./types.js";
 
-const MAX_FLOW_STEPS = 1 << 16;
 /**
  * 按控制流声明展开出实际访问的列顺序
  *
@@ -52,11 +51,13 @@ function linearizeColumns(lowering: LoweringResult, diagnostics: WarningDiagnost
 
     for (const list of marked.values()) list.sort((a, b) => a - b);
     // 每个位置有哪些 hook。主要因为跳房子是 attachment 还有覆盖范围
-    const hooksByColumn: Record<number, PlaybackFlowHook[]> = {};
+    const hooksByColumn = new Map<number, PlaybackFlowHook[]>();
     for (const hook of hooks) {
         const [from, to] = hook.range ?? [0, columns.length - 1];
-        for (let index = from; index <= to; index++) {
-            (hooksByColumn[index] ??= []).push(hook);
+        for (let at = from; at <= to; at++) {
+            const list = hooksByColumn.get(at);
+            if (list) list.push(hook);
+            else hooksByColumn.set(at, [hook]);
         }
     }
     const visits = new Array<number>(columns.length).fill(0);
@@ -74,6 +75,7 @@ function linearizeColumns(lowering: LoweringResult, diagnostics: WarningDiagnost
     };
 
     const order: number[] = []; // 记录最终的播放顺序
+    const MAX_FLOW_STEPS = 1 << 16;
     let steps = 0;  // 防死循环
     let ended = false;  // stop 或步数上限；提前结束时后面的列不算“没演到”
     flow: while (index < columns.length) {
@@ -88,7 +90,7 @@ function linearizeColumns(lowering: LoweringResult, diagnostics: WarningDiagnost
         }
         visits[index]++;
         let jumpTo: number | undefined;
-        for (const hook of hooksByColumn[index] ?? []) {
+        for (const hook of hooksByColumn.get(index) ?? []) {
             const action = hook.run(cursor);
             if (!action) continue;
             if (action.kind === "stop") { ended = true; break flow; }

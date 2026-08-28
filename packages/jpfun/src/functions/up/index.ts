@@ -7,6 +7,7 @@ import {
     DEFAULT_KEY,
     isVisualTemporalNode,
     TemporalNodeBase,
+    type TimeState,
     type VisualTemporalNode,
 } from "../../lowering/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
@@ -331,7 +332,7 @@ class FoldTemporal extends TemporalNodeBase {
     /**
      * 成员共享全局时间状态，从写在最后的成员开始固化
      */
-    override onTimeState(state: Record<string, any>) {
+    override onTimeState(state: TimeState) {
         // 宿主写在最前面，标记写在它后面；标记先写入状态，宿主才读得到
         for (let i = this.members.length - 1; i >= 0; i--) {
             const member = this.members[i];

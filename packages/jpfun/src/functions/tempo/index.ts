@@ -1,4 +1,4 @@
-import { TemporalNodeBase } from "../../lowering/types.js";
+import { TemporalNodeBase, type TimeState } from "../../lowering/types.js";
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, LengthValue, ParserContext, SourceSpan } from "../ASTtypes.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
@@ -68,7 +68,7 @@ class TempoTemporalNode extends TemporalNodeBase {
         this.initLayoutBox();
     }
 
-    override onTimeState(state: Record<string, any>) {
+    override onTimeState(state: TimeState) {
         state.bpm = this.ast.bpm;
     }
 

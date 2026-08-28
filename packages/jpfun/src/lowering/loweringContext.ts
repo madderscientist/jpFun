@@ -4,12 +4,16 @@ import { ASTFunctionClass, ASTNodeBase } from "../functions/ASTtypes.js";
 import type { PageConfig } from "../layout/types.js";
 import {
     ANCHOR_KEY,
+    DEFAULT_BPM,
+    DEFAULT_TONALITY,
+    DEFAULT_VELOCITY,
     TemporalNodeBase,
     type LoweringAugmenter,
     type LoweringFinalizer,
     type LoweringGroup,
     type LoweringAttachment,
     type LoweringResult,
+    type TimeState,
 } from "./types.js";
 import { Track } from "./track.js";
 
@@ -125,7 +129,11 @@ export class LoweringContext {
         }
 
         // 行号全部就位后再固化时间状态，up 等节点才能把行号转发给内部成员
-        const state: Record<string, any> = {};
+        const state: TimeState = {
+            bpm: DEFAULT_BPM,
+            velocity: DEFAULT_VELOCITY,
+            keySignature: DEFAULT_TONALITY,
+        };
         for (const column of columns) {
             for (const node of column) node.onTimeState?.(state);
         }
