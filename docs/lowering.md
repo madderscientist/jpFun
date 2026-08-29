@@ -80,6 +80,8 @@ type TimeFlowModel =
 
 时间状态不能更早固化，因为并行分支的锚点归并仍可能修改事件时间。调性、速度等依赖时间顺序的语义，应在 `onTimeState` 中从共享状态读取并冻结到 Temporal，而不是修改 AST。
 
+速度、力度、调性是 `TimeState` 的**系统级字段**：有确定的类型和初值，任何时刻都能直接读，不用写兼容分支。其余键由具体函数自行约定，核心不认识。
+
 ### 4. 生成附属对象
 时间列、Track 和行号全部稳定后，Lowering 才处理需要观察完整结果的 attachment：
 
@@ -106,6 +108,7 @@ interface LoweringResult {
     astToTemporal: Map<ASTNodeBase, TemporalNodeBase[]>;
     duration: Fraction;
     rootTrack: Track;
+    tracks: readonly Track[];
     page?: PageConfig;
 }
 ```
@@ -115,6 +118,7 @@ interface LoweringResult {
 - `astToTemporal`：AST 到事件的一对多索引。
 - `duration`：整份文档的总时长。
 - `rootTrack`：纵向音轨树的根。
+- `tracks`：实际承载 Temporal 的轨道；索引就是首次使用时固化的 `Track.id`，空轨不进入。
 - `page`：可选的页面配置。
 
 ## 如何把函数接入 Lowering
