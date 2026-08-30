@@ -12,6 +12,13 @@ export interface PlaybackTempoEvent {
     readonly bpm: number;
 }
 
+export interface PlaybackTimeSignatureEvent {
+    readonly kind: "time-signature";
+    readonly at: Fraction;
+    readonly numerator: number;
+    readonly denominator: number;
+}
+
 export interface PlaybackNoteOnEvent {
     readonly kind: "note-on";
     readonly at: Fraction;
@@ -30,7 +37,11 @@ export interface PlaybackNoteOffEvent {
     readonly midi: number;
 }
 
-export type PlaybackEvent = PlaybackTempoEvent | PlaybackNoteOnEvent | PlaybackNoteOffEvent;
+export type PlaybackEvent =
+    | PlaybackTempoEvent
+    | PlaybackTimeSignatureEvent
+    | PlaybackNoteOnEvent
+    | PlaybackNoteOffEvent;
 
 
 /** 一次 `play(node)` 访问；对象身份区分同一节点在反复中的不同访问 */
@@ -65,10 +76,17 @@ export interface PlaybackDraftTempoEvent extends PlaybackDraftEventBase {
     bpm: number;
 }
 
+export interface PlaybackDraftTimeSignatureEvent extends PlaybackDraftEventBase {
+    kind: "time-signature";
+    numerator: number;
+    denominator: number;
+}
+
 export type PlaybackDraftEvent =
     | PlaybackDraftNoteOnEvent
     | PlaybackDraftNoteOffEvent
-    | PlaybackDraftTempoEvent;
+    | PlaybackDraftTempoEvent
+    | PlaybackDraftTimeSignatureEvent;
 
 export type PlaybackEventInput =
     | {
@@ -83,12 +101,19 @@ export type PlaybackEventInput =
         kind: "note-off";
         at: Fraction;
         noteId: PlaybackNoteId;
+    }
+    | {
+        kind: "time-signature";
+        at: Fraction;
+        numerator: number;
+        denominator: number;
     };
 
 const EVENT_PRIORITY = {
     tempo: 0,
-    "note-off": 1,
-    "note-on": 2,
+    "time-signature": 1,
+    "note-off": 2,
+    "note-on": 3,
 } satisfies Record<PlaybackDraftEvent["kind"], number>;
 
 export function comparePlaybackDraftEvents(left: PlaybackDraftEvent, right: PlaybackDraftEvent) {
@@ -121,6 +146,14 @@ export function finalizePlaybackEvents(events: readonly PlaybackDraftEvent[]): P
 
     return events.map(event => {
         if (event.kind === "tempo") return { kind: "tempo", at: event.at, bpm: event.bpm };
+        if (event.kind === "time-signature") {
+            return {
+                kind: "time-signature",
+                at: event.at,
+                numerator: event.numerator,
+                denominator: event.denominator,
+            };
+        }
         const on = event.kind === "note-on" ? event : noteOns.get(event.noteId)!;
         const track = on.track.id;
         if (track === undefined) throw new Error("Playback event uses an unknown Track");

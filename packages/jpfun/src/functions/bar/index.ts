@@ -28,7 +28,7 @@ class BarFunction extends ASTFunctionNode {
                 name: "length",
                 type: "length" as const,
                 default: {
-                    value: 1,
+                    value: 1.25,
                     unit: "em",
                 } as LengthValue,
             },
@@ -61,15 +61,13 @@ class BarFunction extends ASTFunctionNode {
     };
 
     type: number;
-    barLength: number;    // 固化值
     size: number;
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
-        const [type, barlen] = this.getArgValue(args, ctx) as [number, LengthValue];
+        const [type, size] = this.getArgValue(args, ctx) as [number, LengthValue];
         this.type = type;
-        this.barLength = ctx.length2px(barlen);
-        this.size = ctx.fontSize;
+        this.size = ctx.length2px(size);
     }
 
     override loweringEnter() {
@@ -77,7 +75,7 @@ class BarFunction extends ASTFunctionNode {
     }
 
     override toString() {
-        return `@bar(${this.type}, ${this.barLength}px)`;
+        return `@bar(${this.type}, ${this.size}px)`;
     }
 }
 
@@ -136,11 +134,11 @@ class BarTemporalNode extends TemporalNodeBase {
     }
 
     override prepareLayout() {
-        const { type, barLength, size } = this.ast;
+        const { type, size } = this.ast;
         this.lines.length = 0;
         this.repeatDots.length = 0;
 
-        const h = Math.max(barLength, size * 0.6);
+        const h = size;
         const thin = Math.max(1, size * 0.065);
         const thick = thin * 2.6;
         const gap = thin * 1.8;

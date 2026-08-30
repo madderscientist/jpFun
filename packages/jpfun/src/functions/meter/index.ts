@@ -3,6 +3,7 @@ import { Fraction } from "../../fraction.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import { ANCHOR_KEY, TemporalNodeBase, type LoweringResult } from "../../lowering/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
+import type { PlaybackEmitter } from "../../playback/types.js";
 import {
     ASTFunctionNode,
     type ASTFunctionClass,
@@ -140,6 +141,15 @@ class MeterTemporal extends TemporalNodeBase {
             fill: "#000",
         };
         this.initLayoutBox();
+    }
+
+    override emitPlayback(emitter: PlaybackEmitter) {
+        emitter.emit({
+            kind: "time-signature",
+            at: emitter.start,
+            numerator: this.ast.numerator,
+            denominator: this.ast.denominator,
+        });
     }
 
     override prepareLayout(context: LayoutPrepareContext) {

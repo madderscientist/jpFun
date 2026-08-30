@@ -14,9 +14,10 @@ compilePlayback(lowering, options?): PlaybackPlan
 ```text
 NoteOn(at, noteId, track, midi, velocity)
 NoteOff(at, noteId, track, midi)
+TimeSignature(at, numerator, denominator)
 ```
 
-最终 `PlaybackPlan.events` 当前只含 `tempo`、`note-on`、`note-off`。同一时刻固定按 `tempo -> note-off -> note-on` 排序，同类保持来源顺序。
+最终 `PlaybackPlan.events` 当前包含 `tempo`、`time-signature`、`note-on`、`note-off`。同一时刻固定按 `tempo -> time-signature -> note-off -> note-on` 排序，同类保持来源顺序。拍号不参与 QN 到秒的积分，只供 MIDI、节拍显示等设备适配器消费。
 
 NoteOn 的 `midi` 保留核心按记谱语义计算出的逻辑音高，不在这里钳制或整数化；具体 MIDI 适配器负责转换为目标设备接受的音高表示。
 
@@ -134,6 +135,10 @@ stateAt(time)
 
 note 从固化音高、力度和 Track 发布一对 NoteOn/NoteOff。休止符、占位符和节拍记号不发声，但仍推进 performance QN。
 
+### Meter
+
+meter 发布 TimeSignature。事件与其它 Temporal 一样按实际控制流访问生成，因此反复段内的拍号每遍都会出现，反复段外的拍号只出现一次。core 保留任意正整数分母；Standard MIDI File 只能表示以 2 为幂的分母，该限制由 MIDI 适配器在导出边界检查。
+
 ### Up 与 Grace
 
 up 按附属成员到宿主的顺序调用 `play`。grace 在宿主区间内计算借时，再用显式 start/duration 发布倚音和宿主。
@@ -171,3 +176,5 @@ Lowering 在 Track 首次承载 Temporal 时按全局事件创建顺序分配 `T
 `PlaybackPlan` 提供 `events`、`scoreMap`、`trackCount`、`performanceDuration`、`durationSeconds` 和 `diagnostics`。
 
 Web Audio、Web MIDI 和 Standard MIDI File 适配器都消费同一份事件计划。设备选择、PPQ 量化、实时调度和文件编码不属于 core playback 编译器。
+
+playground 只在播放标签首次激活、标签保持激活且源码重新排版成功，或用户明确请求 MIDI 导出时调用 `compilePlayback`，相同源码版本复用计划。tinySynth 适配器把 NoteOn/NoteOff 配对后按 Tempo 积分成秒，并用短前瞻窗口调度到 AudioContext；MIDI 适配器固定使用 480 PPQ，在文件边界完成整数化与设备范围检查。两者都不重新解释反复、房子、倚音或装饰音。
