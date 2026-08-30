@@ -42,14 +42,14 @@ test("meter 非法参数回落为 4/4", () => {
 });
 
 test("meter 精确校验完整、过长与不足小节", () => {
-    assert(lower(`@meter(2,4) 1 2 | 3 4 |`).diagnostics.length === 0,
-        "complete measures must not produce diagnostics");
-    assert(lower(`@meter(6,8) 1/ 2/ 3/ 4/ 5/ 6/ |`).diagnostics.length === 0,
+    assert(lower(`@meter(4,4) 1 | 2 3 4 5 |`).diagnostics.length === 0,
+        "content before the first barline must not be validated");
+    assert(lower(`@meter(6,8) | 1/ 2/ 3/ 4/ 5/ 6/ |`).diagnostics.length === 0,
         "six eighth notes must fill 6/8 exactly");
-    assert(lower(`@meter(3,3) 1 2 3 4 |`).diagnostics.length === 0,
+    assert(lower(`@meter(3,3) | 1 2 3 4 |`).diagnostics.length === 0,
         "non-power-of-two denominators must compare exactly");
 
-    for (const source of ["@meter(2,4) 1 |", "@meter(2,4) 1 2 3 |", "@meter(2,4) 1"]) {
+    for (const source of ["@meter(4,4) 1 2 3 4 5 |", "@meter(4,4) | 1 | 2 3 4 5 |", "@meter(2,4) | 1 2 3 |", "@meter(2,4) | 1"]) {
         const diagnostics = lower(source).diagnostics;
         assert(diagnostics.some(diagnostic => diagnostic.code === "W_METER_MISMATCH"),
             `${source} must report W_METER_MISMATCH`);
@@ -57,19 +57,19 @@ test("meter 精确校验完整、过长与不足小节", () => {
 });
 
 test("meter 失配诊断覆盖整个小节", () => {
-    const source = `@meter(2,4) 1 | 2 |`;
+    const source = `@meter(2,4) | 1 | 2 |`;
     const diagnostics = lower(source).diagnostics.filter(diagnostic => diagnostic.code === "W_METER_MISMATCH");
     const firstBarEnd = source.indexOf("|") + 1;
     const secondBarEnd = source.lastIndexOf("|") + 1;
     assert(diagnostics.length === 2, "both incomplete measures must be reported");
-    assert(diagnostics[0].span.start === source.indexOf(")") + 1 && diagnostics[0].span.end === firstBarEnd,
-        "the first diagnostic must cover from the meter boundary through its barline");
-    assert(diagnostics[1].span.start === firstBarEnd && diagnostics[1].span.end === secondBarEnd,
+    assert(diagnostics[0].span.start === firstBarEnd && diagnostics[0].span.end === source.indexOf("|", firstBarEnd) + 1,
+        "the first diagnostic must start at the first barline");
+    assert(diagnostics[1].span.start === diagnostics[0].span.end && diagnostics[1].span.end === secondBarEnd,
         "the next diagnostic must cover from the previous barline through the closing barline");
 });
 
 test("meter 按声明处 strict 决定失配是否中断", () => {
-    const source = `@set(strict=true) @meter(2,4) 1 |`;
+    const source = `@set(strict=true) @meter(2,4) | 1 |`;
     let thrown: unknown = null;
     try {
         lower(source);
@@ -78,8 +78,8 @@ test("meter 按声明处 strict 决定失配是否中断", () => {
     }
     assert(thrown instanceof ErrorDiagnostic && thrown.code === "E_METER_MISMATCH",
         "strict meter mismatch must throw E_METER_MISMATCH");
-    assert(thrown.span.start === source.indexOf(")", source.indexOf("@meter")) + 1
-        && thrown.span.end === source.indexOf("|") + 1,
+    assert(thrown.span.start === source.indexOf("|") + 1
+        && thrown.span.end === source.lastIndexOf("|") + 1,
         "strict mismatch must cover the complete measure source");
 });
 

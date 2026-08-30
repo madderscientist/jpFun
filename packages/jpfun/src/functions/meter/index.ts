@@ -72,10 +72,15 @@ class MeterFunction extends ASTFunctionNode {
         return [new MeterTemporal(this)];
     }
 
+    /**
+     * 校验小节拍数
+     * 第一小节特殊规则：只允许不满拍，但不能超拍
+     */
     static override loweringFinalize = (result: LoweringResult) => {
         const measureStart = new Fraction();
         const measureLength = new Fraction();
         let active: MeterFunction | null = null;
+        let validationStarted = false;
         // 诊断范围从上一边界之后延伸到当前关闭边界
         let sourceStart = 0;
 
@@ -83,7 +88,8 @@ class MeterFunction extends ASTFunctionNode {
             if (!active || end.equals(measureStart)) return;
             // Fraction 运算会原地修改接收者，不能直接对时间线字段做减法
             measureLength.copyFrom(end).sub(measureStart);
-            if (!measureLength.equals(active.measureDuration)) {
+            if (!measureLength.equals(active.measureDuration)
+                && (validationStarted || measureLength.compare(active.measureDuration) > 0)) {
                 const message = `小节时长为 ${measureLength} QN，不满足 ${active.numerator}/${active.denominator} 拍号`;
                 const span = { start: sourceStart, end: sourceEnd };
                 if (active.strict) throw new ErrorDiagnostic("E_METER_MISMATCH", message, span);
@@ -105,6 +111,7 @@ class MeterFunction extends ASTFunctionNode {
             if (anchor) {
                 closeMeasure(time, anchor.ast.sourceSpan.end);
                 sourceStart = anchor.ast.sourceSpan.end;
+                validationStarted = true;
             }
         }
 
