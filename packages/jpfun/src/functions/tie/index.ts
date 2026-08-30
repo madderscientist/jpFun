@@ -14,6 +14,14 @@ import type {
     Rect,
 } from "../../layout/types.js";
 import type { Painter, PathCommand } from "../../render/types.js";
+import type {
+    PlaybackDraftNoteOffEvent,
+    PlaybackDraftNoteOnEvent,
+} from "../../playback/event.js";
+import type {
+    PlaybackHookContext,
+    PlaybackRelation,
+} from "../../playback/types.js";
 import type { Track } from "../../lowering/track.js";
 
 /** 三次贝塞尔控制点的抬高系数：两个控制点同高时，实际弧高恰好是抬高的 3/4 */
@@ -106,7 +114,7 @@ function quadExtremum(p0: number, p1: number, p2: number): number | null {
     return u * u * p0 + 2 * u * t * p1 + t * t * p2;
 }
 
-class TieLayoutAttachment implements LayoutAttachment {
+class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
     layer = "foreground" as const;
     readonly sourceSpan: SourceSpan;
 
@@ -124,6 +132,42 @@ class TieLayoutAttachment implements LayoutAttachment {
             0,
         );
         this.thickness = Math.max(1.2, size * THICKNESS_RATIO);
+    }
+
+    /**
+    * 只有同轨、同音、演奏时间连续的事件对才合并，其余 tie 纯视觉
+     *
+    * 反复会让同一个端点产生多个事件对，所以按首端点的每一个 NoteOn 各串一条链。
+     */
+    applyPlayback(context: PlaybackHookContext) {
+        const noteOns = () => context.events
+            .filter((event): event is PlaybackDraftNoteOnEvent => event.kind === "note-on");
+        const noteOff = (noteId: number) => context.events
+            .find((event): event is PlaybackDraftNoteOffEvent =>
+                event.kind === "note-off" && event.noteId === noteId);
+        for (const head of noteOns().filter(note =>
+            note.origins.some(origin => origin.node === this.endPoints[0]))) {
+            for (let i = 1; i < this.endPoints.length; i++) {
+                const end = noteOff(head.noteId);
+                if (!end) break;
+                const next = noteOns().find(note => note.noteId !== head.noteId
+                    && note.origins.some(origin => origin.node === this.endPoints[i])
+                    && note.track === head.track
+                    && note.midi === head.midi
+                    && end.at.equals(note.at));
+                if (!next) break;
+                const nextOff = noteOff(next.noteId);
+                if (!nextOff) break;
+                head.sourceSpans.push(...next.sourceSpans);
+                for (const origin of next.origins) {
+                    if (!head.origins.includes(origin)) head.origins.push(origin);
+                }
+                nextOff.noteId = head.noteId;
+                nextOff.origins = [...head.origins];
+                context.events.splice(0, context.events.length,
+                    ...context.events.filter(event => event !== end && event !== next));
+            }
+        }
     }
 
     createGeometry(context: AttachmentLayoutContext) {

@@ -9,14 +9,17 @@ import {
     type SourceSpan,
 } from "../src/functions/ASTtypes.js";
 import { defaultFunctions } from "../src/functions/default.js";
-import { TemporalNodeBase } from "../src/lowering/types.js";
+import { TemporalNodeBase, type VisualTemporalNode } from "../src/lowering/types.js";
 import { compileScore } from "../src/pipeline.js";
+import { compilePlayback } from "../src/playback/compile.js";
 import {
     assert,
     commandsOfKind,
     expectLoweringError,
     layoutOf,
+    lower,
     nearly,
+    playedNotes,
     recordCommands,
 } from "./helpers.js";
 
@@ -313,15 +316,16 @@ H.title: 标题
 });
 
 test("H 调号速度直接作用于后续正文", () => {
-    const layout = layoutOf(`H.signature: 1=D4 4/4
+    const source = `H.signature: 1=D4 4/4
 H.tempo: 90
 @br()
-1 2 3 4 |`);
-    const note = layout.objects.find(object =>
+1 2 3 4 |`;
+    const note = layoutOf(source).objects.find(object =>
         object.ast instanceof ASTFunctionNode && object.ast.callName === "note"
-    ) as typeof layout.objects[number] & { activeBpm: number; resolvedMidi: number };
-    assert(note.activeBpm === 90 && note.resolvedMidi === 62,
-        "head state temporals must participate directly in the global state flow");
+    ) as VisualTemporalNode & { resolvedMidi: number };
+    assert(note.resolvedMidi === 62, "head state temporals must participate directly in the global state flow");
+    assert(playedNotes(compilePlayback(lower(source)))[0].bpm === 90,
+        "a tempo declared in the head must reach the notes after the break");
 });
 
 test("H.signature 为调号和拍号保留各自源码范围", () => {

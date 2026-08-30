@@ -105,8 +105,9 @@ jpFun exposes the intermediate results of its compilation pipeline:
 Source
   -> Parser     -> AST
   -> Lowering   -> timed events and relations
-  -> Layout     -> document geometry
-  -> Renderer   -> SVG or Canvas
+      |-> Playback -> NoteOn / NoteOff / Tempo events
+       `-> Layout   -> document geometry
+            -> Renderer -> SVG or Canvas
 ```
 
 ```ts
@@ -118,7 +119,27 @@ result.lowering;
 result.layout;
 ```
 
-This makes it possible to build editors, diagnostics, playback tools, and custom renderers on top of the same compilation result.
+Playback is compiled independently from layout:
+
+```ts
+import { compilePlayback } from "jpfun";
+
+const playback = compilePlayback(result.lowering);
+playback.events;
+playback.scoreMap;
+playback.trackCount;
+playback.durationSeconds;
+```
+
+For scores with unusually large repeat expansion, raise the control-flow budget explicitly:
+
+```ts
+const playback = compilePlayback(result.lowering, { maxFlowSteps: 200_000 });
+```
+
+The default is 65,536 visited columns. Exceeding it throws instead of returning a partial playback plan.
+
+The plan stores device-independent `note-on`, `note-off`, and `tempo` events. Its track number is the same channel identity used by the visual Track; Web Audio, Web MIDI, and Standard MIDI File adapters consume that identity and the exact `Fraction` timestamps at their boundary.
 
 ## Syntax Example
 

@@ -3,13 +3,16 @@ import { test } from "node:test";
 import { divLinePortName } from "../src/functions/div/index.js";
 import type { LayoutBox } from "../src/layout/types.js";
 import type { VisualTemporalNode } from "../src/lowering/types.js";
+import { compilePlayback } from "../src/playback/compile.js";
 import {
     assert,
     attachmentCommands,
     expectLoweringError,
     expectSnapshot,
     layoutOf,
+    lower,
     nearly,
+    playedNotes,
     recordCommands,
 } from "./helpers.js";
 
@@ -18,12 +21,16 @@ function layoutGrace(source: string) {
     return { result, commands: recordCommands(result) };
 }
 
+/** 倪音向宿主借走的演奏时值：前倪音先发声，所以就是首个 gesture 的时长 */
+function stealOf(source: string) {
+    return playedNotes(compilePlayback(lower(source)))[0].duration.toNumber();
+}
+
 const plainNote = layoutGrace(`1`).result.objects[0];
 const preGrace = layoutGrace(`2>1`);
 const preGraceNode = preGrace.result.objects[0] as VisualTemporalNode & {
     host: { box: LayoutBox };
     graces: readonly VisualTemporalNode[];
-    stealTime: number;
 };
 
 test("倚音折叠成一个可见对象，但保留宿主的时值与端口", () => {
@@ -36,7 +43,7 @@ test("倚音折叠成一个可见对象，但保留宿主的时值与端口", ()
 
     expectSnapshot("grace-metrics",
         `w=${preGraceNode.box.w.toFixed(2)} anchor=${preGraceNode.box.anchor.toFixed(2)}`
-        + ` steal=${preGraceNode.stealTime}`);
+        + ` steal=${stealOf(`2>1`)}`);
 });
 
 test("倚音比宿主小一级字号，坐在宿主基线之上的左侧", () => {
@@ -58,8 +65,8 @@ test("倚音的时值决定减时线数量与偷取的宿主时长", () => {
     assert(layoutGrace(`2/>1`).commands.filter(command => command.kind === "line").length === 2,
         "an explicit div inside the grace must add a second line");
     assert(preGraceNode.graces[0].T.equals(1, 2), "the grace member must keep its written duration for playback");
-    assert(nearly(preGraceNode.stealTime, 0.5), "a bare grace steals half of the host duration");
-    assert(nearly((layoutGrace(`2/>1`).result.objects[0] as typeof preGraceNode).stealTime, 0.25),
+    assert(nearly(stealOf(`2>1`), 0.5), "a bare grace steals half of the host duration");
+    assert(nearly(stealOf(`2/>1`), 0.25),
         "a sixteenth grace steals a quarter of the host duration");
 });
 

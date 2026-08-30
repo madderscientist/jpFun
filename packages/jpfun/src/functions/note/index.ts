@@ -116,8 +116,13 @@ class NoteFunction extends ASTFunctionNode {
 
 export const NoteNode: ASTFunctionClass = NoteFunction;
 
-import { DEFAULT_KEY, TemporalNodeBase } from "../../lowering/types.js";
-import { resolveLetterNameToJianpu, resolveNoteMidi } from "../../parser/parse-utils/note-utils.js";
+import { DEFAULT_KEY, DEFAULT_VELOCITY, TemporalNodeBase, type TimeState } from "../../lowering/types.js";
+import type { PlaybackEmitter } from "../../playback/types.js";
+import {
+    createDiatonicTranspose,
+    resolveLetterNameToJianpu,
+    resolveNoteMidi,
+} from "../../parser/parse-utils/note-utils.js";
 
 // 8 是隐形占位，9 是只打拍不发音的节拍记号，空串表示不绘制
 const NOTE_GLYPH: Record<string, string> = { "8": "", "9": "X" };
@@ -127,8 +132,8 @@ class NoteTemporalNode extends TemporalNodeBase {
     declare box: LayoutBox;
 
     // 时间固化后的参数
-    activeBpm: number | null = null;    // 用于播放的时候的速度
     resolvedMidi: number | null = null; // MIDI音高 name是数字则需要在onTimeState中基于当前调性偏移 播放的音高
+    transposeDiatonic: ((steps: number) => number) | undefined;
     name: string;     // 数字
     acc: string;      // 升降号
     octave: number;   // 绝对值为点的个数
@@ -271,10 +276,11 @@ class NoteTemporalNode extends TemporalNodeBase {
         }
     }
 
-    override onTimeState(state: Record<string, any>) {
-        const keySignature = typeof state.keySignature === "string" ? state.keySignature : "C4";
-        this.activeBpm = Number(state.bpm) || 120;
+    override onTimeState(state: TimeState) {
+        const keySignature = state.keySignature;
+        this.playbackState = { bpm: state.bpm, velocity: state.velocity };
         this.resolvedMidi = resolveNoteMidi(this.name, this.acc, this.octave, keySignature);
+        this.transposeDiatonic = createDiatonicTranspose(this.name, this.acc, this.octave, keySignature);
         // 数字音名本身就是简谱显示形式，直接保留原始数字和相对八度
         if (this.name >= "0" && this.name <= "9") {
             if (this.name === "0" || this.name >= "8") {
@@ -290,5 +296,19 @@ class NoteTemporalNode extends TemporalNodeBase {
                 this.octave = jianpuPitch.renderOctave;
             }
         }
+    }
+
+    override emitPlayback(emitter: PlaybackEmitter) {
+        if (this.resolvedMidi === null || emitter.end.compare(emitter.start) <= 0) return;
+        const noteId = emitter.nextNoteId();
+        emitter.emit({
+            kind: "note-on",
+            at: emitter.start,
+            noteId,
+            midi: this.resolvedMidi,
+            velocity: this.playbackState?.velocity ?? DEFAULT_VELOCITY,
+            transpose: this.transposeDiatonic,
+        });
+        emitter.emit({ kind: "note-off", at: emitter.end, noteId });
     }
 }

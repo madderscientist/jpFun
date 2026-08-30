@@ -1,5 +1,7 @@
 import type { SymbolDefinition } from "../index.js";
 
+const FORTE_VELOCITY = 96;
+
 export const fSymbol: SymbolDefinition = {
     name: "f",
     description: "强",
@@ -52,4 +54,5 @@ export const fSymbol: SymbolDefinition = {
             style: { fill: "#000" },
         },
     ],
+    onTimeState: state => { state.velocity = FORTE_VELOCITY; },
 };

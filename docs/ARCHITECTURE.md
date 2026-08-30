@@ -8,12 +8,18 @@ jpFun 是一条面向简谱 DSL 的编译流水线：它把源码逐步转换为
 
 ## 一眼看懂流水线
 
-```text
-源码
-  -> 预处理与解析 -> AST
-  -> Lowering     -> LoweringResult
-  -> Layout       -> DocumentLayoutResult
-  -> Paint        -> SVG / Canvas / 其他 Painter 后端
+```mermaid
+flowchart LR
+    Source[源码] --> Parser[预处理与解析]
+    Parser --> AST
+    AST --> Lowering
+    Lowering --> Result[LoweringResult]
+    Result --> Playback
+    Playback --> Plan[PlaybackPlan]
+    Result --> Layout
+    Layout --> Document[DocumentLayoutResult]
+    Document --> Paint
+    Paint --> Output[SVG / Canvas / 其他 Painter 后端]
 ```
 
 公共入口 [`compileScore`](../packages/jpfun/src/pipeline.ts) 串起前三个阶段，并保留所有中间结果。渲染是独立步骤，同一份布局可以交给多个后端。
@@ -22,6 +28,7 @@ jpFun 是一条面向简谱 DSL 的编译流水线：它把源码逐步转换为
 | --- | --- | --- | --- | --- |
 | 解析 | 源码 -> AST | 基础语法、参数固化、语法糖调度、源码位置 | 时间、坐标、绘制 | [`src/parser/`](../packages/jpfun/src/parser/) · [解析](parseAST.md) |
 | Lowering | AST -> `LoweringResult` | 时间顺序、并行音轨、事件列、关系对象 | 像素坐标、绘制 | [`src/lowering/`](../packages/jpfun/src/lowering/) · [Lowering](lowering.md) |
+| Playback | `LoweringResult` -> `PlaybackPlan` | 演奏手势、速度、延续关系、乐谱/演奏时间映射 | 音频设备、实时调度、像素坐标 | [`src/playback/`](../packages/jpfun/src/playback/) · [播放](playback.md) |
 | Layout | `LoweringResult` -> `DocumentLayoutResult` | 测量、横纵向求解、分页、最终几何 | 语法解析、业务语义、后端 API | [`src/layout/`](../packages/jpfun/src/layout/) · [布局](layout.md) |
 | Paint | 布局结果 -> 绘制命令 | 按层调用 `Painter` | 重新测量或改变布局 | [`src/render/`](../packages/jpfun/src/render/) · [渲染](render.md) |
 
@@ -49,18 +56,20 @@ AST 保存语法结构、已固化参数和源码位置。解析完成后，AST 
 ### 时间、几何、绘制彼此分离
 
 - Lowering 使用音乐时间和 Track，不计算像素。
+- Playback 消费已固化的时间事件，展开演奏手势，不读取布局几何。
 - Layout 消费已固化的事件关系，计算 `LayoutBox` 和页面坐标。
 - Paint 只读取最终几何，不测量、不回写布局。
 
 这使编辑器可以读取 AST，播放器可以读取 `LoweringResult`，而 SVG 与 Canvas 可以共享同一份布局。
 
-### 三类视觉对象各司其职
+### 核心对象各司其职
 
 | 类型 | 何时使用 | 例子 |
 | --- | --- | --- |
 | `TemporalNodeBase` | 对象占据时间流，需要进入事件列 | 音符、小节线、控制事件 |
 | `LayoutDecoration` | 对象只修饰单个主体，与主体共享位置 | 附点、减时线 |
-| `LayoutAttachment` | 对象连接、包围或依附一个或多个主体 | 连音线、连梁、歌词、box |
+| `LoweringAttachment` | 不推进时间的中立附属对象，由消费者读取具体能力 | tie、volta、声部大括号、页码 |
+| `LayoutAttachment` | attachment 的可排版能力 | 连音线、连梁、歌词、box |
 
 先选对对象类型，再实现 hooks，通常能避免把符号特例泄漏到核心引擎。
 
@@ -70,7 +79,9 @@ AST 保存语法结构、已固化参数和源码位置。解析完成后，AST 
 | --- | --- | --- |
 | `ASTFunctionNode` | 函数定义、参数、去糖和阶段 hooks 的入口 | [`ASTtypes.ts`](../packages/jpfun/src/functions/ASTtypes.ts) |
 | `LoweringResult` | 时间列、attachments、Track 树及 AST 到事件的索引 | [`lowering/types.ts`](../packages/jpfun/src/lowering/types.ts) |
+| `LoweringAttachment` | 不推进时间的中立附属协议 | [`lowering/types.ts`](../packages/jpfun/src/lowering/types.ts) |
 | `TemporalNodeBase` | 一次编译中的时间事件及其可选视觉主体 | [`lowering/types.ts`](../packages/jpfun/src/lowering/types.ts) |
+| `PlaybackPlan` / `PlaybackEmitter` | MIDI 事件计划 / 函数事件声明接口 | [`playback/types.ts`](../packages/jpfun/src/playback/types.ts) |
 | `LayoutBox` | 主体的尺寸、位置和对齐轴 | [`layout/types.ts`](../packages/jpfun/src/layout/types.ts) |
 | `LayoutAttachment` | 跨主体关系的语义定义与横向准备协议 | [`layout/types.ts`](../packages/jpfun/src/layout/types.ts) |
 | `AttachmentGeometry` / `PlacedAttachment` | 单次放置的原子几何 / 最终只读关系结果 | [`layout/types.ts`](../packages/jpfun/src/layout/types.ts) |
@@ -87,11 +98,18 @@ AST 保存语法结构、已固化参数和源码位置。解析完成后，AST 
 | 定义函数和参数 | `ASTFunctionNode.def` |
 | 实现语法糖 | `deSugarAtom` / `deSugarRelation` |
 | 产生或组织时间事件 | `loweringEnter` / `loweringExit` / `timeFlowModel` |
-| 在最终时间确定后固化状态 | `onTimeState` |
-| 观察完整事件流或做最终校验 | `loweringAugment` / `loweringFinalize` |
+| 在最终时间确定后固化状态（含速度、力度这类持续量） | `onTimeState` |
+| 发布播放事件或递归展开折叠成员 | `emitPlayback` / `PlaybackEmitter.play` |
+| 修饰同一 play frame 中后续的音符事件 | `PlaybackEmitter.affectFollowing` |
+| 在演奏时刻修改系统状态 | `PlaybackEmitter.control` |
+| 在当前位置处理此前已发布的播放事件 | `PlaybackEmitter.defer` |
+| 给所在时间列贴播放标记 | `TemporalNodeBase.playbackMarks` |
+| 决定反复、房子等播放顺序 | `PlaybackFlow.playbackFlow` |
+| 观察完整播放计划或处理跨节点关系 | `PlaybackRelation.applyPlayback` |
+| 扫描完整 lowering 结果或做最终校验 | `loweringAugment` / `loweringFinalize` |
 | 创建主体几何 | `prepareLayout` / `finalizeLayout` / `onPlaced` |
 | 创建局部装饰 | `layoutDecorationHandler` |
-| 创建跨主体关系 | `LayoutAttachment` |
+| 创建附属对象 | `LoweringAttachment` + 所需的 layout/playback 能力接口 |
 | 绘制 | `paint(Painter)` |
 
 典型生命周期如下：
@@ -103,9 +121,9 @@ AST 保存语法结构、已固化参数和源码位置。解析完成后，AST 
   -> 函数根据最终位置绘制
 ```
 
-函数不需要完整经历每一步。例如设置类函数可以只有时间语义而没有 `LayoutBox`；装饰函数可以只写入 addon 并注册 decoration handler；关系函数可以只生成 attachment。
+函数不需要完整经历每一步。例如设置类函数可以只有时间语义而没有 `LayoutBox`；装饰函数可以只写入 addon 并注册 decoration handler；附属函数可以只生成 attachment。
 
-Attachment 与 Temporal 的阶段边界不同：lowering 中的 `LayoutAttachment` 只保存关系语义；主体坐标确定后由 `createGeometry` 生成可丢弃的单轮几何；最终 `PlacedAttachment` 才暴露 `box/regions/paint`。
+Attachment 与 Temporal 的阶段边界不同：`LoweringAttachment` 不进入时间列；layout 只消费实现 `LayoutAttachment` 的对象，playback 只消费控制或后处理能力。attachment 不一定是关系，例如声部大括号和页码只是布局附属物。主体坐标确定后由 `createGeometry` 生成可丢弃的单轮几何；最终 `PlacedAttachment` 才暴露 `box/regions/paint`。
 
 ## 改动应该放在哪里
 
@@ -114,6 +132,7 @@ Attachment 与 Temporal 的阶段边界不同：lowering 中的 `LayoutAttachmen
 | 新增或修改一种简谱符号 | `src/functions/<name>/` |
 | 修改函数调用、标签、大括号等基础语法 | `src/parser/` |
 | 修改通用时间归并、并行或 Track 机制 | `src/lowering/` |
+| 修改通用演奏展开、速度积分或进度映射 | `src/playback/` |
 | 修改通用测量、横纵向求解或分页 | `src/layout/` |
 | 新增渲染后端或通用绘制能力 | `src/render/` |
 | 修改公共编译入口或导出 | `src/pipeline.ts`、`src/index.ts` |

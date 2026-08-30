@@ -1,4 +1,5 @@
 import type { SymbolDefinition } from "../index.js";
+import { ornament } from "../ornament.js";
 
 export const mordentSymbol: SymbolDefinition = {
     name: "mordent",
@@ -40,4 +41,5 @@ export const mordentSymbol: SymbolDefinition = {
             style: { fill: "#000" },
         },
     ],
+    emitPlayback: emitter => emitter.affectFollowing(ornament({ body: [0, 1, 0] })),
 };

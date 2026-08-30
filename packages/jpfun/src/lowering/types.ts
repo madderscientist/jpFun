@@ -14,6 +14,7 @@ import type {
     TimeLineEvent,
 } from "../layout/types.js";
 import type { Painter } from "../render/types.js";
+import type { PlaybackEmitter, PlaybackState } from "../playback/types.js";
 import type { Track, TrackArrangement } from "./track.js";
 
 /** lowering 产生的不推进时间的附属对象；具体能力由 layout/playback 子协议声明 */
@@ -188,6 +189,13 @@ export class TemporalNodeBase implements TimeLineEvent {
      * 调用时机在时间位置已经确定之后，处理“调性、速度、拍号”等时间信息的固化
      */
     onTimeState?(state: TimeState): void;
+
+    /** 把已固化的音乐语义声明为播放事件；不执行实时播放 */
+    emitPlayback?(emitter: PlaybackEmitter): void;
+    /** 给自己所在的时间列贴播放标记，供控制流游标查询 */
+    playbackMarks?(): readonly string[];
+    /** 向播放系统告知自己这个记谱位置上的速度与力度 */
+    playbackState?: PlaybackState;
 
     /**
      * 根据已经固化的语义生成固有尺寸

@@ -65,11 +65,14 @@ class TempoTemporalNode extends TemporalNodeBase {
         this.glyph = prepareQuarterNote(ast.size);
         this.text = `= ${ast.bpm}`;
         this.style = { fontSize: ast.size, fill: "#000" };
+        // 非法值不入时间状态，也不告知播放系统，效果是保持上一个速度
+        if (Number.isFinite(ast.bpm) && ast.bpm > 0) this.playbackState = { bpm: ast.bpm };
         this.initLayoutBox();
     }
 
     override onTimeState(state: TimeState) {
-        state.bpm = this.ast.bpm;
+        const bpm = this.playbackState?.bpm;
+        if (bpm !== undefined) state.bpm = bpm;
     }
 
     override prepareLayout(context: LayoutPrepareContext) {

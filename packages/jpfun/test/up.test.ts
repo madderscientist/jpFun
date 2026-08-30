@@ -4,7 +4,8 @@ import { ASTFunctionNode, type ASTNodeBase } from "../src/functions/ASTtypes.js"
 import type { LayoutBox } from "../src/layout/types.js";
 import { ANCHOR_KEY, DEFAULT_KEY } from "../src/lowering/types.js";
 import type { TemporalNodeBase, VisualTemporalNode } from "../src/lowering/types.js";
-import { assert, expectLoweringError, layoutOf, lower, nearly, parse, recordCommands } from "./helpers.js";
+import { compilePlayback } from "../src/playback/compile.js";
+import { assert, expectLoweringError, layoutOf, lower, nearly, parse, playedNotes, recordCommands } from "./helpers.js";
 
 const loweredUp = lower(`@up(1, #3', @text("上层")) 4`);
 const upTemporal = loweredUp.columns[0][0] as TemporalNodeBase & {
@@ -127,13 +128,14 @@ test("大括号阻断展平，内层 up 整体折叠成外层的一个成员", (
 });
 
 test("叠在音符上方的状态标记传出和弦，但不撑宽横向占位", () => {
-    const markedTempo = layoutOf(`1 ^ @tempo(120) 1`);
+    const markedTempo = layoutOf(`1 ^ @tempo(150) 1`);
     const markedChord = markedTempo.objects[0] as VisualTemporalNode & {
         members: readonly { box: LayoutBox }[];
         mergeKey: number;
     };
-    const markedFollower = markedTempo.objects[1] as VisualTemporalNode & { activeBpm: number };
-    assert(markedFollower.activeBpm === 120, "a tempo stacked by ^ must reach the following notes");
+    const markedFollower = markedTempo.objects[1];
+    assert(playedNotes(compilePlayback(lower(`1 ^ @tempo(150) 1`))).every(note => note.bpm === 150),
+        "a tempo stacked by ^ must reach the following notes");
     assert(markedChord.mergeKey === DEFAULT_KEY, "a folded member's own merge group must not leak to the chord");
     assert(nearly(markedChord.box.w, markedChord.members[0].box.w),
         "only the lead member decides the chord's horizontal footprint");
@@ -147,8 +149,8 @@ test("叠在音符上方的状态标记传出和弦，但不撑宽横向占位",
     assert(markedKeyChord.members[0].resolvedMidi === 66 && (markedKey.objects[1] as { resolvedMidi?: number }).resolvedMidi === 66,
         "a key stacked by ^ must apply to its own chord and to the following notes");
 
-    const graceState = layoutOf(`@tempo(60) @tempo(150) > 1 1`);
-    assert((graceState.objects[2] as { activeBpm?: number }).activeBpm === 150,
+    const graceState = `@tempo(60) @tempo(150) > 1 1`;
+    assert(playedNotes(compilePlayback(lower(graceState))).every(note => note.bpm === 150),
         "a tempo written inside a grace must escape the composite too");
 });
 
@@ -208,3 +210,14 @@ test("混写折叠体的 toString 是可解析的等价写法", () => {
         "纯向上的折叠体仍然输出 @up(...)");
 });
 
+test("折叠体先播附属成员、最后播宿主，与画在上下哪一侧无关", () => {
+    const velocity = (source: string) => playedNotes(compilePlayback(lower(source)))[0]?.velocity;
+    assert(velocity(`1 ^ $accent`) === 100, "写在上方的修饰记号必须作用到宿主");
+    assert(velocity(`1 _ $accent`) === 100, "写在下方的修饰记号同样必须作用到宿主");
+    // 宿主永远最后播放，所以把记号写成宿主本身就够不到其它成员
+    assert(velocity(`$accent ^ 1`) === 80, "记号成为宿主时不修饰其它成员");
+    // 力度和调号一样是位置状态，按“附属成员先、宿主最后”的顺序固化
+    assert(velocity(`1 ^ $p`) === 48 && velocity(`1 _ $p`) === 48, "写在宿主上方或下方的力度记号都作用于宿主");
+    assert(velocity(`$p ^ 1`) === 80 && velocity(`$p _ 1`) === 80, "力度记号当宿主时轮不到其它成员，与 @key 同一条规则");
+    assert(velocity(`1 _ $p ^ $f`) === 96, "同一个位置上后固化的力度覆盖先固化的");
+});

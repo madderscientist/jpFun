@@ -1,7 +1,8 @@
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import type { LayoutBox, Rect } from "../../layout/types.js";
-import { DEFAULT_KEY, TemporalNodeBase } from "../../lowering/types.js";
+import { DEFAULT_KEY, TemporalNodeBase, type TimeState } from "../../lowering/types.js";
 import type { GrammarCallNodeTyped } from "../../parser/grammarType.js";
+import type { PlaybackEmitter } from "../../playback/types.js";
 import type { Painter } from "../../render/types.js";
 import {
     ASTFunctionNode,
@@ -22,7 +23,7 @@ import { pSymbol } from "./symbols/p.js";
 import { trSymbol } from "./symbols/tr.js";
 
 /**
- * 一个乐谱符号：一组固定图形
+ * 一个乐谱符号：固定图形加可选的播放语义
  *
  * 每个符号自成一个文件、彼此没有依赖，新增一个符号就是新增一个对象字面量
  */
@@ -32,6 +33,10 @@ export interface SymbolDefinition {
     readonly shapes: readonly SymbolShape[];
     /** 符号高度 = size × weight，用来修正宽扁字形的视觉重量；默认 1 */
     readonly weight?: number;
+    /** 写入本位置之后持续生效的状态，例如力度记号的 velocity */
+    readonly onTimeState?: (state: TimeState) => void;
+    /** 发布系统控制，或注册对同一折叠序列后续音符的局部变换 */
+    readonly emitPlayback?: (emitter: PlaybackEmitter) => void;
 }
 
 const symbolTable: ReadonlyMap<string, SymbolDefinition> = new Map(
@@ -116,6 +121,8 @@ class SymbolTemporal extends TemporalNodeBase {
         super();
         this.ast = ast;
         this.mergeKey = DEFAULT_KEY;
+        this.onTimeState = ast.definition.onTimeState;
+        this.emitPlayback = ast.definition.emitPlayback;
         this.bounds = symbolBounds(ast.definition.shapes);
         this.initLayoutBox();
     }

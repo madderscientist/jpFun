@@ -218,7 +218,7 @@ const REPEAT_START = "repeat.start";
  * 没有 `|:` 时整首曲子就是一段。
  */
 export function repeatPass(cursor: PlaybackCursor, column: number): number {
-    return cursor.visits(cursor.seek(REPEAT_START, column, -1) ?? 0);
+    return cursor.visits(cursor.seek(REPEAT_START, column + 1, -1) ?? 0);
 }
 
 /** 只有反复线参与播放顺序；普通小节线太多，进控制流扫描是纯开销 */

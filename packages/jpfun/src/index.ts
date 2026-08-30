@@ -14,6 +14,10 @@ export * from "./lowering/types.js";
 export * from "./lowering/loweringContext.js";
 export * from "./lowering/track.js";
 
+export * from "./playback/types.js";
+export * from "./playback/time.js";
+export * from "./playback/compile.js";
+
 export * from "./layout/types.js";
 export * from "./layout/model.js";
 export * from "./layout/default.js";

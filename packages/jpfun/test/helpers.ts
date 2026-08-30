@@ -14,6 +14,11 @@ import { LoweringContext } from "../src/lowering/loweringContext.js";
 import { ParserContext } from "../src/parser/parserContext.js";
 import { preprocessSource } from "../src/parser/preprocess.js";
 import { compileScore } from "../src/pipeline.js";
+import type {
+    PlaybackNoteOffEvent,
+    PlaybackNoteOnEvent,
+    PlaybackPlan,
+} from "../src/playback/types.js";
 import { RecordingPainter, type RecordedPaintCommand } from "../src/render/recording.js";
 
 export function assert(condition: unknown, message: string): asserts condition {
@@ -48,6 +53,32 @@ export function createLowering() {
 
 export function lower(source: string) {
     return createLowering().lowerDocument(parse(source));
+}
+
+/** 测试专用的事件配对视图；生产 API 仍只暴露 NoteOn/NoteOff */
+export function playedNotes(plan: PlaybackPlan) {
+    const noteOffs = new Map<number, PlaybackNoteOffEvent>();
+    for (const event of plan.events) {
+        if (event.kind === "note-off") noteOffs.set(event.noteId, event);
+    }
+    return plan.events
+        .filter((event): event is PlaybackNoteOnEvent => event.kind === "note-on")
+        .map(note => {
+            const off = noteOffs.get(note.noteId);
+            assert(off, `NoteOn ${note.noteId} 缺少 NoteOff`);
+            let bpm = 120;
+            for (const event of plan.events) {
+                if (event.at.compare(note.at) > 0) break;
+                if (event.kind === "tempo") bpm = event.bpm;
+            }
+            return {
+                ...note,
+                start: note.at,
+                end: off.at,
+                duration: off.at.clone().sub(note.at),
+                bpm,
+            };
+        });
 }
 
 /** 只有要先改 LoweringResult 再单独布局的用例才需要它，其余一律走 layoutOf */

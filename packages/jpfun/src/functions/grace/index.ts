@@ -13,6 +13,7 @@ import {
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { ParserContext } from "../../parser/parserContext.js";
 import type { Painter, PathCommand } from "../../render/types.js";
+import type { PlaybackEmitter } from "../../playback/types.js";
 import {
     ASTBraceNode,
     ASTFunctionClass,
@@ -329,8 +330,8 @@ const HOOK_COMMANDS: readonly PathCommand[] = [
 const HOOK_WIDTH = 0.07;
 /** 倚音块底边到宿主顶边的视觉间隙；倚音线会探进这段空间指向宿主 */
 const GRACE_RISE = 0.18;
-/** 倚音向宿主借时值的上限，防止宿主被偷光 */
-const MAX_STEAL_RATIO = 0.75;
+/** 倪音向宿主借时值的上限，防止宿主被偷光；只读 */
+const MAX_STEAL_RATIO = new Fraction(3, 4);
 
 
 /** 倚音复合体：宿主与倚音都折叠在这一个盒子里，对外只是一个可见事件 */
@@ -413,9 +414,35 @@ export class GraceTemporal extends TemporalNodeBase {
      * 比例 = 倚音字面总时值 / 四分音符，而四分音符 T=1，所以直接累加成员的 T。
      * 基准取宿主经过 div 与 dot 后的实际时值；延时线是独立事件、tie 不改 T，天然不计入。
      */
-    get stealTime(): number {
-        const written = this.graces.reduce((sum, grace) => sum + grace.T.toNumber(), 0);
-        return Math.min(written, MAX_STEAL_RATIO) * this.T.toNumber();
+    override emitPlayback(emitter: PlaybackEmitter) {
+        const written = new Fraction();
+        for (const grace of this.graces) written.add(grace.T);
+        const ratio = written.compare(MAX_STEAL_RATIO) > 0 ? MAX_STEAL_RATIO : written;
+        const total = emitter.end.clone().sub(emitter.start);
+        const steal = total.clone().mul(ratio);
+        const hostDuration = total.sub(steal);
+        const start = emitter.start.clone();
+
+        const playGraces = (cursor: Fraction) => {
+            for (const grace of this.graces) {
+                if (grace.T.isZero() || written.isZero()) {
+                    emitter.play(grace, cursor, new Fraction());
+                    continue;
+                }
+                const duration = steal.clone().mul(grace.T).div(written);
+                emitter.play(grace, cursor, duration);
+                cursor.add(duration);
+            }
+        };
+
+        if (this.side === "pre") {
+            const cursor = start.clone();
+            playGraces(cursor);
+            emitter.play(this.host, cursor, hostDuration);
+        } else {
+            emitter.play(this.host, start, hostDuration);
+            playGraces(start.clone().add(hostDuration));
+        }
     }
 
     /**

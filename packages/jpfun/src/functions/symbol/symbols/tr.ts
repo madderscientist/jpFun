@@ -1,4 +1,5 @@
 import type { SymbolDefinition } from "../index.js";
+import { ornament } from "../ornament.js";
 
 export const trSymbol: SymbolDefinition = {
     name: "tr",
@@ -72,4 +73,5 @@ export const trSymbol: SymbolDefinition = {
             style: { fill: "#000" },
         },
     ],
+    emitPlayback: emitter => emitter.affectFollowing(ornament({ body: [0, 1], repeat: true })),
 };

@@ -2,7 +2,7 @@ import type { SymbolDefinition } from "../index.js";
 
 export const fermataSymbol: SymbolDefinition = {
     name: "fermata",
-    description: "延长记号：目标音延长一倍，整条时间线随之停留",
+    description: "延长记号：覆盖区间速度减半，目标音实际时长翻倍",
     weight: 0.6,
     shapes: [
         {
@@ -19,4 +19,8 @@ export const fermataSymbol: SymbolDefinition = {
             style: { fill: "#000" },
         },
     ],
+    emitPlayback: emitter => {
+        emitter.control(emitter.start, state => state.bpmScale.div(2));
+        emitter.control(emitter.end, state => state.bpmScale.mul(2));
+    },
 };

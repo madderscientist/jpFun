@@ -16,6 +16,7 @@ import type { Track } from "../../lowering/track.js";
 import { prepareLayoutHost } from "../../layout/engine.js";
 import type { LayoutBox, LayoutPoint, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";
+import type { PlaybackEmitter } from "../../playback/types.js";
 
 /**
  * 函数 up 的设计经历：
@@ -344,6 +345,11 @@ class FoldTemporal extends TemporalNodeBase {
             member.layoutLine = this.layoutLine;
             member.onTimeState?.(state);
         }
+    }
+
+    override emitPlayback(emitter: PlaybackEmitter) {
+        // 倒序发布，宿主（members[0]）最后：附属成员注册的局部变换因此作用到宿主
+        for (let i = this.members.length - 1; i >= 0; i--) emitter.play(this.members[i]);
     }
 
     /**

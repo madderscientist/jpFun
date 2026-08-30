@@ -130,7 +130,6 @@ class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
         readonly to: TemporalNodeBase,
     ) {}
 
-    get passes() { return this.ast.passes; }
     get sourceSpan(): SourceSpan { return this.ast.sourceSpan; }
 
     /** 房子只决定跳不跳过本列；遍数怎么数、什么时候回跳都归小节线 */
@@ -143,7 +142,7 @@ class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
         return {
             range: [start, end],
             // 这里还是会和 bar 耦合。但只有bar有反复功能，不值得抽取为系统机制
-            run: cursor => this.passes.includes(repeatPass(cursor, start))
+            run: cursor => this.ast.passes.includes(repeatPass(cursor, start))
                 ? undefined
                 : { kind: "jump", column: end + 1 },
         };

@@ -198,13 +198,12 @@ test("tempo 与 key 自己上谱，set 纯词法，不可见事件不分配布�
         .flat()
         .filter(event => !isVisualTemporalNode(event));
     const stateNote = stateResult.objects[2] as VisualTemporalNode & {
-        activeBpm: number;
         resolvedMidi: number;
         ast: ASTFunctionNode & { color: string };
     };
 
     assert(stateResult.objects.length === 3, "tempo and key draw themselves; set stays purely lexical");
-    assert(stateNote.activeBpm === 90, "tempo must be frozen into following notes");
+    assert(stateNote.playbackState?.bpm === 90, "tempo must be frozen into the notes at its score position");
     assert(stateNote.resolvedMidi === 62, "key D4 must resolve jianpu 1 to MIDI 62");
     assert(stateNote.ast.color === "#f00", "set must solidify the note color during parsing");
     assert(invisibleStateEvents.every(event => event.box === undefined), "invisible state events must not allocate LayoutBox");

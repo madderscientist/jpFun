@@ -1,5 +1,7 @@
 import type { SymbolDefinition } from "../index.js";
 
+const PIANO_VELOCITY = 48;
+
 export const pSymbol: SymbolDefinition = {
     name: "p",
     description: "弱",
@@ -58,4 +60,5 @@ export const pSymbol: SymbolDefinition = {
             style: { fill: "#000" },
         },
     ],
+    onTimeState: state => { state.velocity = PIANO_VELOCITY; },
 };
