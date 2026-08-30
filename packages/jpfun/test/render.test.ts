@@ -62,11 +62,18 @@ test("SVG 输出已转义、无无效坐标、不依赖 defs 与 transform", () 
     assert(svg.includes("text-anchor=\"middle\""), "note numbers must use centered text alignment");
     assert(svg.includes("Cascadia Mono"), "note numbers must request a normal monospaced font");
     assert(svg.includes("&lt;tag &amp; text&gt;"), "arbitrary SVG text must be XML escaped");
+    assert((svg.match(/xml:space="preserve"/g) ?? []).length === (svg.match(/<text /g) ?? []).length,
+        "every SVG text node must preserve the whitespace measured during layout");
     assert(!svg.includes(">8</text>"), "hidden placeholder note 8 must not create SVG text");
     assert(!svg.includes("NaN") && !svg.includes("Infinity"), "SVG output must not contain invalid coordinates");
     assert(!svg.includes("<defs") && !svg.includes("<use ")
         && !svg.includes("transform=") && !svg.includes("vector-effect="),
         "SVG paths must contain final geometry without definitions or SVG transforms");
+
+    const whitespacePainter = new SvgPainter();
+    whitespacePainter.drawText("A   B", 0, 0, { fontSize: 16 });
+    assert(whitespacePainter.toSvg({ x: 0, y: 0, w: 100, h: 20 }).includes(">A   B</text>"),
+        "consecutive spaces must remain in the serialized text content");
 });
 
 test("SVG 路径把平移与正负缩放烘进最终几何", () => {
