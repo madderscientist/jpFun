@@ -6,7 +6,7 @@
 
 桌面端有「编辑 / 拆分 / 预览」三种布局。拆分视图的分隔条可拖动，也可聚焦后用左右方向键按 2% 调整；编辑器宽度限制在 25%～75%。当前布局、编辑器宽度和左侧标签会写入 `localStorage`，存储不可用时静默退化为本次会话状态。
 
-左侧是「源码 / 播放」标签，右侧是「谱面 / 诊断」标签。播放页目前只是禁用控件组成的界面占位，还没有播放、节拍器或混音逻辑。状态栏提供：
+左侧是「源码 / 播放」标签，右侧是「谱面 / 诊断」标签。播放页只展示已经接通的走带、进度、速度倍率滑条、移调和声部混音，不保留标题区、循环、节拍器、播放范围等控件。MIDI 与 PDF/SVG/PNG/JPEG 一起放在右上角导出菜单。状态栏提供：
 
 - `2026 Light` / `Quiet Light` 两套持久化主题；
 - 等待排版、排版完成、诊断数量或排版失败状态，点击状态文字会打开诊断页；
@@ -45,6 +45,8 @@
 | 谱面预览 | `renderLayoutPagesToSvg` / `renderLayoutPagesToCanvas` | Webview |
 | 源码 / 谱面双向定位 | `object.ast.sourceSpan + box`、`attachment.sourceSpan + regions` | Webview 消息 + `TextEditor.selection` |
 | 分页、缩放与打印 | `layout.pages` + 前端页面组装 | Webview / Webview 打印 |
+| 实际播放 | `compilePlayback(lowering)` + Web Audio 适配器 | Webview |
+| MIDI 导出 | `PlaybackPlan.events` + SMF 适配器 | Webview 下载 |
 | 注释/括号 | `languageData` | `language-configuration.json` |
 
 ## 语法着色
@@ -148,6 +150,18 @@ playground 接管了 CodeMirror 默认的悬浮关闭时机：悬浮框优先放
 
 **只有致命错误才抢占面板**：非致命诊断哪怕是 error 级也只更新标签徽标，谱面照常显示；致命错误才切到诊断面板，并在下一次编译成功时切回预览。`parser.diagnostics` 里的 `ErrorDiagnostic` 全是「已被吞掉、编译得以继续」的，拿它当切换依据会在谱面明明画好时把面板抢走。
 
+播放诊断遵循同一原则，但不抢占右侧谱面。`PlaybackPlan.diagnostics` 与排版诊断合并进入统一诊断列表；warning 同时在播放页显示数量，但不阻止播放。`compilePlayback` 抛出的带 span `Diagnostic` 会禁用走带并出现在两个位置，用户点击播放页摘要后才切到诊断页。远程脚本、AudioContext 和 MIDI 下载失败没有源码位置，只在播放页显示，不生成源码波浪线。
+
+## 播放
+
+`compilePlayback` 不在每次排版时自动运行。首次切到播放标签，或用户明确点击 MIDI 导出时，playground 才用当前成功编译结果里的 `lowering` 生成 `PlaybackPlan`；同一份源码直接复用计划。播放标签保持打开时，源码变化会立即停声并使旧计划失效，下一次 `compileScore` 成功后才重建。除此之外，编辑和排版路径不承担播放编译成本。
+
+实时音频从 `https://madderscientist.github.io/noteDigger/lib/tinySynth.js` 按需加载。打开播放页会读取 128 个 GM 风格音色，真正点击播放时才创建并恢复 `AudioContext`。调度器每 100ms 补足约 1 秒的绝对 AudioContext 时间窗口；暂停、跳转、速度滑条或移调变化会停止已排程节点并从当前位置重建窗口。播放秒数通过 `scoreMap` 反查为原谱 QN，右侧 SVG/Canvas 共用的 overlay 用一个半透明矩形框住当前时间列；并行声部合并成一个区域，跨行或跨页时只在列变化时滚动。暂停保留矩形，停止和源码变化清除。播放标签激活时，点击右侧有正时值的谱面对象会把进度移到该对象的记谱位置，而不会跳回源码。每个 `PlaybackPlan.track` 对应一个 tinySynth channel，音色、音量、Mute 和 Solo 都是监听设置。
+
+MIDI 导出从同一事件计划生成，远程加载 `https://madderscientist.github.io/noteDigger/lib/midi.js`，固定使用 480 PPQ。Tempo、拍号、Program Change、CC7 和分轨音符写入 Standard MIDI File；Mute/Solo 不删除轨道。SMF 拍号分母只能是 2 的幂，三字节 Tempo 也有范围限制，无法准确表示时导出明确失败，不静默改写。
+
+两个远程脚本都不进入 npm/Vite bundle。网络加载失败只影响对应播放或 MIDI 操作，源码编辑、排版和图像导出继续可用。
+
 ## 预览
 
 `compileScore` 的 `layout` 可以直接喂给两个渲染后端：
@@ -170,7 +184,9 @@ playground 把每个 `layout.pages[i].bounds` 展示成独立纸张，纵向排�
 
 源码与谱面使用同一份后端无关映射：可见 Temporal 读取 `ast.sourceSpan + box`，最终 `PlacedAttachment` 读取 `sourceSpan + regions`。除了顶层 `layout.objects`，前端还从 `lowering.astToTemporal` 收集已完成布局的折叠成员，因此 grace/up 内部的音符与各层复合体仍可分别命中。`regions` 来自最终 attachment geometry，试测轮不会暴露给消费者；自动 beam 的 span 取首末端点及其生效 div 作用域的并集。只有一个可见后代、且父 AST 本身没有可见 Temporal、也没有独立 attachment 的函数包装才会并入对象范围，因此 `1/` 的音符和减时线都对应完整 `1/`，而 grace 操作符不会吞掉内部音符的 span，`@box` 仍由自己的 attachment 定位。
 
-playground 只在鼠标点击源码或标签跳转时触发右侧同步，键盘移动光标不触发；注释、空白及没有可见输出的声明会清除强调而不猜最近对象。文档一改就立即丢弃上一轮导航映射，等防抖编译完成后再恢复，旧谱面不会把新文档跳到错误 span。命中后预览滚到对应页，并从目标中心播放双层圆形波纹。谱面第一次 click 立即把光标放到 span 起点；500ms 内同一位置的第二次 click 扩展为完整 span 选区，但第一击不等待这个窗口。从「预览」单栏触发时自动恢复拆分视图，第二击即使因布局变化落到别的 DOM 元素，也由 document 捕获层完成原 range 的选中。
+playground 只在鼠标点击源码或标签跳转时触发右侧同步，键盘移动光标不触发；注释、空白及没有可见输出的声明会清除强调而不猜最近对象。文档一改就立即丢弃上一轮导航映射，等防抖编译完成后再恢复，旧谱面不会把新文档跳到错误 span。命中后只修改 `previewScroll.scrollLeft/scrollTop`，不会用 `scrollIntoView` 移动整个工作台；目标中心仍播放双层圆形波纹。
+
+右侧谱面点击按左侧标签分流：源码标签激活时，第一次 click 把光标放到 span 起点，500ms 内同一位置的第二次 click 扩展为完整 span 选区；播放标签激活时，同一 click 改为 seek 到对象的 score time，不改变编辑器选区。第二击的源码选区由 document 捕获层完成，因此布局变化后落到别的 DOM 元素也不会丢失原 range。
 
 右侧命中先去掉纸张元素的 CSS 边框，再把 SVG/Canvas 内容盒像素按当前纸张 `bounds` 还原成全局布局坐标，然后在 region 外扩 6px 范围内选择面积最小、距离最近的目标。由此细 beam、tie 等关系图形优先于覆盖它们的大盒子，SVG 和 Canvas 不需要各自维护 DOM source marker。
 
@@ -200,7 +216,6 @@ closeBrackets: { brackets: ["(", "{", "[", "\""] }
 - **查找引用**（从音符列出所有引用它的地方）。数据已经有了——`F2` 内部就在算「一个声明管辖哪些引用」，只是没做成列表 UI。
 - **语义高亮**：标签没绑上、未知函数名等应该标红，现在没有。需要遍历 AST 而不是 token。
 - **格式化**、**代码折叠**。
-- **实际播放**。播放标签只有禁用的走带、范围、节拍器和声部混音占位控件。
 - **增量解析**。现在每次按键全文重扫词法层。乐谱规模够用；真要做，先做区间重扫（按行/大括号边界），别一上来就上节点复用——`span` 是绝对 offset，且 AST 会改写 grammar 阶段的 span 对象，这两条都要先解决。
 
 ## 已知问题

@@ -230,6 +230,7 @@ export function compilePlayback(
         // 进入时已有的部分作用于本节点；同一副本也作为子 frame，内部新增变换不泄漏到外层
         const inheritedCount = activeTransforms.length;
         const childTransforms = [...activeTransforms];
+        const directEvents: PlaybackDraftEvent[] = [];
         let localDeferred: PlaybackHook[] | undefined;
         // 复合父节点不能重复执行叶节点的变换，因此只记录本次是否直接发布 NoteOn
         let directNoteOnEmitted = false;
@@ -248,12 +249,17 @@ export function compilePlayback(
                 if (draft.kind === "note-on") {
                     directNoteOnEmitted = true;
                     // NoteOn 承载音高、力度、Track 与来源；NoteOff 只靠 noteId 与它配对
-                    sequence.push({
+                    const output: PlaybackDraftEvent = {
                         ...draft,
                         track: node.track,
                         sourceSpans: [{ ...node.ast.sourceSpan }],
-                    });
-                } else sequence.push(draft);
+                    };
+                    directEvents.push(output);
+                    sequence.push(output);
+                } else {
+                    directEvents.push(draft);
+                    sequence.push(draft);
+                }
             },
             control: (at, apply) => scheduleControl(at, lineage, apply),
             // 注册到调用者的 frame，故意在 emitPlayback 返回后继续影响后续兄弟
@@ -266,7 +272,14 @@ export function compilePlayback(
 
         if (inheritedCount > 0 && directNoteOnEmitted) {
             sequence.push(context => {
-                for (let i = 0; i < inheritedCount; i++) childTransforms[i](context, origin);
+                let owned = directEvents;
+                for (let i = 0; i < inheritedCount; i++) {
+                    const ownedLength = owned.length;
+                    const replacement = childTransforms[i](context, owned);
+                    if (!replacement) continue;
+                    context.events.splice(context.events.length - ownedLength, ownedLength, ...replacement);
+                    owned = replacement;
+                }
             });
         }
         if (localDeferred) sequence.push(...localDeferred);
@@ -369,11 +382,6 @@ export function compilePlayback(
         events,
         diagnostics,
         nextNoteId,
-        eventsOf(target) {
-            const exact = "node" in target;
-            return events.filter(event => event.origins.some(origin =>
-                exact ? origin === target : origin.node === target));
-        },
         stateAt: (time: Fraction) => {  // 二分查找 找到不晚于目标时刻的最后一份系统快照
             let left = 0;
             let right = statePoints.length;
@@ -406,17 +414,17 @@ export function compilePlayback(
 
     // 收敛前按最终事件位置稳定排序
     events.sort(comparePlaybackDraftEvents);
-    const output = finalizePlaybackEvents(events);
+    const output = finalizePlaybackEvents(events, lowering.tracks);
     // 正常列序给出基础终点；已排序的末事件包含局部 hook 延长出的最远 NoteOff。
     const eventEnd = events.at(-1)?.at;
     if (eventEnd && eventEnd.compare(performanceEnd) > 0) performanceEnd.copyFrom(eventEnd);
     // 秒数是最终 Tempo 事件对 performance QN 的积分，绝不反向改写事件时间。
     return {
-        events: output,
+        events: output.events,
         scoreMap,
-        trackCount: lowering.tracks.length,
+        tracks: output.tracks,
         performanceDuration: performanceEnd,
-        durationSeconds: performanceTimeToSeconds(output, performanceEnd.toNumber()),
+        durationSeconds: performanceTimeToSeconds(output.events, performanceEnd.toNumber()),
         diagnostics,
     };
 }

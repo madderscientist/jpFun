@@ -78,14 +78,16 @@ export type PlaybackControl = (state: PlaybackSystemState) => void;
 /** 当前节点的局部变换完成后，检查或改写此前已发布的事件，例如 dash 延后前音的 NoteOff */
 export type PlaybackHook = (context: PlaybackHookContext) => void;
 /** 修饰同一 play frame 中排在声明者之后的一次具体访问，例如 accent、tr 和 mordent */
-export type PlaybackTransform = (context: PlaybackHookContext, origin: PlaybackOrigin) => void;
+export type PlaybackTransform = (
+    context: PlaybackHookContext,
+    events: PlaybackDraftEvent[],
+) => PlaybackDraftEvent[] | void;
 
 export interface PlaybackHookContext {
     /** 完整 Tempo 表，以及当前位置此前已经发布的音符事件；relation 阶段包含完整计划 */
     readonly events: PlaybackDraftEvent[];
     readonly diagnostics: Diagnostic[];
     nextNoteId(): PlaybackNoteId;
-    eventsOf(target: PlaybackOrigin | TemporalNodeBase): PlaybackDraftEvent[];
     stateAt(time: Fraction): PlaybackSystemSnapshot;
 }
 
@@ -99,7 +101,7 @@ export interface PlaybackEmitter {
      * 和 t+T 不一定相等，例如 up 中的折叠节点
      */
     readonly end: Fraction;
-    /** 当前节点所属的逻辑轨道；最终输出时转换为 Track.id */
+    /** 当前节点所属的原始 Track；最终输出时转换为 PlaybackPlan.tracks 的索引 */
     readonly track: Track;
     /** 为一对新的 NoteOn/NoteOff 分配共享身份 */
     nextNoteId(): PlaybackNoteId;
@@ -139,10 +141,11 @@ export interface PlaybackScorePoint {
  * 应表示为有限计划加循环点，不是无限序列。
  */
 export interface PlaybackPlan {
-    /** 按演奏时间升序；同刻依次为 tempo、note-off、note-on */
+    /** 按演奏时间升序；同刻依次为 tempo、time-signature、note-off、note-on */
     readonly events: readonly PlaybackEvent[];
     readonly scoreMap: readonly PlaybackScorePoint[];
-    readonly trackCount: number;
+    /** 最终至少含一个 NoteOn 的原始 Track；事件 track 是此数组的索引 */
+    readonly tracks: readonly Track[];
     readonly performanceDuration: Fraction;
     readonly durationSeconds: number;
     readonly diagnostics: readonly Diagnostic[];

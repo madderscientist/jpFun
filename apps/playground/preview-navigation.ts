@@ -11,6 +11,7 @@ import {
     type CompileScoreResult,
     type Rect,
     type SourceSpan,
+    type TemporalNodeBase,
     type VisualTemporalNode,
 } from "jpfun";
 
@@ -21,6 +22,7 @@ interface PreviewNavigationTarget {
     readonly span: SourceSpan;
     readonly regions: readonly Rect[];
     readonly kind: TargetKind;
+    readonly scoreTime?: number;
 }
 
 export interface PreviewNavigationMap {
@@ -28,11 +30,38 @@ export interface PreviewNavigationMap {
     readonly sourceTargets: readonly PreviewNavigationTarget[];
     /** 右侧谱面点击使用，只包含实际绘制出的 object 与 attachment */
     readonly hitTargets: readonly PreviewNavigationTarget[];
+    /** 按谱面时间升序预计算的播放游标区域；没有可见主体的时刻不单独占项 */
+    readonly playbackRegions: readonly { scoreTime: number; region: Rect }[];
+}
+
+function isPlaybackCursorNode(node: TemporalNodeBase): node is VisualTemporalNode {
+    return isVisualTemporalNode(node)
+        && !node.T.isZero()
+        && (node.box.w > 0 || node.box.h > 0);
+}
+
+/** 当前谱面时刻对应的可见时间列；没有主体的时刻沿用此前区域。 */
+export function playbackRegionAt(navigation: PreviewNavigationMap, scoreTime: number): Rect | null {
+    const regions = navigation.playbackRegions;
+    let low = 0;
+    let high = regions.length;
+    while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (regions[middle].scoreTime <= scoreTime) low = middle + 1;
+        else high = middle;
+    }
+    return regions[low - 1]?.region ?? null;
 }
 
 interface PreviewHit {
     readonly target: PreviewNavigationTarget;
     readonly region: Rect;
+}
+
+function playbackScoreTime(node: VisualTemporalNode): number | undefined {
+    let host: TemporalNodeBase = node;
+    while (host.foldedInto) host = host.foldedInto;
+    return host.T.isZero() ? void 0 : host.t.toNumber();
 }
 
 const kindPriority: Record<TargetKind, number> = {
@@ -60,6 +89,7 @@ function compareSourceTargets(left: PreviewNavigationTarget, right: PreviewNavig
 
 export function createPreviewNavigationMap(compiled: CompileScoreResult): PreviewNavigationMap {
     const hitTargets: PreviewNavigationTarget[] = [];
+    const playbackRegions: { scoreTime: number; region: Rect }[] = [];
     const attachmentSpans = new Set<string>();
     const ancestorRegions = new Map<ASTFunctionNode, Rect[]>();
     const objects = new Set<VisualTemporalNode>(compiled.layout.objects.filter(object =>
@@ -75,6 +105,32 @@ export function createPreviewNavigationMap(compiled: CompileScoreResult): Previe
         }
     }
     const visualAsts = new Set<ASTNodeBase>([...objects].map(object => object.ast));
+
+    const columns = compiled.lowering.columns;
+    for (let first = 0; first < columns.length;) {
+        let last = first + 1;
+        while (last < columns.length && columns[last][0].t.equals(columns[first][0].t)) last++;
+        let left = Infinity;
+        let top = Infinity;
+        let right = -Infinity;
+        let bottom = -Infinity;
+        for (let index = first; index < last; index++) {
+            for (const node of columns[index]) {
+                if (!isPlaybackCursorNode(node)) continue;
+                left = Math.min(left, node.box.x);
+                top = Math.min(top, node.box.y);
+                right = Math.max(right, node.box.x + node.box.w);
+                bottom = Math.max(bottom, node.box.y + node.box.h);
+            }
+        }
+        if (left < Infinity) {
+            playbackRegions.push({
+                scoreTime: columns[first][0].t.toNumber(),
+                region: { x: left, y: top, w: right - left, h: bottom - top },
+            });
+        }
+        first = last;
+    }
 
     for (const attachment of compiled.layout.attachments) {
         if (!attachment.sourceSpan || attachment.regions.length === 0) continue;
@@ -111,6 +167,7 @@ export function createPreviewNavigationMap(compiled: CompileScoreResult): Previe
             span,
             regions: [object.box],
             kind: "object",
+            scoreTime: playbackScoreTime(object),
         });
     }
 
@@ -123,7 +180,7 @@ export function createPreviewNavigationMap(compiled: CompileScoreResult): Previe
         });
     }
 
-    return { sourceTargets, hitTargets };
+    return { sourceTargets, hitTargets, playbackRegions };
 }
 
 export function sourceTargetAt(
@@ -174,4 +231,30 @@ export function previewHitAt(
         }
     }
     return best;
+}
+
+export function playbackTimeAt(
+    navigation: PreviewNavigationMap,
+    x: number,
+    y: number,
+    tolerance: number,
+): number | null {
+    let bestTime: number | null = null;
+    let bestDistance = Infinity;
+    let bestArea = Infinity;
+    for (const target of navigation.hitTargets) {
+        if (target.scoreTime === void 0) continue;
+        for (const region of target.regions) {
+            const dx = axisDistance(x, region.x, region.w);
+            const dy = axisDistance(y, region.y, region.h);
+            if (dx > tolerance || dy > tolerance) continue;
+            const distance = dx * dx + dy * dy;
+            const area = regionArea(region);
+            if (area > bestArea || (area === bestArea && distance >= bestDistance)) continue;
+            bestTime = target.scoreTime;
+            bestDistance = distance;
+            bestArea = area;
+        }
+    }
+    return bestTime;
 }

@@ -39,7 +39,7 @@ export class LoweringContext {
     private loweringAugmenters: LoweringAugmenter[] = [];
     private loweringFinalizers: LoweringFinalizer[] = [];
     private cnt = 0;  // 生成唯一id的计数器
-    private tracks: Track[] = [];
+    private usedTracks = new Set<Track>();
 
     /** 不推进时间的附属对象 */
     private attachments: LoweringAttachment[] = [];
@@ -93,7 +93,7 @@ export class LoweringContext {
      */
     lowerDocument(node: ASTNodeBase): LoweringResult {
         this.cnt = 0;
-        this.tracks = [];
+        this.usedTracks.clear();
         this.attachments = [];
         this.page = void 0;
         this.astToTemporal = new Map();
@@ -110,7 +110,7 @@ export class LoweringContext {
             astToTemporal: this.astToTemporal,
             duration,
             rootTrack,
-            tracks: this.tracks,
+            tracks: [...this.usedTracks],
             page: this.page,
         });
     }
@@ -224,10 +224,7 @@ export class LoweringContext {
         track: Track,
     ) {
         event.t.add(timeOffset);
-        if (track.id === undefined) {
-            track.id = this.tracks.length;
-            this.tracks.push(track);
-        }
+        this.usedTracks.add(track);
         event.track = track;
         event.ast ??= owner;
         event.order = this.cnt++;

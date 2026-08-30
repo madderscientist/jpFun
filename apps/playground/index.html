@@ -31,61 +31,28 @@
 
                     <section class="playback-pane" id="playbackPane" role="tabpanel" aria-labelledby="playbackTab" hidden>
                         <div class="playback-scroll">
-                            <header class="playback-header">
-                                <div>
-                                    <span class="section-kicker">PLAYBACK</span>
-                                    <h2>播放控制台</h2>
-                                </div>
-                                <span class="coming-soon">界面预留</span>
-                            </header>
+                            <button class="playback-status" id="playbackStatus" type="button" data-state="idle" disabled>打开播放页以生成演奏计划</button>
 
                             <section class="control-section" aria-labelledby="transportTitle">
                                 <div class="section-heading">
                                     <h3 id="transportTitle">走带</h3>
-                                    <span>00:00 / 00:00</span>
+                                    <span><span id="playbackCurrentTime">00:00</span> / <span id="playbackTotalTime">00:00</span></span>
                                 </div>
                                 <div class="transport-controls">
-                                    <button class="transport-button" type="button" title="从头播放" disabled aria-label="从头播放">◀</button>
-                                    <button class="transport-button primary" type="button" title="播放" disabled aria-label="播放">▶</button>
-                                    <button class="transport-button" type="button" title="停止" disabled aria-label="停止">■</button>
-                                    <button class="transport-button" type="button" title="循环" disabled aria-label="循环">↻</button>
+                                    <button class="transport-button" id="playbackRestart" type="button" title="回到开头" disabled aria-label="回到开头">◀</button>
+                                    <button class="transport-button primary" id="playbackToggle" type="button" title="播放" disabled aria-label="播放">▶</button>
+                                    <button class="transport-button" id="playbackStop" type="button" title="停止" disabled aria-label="停止">■</button>
                                 </div>
-                                <div class="progress-track" aria-hidden="true"><span></span></div>
+                                <input class="playback-progress" id="playbackProgress" type="range" min="0" max="0" value="0" step="0.001" disabled aria-label="播放进度" />
                                 <div class="parameter-grid">
-                                    <label>速度<input type="number" value="1" step="0.1" min="0.25" max="4" disabled /></label>
-                                    <label>移调<input type="number" value="0" step="1" min="-24" max="24" disabled /></label>
+                                    <label class="range-label full">速度倍率<input id="playbackRate" type="range" value="1" step="0.05" min="0.25" max="4" disabled /><output id="playbackRateValue">1.00×</output></label>
+                                    <label>移调（半音）<input id="playbackTranspose" type="number" value="0" step="1" min="-24" max="24" disabled /></label>
                                 </div>
                             </section>
 
-                            <section class="control-section" aria-labelledby="rangeTitle">
-                                <div class="section-heading"><h3 id="rangeTitle">播放范围</h3></div>
-                                <label class="field-label">段落<select disabled><option>整首曲谱</option></select></label>
-                                <div class="parameter-grid">
-                                    <label>起始小节<input type="number" value="1" disabled /></label>
-                                    <label>反复次数<input type="number" value="1" disabled /></label>
-                                </div>
-                            </section>
-
-                            <section class="control-section" aria-labelledby="metronomeTitle">
-                                <div class="section-heading">
-                                    <h3 id="metronomeTitle">节拍器</h3>
-                                    <label class="switch-label"><input type="checkbox" disabled /> 启用</label>
-                                </div>
-                                <label class="range-label">音量 <input type="range" value="72" disabled /><output>72</output></label>
-                                <div class="parameter-grid">
-                                    <label>拍型<select disabled><option>跟随曲谱</option></select></label>
-                                    <label>速度倍率<select disabled><option>× 1</option></select></label>
-                                </div>
-                            </section>
-
-                            <section class="control-section" aria-labelledby="mixerTitle">
-                                <div class="section-heading"><h3 id="mixerTitle">声部混音</h3><span>1 声部</span></div>
-                                <div class="voice-strip">
-                                    <div class="voice-title"><strong>主声部</strong><span>默认音色</span></div>
-                                    <div class="voice-actions"><button type="button" disabled>M</button><button type="button" disabled>S</button></div>
-                                    <label class="range-label full">音量 <input type="range" value="100" disabled /><output>100</output></label>
-                                    <label class="field-label">乐器<select disabled><option>钢琴</option></select></label>
-                                </div>
+                            <section class="control-section" id="mixerSection" aria-labelledby="mixerTitle" hidden>
+                                <div class="section-heading"><h3 id="mixerTitle">声部混音</h3><span id="mixerSummary">0 声部</span></div>
+                                <div class="mixer-tracks" id="mixerTracks"></div>
                             </section>
                         </div>
                     </section>
@@ -149,20 +116,23 @@
                                 type="button"
                                 aria-haspopup="dialog"
                                 aria-expanded="false"
-                                aria-label="导出谱面"
-                                title="导出谱面"
+                                aria-label="导出"
+                                title="导出"
                             >
                                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                                     <path d="M11 7L8 10M8 10L5 7M8 10L8 3" stroke="currentColor" stroke-width="1.25" stroke-miterlimit="10" stroke-linecap="square"></path>
                                     <path d="M3 13H13" stroke="currentColor" stroke-width="1.25"></path>
                                 </svg>
                             </button>
-                            <div class="export-menu" id="exportMenu" role="dialog" aria-label="导出谱面" hidden>
+                            <div class="export-menu" id="exportMenu" role="dialog" aria-label="导出" hidden>
                                 <div class="export-menu-header">
-                                    <strong>导出谱面</strong>
-                                    <span>全部页面</span>
+                                    <strong>导出</strong>
+                                    <span>谱面与演奏</span>
                                 </div>
                                 <div class="export-formats">
+                                    <button type="button" data-export-format="midi">
+                                        <strong>MIDI</strong><span>演奏</span>
+                                    </button>
                                     <button type="button" data-export-format="pdf">
                                         <strong>PDF</strong><span>打印</span>
                                     </button>

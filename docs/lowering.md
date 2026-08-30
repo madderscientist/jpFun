@@ -118,7 +118,7 @@ interface LoweringResult {
 - `astToTemporal`：AST 到事件的一对多索引。
 - `duration`：整份文档的总时长。
 - `rootTrack`：纵向音轨树的根。
-- `tracks`：实际承载 Temporal 的轨道；索引就是首次使用时固化的 `Track.id`，空轨不进入。
+- `tracks`：实际承载 Temporal 的轨道；按首次使用顺序收集，空轨不进入。
 - `page`：可选的页面配置。
 
 ## 如何把函数接入 Lowering

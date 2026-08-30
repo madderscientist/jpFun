@@ -1,10 +1,9 @@
 import { test } from "node:test";
 
 import { ErrorDiagnostic } from "../src/diagnostic.js";
-import { Fraction } from "../src/fraction.js";
 import type { LoweringAttachment } from "../src/lowering/types.js";
 import { compilePlayback } from "../src/playback/compile.js";
-import type { PlaybackFlow } from "../src/playback/types.js";
+import type { PlaybackEmitter, PlaybackFlow } from "../src/playback/types.js";
 import {
     performanceTimeToSeconds,
     scoreTimeToSeconds,
@@ -41,21 +40,61 @@ test("playback 从已固化 lowering 生成音符与速度计划", () => {
     assert(nearly(scoreTimeToSeconds(plan, 2), 4 / 3), "谱面位置应可换算为秒数，供点击谱面起播");
 });
 
-test("逻辑 Track 编号不依赖是否发声，NoteOff 先于同刻 NoteOn", () => {
+test("拍号按实际播放访问发布且不参与速度积分", () => {
+    const plan = compilePlayback(lower(`@tempo(90) @meter(3,4) |: 1 @meter(6,8) 2 :|`));
+    const signatures = plan.events.filter(event => event.kind === "time-signature");
+
+    assert(signatures.map(event => `${event.at}:${event.numerator}/${event.denominator}`).join(" ")
+        === "0:3/4 1:6/8 3:6/8",
+    "反复段内的拍号应在每次实际访问时重新发布，段外拍号只发布一次");
+    assert(plan.events.slice(0, 3).map(event => event.kind).join(" ")
+        === "tempo time-signature note-on",
+    "同刻事件应按 tempo、拍号、note-off、note-on 的系统顺序输出");
+    assert(nearly(plan.durationSeconds, 8 / 3), "拍号事件不能改变 QN 到秒的速度积分");
+});
+
+test("播放只导出发声 Track 并压成连续编号，NoteOff 先于同刻 NoteOn", () => {
     const lowering = lower(`@stack({0}, {1 2})`);
     const plan = compilePlayback(lowering);
     const notes = playedNotes(plan);
-    assert(lowering.tracks.length === 2
-        && lowering.tracks[0].id === 0
-        && lowering.tracks[1].id === 1,
-    "lowering 应按 Track 首次承载 Temporal 的顺序分配连续 id");
-    assert(plan.trackCount === 2 && notes.every(note => note.track === 1),
-        "只含休止符的 Track 仍应占用稳定编号");
+    assert(lowering.tracks.length === 2,
+        "lowering 应按 Track 首次承载 Temporal 的顺序收集实际轨道");
+    assert(plan.tracks.length === 1 && plan.tracks[0] === lowering.tracks[1]
+        && notes.every(note => note.track === 0),
+        "只含休止符的视觉 Track 不应占用播放通道，发声音轨应重新压成连续编号");
     const boundary = plan.events.filter(event => event.at.equals(1));
     assert(boundary.length === 2
         && boundary[0].kind === "note-off"
         && boundary[1].kind === "note-on",
     "同刻必须先关闭旧音，再开启新音");
+});
+
+test("head 的布局辅助 Track 不进入播放通道", () => {
+    const lowering = lower(`H.title: A
+H.signature: 1=C 4/4
+H.tempo: 85
+@br()
+1`);
+    const plan = compilePlayback(lowering);
+    const notes = playedNotes(plan);
+
+    assert(lowering.tracks.length === 4, "head 应保留自己的视觉 Track 拓扑");
+    assert(plan.tracks.length === 1 && plan.tracks[0] === lowering.rootTrack
+        && notes.length === 1 && notes[0].track === 0,
+        "head 的纯布局 Track 不应进入播放通道统计");
+});
+
+test("播放 Track 保持 lowering 的稳定顺序，不随首个 NoteOn 改变", () => {
+    const lowering = lower(`@stack({0 1}, {3 4})`);
+    const plan = compilePlayback(lowering);
+    const notes = playedNotes(plan);
+
+    assert(plan.tracks.length === 2
+        && plan.tracks[0] === lowering.tracks[0]
+        && plan.tracks[1] === lowering.tracks[1],
+    "filtered playback tracks must preserve lowering order");
+    assert(notes[0].track === 1 && notes.slice(1).some(note => note.track === 0),
+        "an earlier NoteOn on the second track must not reorder playback channels");
 });
 
 test("up 由复合节点发出折叠成员且不重不漏", () => {
@@ -179,23 +218,19 @@ test("秒数反查谱面位置时钳制到演奏计划边界", () => {
         "计划结束后的秒数不能继续外推谱面位置");
 });
 
-test("事件可以按产生它的 Temporal 查询", () => {
+test("defer 只能看到当前位置此前发布的事件", () => {
     const lowering = lower(`1 2`);
     const node = lowering.columns[0][0];
     const emit = node.emitPlayback!.bind(node);
-    let noteEvents = 0;
     let visibleNoteOns = 0;
     node.emitPlayback = emitter => {
         emit(emitter);
         emitter.defer(context => {
-            noteEvents = context.eventsOf(node)
-                .filter(event => event.kind === "note-on" || event.kind === "note-off").length;
             visibleNoteOns = context.events.filter(event => event.kind === "note-on").length;
         });
     };
 
     compilePlayback(lowering);
-    assert(noteEvents === 2, "eventsOf(Temporal) 应返回该节点当前派生的 NoteOn/NoteOff");
     assert(visibleNoteOns === 1, "defer 只能观察当前位置此前发布的音符，不能看见未来事件");
 });
 
@@ -205,8 +240,8 @@ test("局部事件变换不能跨顶层 play frame 泄漏", () => {
     const emit = first.emitPlayback!.bind(first);
     first.emitPlayback = emitter => {
         emit(emitter);
-        emitter.affectFollowing((context, origin) => {
-            for (const event of context.eventsOf(origin)) {
+        emitter.affectFollowing((_context, events) => {
+            for (const event of events) {
                 if (event.kind === "note-on") event.velocity = 10;
             }
         });
@@ -214,6 +249,22 @@ test("局部事件变换不能跨顶层 play frame 泄漏", () => {
     const notes = playedNotes(compilePlayback(lowering));
     assert(notes[0].velocity === 80 && notes[1].velocity === 80,
         "顶层事件各自开始一个新的 play 序列，effect 不能跨列泄漏");
+});
+
+test("局部事件变换按调用前的尾段长度替换", () => {
+    const lowering = lower(`1 ^ $accent`);
+    const chord = lowering.columns[0][0] as typeof lowering.columns[0][0] & {
+        members: { emitPlayback?: (emitter: PlaybackEmitter) => void }[];
+    };
+    chord.members[1].emitPlayback = emitter => emitter.affectFollowing((_context, events) => {
+        const replacement = [...events];
+        events.length = 0;
+        return replacement;
+    });
+
+    const notes = playedNotes(compilePlayback(lowering));
+    assert(notes.length === 1 && notes[0].midi === 60,
+        "transform 改变输入数组长度后仍只能替换目标访问产生的事件");
 });
 
 test("速度由记谱位置决定，而不是上一次实际演到的速度", () => {

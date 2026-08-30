@@ -121,8 +121,11 @@ export function comparePlaybackDraftEvents(left: PlaybackDraftEvent, right: Play
     return byTime || EVENT_PRIORITY[left.kind] - EVENT_PRIORITY[right.kind] || left.order - right.order;
 }
 
-/** 校验 NoteOn/NoteOff 配对并剥掉编译期字段，得到稳定、可序列化的公开事件 */
-export function finalizePlaybackEvents(events: readonly PlaybackDraftEvent[]): PlaybackEvent[] {
+/** 校验配对、压实发声 Track 编号并剥掉编译期字段，得到稳定、可序列化的公开事件 */
+export function finalizePlaybackEvents(
+    events: readonly PlaybackDraftEvent[],
+    trackOrder: readonly Track[],
+): { events: PlaybackEvent[]; tracks: Track[] } {
     const noteOns = new Map<PlaybackNoteId, PlaybackDraftNoteOnEvent>();
     const noteOffs = new Map<PlaybackNoteId, PlaybackDraftNoteOffEvent>();
     for (const event of events) {
@@ -143,8 +146,19 @@ export function finalizePlaybackEvents(events: readonly PlaybackDraftEvent[]): P
     for (const noteId of noteOffs.keys()) {
         if (!noteOns.has(noteId)) throw new Error(`NoteOff ${noteId} has no NoteOn`);
     }
+    const audible = new Set<Track>();
+    for (const on of noteOns.values()) audible.add(on.track);
+    // 保留 lowering 的稳定轨道顺序，只过滤 head 等纯布局 Track。
+    const trackIds = new Map<Track, number>();
+    for (const track of trackOrder) {
+        if (audible.has(track)) trackIds.set(track, trackIds.size);
+    }
+    // 可信扩展若替换成 lowering 之外的 Track，仍按首次 NoteOn 顺序追加。
+    for (const track of audible) {
+        if (!trackIds.has(track)) trackIds.set(track, trackIds.size);
+    }
 
-    return events.map(event => {
+    const output: PlaybackEvent[] = events.map(event => {
         if (event.kind === "tempo") return { kind: "tempo", at: event.at, bpm: event.bpm };
         if (event.kind === "time-signature") {
             return {
@@ -155,8 +169,7 @@ export function finalizePlaybackEvents(events: readonly PlaybackDraftEvent[]): P
             };
         }
         const on = event.kind === "note-on" ? event : noteOns.get(event.noteId)!;
-        const track = on.track.id;
-        if (track === undefined) throw new Error("Playback event uses an unknown Track");
+        const track = trackIds.get(on.track)!;
         if (event.kind === "note-on") {
             return {
                 kind: "note-on",
@@ -176,4 +189,5 @@ export function finalizePlaybackEvents(events: readonly PlaybackDraftEvent[]): P
             midi: on.midi,
         };
     });
+    return { events: output, tracks: [...trackIds.keys()] };
 }

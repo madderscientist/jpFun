@@ -59,7 +59,7 @@ export interface LoweringResult {
     astToTemporal: Map<ASTNodeBase, TemporalNodeBase[]>; // 关系函数和编辑器使用的 AST 到本轮事件索引
     duration: Fraction;             // 当前 lowering 范围的总时长
     rootTrack: Track;               // 纵向音轨树的根
-    tracks: readonly Track[];       // 实际承载 Temporal 的轨道，索引即 Track.id
+    tracks: readonly Track[];       // 按本轮首次承载 Temporal 的顺序收集，空轨不进入
     page?: PageConfig;              // 文档页面配置；缺省时 layout 使用默认页面
 }
 

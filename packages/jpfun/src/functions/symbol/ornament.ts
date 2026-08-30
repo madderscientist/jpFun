@@ -27,8 +27,7 @@ interface OrnamentPattern {
  * 每秒只有两三次，听起来根本不是颤音。默认速度下仍然恰好是 1/8 四分音符。
  */
 export function ornament(pattern: OrnamentPattern): PlaybackTransform {
-    return (context, origin) => {
-        const owned = context.eventsOf(origin);
+    return (context, owned) => {
         const noteOffs = new Map<number, PlaybackDraftNoteOffEvent>();
         for (const event of owned) {
             if (event.kind === "note-off") noteOffs.set(event.noteId, event);
@@ -71,8 +70,7 @@ export function ornament(pattern: OrnamentPattern): PlaybackTransform {
                 });
             }
         }
-        context.events.splice(0, context.events.length,
-            ...context.events.filter(event => !removed.has(event)), ...added);
+        return [...owned.filter(event => !removed.has(event)), ...added];
     };
 }
 

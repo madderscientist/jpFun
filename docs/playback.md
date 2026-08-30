@@ -21,7 +21,7 @@ TimeSignature(at, numerator, denominator)
 
 NoteOn 的 `midi` 保留核心按记谱语义计算出的逻辑音高，不在这里钳制或整数化；具体 MIDI 适配器负责转换为目标设备接受的音高表示。
 
-`track` 是稳定的播放通道编号，与布局使用的视觉 Track 是同一个身份。渲染和播放共享这份分轨结果，不再维护第二套轨道映射。
+NoteOn 在编译期仍引用布局使用的同一个 Track 对象；最终输出按 `lowering.tracks` 的稳定顺序过滤，只保留至少含一个存活 NoteOn 的 Track，并压成从 0 开始的连续 `track` 通道编号。head 等纯布局轨、只含休止符的轨和被控制流彻底跳过的轨都不占播放通道。
 
 ## 编译流程
 
@@ -106,7 +106,7 @@ emitter.control(emitter.end, state => state.bpmScale.mul(2));
 
 将来实际加入 ProgramChange、ControlChange 或 PitchBend 时，再按对应 MIDI 事件扩展系统状态和最终事件类型；当前不预留无人使用的每轨状态表。
 
-## Origin 与通用查询
+## Origin 与局部变换
 
 每次 `play(node)` 创建唯一 origin：
 
@@ -118,14 +118,16 @@ interface PlaybackOrigin {
 
 对象身份本身区分同一个 Temporal 在反复中的不同访问，不再维护额外的 occurrence 数字。编译期事件保存 origin lineage；ornament 替换事件时继承 lineage，tie 合并事件时取并集。
 
-可信的库内 hook 直接修改事件数组，并获得两个通用查询：
+局部 transform 在目标音完整发布后直接收到这次访问产生的事件：
 
 ```ts
-eventsOf(originOrNode)
-stateAt(time)
+type PlaybackTransform = (
+    context: PlaybackHookContext,
+    events: PlaybackDraftEvent[],
+) => PlaybackDraftEvent[] | void
 ```
 
-`eventsOf(origin)` 查询一次具体访问派生出的当前事件，`eventsOf(node)` 查询该 Temporal 的所有访问实例，`stateAt(time)` 返回该时刻的 BPM 状态快照。
+accent 原地修改 `events`；ornament 返回替换后的事件数组，下一层 transform 继续处理这份结果。这样局部修饰不需要扫描完整事件计划。`context.stateAt(time)` 仍按时刻查询 BPM 快照；defer 和 relation 需要跨节点时直接观察完整 `context.events`。
 
 没有为 tr、dash、tie 定义专用事件 kind，也没有 Patch、Visitor 或 handler registry。
 
@@ -171,9 +173,9 @@ performance 和 score 都以 QN 为单位并使用精确 `Fraction`。Tempo 只�
 
 `secondsToScoreTime(plan, seconds)` 会把结果钳制在计划的演奏时长内；播放结束后的时钟值始终映射到计划终点，不继续向谱面外推。
 
-Lowering 在 Track 首次承载 Temporal 时按全局事件创建顺序分配 `Track.id`，并输出唯一的 `lowering.tracks` 表。Playback 直接复用这份编号；被房子跳过、只含休止符或被 stop 截断都不会改变编号，从未承载 Temporal 的空 Track 不计入。
+Lowering 的 Track 仍完整描述视觉拓扑，`lowering.tracks` 可以包含 head 槽位、只含休止符的声部等无发声轨。Playback 在 ornament、dash、tie 和控制流全部收敛后，从最终 NoteOn 集合派生 `tracks` 并重新连续编号；`events[].track` 是该数组的索引。
 
-`PlaybackPlan` 提供 `events`、`scoreMap`、`trackCount`、`performanceDuration`、`durationSeconds` 和 `diagnostics`。
+`PlaybackPlan` 提供 `events`、`scoreMap`、`tracks`、`performanceDuration`、`durationSeconds` 和 `diagnostics`。
 
 Web Audio、Web MIDI 和 Standard MIDI File 适配器都消费同一份事件计划。设备选择、PPQ 量化、实时调度和文件编码不属于 core playback 编译器。
 

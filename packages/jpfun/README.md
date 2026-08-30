@@ -127,7 +127,7 @@ import { compilePlayback } from "jpfun";
 const playback = compilePlayback(result.lowering);
 playback.events;
 playback.scoreMap;
-playback.trackCount;
+playback.tracks;
 playback.durationSeconds;
 ```
 

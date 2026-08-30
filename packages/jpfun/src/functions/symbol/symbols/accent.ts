@@ -17,8 +17,8 @@ export const accentSymbol: SymbolDefinition = {
             style: { stroke: "#000", strokeWidth: 1 },
         },
     ],
-    emitPlayback: emitter => emitter.affectFollowing((context, origin) => {
-        for (const event of context.eventsOf(origin)) {
+    emitPlayback: emitter => emitter.affectFollowing((_context, events) => {
+        for (const event of events) {
             if (event.kind === "note-on") {
                 event.velocity = Math.min(MAX_VELOCITY, event.velocity + ACCENT_BOOST);
             }

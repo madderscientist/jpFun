@@ -202,6 +202,17 @@ test("head 三槽独立计算内部行距", () => {
         "right row height must still affect later rows in the right slot");
 });
 
+test("head 行间距默认 5px 并支持 gap 参数", () => {
+    const rowGap = (gap = "") => {
+        const objects = textObjects(`@head(center={@text(A) @text(B)}${gap})`);
+        const first = objects.get("A")!.box;
+        const second = objects.get("B")!.box;
+        return second.y - first.y - first.h;
+    };
+    assert(nearly(rowGap(), 5), "head rows must use the default 5px gap");
+    assert(nearly(rowGap(", gap=11px"), 11), "the head gap argument must override the default");
+});
+
 test("head 侧栏按顶层元素紧凑排列", () => {
     const layout = layoutOf(`H.left: @key(D4)@meter(4,4)
 H.left: @tempo(96)@text("96")

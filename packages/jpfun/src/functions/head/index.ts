@@ -16,6 +16,7 @@ import {
     ASTNodeBase,
     type ASTFunctionClass,
     type FunctionArgs,
+    type LengthValue,
     type SourceSpan,
 } from "../ASTtypes.js";
 import { KeyNode } from "../key/index.js";
@@ -36,6 +37,7 @@ const TEXT_PRESET = {
     title: [2, "center"], subtitle: [0.85, "center"], author: [0.8, "right"],
 } as const;
 const ITEM_GAP_EM = 0.25;
+const DEFAULT_GAP_PX = 5;
 // 也决定居中精度：值越大弹簧越软，求解器按合力收敛后残留的坐标误差越大
 const HEAD_STRETCH = 10_000;
 
@@ -86,9 +88,10 @@ function layoutHeadSlot(
     } else X[end] = X[start];
 }
 
-/** 行从上到下紧贴排列；capture 让 Head 在同一遍测量里取得整组范围 */
+/** 行从上到下按 gap 排列；capture 让 Head 在同一遍测量里取得整组范围 */
 function measureRows(
     members: readonly (Extent | null)[],
+    gap: number,
     capture?: (extent: Extent | null) => void,
 ): readonly (TrackPlacement | null)[] {
     const placements: (TrackPlacement | null)[] = [];
@@ -99,7 +102,7 @@ function measureRows(
             placements.push(null);
             continue;
         }
-        const offset = cursor === void 0 ? 0 : cursor - extent.top;
+        const offset = cursor === void 0 ? 0 : cursor + gap - extent.top;
         placements.push({ offset, extent });
         top ??= offset + extent.top;
         cursor = offset + extent.bottom;
@@ -241,11 +244,13 @@ H.left: / H.center: / H.right: 接受对应槽的任意零时长 DSL 内容
             { name: "left", type: "content" as const, default: "" },
             { name: "center", type: "content" as const, default: "" },
             { name: "right", type: "content" as const, default: "" },
+            { name: "gap", type: "length" as const, default: { value: DEFAULT_GAP_PX, unit: "px" as const } },
         ],
     };
 
     readonly slots: [HeadSlotNode, HeadSlotNode, HeadSlotNode];
     readonly size: number;
+    readonly gap: number;
     private readonly members: TemporalNodeBase[] = [];
     private createdBySugar = false;
 
@@ -368,6 +373,7 @@ H.left: / H.center: / H.right: 接受对应槽的任意零时长 DSL 内容
     ) {
         super(span, parent);
         this.size = ctx.fontSize;
+        this.gap = ctx.length2px(this.getArgValue(args, ctx)[3] as LengthValue);
         // laneKey 必须区分同一宿主轨上的多个 Head；源码起点是稳定且无需额外存储的身份
         const laneKey = `head/rows/${span.start}`;
         let titleBottom = 0;
@@ -376,7 +382,7 @@ H.left: / H.center: / H.right: 接受对应槽的任意零时长 DSL 内容
         const sideTracks = (name: SideName): TrackArrangement => ({
             laneKey: `${laneKey}/${name}`,
             hostIndex: null,
-            measure: members => measureRows(members, extent => {
+            measure: members => measureRows(members, this.gap, extent => {
                 if (name === "left") leftExtent = extent;
                 else rightExtent = extent;
             }),
@@ -391,7 +397,7 @@ H.left: / H.center: / H.right: 接受对应槽的任意零时长 DSL 内容
             },
         });
         const centerMeasure: MeasureFn = members => {
-            const placements = measureRows(members);
+            const placements = measureRows(members, this.gap);
             const first = placements.find(placement => placement !== null);
             titleBottom = first ? first.offset + first.extent.bottom : 0;
             return placements;
@@ -487,6 +493,7 @@ H.left: / H.center: / H.right: 接受对应槽的任意零时长 DSL 内容
                     .join("\n");
                 return `  ${slot.name}={\n${rows}\n  }`;
             });
+        if (this.gap !== DEFAULT_GAP_PX) slots.push(`  gap=${this.gap}px`);
         return `@head(\n${slots.join(",\n")}\n)`;
     }
 

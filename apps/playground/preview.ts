@@ -9,6 +9,8 @@ import type { SourceRange } from "./editor.js";
 import { createDropdown, requiredElement } from "./platform.js";
 import {
     createPreviewNavigationMap,
+    playbackRegionAt,
+    playbackTimeAt,
     previewHitAt,
     sourceTargetAt,
     type PreviewNavigationMap,
@@ -22,6 +24,7 @@ export interface PreviewController {
     showError(message: string): void;
     invalidateNavigation(): void;
     focusSourcePosition(position: number): void;
+    showPlaybackPosition(scoreTime: number | null): void;
     download(format: ImageExportFormat, ppi: number): Promise<void>;
     preparePrint(): void;
     clearPrint(): void;
@@ -29,6 +32,8 @@ export interface PreviewController {
 
 interface PreviewControllerOptions {
     onNavigateSource(range: SourceRange, select: boolean): void;
+    onSeekPlayback(scoreTime: number): void;
+    isPlaybackActive(): boolean;
 }
 
 const MIN_ZOOM = 0.25;
@@ -71,12 +76,15 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
     const backendTabs = [...document.querySelectorAll<HTMLButtonElement>(".backend-tab")];
     let activeBackend: PreviewBackend = "svg";
     let result: CompileScoreResult | null = null;
+    let pageBounds: readonly Rect[] = [];
     let navigation: PreviewNavigationMap | null = null;
     let zoom = 1;
     let fitToWidth = true;
     let canvasZoomFrame: number | undefined;
     let pendingSourceClick: { range: SourceRange; x: number; y: number } | null = null;
     let pendingSourceClickTimer: number | undefined;
+    let playbackScoreTime: number | null = null;
+    let playbackRegionKey = "";
 
     document.head.append(printStyle);
 
@@ -95,6 +103,8 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
             page.append(surface, overlay);
             return page;
         }));
+        playbackRegionKey = "";
+        renderPlaybackCursor(false);
     }
 
     function renderSvg(compiled: CompileScoreResult) {
@@ -113,7 +123,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
     function renderCanvas(compiled: CompileScoreResult) {
         const ratio = window.devicePixelRatio || 1;
         const contexts: CanvasRenderingContext2D[] = [];
-        const pages = layoutPageBounds(compiled.layout).map(page => {
+        const pages = pageBounds.map(page => {
             const width = Math.max(1, Math.ceil(page.w));
             const height = Math.max(1, Math.ceil(page.h));
             const canvas = document.createElement("canvas");
@@ -137,6 +147,60 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         host.querySelector(".preview-focus-ripple")?.remove();
     }
 
+    function clearPlaybackCursor() {
+        host.querySelector(".preview-playback-cursor")?.remove();
+        playbackRegionKey = "";
+    }
+
+    function renderPlaybackCursor(reveal: boolean) {
+        if (!result || !navigation || playbackScoreTime === null) return clearPlaybackCursor();
+        const region = playbackRegionAt(navigation, playbackScoreTime);
+        if (!region) return clearPlaybackCursor();
+        const centerY = region.y + region.h / 2;
+        const pageIndex = pageBounds.findIndex(page => centerY >= page.y && centerY <= page.y + page.h);
+        const key = `${pageIndex}:${region.x}:${region.y}:${region.w}:${region.h}`;
+        if (key === playbackRegionKey && host.querySelector(".preview-playback-cursor")) return;
+        const pageRect = pageBounds[pageIndex];
+        const page = host.children[pageIndex];
+        if (!pageRect || !(page instanceof HTMLElement)) return clearPlaybackCursor();
+        const surface = page.querySelector<SVGSVGElement | HTMLCanvasElement>(":scope > svg, :scope > canvas");
+        const overlay = page.querySelector<HTMLElement>(":scope > .preview-overlay");
+        if (!surface || !overlay) return clearPlaybackCursor();
+
+        const surfaceBounds = surfaceContentBounds(surface);
+        const pageElementBounds = page.getBoundingClientRect();
+        const x = surfaceBounds.left - pageElementBounds.left
+            + (region.x - pageRect.x) / pageRect.w * surfaceBounds.width;
+        const y = surfaceBounds.top - pageElementBounds.top
+            + (region.y - pageRect.y) / pageRect.h * surfaceBounds.height;
+        const width = Math.max(6, region.w / pageRect.w * surfaceBounds.width);
+        const height = Math.max(6, region.h / pageRect.h * surfaceBounds.height);
+        playbackRegionKey = key;
+
+        let marker = host.querySelector<HTMLElement>(".preview-playback-cursor");
+        if (!marker) {
+            marker = document.createElement("span");
+            marker.className = "preview-playback-cursor";
+        }
+        overlay.append(marker);
+        marker.style.left = `${x - 3}px`;
+        marker.style.top = `${y - 3}px`;
+        marker.style.width = `${width + 6}px`;
+        marker.style.height = `${height + 6}px`;
+
+        if (reveal) {
+            const scrollBounds = scroll.getBoundingClientRect();
+            const markerCenterX = pageElementBounds.left + x + width / 2;
+            const markerCenterY = pageElementBounds.top + y + height / 2;
+            if (markerCenterX < scrollBounds.left || markerCenterX > scrollBounds.right) {
+                scroll.scrollLeft += markerCenterX - scrollBounds.left - scroll.clientWidth / 2;
+            }
+            if (markerCenterY < scrollBounds.top || markerCenterY > scrollBounds.bottom) {
+                scroll.scrollTop += markerCenterY - scrollBounds.top - scroll.clientHeight / 2;
+            }
+        }
+    }
+
     function clearPendingSourceClick() {
         window.clearTimeout(pendingSourceClickTimer);
         pendingSourceClickTimer = void 0;
@@ -147,6 +211,8 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         clearPendingSourceClick();
         navigation = null;
         clearFocus();
+        playbackScoreTime = null;
+        clearPlaybackCursor();
     }
 
     function surfaceContentBounds(surface: SVGSVGElement | HTMLCanvasElement) {
@@ -166,22 +232,15 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
 
     function focusRegion(region: Rect, reveal: boolean) {
         if (!result) return;
-        const pages = layoutPageBounds(result.layout);
         const centerY = region.y + region.h / 2;
-        const pageIndex = pages.findIndex(page => centerY >= page.y && centerY <= page.y + page.h);
-        const pageRect = pages[pageIndex];
+        const pageIndex = pageBounds.findIndex(page => centerY >= page.y && centerY <= page.y + page.h);
+        const pageRect = pageBounds[pageIndex];
         const page = host.children[pageIndex];
         if (!pageRect || !(page instanceof HTMLElement)) return;
         const surface = page.querySelector<SVGSVGElement | HTMLCanvasElement>(":scope > svg, :scope > canvas");
         const overlay = page.querySelector<HTMLElement>(":scope > .preview-overlay");
         if (!surface || !overlay) return;
 
-        if (reveal) {
-            const viewportBounds = scroll.getBoundingClientRect();
-            if (viewportBounds.top < 0 || viewportBounds.bottom > window.innerHeight) {
-                scroll.scrollIntoView({ block: "center", inline: "nearest" });
-            }
-        }
         clearFocus();
         const surfaceBounds = surfaceContentBounds(surface);
         const pageElementBounds = page.getBoundingClientRect();
@@ -231,6 +290,8 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         const pages = host.querySelectorAll<SVGSVGElement>("svg");
         if (pages.length === 0) return renderSvg(result);
         for (const svg of pages) resizeSvg(svg);
+        playbackRegionKey = "";
+        renderPlaybackCursor(false);
     }
 
     function captureZoomAnchor(anchor: { x: number; y: number }) {
@@ -317,7 +378,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
             updateZoomLabel();
             return;
         }
-        const width = Math.max(...layoutPageBounds(result.layout).map(bounds => bounds.w), 1);
+        const width = Math.max(...pageBounds.map(bounds => bounds.w), 1);
         setZoom(scroll.clientWidth / width);
     }
 
@@ -325,7 +386,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         clearPrint();
         document.body.classList.add("print-ready");
         if (!result) return;
-        const [paper] = layoutPageBounds(result.layout);
+        const [paper] = pageBounds;
         printHost.replaceChildren(...createSvgPages(result));
         printStyle.textContent = `@media print { @page { size: ${paper.w}px ${paper.h}px; margin: 0; } }`;
     }
@@ -338,8 +399,6 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
 
     async function download(format: ImageExportFormat, ppi: number) {
         if (!result) throw new Error("当前没有可导出的谱面");
-        const pages = layoutPageBounds(result.layout);
-
         if (format === "svg") {
             const files = renderLayoutPagesToSvg(result.layout);
             for (const [index, svg] of files.entries()) {
@@ -354,7 +413,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         }
 
         const scale = ppi / CSS_PIXELS_PER_INCH;
-        const contexts = pages.map(page => {
+        const contexts = pageBounds.map(page => {
             const canvas = document.createElement("canvas");
             canvas.width = Math.max(1, Math.ceil(page.w * scale));
             canvas.height = Math.max(1, Math.ceil(page.h * scale));
@@ -442,7 +501,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         const page = target.closest<HTMLElement>(".preview-page");
         if (!page || page.parentElement !== host) return;
         const pageIndex = [...host.children].indexOf(page);
-        const bounds = layoutPageBounds(result.layout)[pageIndex];
+        const bounds = pageBounds[pageIndex];
         const surface = page.querySelector<SVGSVGElement | HTMLCanvasElement>(":scope > svg, :scope > canvas");
         if (!bounds || !surface) return;
         const surfaceBounds = surfaceContentBounds(surface);
@@ -452,6 +511,14 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
             bounds.w / surfaceBounds.width,
             bounds.h / surfaceBounds.height,
         );
+        if (options.isPlaybackActive()) {
+            clearPendingSourceClick();
+            const scoreTime = playbackTimeAt(navigation, x, y, tolerance);
+            if (scoreTime === null) return;
+            event.preventDefault();
+            options.onSeekPlayback(scoreTime);
+            return;
+        }
         const hit = previewHitAt(navigation, x, y, tolerance);
         if (!hit) return;
         event.preventDefault();
@@ -471,6 +538,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         render(compiled) {
             clearPendingSourceClick();
             result = compiled;
+            pageBounds = layoutPageBounds(compiled.layout);
             navigation = createPreviewNavigationMap(compiled);
             renderActiveBackend();
             if (fitToWidth) fitWidth();
@@ -478,6 +546,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         showError(message) {
             invalidateNavigation();
             result = null;   // 否则缩放会把过期谱面重新画回来
+            pageBounds = [];
             window.cancelAnimationFrame(canvasZoomFrame ?? 0);
             canvasZoomFrame = void 0;
             clearPrint();
@@ -488,6 +557,10 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         },
         invalidateNavigation,
         focusSourcePosition,
+        showPlaybackPosition(scoreTime) {
+            playbackScoreTime = scoreTime;
+            renderPlaybackCursor(true);
+        },
         download,
         preparePrint,
         clearPrint,

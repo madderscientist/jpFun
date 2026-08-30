@@ -2,7 +2,10 @@ import {
     CanvasTextMeasurer,
     DEFAULT_FONT_SIZE,
     Diagnostic,
+    ErrorDiagnostic,
+    compilePlayback,
     compileScore,
+    type CompileScoreResult,
 } from "jpfun";
 import { createDiagnosticsController } from "./diagnostics.js";
 import {
@@ -20,6 +23,7 @@ import {
 } from "./preview.js";
 import { initializeTheme } from "./theme.js";
 import { createWorkspaceController } from "./workspace.js";
+import { createPlaybackController, type PlaybackController } from "./playback.js";
 
 const editorHost = requiredElement<HTMLElement>("#sourceEditor");
 const statusMessage = requiredElement<HTMLElement>("#statusMessage");
@@ -37,6 +41,12 @@ let fatal = false;
 let renderTimer: number | undefined;
 let preview: PreviewController;
 let documents: ReturnType<typeof createDocumentController>;
+let playback: PlaybackController | undefined;
+let latestCompiled: CompileScoreResult | null = null;
+let latestCompiledSource: string | null = null;
+let playbackSource: string | null = null;
+let scoreDiagnostics: Diagnostic[] = [];
+let playbackDiagnostics: Diagnostic[] = [];
 // 排版必须按最终绘制的字体测量，否则字形宽度会与盒子对不上
 const textMeasurer = new CanvasTextMeasurer(document.createElement("canvas").getContext("2d")!);
 initializeTheme();
@@ -47,6 +57,13 @@ const editor = createSourceEditor({
     onDocChanged() {
         documents.sourceChanged();
         preview.invalidateNavigation();
+        latestCompiled = null;
+        latestCompiledSource = null;
+        playbackSource = null;
+        scoreDiagnostics = [];
+        playbackDiagnostics = [];
+        playback?.invalidate();
+        diagnostics.render([]);
         updateSourceSize();
         scheduleRender();
     },
@@ -77,16 +94,37 @@ const workspace = createWorkspaceController(editor, {
     onSourceTabReselect() {
         void documents.open();
     },
+    onSourceTabChanged(tab) {
+        playback?.setActive(tab === "playback");
+    },
 });
 preview = createPreviewController({
     onNavigateSource(range, select) {
-        workspace.revealSource();
+        if (workspace.getSourceTab() !== "source") return;
         revealSourcePosition(editor, range, select);
+    },
+    onSeekPlayback(scoreTime) {
+        playback?.seekScoreTime(scoreTime);
+    },
+    isPlaybackActive() {
+        return workspace.getSourceTab() === "playback";
     },
 });
 const diagnostics = createDiagnosticsController({
     editor,
     showSource: workspace.revealSource,
+});
+playback = createPlaybackController({
+    requestPlan: ensurePlaybackPlan,
+    showDiagnostics() {
+        workspace.showResult("problems");
+    },
+    getFileName() {
+        return sourceName.textContent || "score.jpfun";
+    },
+    onScorePosition(scoreTime) {
+        preview.showPlaybackPosition(scoreTime);
+    },
 });
 
 function source(): string {
@@ -106,6 +144,11 @@ function formatError(error: unknown): string {
 function showError(error: unknown) {
     fatal = true;
     const text = formatError(error);
+    latestCompiled = null;
+    latestCompiledSource = null;
+    playbackSource = null;
+    playbackDiagnostics = [];
+    playback?.setScoreError("请先修复排版错误");
     preview.showError(text);
     publishSemanticAst(editor, null);
     // 带 span 的诊断走正常列表，才能点击跳转
@@ -117,27 +160,78 @@ function showError(error: unknown) {
     workspace.showResult("problems");
 }
 
+function renderCombinedDiagnostics() {
+    const combined = [...scoreDiagnostics, ...playbackDiagnostics];
+    diagnostics.render(combined);
+    return combined;
+}
+
+function updateDocumentStatus() {
+    const combined = renderCombinedDiagnostics();
+    const playbackFailed = playbackDiagnostics.some(item => item instanceof ErrorDiagnostic);
+    statusMessage.dataset.state = playbackFailed ? "error" : combined.length === 0 ? "ok" : "warning";
+    statusMessage.textContent = combined.length === 0 ? "排版完成" : `${combined.length} 条诊断`;
+    statusMessage.title = "";
+}
+
+function compilePlaybackPlan(compiled: CompileScoreResult, sourceText: string) {
+    playbackSource = sourceText;
+    playbackDiagnostics = [];
+    try {
+        const plan = compilePlayback(compiled.lowering);
+        playbackDiagnostics = [...plan.diagnostics];
+        playback?.setPlan(plan);
+        updateDocumentStatus();
+        return true;
+    } catch (error) {
+        const hasDiagnostic = error instanceof Diagnostic;
+        if (hasDiagnostic) playbackDiagnostics = [error];
+        playback?.setCompileError(`播放编译失败：${formatError(error)}`, hasDiagnostic);
+        updateDocumentStatus();
+        return false;
+    }
+}
+
+function ensurePlaybackPlan() {
+    window.clearTimeout(renderTimer);
+    const sourceText = source();
+    if (!latestCompiled || latestCompiledSource !== sourceText) {
+        if (!compileAndRender()) return false;
+    }
+    if (!latestCompiled) return false;
+    if (playbackSource !== sourceText) return compilePlaybackPlan(latestCompiled, sourceText);
+    return playback?.hasPlan ?? false;
+}
+
 function compileAndRender(): boolean {
     const startedAt = performance.now();
+    const sourceText = source();
     try {
-        const compiled = compileScore(source(), {
+        const compiled = compileScore(sourceText, {
             fontSize: DEFAULT_FONT_SIZE,
             rowGap: 18,
             textMeasurer,
         });
-        diagnostics.render(compiled.parser.diagnostics);
+        latestCompiled = compiled;
+        latestCompiledSource = sourceText;
+        scoreDiagnostics = [...compiled.parser.diagnostics];
+        if (playbackSource !== sourceText) {
+            playbackDiagnostics = [];
+        }
         preview.render(compiled);
         publishSemanticAst(editor, compiled.ast);
-        const count = compiled.parser.diagnostics.length;
-        statusMessage.dataset.state = count === 0 ? "ok" : "warning";
-        statusMessage.textContent = count === 0 ? "排版完成" : `${count} 条诊断`;
         layoutStats.textContent = `布局 ${compiled.layout.objects.length} 个对象 · `
             + `${compiled.layout.lineCount} 行 · ${compiled.layout.pages.length} 页 · `
             + `${compiled.layout.bounds.w.toFixed(0)} × ${compiled.layout.bounds.h.toFixed(0)}`;
+        if (playback?.active && playbackSource !== sourceText) {
+            compilePlaybackPlan(compiled, sourceText);
+        } else updateDocumentStatus();
         // 非致命诊断靠标签徽标提示，不抢面板；只有从中断恢复时才切回预览
         if (fatal) {
             fatal = false;
-            workspace.showResult("preview");
+            if (!playbackDiagnostics.some(item => item instanceof ErrorDiagnostic)) {
+                workspace.showResult("preview");
+            }
         }
         return true;
     } catch (error) {
@@ -185,18 +279,21 @@ for (const button of exportFormatButtons) {
             window.print();
             return;
         }
-        if (!isImageExportFormat(format)) return;
+        if (format !== "midi" && !isImageExportFormat(format)) return;
 
-        window.clearTimeout(renderTimer);
-        if (!compileAndRender()) {
-            closeExportMenu(true);
-            return;
+        if (format !== "midi") {
+            window.clearTimeout(renderTimer);
+            if (!compileAndRender()) {
+                closeExportMenu(true);
+                return;
+            }
         }
 
         exportButton.disabled = true;
         for (const item of exportFormatButtons) item.disabled = true;
         try {
-            await preview.download(format, normalizedExportPpi());
+            if (format === "midi") await playback?.downloadMidi();
+            else await preview.download(format, normalizedExportPpi());
             closeExportMenu(true);
         } catch (error) {
             statusMessage.dataset.state = "error";
@@ -218,6 +315,7 @@ window.addEventListener("keydown", event => {
     void documents.save();
 });
 window.addEventListener("pagehide", documents.flushDraft);
+window.addEventListener("pagehide", () => playback?.destroy());
 
 requiredElement<HTMLButtonElement>("#runLayout").addEventListener("click", compileAndRender);
 window.addEventListener("beforeprint", () => {
@@ -228,3 +326,4 @@ window.addEventListener("afterprint", preview.clearPrint);
 
 updateSourceSize();
 compileAndRender();
+playback.setActive(workspace.getSourceTab() === "playback");

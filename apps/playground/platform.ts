@@ -12,6 +12,29 @@ export function storeValue(key: string, value: string) {
     try { localStorage.setItem(key, value); } catch { /* 存储不可用时静默降级 */ }
 }
 
+const classicScripts = new Map<string, Promise<void>>();
+
+/** 按需加载不提供 ESM 入口的远程脚本；失败后允许下一次操作重试。 */
+export function loadClassicScript(source: string): Promise<void> {
+    const pending = classicScripts.get(source);
+    if (pending) return pending;
+
+    const script = document.createElement("script");
+    script.src = source;
+    script.async = true;
+    const loaded = new Promise<void>((resolve, reject) => {
+        script.addEventListener("load", () => resolve(), { once: true });
+        script.addEventListener("error", () => {
+            classicScripts.delete(source);
+            script.remove();
+            reject(new Error(`无法加载远程脚本：${source}`));
+        }, { once: true });
+    });
+    classicScripts.set(source, loaded);
+    document.head.append(script);
+    return loaded;
+}
+
 /**
  * 下拉菜单的开合：点触发按钮切换，点菜单外或按 Esc 关闭
  * @param initialFocus 打开时聚焦的菜单项选择器

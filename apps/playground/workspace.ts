@@ -9,6 +9,7 @@ export interface WorkspaceController {
     showSource(tab: LeftTab): void;
     revealSource(): void;
     showResult(tab: RightTab): void;
+    getSourceTab(): LeftTab;
 }
 
 function isViewMode(value: string | null | undefined): value is ViewMode {
@@ -17,7 +18,10 @@ function isViewMode(value: string | null | undefined): value is ViewMode {
 
 export function createWorkspaceController(
     editor: EditorView,
-    options?: { onSourceTabReselect(): void },
+    options?: {
+        onSourceTabReselect(): void;
+        onSourceTabChanged?(tab: LeftTab): void;
+    },
 ): WorkspaceController {
     const workspace = requiredElement<HTMLElement>("#workspace");
     const divider = requiredElement<HTMLElement>("#workspaceDivider");
@@ -31,6 +35,7 @@ export function createWorkspaceController(
     const viewButtons = [...document.querySelectorAll<HTMLButtonElement>("[data-view]")];
     const leftTabs = [...document.querySelectorAll<HTMLButtonElement>("[data-left-tab]")];
     const rightTabs = [...document.querySelectorAll<HTMLButtonElement>("[data-right-tab]")];
+    let activeLeftTab: LeftTab = "source";
 
     function setViewMode(mode: ViewMode) {
         workspace.dataset.view = mode;
@@ -38,12 +43,15 @@ export function createWorkspaceController(
         storeValue("jpfun-view", mode);
     }
 
-    function showSource(tab: LeftTab) {
+    function showSource(tab: LeftTab, notify = true) {
+        const changed = activeLeftTab !== tab;
+        activeLeftTab = tab;
         sourcePane.hidden = tab !== "source";
         playbackPane.hidden = tab !== "playback";
         sourceSize.hidden = tab !== "source";
         for (const button of leftTabs) button.setAttribute("aria-selected", String(button.dataset.leftTab === tab));
         storeValue("jpfun-left-tab", tab);
+        if (changed && notify) options?.onSourceTabChanged?.(tab);
     }
 
     function showResult(tab: RightTab) {
@@ -112,9 +120,9 @@ export function createWorkspaceController(
     if (Number.isFinite(storedWidth) && storedWidth > 0) setEditorWidth(storedWidth);
     const storedView = readStoredValue("jpfun-view");
     if (isViewMode(storedView)) setViewMode(storedView);
-    if (readStoredValue("jpfun-left-tab") === "playback") showSource("playback");
+    if (readStoredValue("jpfun-left-tab") === "playback") showSource("playback", false);
 
     // 面板显隐、视图切换、拖分隔条都会改 editorHost 尺寸，重测量统一从这里走
     new ResizeObserver(() => editor.requestMeasure()).observe(editorHost);
-    return { showSource, revealSource, showResult };
+    return { showSource, revealSource, showResult, getSourceTab: () => activeLeftTab };
 }
