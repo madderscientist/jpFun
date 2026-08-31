@@ -1,11 +1,9 @@
 import type {
     AttachmentLayoutContext,
-    HorizontalLineView,
     LayoutAttachment,
     LayoutHost,
 } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
-import type { Track } from "../../lowering/track.js";
 import {
     ANCHOR_KEY,
     isVisualTemporalNode,
@@ -115,15 +113,6 @@ function barIn(column: readonly LayoutHost[] | undefined) {
 class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
     layer = "foreground" as const;
 
-    /** 首末端点列最上方的对象、区间最大字号与紧邻的小节线，横向准备时填入 */
-    private head?: LayoutHost;
-    private tail?: LayoutHost;
-    private span = 0;
-    private leftBar?: LayoutHost;
-    private rightBar?: LayoutHost;
-    /** 逐行记下覆盖列内各轨的最高点，相对该轨视觉轴；轴要等纵向求解才知道 */
-    private readonly topsByLine: Map<Track, number>[] = [];
-
     constructor(
         private readonly ast: VoltaFunction,
         readonly from: TemporalNodeBase,
@@ -148,10 +137,12 @@ class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
         };
     }
 
-    prepareHorizontal(lines: HorizontalLineView[]) {
-        if (!isVisualTemporalNode(this.from) || !isVisualTemporalNode(this.to)) return;
+    createGeometry(context: AttachmentLayoutContext) {
+        if (!isVisualTemporalNode(this.from) || !isVisualTemporalNode(this.to)) {
+            return { regions: [], paint() {} };
+        }
         const locate = (node: VisualTemporalNode) => {
-            const view = lines[node.layoutLine];
+            const view = context.lines[node.layoutLine];
             return { line: node.layoutLine, view, column: view.columnOf(node) };
         };
         // 两个标签谁写在前面不一定，按谱面顺序摆正
@@ -159,42 +150,29 @@ class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
         if (from.line > to.line || (from.line === to.line && from.column > to.column)) {
             [from, to] = [to, from];
         }
-        if (from.column < 0 || to.column < 0) return;
+        if (from.column < 0 || to.column < 0) return { regions: [], paint() {} };
 
-        this.head = from.view.columns[from.column][0];
-        this.tail = to.view.columns[to.column][0];
-        this.leftBar = barIn(from.view.columns[from.column - 1]);
-        this.rightBar = barIn(to.view.columns[to.column + 1]);
+        const head = from.view.columns[from.column][0];
+        const tail = to.view.columns[to.column][0];
+        const leftBar = barIn(from.view.columns[from.column - 1]);
+        const rightBar = barIn(to.view.columns[to.column + 1]);
 
-        this.span = 0;
-        this.topsByLine.length = 0;
+        let span = 0;
+        const coverage: { from: number; to: number; wholeLine: boolean }[] = [];
         // 括线盖住的是：首行从起点列向右、末行向左到终点列、中间行整行
         for (let line = from.line; line <= to.line; line++) {
-            const view = lines[line];
+            const view = context.lines[line];
             const start = line === from.line ? from.column : 0;
             const end = line === to.line ? to.column : view.columns.length - 1;
-            const tops = new Map<Track, number>();
             for (let column = start; column <= end; column++) {
-                const hosts = view.columns[column];
-                this.span = Math.max(this.span, hosts[0].ast.size);
-                // 此刻 visualAxis 已冻结，纵向求解后 box.y 就是 该轨视觉轴 - visualAxis
-                for (const host of hosts) {
-                    const top = -host.box.visualAxis;
-                    const known = tops.get(host.track);
-                    if (known === undefined || top < known) tops.set(host.track, top);
-                }
+                span = Math.max(span, view.columns[column][0].ast.size);
             }
-            this.topsByLine.push(tops);
+            coverage.push({ from: start, to: end, wholeLine: line !== from.line && line !== to.line });
         }
-    }
-
-    createGeometry(context: AttachmentLayoutContext) {
-        const { head, tail, leftBar, rightBar } = this;
-        if (!head || !tail) return { regions: [], paint() {} };
         const firstLine = head.layoutLine;
         const lastLine = tail.layoutLine;
 
-        const size = this.span || this.ast.size;
+        const size = span || this.ast.size;
         const style: TextStyle = {
             fontSize: size * 0.6,
             textAlign: "left",
@@ -213,17 +191,23 @@ class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
             const line = firstLine + offset;
 
             // 跨行断开的那一侧一直画到页边，接上下一行
-            const left = line !== firstLine ? context.originX
+            const rawLeft = line !== firstLine ? context.originX
                 : leftBar?.layoutLine === line ? leftBar.box.x + leftBar.box.anchor + 5 // 5是防止前后房子竖线重合
                     : head.box.x + (head.ports["body.left"]?.x ?? 0);
-            const right = line !== lastLine ? context.originX + context.width
+            const rawRight = line !== lastLine ? context.originX + context.width
                 : rightBar?.layoutLine === line ? rightBar.box.x + rightBar.box.anchor
                     : tail.box.x + (tail.ports["body.right"]?.x ?? tail.box.w);
+            const left = Math.min(rawLeft, rawRight);
+            const right = Math.max(rawLeft, rawRight);
 
             let topTrack = head.track;
             let hostTop = Infinity;
-            for (const [track, top] of this.topsByLine[offset]) {
-                const y = context.getVisualAxis(line, track) + top;
+            const range = coverage[offset];
+            const extents = range.wholeLine
+                ? context.getRangeExtents(line)
+                : context.getRangeExtents(line, [range.from, range.to]);
+            for (const [track, extent] of extents) {
+                const y = context.getVisualAxis(line, track) + extent.top;
                 if (y < hostTop) {
                     topTrack = track;
                     hostTop = y;

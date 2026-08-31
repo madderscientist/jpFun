@@ -71,9 +71,22 @@ export interface AttachmentLayoutContext extends LayoutPrepareContext {
     width: number;      // 整篇可用的内容宽（页宽减左右边距），与行无关
     originX: number;    // 内容区的左边界，即页面左边距
     pages: readonly Rect[]; // 本轮分页得到的纸张边界 page函数用于获取页码内容和位置
+    lines: readonly Pick<HorizontalLineView, "columns" | "columnOf">[]; // 已完成横向求解的时间列拓扑与主体
     getVisualAxis(line: number, track: Track): number;
     /** 只包含可见主体的轴局部占用（top 通常为负），不受 attachment 或最终分页坐标影响 */
     getHostExtent(line: number, track: Track): Readonly<Extent> | undefined;
+    /**
+     * 闭区间列 [from, to] 内按轨分组的已定占用
+     *
+     * 主体按时间列精确筛选；attachment 按这些列最终盒子的横向范围筛选。
+     * attachment 部分与 getAttachmentBox 同一条可见性规则：只看得见比自己先注册的，
+     * 也就是「后声明的排在外层」。避让型 attachment 用它把自己排到已有内容之外。
+     * 省略列号表示整行，供跨行 attachment 查询没有可见列的中间行。
+     */
+    getRangeExtents(
+        line: number,
+        columns?: readonly [from: number, to: number],
+    ): ReadonlyMap<Track, Readonly<Extent>>;
     /** 读取本轮已完成的 attachment 边界；分组在 endLoweringGroup 才注册，因而组内对象必然排在分组之前 */
     getAttachmentBox(attachment: LayoutAttachment): Readonly<Rect>;
 }
@@ -98,7 +111,7 @@ export interface LayoutHost extends TimeLineEvent {
 }
 
 /**
- * 一条谱面行进入横向求解前的只读视图
+ * 一条谱面行的横向拓扑与求解扩展点
  *
  * 时间列拓扑不可改变，但其中的 host 仍可写；
  * 调用方可以调整 springConfig，也可以注册在 LayoutElement 归一化后执行的横向布局

@@ -237,9 +237,15 @@ class TupletLayoutAttachment implements LayoutAttachment {
         const textGap = this.size * 0.12;
         const hookHeight = this.size * 0.18;
         const hostGap = this.size * 0.14;
-        // hostExtent 是相对轨道视觉轴的主体占用；转为绝对坐标后再向上放置括线。
+        // 只测首尾时间列，并合并先注册的 attachment，使后声明的括线排在外层。
+        const view = context.lines[first.layoutLine];
+        const from = view?.columnOf(first) ?? -1;
+        const to = view?.columnOf(last) ?? -1;
         const axis = context.getVisualAxis(first.layoutLine, first.track);
-        const hostTop = axis + (context.getHostExtent(first.layoutLine, first.track)?.top ?? 0);
+        const extent = from < 0 || to < 0
+            ? undefined
+            : context.getRangeExtents(first.layoutLine, [Math.min(from, to), Math.max(from, to)]).get(first.track);
+        const hostTop = axis + (extent?.top ?? 0);
         const strokeWidth = Math.max(1, this.size * 0.055);
         const lineY = hostTop - hostGap - Math.max(hookHeight, metrics.h / 2);
         const hookBottom = lineY + hookHeight;

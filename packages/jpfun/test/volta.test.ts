@@ -160,6 +160,27 @@ test("跨谱面行时逐行补满，只有真正的首尾下折", () => {
         + `${region.w.toFixed(2)},${region.h.toFixed(2)}`).join("\n"));
 });
 
+test("后声明的跨行房子在空白中间行也排在外层", () => {
+    const layout = layoutOf(`1@a @br(2) 2@b @volta(a,b,1) @volta(a,b,1)`);
+    const [inner, outer] = layout.attachments;
+    assert(inner.regions.length === 3 && outer.regions.length === 3,
+        "both houses must bridge the blank middle line");
+    const innerMiddle = inner.regions[1];
+    const outerMiddle = outer.regions[1];
+    assert(outerMiddle.y + outerMiddle.h <= innerMiddle.y + 1e-6,
+        "the later house must clear the earlier house on a line without hosts");
+});
+
+test("房子端点横移越过另一端时仍产生有效边界", () => {
+    const layout = layoutOf(`@adjust({1@a}, dx=700px) 2@b @volta(a,b,1)`);
+    const house = layout.attachments[0];
+    assert(house.regions.every(region => region.w >= 0),
+        "reversed drawing endpoints must not produce negative layout regions");
+    const label = attachmentCommands(house).find(command => command.kind === "text");
+    assert(label?.kind === "text" && label.x >= house.box.x && label.x <= house.box.x + house.box.w,
+        "the volta label must remain inside its reported layout box");
+});
+
 test("房子端点换到另一轨时仍跨到终点所在行", () => {
     const source = `1@x
 

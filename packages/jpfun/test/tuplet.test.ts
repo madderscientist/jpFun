@@ -95,3 +95,54 @@ test("tuplet 在整组上方绘制居中的单位数与括线", () => {
         `lines=${lines.map(line => `${line.x1.toFixed(2)},${line.y1.toFixed(2)}-${line.x2.toFixed(2)},${line.y2.toFixed(2)}`).join(";")}`,
     ].join("\n"));
 });
+
+test("tuplet 括线只避让自己盖住的列，区间外的高对象顶不起它", () => {
+    // 括线到首个成员的相对距离才是不变量：行内的高对象会把整轨的视觉轴一起压低
+    const bracketGap = (source: string) => {
+        const result = layoutOf(source);
+        const attachment = result.attachments.find(item =>
+            attachmentCommands(item).some(command => command.kind === "text" && command.text === "5"),
+        );
+        assert(attachment, "tuplet must create an attachment");
+        const first = result.objects[0] as VisualTemporalNode;
+        return first.box.y - (attachment.box.y + attachment.box.h);
+    };
+
+    const plain = bracketGap(`@tuplet({1/23},4) 3`);
+    const tall = bracketGap(`@tuplet({1/23},4) 3^4^5`);
+    assert(Math.abs(plain - tall) < 1e-6,
+        "content outside the tuplet range must not push the bracket away from its members");
+});
+
+test("嵌套 tuplet 的外层括线排在内层括线之外", () => {
+    const result = layoutOf(`@tuplet({@tuplet({1/2/3/},2) 4},3)`);
+    const brackets = result.attachments
+        .filter(item => attachmentCommands(item).some(command => command.kind === "text"))
+        .sort((left, right) => left.box.y - right.box.y);
+    assert(brackets.length === 2, "nested tuplets must draw two brackets");
+    const [outer, inner] = brackets;
+    assert(outer.box.y + outer.box.h <= inner.box.y + 1e-6,
+        "the outer bracket must clear the inner one instead of overlapping it");
+});
+
+test("tuplet 主体横移后仍按最终位置避让", () => {
+    const result = layoutOf(`@adjust({@tuplet({1/23},4)}, dx=200px)`);
+    const bracket = result.attachments.find(item =>
+        attachmentCommands(item).some(command => command.kind === "text" && command.text === "5"),
+    );
+    assert(bracket, "tuplet must create an attachment after its hosts move");
+    const hostTop = Math.min(...result.objects.map(host => host.box.y));
+    assert(bracket.box.y + bracket.box.h <= hostTop + 1e-6,
+        "the bracket must stay above hosts moved during onPlaced");
+});
+
+test("tuplet 主体纵移后仍按最终位置避让", () => {
+    const result = layoutOf(`@adjust({@tuplet({1/23},4)}, dy=-40px)`);
+    const bracket = result.attachments.find(item =>
+        attachmentCommands(item).some(command => command.kind === "text" && command.text === "5"),
+    );
+    assert(bracket, "tuplet must create an attachment after its hosts move");
+    const hostTop = Math.min(...result.objects.map(host => host.box.y));
+    assert(bracket.box.y + bracket.box.h <= hostTop + 1e-6,
+        "the bracket must stay above vertically adjusted hosts");
+});

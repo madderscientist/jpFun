@@ -56,6 +56,15 @@ interface LayoutLine {
     hostExtents: Map<Track, Extent>;
     /** attachment 首次测量区域折算出的占用，必要时触发最终重排 */
     attachmentExtents: Map<Track, Extent>;
+    /** 本轮已经完成测量的 attachment 逐条追加到这里 */
+    attachmentRanges: ExtentRange[];
+}
+
+/** 一块 attachment 的轴局部占用 */
+interface ExtentRange extends Extent {
+    track: Track;
+    left: number;
+    right: number;
 }
 
 /**
@@ -209,11 +218,12 @@ export function layoutDocument(
             node.onPlaced?.();
         }
 
-        const attachmentContext: Omit<AttachmentLayoutContext, "getAttachmentBox"> = {
+        const attachmentContext: Omit<AttachmentLayoutContext, "getAttachmentBox" | "getRangeExtents"> = {
             ...context,
             width: contentWidth,
             originX,
             pages: pages.map(item => item.bounds),
+            lines: views,
             getVisualAxis: visualAxisOf,
             getHostExtent: (line, track) => lines[line]?.hostExtents.get(track),
         };
@@ -223,15 +233,15 @@ export function layoutDocument(
 
     // 3. 首次纵向放置后测量 attachment；只有有效轨道占用扩张时才重新求解
     let placement = placeVertically();
-    let measured = measureAttachments(layoutAttachments, placement.attachmentContext);
+    let measured = measureAttachments(layoutAttachments, placement.attachmentContext, lines);
 
-    if (registerAttachmentOccupancy(measured, lines, placement.attachmentContext.getVisualAxis)) {
+    if (measured.needsRelayout) {
         placement = placeVertically();
-        measured = measureAttachments(layoutAttachments, placement.attachmentContext);
+        measured = measureAttachments(layoutAttachments, placement.attachmentContext, lines);
     }
     const pages = placement.pages;
     const attachments = layoutAttachments.map<PlacedAttachment>((attachment, index) => {
-        const { geometry, box } = measured[index];
+        const { geometry, box } = measured.items[index];
         return {
             box,
             regions: geometry.regions,
@@ -295,6 +305,7 @@ function splitLayoutLines(result: LoweringResult): LayoutLine[] {
         horizontalLayoutHooks: [],
         hostExtents: new Map(),
         attachmentExtents: new Map(),
+        attachmentRanges: [],
     });
 
     const lines: LayoutLine[] = [];
@@ -399,15 +410,22 @@ interface MeasuredAttachment {
 }
 
 /**
- * 按 lowering 注册顺序原子生成本轮几何
+ * 按 lowering 注册顺序原子生成本轮几何，并同步登记轨道占用
  *
- * 分组的 attachment 总在组内对象之后注册，所以读取依赖不需要额外排序
+ * 分组的 attachment 总在组内对象之后注册，所以读取依赖不需要额外排序；
+ * 占用逐条累加，后注册者因此能通过 getRangeExtents 避让先注册者。
+ * 返回的 needsRelayout 表示本轮占用超出了主体与先前区域的合并范围。
  */
 function measureAttachments(
     attachments: readonly LayoutAttachment[],
-    baseContext: Omit<AttachmentLayoutContext, "getAttachmentBox">,
+    baseContext: Omit<AttachmentLayoutContext, "getAttachmentBox" | "getRangeExtents">,
+    lines: readonly LayoutLine[],
 ) {
     const measured = new Map<LayoutAttachment, MeasuredAttachment>();
+    let needsRelayout = false;
+    // 每轮都从空占用开始，避免首轮试排结果污染最终几何
+    for (const line of lines) line.attachmentRanges.length = 0;
+
     const context: AttachmentLayoutContext = {
         ...baseContext,
         getAttachmentBox(dependency) {
@@ -415,42 +433,70 @@ function measureAttachments(
             if (!resolved) throw new Error("Layout attachment dependency has not been measured");
             return resolved.box;
         },
+        getRangeExtents(line, columns) {
+            const target = lines[line];
+            const extents = new Map<Track, Extent>();
+            if (!target) return extents;
+            // 主体按列精确选取；先完成的 attachment 再按这些列的最终横向范围相交选取
+            const wholeLine = columns === undefined;
+            if (columns && columns[0] > columns[1]) return extents;
+            const start = wholeLine ? 0 : Math.max(0, columns![0]);
+            const end = wholeLine ? target.columns.length - 1 : Math.min(columns![1], target.columns.length - 1);
+            if (!wholeLine && start > end) return extents;
+
+            let left = wholeLine ? baseContext.originX : Infinity;
+            let right = wholeLine ? baseContext.originX + baseContext.width : -Infinity;
+            for (let column = start; column <= end; column++) {
+                for (const host of target.columns[column]) {
+                    if (!wholeLine) {
+                        if (host.box.x < left) left = host.box.x;
+                        if (host.box.x + host.box.w > right) right = host.box.x + host.box.w;
+                    }
+                    const hostTop = host.box.y - baseContext.getVisualAxis(line, host.track);
+                    const hostBottom = hostTop + host.box.h;
+                    includeTrackExtent(extents, host.track, hostTop, hostBottom);
+                }
+            }
+
+            for (const range of target.attachmentRanges) {
+                if (range.right <= left || range.left >= right) continue;
+                includeTrackExtent(extents, range.track, range.top, range.bottom);
+            }
+            return extents;
+        },
     };
 
-    return attachments.map(attachment => {
+    const items = attachments.map(attachment => {
         const geometry = attachment.createGeometry(context);
         const box: Rect = { x: 0, y: 0, w: 0, h: 0 };
         unionLayoutBoxes(box, geometry.regions);
         const item = { geometry, box };
         measured.set(attachment, item);
-        return item;
-    });
-}
-
-/** 把首轮几何折算成轨道占用，返回它是否超出了主体与先前区域的合并占用 */
-function registerAttachmentOccupancy(
-    measured: readonly MeasuredAttachment[],
-    lines: readonly LayoutLine[],
-    visualAxisOf: (line: number, track: Track) => number,
-) {
-    let needsRelayout = false;
-
-    for (const { geometry } of measured) {
+        // 当前项立即登记，保证后注册的 attachment 能看到并避让它
         for (const region of geometry.occupancy ?? geometry.regions) {
             if (region.line === void 0) continue;
             const line = lines[region.line];
-            const axis = visualAxisOf(region.line, region.track);
-            const top = region.y - axis;
-            const bottom = region.y + region.h - axis;
+            const top = region.y - baseContext.getVisualAxis(region.line, region.track);
+            const bottom = top + region.h;
             const hostExtent = line.hostExtents.get(region.track);
             const attachmentExtent = line.attachmentExtents.get(region.track);
-            const previousTop = Math.min(hostExtent?.top ?? Infinity, attachmentExtent?.top ?? Infinity);
-            const previousBottom = Math.max(hostExtent?.bottom ?? -Infinity, attachmentExtent?.bottom ?? -Infinity);
-            if (top < previousTop || bottom > previousBottom) needsRelayout = true;
+            if (top < Math.min(hostExtent?.top ?? Infinity, attachmentExtent?.top ?? Infinity)
+                || bottom > Math.max(hostExtent?.bottom ?? -Infinity, attachmentExtent?.bottom ?? -Infinity)) {
+                needsRelayout = true;
+            }
             includeTrackExtent(line.attachmentExtents, region.track, top, bottom);
+            line.attachmentRanges.push({
+                track: region.track,
+                left: region.x,
+                right: region.x + region.w,
+                top,
+                bottom,
+            });
         }
-    }
-    return needsRelayout;
+        return item;
+    });
+
+    return { items, needsRelayout };
 }
 
 /** 一条谱面行的纵向解 */
