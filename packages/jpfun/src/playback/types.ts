@@ -77,7 +77,7 @@ export interface PlaybackSystemSnapshot {
 export type PlaybackControl = (state: PlaybackSystemState) => void;
 /** 当前节点的局部变换完成后，检查或改写此前已发布的事件，例如 dash 延后前音的 NoteOff */
 export type PlaybackHook = (context: PlaybackHookContext) => void;
-/** 修饰同一 play frame 中排在声明者之后的一次具体访问，例如 accent、tr 和 mordent */
+/** 修饰同一 play frame 中排在声明者之后的一次具体访问，例如 accent、tr 和波音 */
 export type PlaybackTransform = (
     context: PlaybackHookContext,
     events: PlaybackDraftEvent[],

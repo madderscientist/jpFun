@@ -93,12 +93,18 @@ test("延长记号调制速度，颤音和波音展开为点事件", () => {
             && trill[i].duration.equals(1, 8), "$tr 子音必须连续填满宿主时值");
     }
 
+    const prall = playedNotes(compilePlayback(lower(`1 ^ $prall`)));
+    assert(prall.length === 3, "$prall 应展开为三个音");
+    assert(prall.map(note => note.midi).join(",") === "60,62,60",
+        "$prall 应按本音、上方音、本音排列");
+    assert(prall.every(note => note.duration.equals(1, 3)),
+        "$prall 三个子音应均分宿主时值");
+
     const mordent = playedNotes(compilePlayback(lower(`1 ^ $mordent`)));
-    assert(mordent.length === 3, "$mordent 应展开为三个音");
-    assert(mordent.map(note => note.midi).join(",") === "60,62,60",
-        "$mordent 应按本音、上方音、本音排列");
-    assert(mordent.every(note => note.duration.equals(1, 3)),
-        "$mordent 三个子音应均分宿主时值");
+    assert(mordent.map(note => note.midi).join(",") === "60,59,60",
+        "$mordent 应按本音、下方音、本音排列");
+    assert(playedNotes(compilePlayback(lower(`4 ^ $mordent`))).map(note => note.midi).join(",") === "65,64,65",
+        "下方二度同样走调内音阶，C 调 4 的下方是 3");
 });
 
 test("fermata 通过速度控制影响所有重叠声部", () => {
@@ -154,13 +160,13 @@ test("颤音从通用调内位置求每个音符自己的上方二度", () => {
     assert(firstPair(`@1(D4) 3 ^ $tr`) === "66,67", "D 调 3 的颤音应在 F# 与 G 间交替");
     assert(firstPair(`#1 ^ $tr`) === "61,62", "主体临时升号不应传给调内上方二度");
 
-    const composed = playedNotes(compilePlayback(lower(`1 ^ $tr ^ $mordent`)));
+    const composed = playedNotes(compilePlayback(lower(`1 ^ $tr ^ $prall`)));
     assert(composed.map(note => note.midi).join(",") === "60,62,62,64,60,62",
         "装饰音继续展开派生音时，应以派生音自己的调内位置为基准");
 });
 
 test("内置 symbol 使用固定图形生成稳定几何和绘制命令", () => {
-    const names = ["tr", "fermata", "mordent", "accent", "dc", "ds", "segno", "fine",
+    const names = ["tr", "fermata", "prall", "mordent", "accent", "dc", "ds", "segno", "fine",
         "ppp", "pp", "p", "mp", "mf", "f", "ff", "fff"];
     for (const name of names) {
         const layout = layoutOf(`$${name}`);

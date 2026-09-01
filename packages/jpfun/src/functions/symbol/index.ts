@@ -24,6 +24,7 @@ import { dynamicSymbols } from "./symbols/dynamics.js";
 import { fermataSymbol } from "./symbols/fermata.js";
 import { fineSymbol } from "./symbols/fine.js";
 import { mordentSymbol } from "./symbols/mordent.js";
+import { prallSymbol } from "./symbols/prall.js";
 import { segnoSymbol } from "./symbols/segno.js";
 import { trSymbol } from "./symbols/tr.js";
 
@@ -54,7 +55,7 @@ export interface SymbolDefinition {
 }
 
 const symbolTable: ReadonlyMap<string, SymbolDefinition> = new Map(
-    [trSymbol, fermataSymbol, mordentSymbol, accentSymbol, ...dynamicSymbols,
+    [trSymbol, fermataSymbol, prallSymbol, mordentSymbol, accentSymbol, ...dynamicSymbols,
         dcSymbol, dsSymbol, segnoSymbol, fineSymbol]
         .map(definition => [definition.name.toLowerCase(), definition]),
 );

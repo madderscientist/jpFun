@@ -160,7 +160,7 @@ function linearizeColumns(lowering: LoweringResult, diagnostics: Diagnostic[], m
  * - [state] Temporal.playbackState：每次实际访问节点时，把 lowering 已固化的 BPM 登记到演奏轴；note、tempo 和正时值 dash 都用它恢复记谱位置的速度
  * - [hook] Temporal.emitPlayback：按展开后的列序逐次调用；note 登记 NoteOn/NoteOff，up/grace 通过 emitter.play 递归登记折叠成员
  * - [API] PlaybackEmitter.control：emit 时只登记控制；所有节点访问完成后按演奏时刻执行，同刻合并后生成 Tempo；fermata 用它修改 bpmScale
- * - [API] PlaybackEmitter.affectFollowing：把 transform 加入当前 play frame；后续目标音完整登记 NoteOn/NoteOff 后，将冻结的 transform 紧接着写入顺序流；accent、tr、mordent 使用它
+ * - [API] PlaybackEmitter.affectFollowing：把 transform 加入当前 play frame；后续目标音完整登记 NoteOn/NoteOff 后，将冻结的 transform 紧接着写入顺序流；accent、tr、波音使用它
  * - [API] PlaybackEmitter.defer：把 hook 写在当前节点之后；状态扫描完成后重放顺序流，走到该位置才执行，可见完整 Tempo 和此前音符；dash 用它延长前一组 NoteOff
  * - [hook] PlaybackRelation.applyPlayback：顺序流重放完并首次排序后执行，可观察和改写完整事件计划；tie 用它合并相距很远的端点
  * - comparePlaybackDraftEvents / finalizePlaybackEvents：最后稳定排序，再校验 NoteOn/NoteOff 配对并剥离 origins、order 等编译期字段

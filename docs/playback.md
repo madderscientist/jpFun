@@ -149,7 +149,7 @@ up 按附属成员到宿主的顺序调用 `play`。grace 在宿主区间内计�
 
 ### Accent 与 Ornament
 
-accent、tr 和 mordent 使用 `affectFollowing`。目标 Temporal 完整发布 NoteOn/NoteOff 后立即依次执行冻结的 transform 链：accent 修改 velocity，tr/mordent 把目标事件对替换为多对子音。后一个 transform 继续处理前一个 transform 的派生事件，所以书写顺序有意义。
+accent、tr 和波音使用 `affectFollowing`。目标 Temporal 完整发布 NoteOn/NoteOff 后立即依次执行冻结的 transform 链：accent 修改 velocity，tr/波音把目标事件对替换为多对子音。后一个 transform 继续处理前一个 transform 的派生事件，所以书写顺序有意义。
 
 ornament 用 `stateAt(NoteOn.at).effectiveBpm` 决定极端速度下的密度。
 

@@ -56,6 +56,9 @@ L: 满天都是小星星
 @text("延音线")
 1@x 2 3@a 4@y 5^6@b @tie(a, b) @tie(x, y) % 需要打标签
 
+@text("符号")
+$ppp $pp $p $mp $mf $f $ff $fff $segno $ds $dc $fine $mordent $prall $tr $accent
+
 @text("其他函数与混用：")
 
 @1(D4)  % 设置调性
