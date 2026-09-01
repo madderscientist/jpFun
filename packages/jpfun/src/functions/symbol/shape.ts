@@ -14,6 +14,8 @@ import type { PaintStyle, Painter, PathCommand } from "../../render/types.js";
 export interface SymbolShape {
     readonly path?: readonly PathCommand[];
     readonly circle?: { readonly cx: number; readonly cy: number; readonly r: number };
+    /** 横向偏移，用来把同一份字形重复拼成 ff、ppp 这类由字母组成的符号 */
+    readonly dx?: number;
     readonly style: PaintStyle;
 }
 
@@ -23,18 +25,22 @@ export function symbolBounds(shapes: readonly SymbolShape[]): Rect {
     let top = Infinity;
     let right = -Infinity;
     let bottom = -Infinity;
-    const merge = (rect: Rect) => {
-        left = Math.min(left, rect.x);
-        top = Math.min(top, rect.y);
-        right = Math.max(right, rect.x + rect.w);
-        bottom = Math.max(bottom, rect.y + rect.h);
+    const merge = (x: number, y: number, w: number, h: number) => {
+        left = Math.min(left, x);
+        top = Math.min(top, y);
+        right = Math.max(right, x + w);
+        bottom = Math.max(bottom, y + h);
     };
     for (const shape of shapes) {
+        const dx = shape.dx ?? 0;
         if (shape.circle) {
             const { cx, cy, r } = shape.circle;
-            merge({ x: cx - r, y: cy - r, w: 2 * r, h: 2 * r });
+            merge(cx + dx - r, cy - r, 2 * r, 2 * r);
         }
-        if (shape.path?.length) merge(pathBounds(shape.path));
+        if (shape.path?.length) {
+            const rect = pathBounds(shape.path);
+            merge(rect.x + dx, rect.y, rect.w, rect.h);
+        }
     }
 
     return Number.isFinite(left)
@@ -56,12 +62,13 @@ export function paintSymbol(
         const scaled = style.strokeWidth === undefined
             ? style
             : { ...style, strokeWidth: style.strokeWidth * scale };
+        const x = originX + (shape.dx ?? 0) * scale;
         if (shape.path) {
-            painter.drawPath(shape.path, scaled, { x: originX, y: originY, scaleX: scale, scaleY: scale });
+            painter.drawPath(shape.path, scaled, { x, y: originY, scaleX: scale, scaleY: scale });
         }
         if (shape.circle) {
             painter.drawCircle(
-                originX + shape.circle.cx * scale,
+                x + shape.circle.cx * scale,
                 originY + shape.circle.cy * scale,
                 shape.circle.r * scale,
                 scaled,

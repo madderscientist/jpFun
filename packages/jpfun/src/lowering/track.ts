@@ -81,6 +81,9 @@ export class Track {
      */
     readonly groups: TrackGroup[] = [];
 
+    /** 本轨从哪条基线分叉而来，根轨为 null；新声部据此继承力度这类持续状态 */
+    constructor(readonly parent: Track | null = null) {}
+
     /**
      * 申请一组分支音轨
      *
@@ -96,7 +99,7 @@ export class Track {
             group = { laneKey: spec.laneKey, members: [], measure: spec.measure, place: spec.place };
             this.groups.push(group);
         }
-        while (group.members.length < count) group.members.push(new Track());
+        while (group.members.length < count) group.members.push(new Track(this));
         return group;
     }
 }

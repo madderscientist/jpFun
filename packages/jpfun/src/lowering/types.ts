@@ -33,6 +33,8 @@ export type LoweringFinalizer = (result: LoweringResult) => void;
  *
  * 速度、力度、调性是系统级字段：有确定的类型和初值，任何时刻都能直接读，不用写兼容分支。
  * 其余键由具体函数自行约定，核心不认识。
+ *
+ * velocity 按音轨各自流动，新音轨继承分叉处父轨的值；其余键整篇共享。
  */
 export interface TimeState {
     bpm: number;

@@ -1,5 +1,6 @@
 import { test } from "node:test";
 
+import { DEFAULT_VELOCITY } from "../src/lowering/types.js";
 import { analyzeScoreSyntax } from "../src/pipeline.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import { assert, expectDiagnostic, layoutOf, lower, nearly, parse, playedNotes, recordCommands } from "./helpers.js";
@@ -40,9 +41,6 @@ test("effect 类符号只影响同一 up 中位于其下方的成员", () => {
 });
 
 test("力度由记谱位置决定，持续到下一个力度记号", () => {
-    assert(playedNotes(compilePlayback(lower(`1 ^ $p`)))[0].velocity === 48, "$p 应把同位置的音符设为弱力度");
-    assert(playedNotes(compilePlayback(lower(`1 ^ $f`)))[0].velocity === 96, "$f 应把同位置的音符设为强力度");
-
     const run = playedNotes(compilePlayback(lower(`$p 1 2 $f 3 4`)));
     assert(run.map(note => note.velocity).join(" ") === "48 48 96 96",
         "力度应一直生效到被下一个力度记号改写");
@@ -56,6 +54,25 @@ test("力度由记谱位置决定，持续到下一个力度记号", () => {
     const repeated = playedNotes(compilePlayback(lower(`|: 1 $f 2 :|`)));
     assert(repeated.map(note => note.velocity).join(" ") === "80 96 80 96",
         "第二遍应与第一遍听起来完全一样");
+});
+
+test("力度属于声部，速度属于全篇", () => {
+    const parallel = playedNotes(compilePlayback(lower(`@stack({1 2 3}, {5 $p 6 7})`)));
+    assert(parallel.filter(note => note.track === 0).map(note => note.velocity).join(" ") === "80 80 80",
+        "并行音轨写下的 $p 不能压低另一条音轨");
+    assert(parallel.filter(note => note.track === 1).map(note => note.velocity).join(" ") === "80 48 48",
+        "$p 所在音轨仍须从记号处开始变弱");
+
+    const inherited = playedNotes(compilePlayback(lower(`$f 1 @voices(@voice({2 3}, 甲), @voice({6 7}, 乙))`)));
+    assert(inherited.every(note => note.velocity === 96),
+        "新分叉的声部继承分叉处父轨的力度");
+    const branched = playedNotes(compilePlayback(lower(`@stack({1 2}, {5 $p 6}) @voices(@voice({1}, 甲), @voice({3}, 乙))`)));
+    assert(branched.filter(note => note.start.compare(2) >= 0).every(note => note.velocity === 80),
+        "分支自己写下的 $p 不得传给之后从父轨分叉出来的声部");
+
+    const tempo = playedNotes(compilePlayback(lower(`@stack({1 2}, {5 @tempo(60) 6})`)));
+    assert(tempo.every(note => note.bpm === (note.start.isZero() ? 120 : 60)),
+        "速度是全篇共享的，写在任一音轨都影响所有声部");
 });
 
 test("延长记号调制速度，颤音和波音展开为点事件", () => {
@@ -143,7 +160,8 @@ test("颤音从通用调内位置求每个音符自己的上方二度", () => {
 });
 
 test("内置 symbol 使用固定图形生成稳定几何和绘制命令", () => {
-    const names = ["tr", "f", "p", "fermata", "mordent", "accent"];
+    const names = ["tr", "fermata", "mordent", "accent",
+        "ppp", "pp", "p", "mp", "mf", "f", "ff", "fff"];
     for (const name of names) {
         const layout = layoutOf(`$${name}`);
         assert(layout.objects.length === 1, `$${name} 应生成一个可见对象`);
@@ -167,3 +185,25 @@ test("包围盒取曲线真实极值，宽扁符号用 weight 修正视觉重量
     const tr = layoutOf(`$tr`).objects[0].box;
     assert(nearly(tr.h, 11), "未声明 weight 的符号高度应等于 size");
 });
+
+test("力度记号是三个字母的横向拼接，共用一条力度阶梯", () => {
+    const ladder = [["ppp", 16], ["pp", 32], ["p", 48], ["mp", 64],
+        ["mf", 80], ["f", 96], ["ff", 112], ["fff", 127]] as const;
+    for (const [name, velocity] of ladder) {
+        assert(playedNotes(compilePlayback(lower(`1 ^ $${name}`)))[0].velocity === velocity,
+            `$${name} 应把同位置的音符设为 ${velocity}`);
+    }
+    assert(ladder[4][1] === DEFAULT_VELOCITY, "mf 应恰好等于默认力度");
+
+    const box = (name: string) => layoutOf(`$${name}`).objects[0].box;
+    // 同族记号只是多拼几个字母，所以必须等高、逐个变宽
+    for (const family of [["p", "pp", "ppp"], ["f", "ff", "fff"]]) {
+        const boxes = family.map(box);
+        assert(boxes.every(item => nearly(item.h, boxes[0].h)), `${family.join("/")} 应等高`);
+        assert(boxes[0].w < boxes[1].w && boxes[1].w < boxes[2].w, `${family.join("/")} 应逐个变宽`);
+    }
+    assert(nearly(box("mf").h, box("f").h) && nearly(box("mp").h, box("p").h),
+        "带 m 的记号高度由后一个字母决定");
+    assert(box("p").h < box("f").h, "p 没有升部，盒子应比 f 矮");
+});
+

@@ -137,6 +137,8 @@ accent 原地修改 `events`；ornament 返回替换后的事件数组，下一�
 
 note 从固化音高、力度和 Track 发布一对 NoteOn/NoteOff。休止符、占位符和节拍记号不发声，但仍推进 performance QN。
 
+力度是 `TimeState` 里唯一按音轨各自流动的字段（见 lowering 文档），所以 `$p`、`$f` 和 `@dyn` 都只影响自己所在的声部，新声部则继承分叉处的力度；速度和调性仍整篇共享。
+
 ### Meter
 
 meter 发布 TimeSignature。事件与其它 Temporal 一样按实际控制流访问生成，因此反复段内的拍号每遍都会出现，反复段外的拍号只出现一次。core 保留任意正整数分母；Standard MIDI File 只能表示以 2 为幂的分母，该限制由 MIDI 适配器在导出边界检查。

@@ -16,10 +16,9 @@ import {
 import { paintSymbol, symbolBounds, type SymbolShape } from "./shape.js";
 
 import { accentSymbol } from "./symbols/accent.js";
+import { dynamicSymbols } from "./symbols/dynamics.js";
 import { fermataSymbol } from "./symbols/fermata.js";
-import { fSymbol } from "./symbols/f.js";
 import { mordentSymbol } from "./symbols/mordent.js";
-import { pSymbol } from "./symbols/p.js";
 import { trSymbol } from "./symbols/tr.js";
 
 /**
@@ -40,7 +39,7 @@ export interface SymbolDefinition {
 }
 
 const symbolTable: ReadonlyMap<string, SymbolDefinition> = new Map(
-    [trSymbol, fSymbol, pSymbol, fermataSymbol, mordentSymbol, accentSymbol]
+    [trSymbol, fermataSymbol, mordentSymbol, accentSymbol, ...dynamicSymbols]
         .map(definition => [definition.name.toLowerCase(), definition]),
 );
 

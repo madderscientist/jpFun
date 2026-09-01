@@ -137,8 +137,16 @@ export class LoweringContext {
             velocity: DEFAULT_VELOCITY,
             keySignature: DEFAULT_TONALITY,
         };
+        // 力度按音轨各自流动，新分叉的声部继承分叉处父轨的值
+        const velocities = new Map<Track, number>();
+        const velocityOf = (track: Track): number =>
+            velocities.get(track) ?? (track.parent ? velocityOf(track.parent) : DEFAULT_VELOCITY);
         for (const column of columns) {
-            for (const node of column) node.onTimeState?.(state);
+            for (const node of column) {
+                state.velocity = velocityOf(node.track);
+                node.onTimeState?.(state);
+                velocities.set(node.track, state.velocity);
+            }
         }
     }
 
