@@ -1,8 +1,11 @@
 import type { SymbolDefinition } from "../index.js";
 
+/** 回跳点；`$fine` 靠它判断整曲是否已经回过一次头 */
+export const JUMP_MARK = "repeat.jump";
+
 export const dcSymbol: SymbolDefinition = {
     name: "dc",
-    description: "从头反复，跳回曲首再演奏一遍",
+    description: "从头反复：跳回曲首再演一遍",
     // 让字母与同字号数字齐平：数字墨迹高 0.7em，再除去字形上下两端 C 的 overshoot
     weight: 0.74,
     shapes: [
@@ -78,12 +81,6 @@ export const dcSymbol: SymbolDefinition = {
         },
     ],
     // 只在第一次到达时回跳，第二次经过就正常收尾，所以整首曲子恰好演两遍
-    playbackFlow: (node, columnOf) => {
-        const at = columnOf(node);
-        if (at === void 0) return;
-        return {
-            range: [at, at],
-            run: cursor => cursor.visits(at) > 1 ? (void 0) : { kind: "jump", column: 0 },
-        };
-    },
+    playbackMarks: () => [JUMP_MARK],
+    onVisit: (cursor, at) => cursor.visits(at) > 1 ? undefined : { kind: "jump", column: 0 },
 };

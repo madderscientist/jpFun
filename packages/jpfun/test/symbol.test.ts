@@ -160,7 +160,7 @@ test("颤音从通用调内位置求每个音符自己的上方二度", () => {
 });
 
 test("内置 symbol 使用固定图形生成稳定几何和绘制命令", () => {
-    const names = ["tr", "fermata", "mordent", "accent", "dc",
+    const names = ["tr", "fermata", "mordent", "accent", "dc", "ds", "segno", "fine",
         "ppp", "pp", "p", "mp", "mf", "f", "ff", "fff"];
     for (const name of names) {
         const layout = layoutOf(`$${name}`);
@@ -217,5 +217,25 @@ test("$dc 跳回曲首再演一遍，它所在的时间列不发声", () => {
     assert(played("|: 1 :| 2 $dc") === "60 60 62 60 62", "D.C. 之后不再重复曲中的反复段");
     // 跳转的定义是当前列不演奏，所以叠在音符上会吞掉第一遍的那个音
     assert(played("1 2 3^$dc") === "60 62 60 62 64", "$dc 所在的列在跳转的那一遍不发声");
+});
+
+test("$ds 跳回记号处", () => {
+    const played = (source: string) =>
+        playedNotes(compilePlayback(lower(source))).map(note => note.midi).join(" ");
+
+    assert(played("1 $segno 2 3 $ds") === "60 62 64 62 64", "D.S. 应跳回 $segno 所在的列");
+    assert(played("1 2 3 $ds") === "60 62 64 60 62 64", "没有 $segno 时 D.S. 退回曲首");
+    assert(played("1 2 $ds 3 $segno 4") === "60 62 60 62 64 65", "写在 D.S. 之后的 $segno 不是回跳目标");
+});
+
+test("$fine 只在回跳之后生效，不被反复线提前触发", () => {
+    const played = (source: string) =>
+        playedNotes(compilePlayback(lower(source))).map(note => note.midi).join(" ");
+
+    assert(played("1 2 3 | _$fine 4 5 | _$dc") === "60 62 64 65 67 60 62 64", "回跳后经过 Fine 应收尾");
+    // 判据若是“第二次经过”，这两条会在反复的第二遍就静默地把曲子停掉
+    assert(played("|: 1 2 $fine :| 3 $dc") === "60 62 60 62 64 60 62", "反复段内的 Fine 不受反复线影响");
+    assert(played("|: 1 2 $fine 3 :| 4") === "60 62 64 60 62 64 65", "没有回跳记号时 Fine 不生效");
+    assert(played("1 $dc 2 $fine 3") === "60 60 62 64", "写在回跳点之后的 Fine 永远不生效");
 });
 
