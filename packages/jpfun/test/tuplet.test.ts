@@ -1,6 +1,6 @@
 import { test } from "node:test";
 
-import type { TemporalNodeBase, VisualTemporalNode } from "../src/lowering/types.js";
+import type { TemporalNodeBase, VisualTemporalNode } from "../src/functions/temporal.js";
 import {
     assert,
     attachmentCommands,

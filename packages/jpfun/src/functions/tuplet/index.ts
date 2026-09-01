@@ -5,11 +5,10 @@ import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { Track } from "../../lowering/track.js";
 import {
     isVisualTemporalNode,
-    type LoweringGroup,
-    type LoweringResult,
     type TemporalNodeBase,
     type VisualTemporalNode,
-} from "../../lowering/types.js";
+} from "../temporal.js";
+import type { LoweringGroup, LoweringResult } from "../../lowering/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
 import {
     ASTFunctionNode,

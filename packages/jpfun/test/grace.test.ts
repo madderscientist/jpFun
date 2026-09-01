@@ -2,7 +2,7 @@ import { test } from "node:test";
 
 import { divLinePortName } from "../src/functions/div/index.js";
 import type { LayoutBox } from "../src/layout/types.js";
-import type { VisualTemporalNode } from "../src/lowering/types.js";
+import type { VisualTemporalNode } from "../src/functions/temporal.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import {
     assert,

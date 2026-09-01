@@ -1,4 +1,4 @@
-import { DEFAULT_BPM } from "../lowering/types.js";
+import { DEFAULT_BPM } from "../functions/temporal.js";
 import type { PlaybackEvent, PlaybackPlan, PlaybackScorePoint } from "./types.js";
 
 /** 演奏时间（QN）按分段速度积分为秒 */

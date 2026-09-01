@@ -1,6 +1,6 @@
 import type { Fraction } from "../fraction.js";
 import type { Track } from "../lowering/track.js";
-import type { TemporalNodeBase } from "../lowering/types.js";
+import type { TemporalNodeBase } from "../functions/temporal.js";
 import type { SourceSpan } from "../parser/types.js";
 
 export type PlaybackNoteId = number;

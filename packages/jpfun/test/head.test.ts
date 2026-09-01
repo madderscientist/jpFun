@@ -9,7 +9,7 @@ import {
     type SourceSpan,
 } from "../src/functions/ASTtypes.js";
 import { defaultFunctions } from "../src/functions/default.js";
-import { TemporalNodeBase, type VisualTemporalNode } from "../src/lowering/types.js";
+import { TemporalNodeBase, type VisualTemporalNode } from "../src/functions/temporal.js";
 import { compileScore } from "../src/pipeline.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import {

@@ -1,6 +1,6 @@
 ﻿import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, ParserContext, SourceSpan, LengthValue } from "../ASTtypes.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
-import { isVisualTemporalNode, type VisualTemporalNode } from "../../lowering/types.js";
+import { isVisualTemporalNode, type VisualTemporalNode } from "../temporal.js";
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import { unionLayoutBoxes } from "../../layout/engine.js";
 import { layoutHorizontalRegion } from "../../layout/model.js";

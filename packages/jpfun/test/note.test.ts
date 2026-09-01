@@ -2,7 +2,7 @@ import { test } from "node:test";
 
 import type { ASTFunctionNode } from "../src/functions/ASTtypes.js";
 import { layoutDocument } from "../src/layout/engine.js";
-import { isVisualTemporalNode, type VisualTemporalNode } from "../src/lowering/types.js";
+import { isVisualTemporalNode, type VisualTemporalNode } from "../src/functions/temporal.js";
 import type { PathCommand } from "../src/render/types.js";
 import { compileScore } from "../src/pipeline.js";
 import { assert, expectCompileError, layoutContext, layoutOf, lower, nearly, recordCommands } from "./helpers.js";

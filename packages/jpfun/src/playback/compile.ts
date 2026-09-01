@@ -1,7 +1,7 @@
 import { ErrorDiagnostic, WarningDiagnostic, type Diagnostic } from "../diagnostic.js";
 import { Fraction } from "../fraction.js";
-import type { LoweringResult, TemporalNodeBase } from "../lowering/types.js";
-import { DEFAULT_BPM } from "../lowering/types.js";
+import type { LoweringResult } from "../lowering/types.js";
+import { DEFAULT_BPM, type TemporalNodeBase } from "../functions/temporal.js";
 import type { SourceSpan } from "../parser/types.js";
 import type { PlaybackDraftEvent } from "./event.js";
 import { comparePlaybackDraftEvents, finalizePlaybackEvents } from "./event.js";

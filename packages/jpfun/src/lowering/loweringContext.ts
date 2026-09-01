@@ -8,12 +8,14 @@ import {
     DEFAULT_TONALITY,
     DEFAULT_VELOCITY,
     TemporalNodeBase,
-    type LoweringAugmenter,
-    type LoweringFinalizer,
-    type LoweringGroup,
-    type LoweringAttachment,
-    type LoweringResult,
     type TimeState,
+} from "../functions/temporal.js";
+import type {
+    LoweringAugmenter,
+    LoweringFinalizer,
+    LoweringGroup,
+    LoweringAttachment,
+    LoweringResult,
 } from "./types.js";
 import { Track } from "./track.js";
 
@@ -291,14 +293,15 @@ export class LoweringContext {
                         branches.push(branch);
                     }
                     // 归并 局部归并以限制对齐作用域
+                    const mergeStart = columns.length;
                     for (const column of LoweringContext.anchorAlign(branches)) columns.push(column);
-                    const lastCol = columns[columns.length - 1];
-                    if (lastCol) {
-                        let maxDuration = lastCol[0].T;
-                        for (let i = 1; i < lastCol.length; i++) {
-                            if (lastCol[i].T.compare(maxDuration) > 0) maxDuration = lastCol[i].T;
+                    // 最长的事件未必落在最后一列，所以要扫全部合并列取最晚终点
+                    const eventEnd = new Fraction();
+                    for (let i = mergeStart; i < columns.length; i++) {
+                        for (const node of columns[i]) {
+                            eventEnd.copyFrom(node.t).add(node.T);
+                            if (eventEnd.compare(timeOffset) > 0) timeOffset.copyFrom(eventEnd);
                         }
-                        timeOffset.copyFrom(lastCol.t).add(maxDuration);
                     }
                 } break;
             }
@@ -354,13 +357,14 @@ export class LoweringContext {
             if (tracks[i].length === 0) tracks.splice(i, 1);
         }
         const l = tracks.length;
-        if (l === 0) throw new Error("No tracks to align");
+        // 分支全空；调用方已经逐条报过 ZeroTimeTrack
+        if (l === 0) return [];
         if (l === 1) return tracks[0];
 
         const result: TimeColumn[] = [];
 
         if (l === 2) {
-            // 归并两个轨道
+            // 双轨特化：与下面的堆归并语义等价，改规则必须两边同时改
             const track0 = tracks[0], track1 = tracks[1];
             const l0 = track0.length, l1 = track1.length;
             let i = 0, j = 0;
@@ -569,6 +573,9 @@ export class LoweringContext {
 }
 
 class TimeColumn extends Array<TemporalNodeBase> {
+    // map/filter/slice 默认会用本类重建，而构造器会把长度当事件用；统一退回普通数组
+    static get [Symbol.species]() { return Array; }
+
     readonly mergeKey: number;
     constructor(n: TemporalNodeBase) {
         super(1);

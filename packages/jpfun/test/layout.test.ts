@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { DIV_ADDON_KEY } from "../src/functions/div/index.js";
 import { layoutDocument } from "../src/layout/engine.js";
 import type { LayoutAttachment } from "../src/layout/types.js";
-import { isVisualTemporalNode } from "../src/lowering/types.js";
+import { isVisualTemporalNode } from "../src/functions/temporal.js";
 import { compileScore } from "../src/pipeline.js";
 import { assert, expectSnapshot, layoutContext, lower, nearly } from "./helpers.js";
 

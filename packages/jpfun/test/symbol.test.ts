@@ -1,6 +1,6 @@
 import { test } from "node:test";
 
-import { DEFAULT_VELOCITY } from "../src/lowering/types.js";
+import { DEFAULT_VELOCITY } from "../src/functions/temporal.js";
 import { analyzeScoreSyntax } from "../src/pipeline.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import { assert, expectDiagnostic, layoutOf, lower, nearly, parse, playedNotes, recordCommands } from "./helpers.js";

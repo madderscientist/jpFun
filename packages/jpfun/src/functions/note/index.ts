@@ -116,7 +116,7 @@ class NoteFunction extends ASTFunctionNode {
 
 export const NoteNode: ASTFunctionClass = NoteFunction;
 
-import { DEFAULT_KEY, DEFAULT_VELOCITY, TemporalNodeBase, type TimeState } from "../../lowering/types.js";
+import { DEFAULT_KEY, DEFAULT_VELOCITY, TemporalNodeBase, type TimeState } from "../temporal.js";
 import type { PlaybackEmitter } from "../../playback/types.js";
 import {
     createDiatonicTranspose,

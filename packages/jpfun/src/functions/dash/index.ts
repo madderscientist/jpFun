@@ -1,6 +1,6 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
-import { DEFAULT_KEY, TemporalNodeBase, type TimeState } from "../../lowering/types.js";
+import { DEFAULT_KEY, TemporalNodeBase, type TimeState } from "../temporal.js";
 import type { LayoutBox } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";
 import { WarningDiagnostic } from "../../diagnostic.js";

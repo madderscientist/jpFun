@@ -3,7 +3,7 @@ import { ParserContext } from "../ASTtypes.js";
 import type { CallArgumentInfo } from "../../parser/grammarType.js";
 import { Diagnostic, ErrorDiagnostic } from "../../diagnostic.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
-import type { TemporalNodeBase } from "../../lowering/types.js";
+import type { TemporalNodeBase } from "../temporal.js";
 import { createAutomaticBeamAttachments } from "./auto.js";
 import {
     createBeamLayoutAttachment,

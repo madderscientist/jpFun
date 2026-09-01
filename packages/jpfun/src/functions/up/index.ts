@@ -9,7 +9,7 @@ import {
     TemporalNodeBase,
     type TimeState,
     type VisualTemporalNode,
-} from "../../lowering/types.js";
+} from "../temporal.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import { Fraction } from "../../fraction.js";
 import type { Track } from "../../lowering/track.js";

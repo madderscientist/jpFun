@@ -2,7 +2,7 @@ import { test } from "node:test";
 
 import { layoutDocument } from "../src/layout/engine.js";
 import { DEFAULT_PAGE_CONFIG, normalizePageConfig } from "../src/layout/page.js";
-import { isVisualTemporalNode } from "../src/lowering/types.js";
+import { isVisualTemporalNode } from "../src/functions/temporal.js";
 import { compileScore } from "../src/pipeline.js";
 import { paintLayoutPages } from "../src/render/paint.js";
 import { RecordingPainter } from "../src/render/recording.js";

@@ -1,4 +1,4 @@
-import { DEFAULT_TONALITY, TemporalNodeBase, type TimeState } from "../../lowering/types.js";
+import { DEFAULT_TONALITY, TemporalNodeBase, type TimeState } from "../temporal.js";
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, LengthValue, ParserContext, SourceSpan } from "../ASTtypes.js";
 import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { parseNoteName } from "../note/noteNameFSM.js";

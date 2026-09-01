@@ -3,10 +3,10 @@ import type { AttachmentLayoutContext, LayoutAttachment } from "../../layout/typ
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import {
     isVisualTemporalNode,
-    type LoweringResult,
     type TemporalNodeBase,
     type VisualTemporalNode,
-} from "../../lowering/types.js";
+} from "../temporal.js";
+import type { LoweringResult } from "../../lowering/types.js";
 import type { Painter } from "../../render/types.js";
 import {
     ASTFunctionNode,

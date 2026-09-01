@@ -6,9 +6,9 @@ import type { Fraction } from "../fraction.js";
 import type {
     LoweringAugmenter,
     LoweringFinalizer,
-    TemporalNodeBase,
     TimeFlowModel,
 } from "../lowering/types.js";
+import type { TemporalNodeBase } from "./temporal.js";
 import type { LoweringContext } from "../lowering/loweringContext.js";
 import type { Track } from "../lowering/track.js";
 import type { LayoutDecorationHandler } from "../layout/types.js";

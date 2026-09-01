@@ -2,8 +2,7 @@ import { test } from "node:test";
 
 import { ASTFunctionNode, type ASTNodeBase } from "../src/functions/ASTtypes.js";
 import type { LayoutBox } from "../src/layout/types.js";
-import { ANCHOR_KEY, DEFAULT_KEY } from "../src/lowering/types.js";
-import type { TemporalNodeBase, VisualTemporalNode } from "../src/lowering/types.js";
+import { ANCHOR_KEY, DEFAULT_KEY, type TemporalNodeBase, type VisualTemporalNode } from "../src/functions/temporal.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import { assert, expectLoweringError, layoutOf, lower, nearly, parse, playedNotes, recordCommands } from "./helpers.js";
 

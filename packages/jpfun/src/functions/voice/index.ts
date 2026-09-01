@@ -8,10 +8,11 @@ import type { LoweringContext } from "../../lowering/loweringContext.js";
 import {
     isVisualTemporalNode,
     TemporalNodeBase,
-} from "../../lowering/types.js";
-import type { Extent, MeasureFn, Track } from "../../lowering/track.js";
+} from "../temporal.js";
+import type { MeasureFn, Track } from "../../lowering/track.js";
 import type {
     AttachmentLayoutContext,
+    Extent,
     HorizontalLineView,
     LayoutAttachment,
     LayoutBox,

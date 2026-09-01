@@ -1,6 +1,6 @@
 import { LengthValue, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
-import { ANCHOR_KEY, TemporalNodeBase } from "../../lowering/types.js";
+import { ANCHOR_KEY, TemporalNodeBase } from "../temporal.js";
 import type { PlaybackColumnOf, PlaybackCursor, PlaybackFlow, PlaybackFlowHook } from "../../playback/types.js";
 import type { HorizontalLineView, LayoutBox, LayoutHost } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";

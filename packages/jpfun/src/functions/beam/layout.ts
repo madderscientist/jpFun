@@ -1,9 +1,8 @@
 import {
     isVisualTemporalNode,
-    type LoweringResult,
     type TemporalNodeBase,
     type VisualTemporalNode,
-} from "../../lowering/types.js";
+} from "../temporal.js";
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import type { Track } from "../../lowering/track.js";
 import type { SourceSpan } from "../../parser/types.js";
@@ -15,7 +14,7 @@ import type {
     LayoutHost,
     LayoutPoint,
 } from "../../layout/types.js";
-import type { LoweringAttachment } from "../../lowering/types.js";
+import type { LoweringAttachment, LoweringResult } from "../../lowering/types.js";
 import {
     claimDivLine,
     divLinePortName,

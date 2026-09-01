@@ -1,10 +1,10 @@
 import { Diagnostic } from "../diagnostic.js";
-import type { Extent, Track, TrackGroup, TrackPlacement } from "../lowering/track.js";
+import type { Track, TrackGroup, TrackPlacement } from "../lowering/track.js";
 import {
     isVisualTemporalNode,
-    type LoweringResult,
     type VisualTemporalNode,
-} from "../lowering/types.js";
+} from "../functions/temporal.js";
+import type { LoweringResult } from "../lowering/types.js";
 import {
     completeSpringConfig,
     layoutElement,
@@ -22,6 +22,7 @@ import { isLayoutAttachment } from "./types.js";
 import type {
     AttachmentGeometry,
     AttachmentLayoutContext,
+    Extent,
     HorizontalLineView,
     LayoutAttachment,
     LayoutHost,
@@ -54,7 +55,12 @@ interface LayoutLine {
     horizontalLayoutHooks: HorizontalLayoutHookEntry[];
     /** 只包含可见主体的轴局部占用，整个纵向布局中不变 */
     hostExtents: Map<Track, Extent>;
-    /** attachment 首次测量区域折算出的占用，必要时触发最终重排 */
+    /**
+     * attachment 测量区域折算出的占用，必要时触发最终重排
+     *
+     * 故意跨轮累积（与逐轮清空的 attachmentRanges 相反）：第二轮放置发生在第二轮测量之前，
+     * 求轴时读到的必须是第一轮的结果。如果将来加第三轮，要先重新定义这里的语义。
+     */
     attachmentExtents: Map<Track, Extent>;
     /** 本轮已经完成测量的 attachment 逐条追加到这里 */
     attachmentRanges: ExtentRange[];
@@ -423,7 +429,7 @@ function measureAttachments(
 ) {
     const measured = new Map<LayoutAttachment, MeasuredAttachment>();
     let needsRelayout = false;
-    // 每轮都从空占用开始，避免首轮试排结果污染最终几何
+    // 避让基准逐轮重建，避免首轮试排结果污染最终几何；attachmentExtents 反之，见字段注释
     for (const line of lines) line.attachmentRanges.length = 0;
 
     const context: AttachmentLayoutContext = {

@@ -12,7 +12,7 @@ import type { PathCommand } from "../render/types.js";
 import type { Rect } from "./types.js";
 
 /** 一维上的极值累加器 */
-class Extent {
+class MinMax {
     min = Infinity;
     max = -Infinity;
     add(value: number) {
@@ -22,14 +22,14 @@ class Extent {
 }
 
 /** 提成模块级而不是写成 cubicExtrema 内部的箭头函数：那里每次调用分配一个闭包，实测占了 96% 的耗时 */
-function cubicAt(t: number, p0: number, p1: number, p2: number, p3: number, extent: Extent) {
+function cubicAt(t: number, p0: number, p1: number, p2: number, p3: number, extent: MinMax) {
     if (!(t > 0 && t < 1)) return;
     const u = 1 - t;
     extent.add(u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3);
 }
 
 /** 三次曲线的真实极值：导数是二次式，取区间内的驻点而不是控制点 */
-function cubicExtrema(p0: number, p1: number, p2: number, p3: number, extent: Extent) {
+function cubicExtrema(p0: number, p1: number, p2: number, p3: number, extent: MinMax) {
     extent.add(p0);
     extent.add(p3);
     const a = -p0 + 3 * p1 - 3 * p2 + p3;
@@ -46,7 +46,7 @@ function cubicExtrema(p0: number, p1: number, p2: number, p3: number, extent: Ex
     cubicAt((-b - root) / (2 * a), p0, p1, p2, p3, extent);
 }
 
-function quadraticExtrema(p0: number, p1: number, p2: number, extent: Extent) {
+function quadraticExtrema(p0: number, p1: number, p2: number, extent: MinMax) {
     extent.add(p0);
     extent.add(p2);
     const denominator = p0 - 2 * p1 + p2;
@@ -65,8 +65,8 @@ function quadraticExtrema(p0: number, p1: number, p2: number, extent: Extent) {
  * 33% 且墨迹不居中），所以两边必须共用同一份判据。
  */
 export function pathBounds(commands: readonly PathCommand[]): Rect {
-    const x = new Extent();
-    const y = new Extent();
+    const x = new MinMax();
+    const y = new MinMax();
     let cursorX = 0;
     let cursorY = 0;
     let startX = 0;

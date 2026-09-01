@@ -2,7 +2,7 @@ import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, ParserCon
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import { findClosingQuote, removeQuote } from "../../parser/parse-utils/string-utils.js";
 import type { GrammarCallNodeTyped } from "../../parser/grammarType.js";
-import { DEFAULT_KEY, TemporalNodeBase } from "../../lowering/types.js";
+import { DEFAULT_KEY, TemporalNodeBase } from "../temporal.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
 

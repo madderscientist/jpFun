@@ -1,5 +1,5 @@
 import type { Painter, TextMeasurer } from "../render/types.js";
-import type { Extent, Track } from "../lowering/track.js";
+import type { Track } from "../lowering/track.js";
 import type { Fraction } from "../fraction.js";
 import type { SourceSpan } from "../parser/types.js";
 import type { HorizontalLayoutHook } from "./model.js";
@@ -11,6 +11,15 @@ export interface Rect {
     y: number;  // 上边界坐标
     w: number;  // 完整占用宽度
     h: number;  // 完整占用高度
+}
+
+/**
+ * 相对某条基线的纵向占用
+ * 约定 top <= 0 <= bottom
+ */
+export interface Extent {
+    top: number;    // 基线以上的边界，通常为负
+    bottom: number; // 基线以下的边界，通常为正
 }
 
 /**

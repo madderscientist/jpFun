@@ -1,6 +1,7 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { ParserContext, skipSpaces, skipSpacesBack } from "../../parser/parserContext.js";
-import { TemporalNodeBase, type LoweringResult } from "../../lowering/types.js";
+import { TemporalNodeBase } from "../temporal.js";
+import type { LoweringResult } from "../../lowering/types.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
 import { Diagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { Fraction } from "../../fraction.js";

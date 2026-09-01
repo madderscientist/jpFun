@@ -5,7 +5,7 @@ import type { LoweringContext } from "../../lowering/loweringContext.js";
 import {
     isVisualTemporalNode,
     type VisualTemporalNode,
-} from "../../lowering/types.js";
+} from "../temporal.js";
 import { pathBounds } from "../../layout/path.js";
 import type {
     AttachmentLayoutContext,
@@ -175,6 +175,7 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
         const regions = segments.map(({ commands, ...region }) => region);
         const occupancy = segments.map(segment => {
             // 只申报主体上方那一段，下半截由主体自己占；本行没有主体时就只有弧带本身
+            // 用 getHostExtent 而不是 getRangeExtents：连音线只避让主体，彼此之间允许重叠
             const hostExtent = context.getHostExtent(segment.line, segment.track);
             const bottom = hostExtent
                 ? Math.max(segment.y, context.getVisualAxis(segment.line, segment.track) + hostExtent.top)

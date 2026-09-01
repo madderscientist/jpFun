@@ -1,13 +1,13 @@
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import { layoutHorizontalRegion, type HorizontalLayoutHookContext } from "../../layout/model.js";
-import type { HorizontalLineView, LayoutBox } from "../../layout/types.js";
+import type { HorizontalLineView, LayoutBox, Extent } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
-import type { Extent, MeasureFn, TrackArrangement, TrackPlacement } from "../../lowering/track.js";
+import type { MeasureFn, TrackArrangement, TrackPlacement } from "../../lowering/track.js";
 import {
     isVisualTemporalNode,
     TemporalNodeBase,
     type VisualTemporalNode,
-} from "../../lowering/types.js";
+} from "../temporal.js";
 import type { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { ParserContext, skipSpaces, skipSpacesBack } from "../../parser/parserContext.js";
 import {

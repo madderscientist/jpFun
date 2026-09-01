@@ -1,6 +1,7 @@
 export * from "./pipeline.js";
 
 export * from "./functions/ASTtypes.js";
+export * from "./functions/temporal.js";
 export * from "./functions/default.js";
 
 export * from "./diagnostic.js";

@@ -1,10 +1,10 @@
 import {
     ANCHOR_KEY,
     isVisualTemporalNode,
-    type LoweringResult,
     type TemporalNodeBase,
     type VisualTemporalNode,
-} from "../../lowering/types.js";
+} from "../temporal.js";
+import type { LoweringResult } from "../../lowering/types.js";
 import { Fraction } from "../../fraction.js";
 import type { LayoutAttachment } from "../../layout/types.js";
 import type { ASTNodeBase, SourceSpan } from "../ASTtypes.js";

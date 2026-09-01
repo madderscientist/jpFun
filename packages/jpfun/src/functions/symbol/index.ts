@@ -1,6 +1,6 @@
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import type { LayoutBox, LayoutPrepareContext, Rect } from "../../layout/types.js";
-import { DEFAULT_KEY, TemporalNodeBase, type TimeState } from "../../lowering/types.js";
+import { DEFAULT_KEY, TemporalNodeBase, type TimeState } from "../temporal.js";
 import type { GrammarCallNodeTyped } from "../../parser/grammarType.js";
 import type {
     PlaybackColumnOf, PlaybackCursor, PlaybackEmitter, PlaybackFlow, PlaybackFlowAction, PlaybackFlowHook,

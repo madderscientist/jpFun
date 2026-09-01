@@ -9,7 +9,7 @@ import {
     isVisualTemporalNode,
     type TemporalNodeBase,
     type VisualTemporalNode,
-} from "../../lowering/types.js";
+} from "../temporal.js";
 import type { Painter, TextStyle } from "../../render/types.js";
 import type { PlaybackColumnOf, PlaybackFlow, PlaybackFlowHook } from "../../playback/types.js";
 import { repeatPass } from "../bar/index.js";

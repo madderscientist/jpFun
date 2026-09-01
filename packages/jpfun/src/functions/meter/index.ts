@@ -1,7 +1,8 @@
 import { ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { Fraction } from "../../fraction.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
-import { ANCHOR_KEY, TemporalNodeBase, type LoweringResult } from "../../lowering/types.js";
+import { ANCHOR_KEY, TemporalNodeBase } from "../temporal.js";
+import type { LoweringResult } from "../../lowering/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
 import type { PlaybackEmitter } from "../../playback/types.js";
 import {

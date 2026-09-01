@@ -1,7 +1,8 @@
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, LengthValue, ParserContext, SourceSpan } from "../ASTtypes.js";
 import { WarningDiagnostic } from "../../diagnostic.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
-import { isVisualTemporalNode, type LoweringGroup, type VisualTemporalNode } from "../../lowering/types.js";
+import { isVisualTemporalNode, type VisualTemporalNode } from "../temporal.js";
+import type { LoweringGroup } from "../../lowering/types.js";
 import {
     isLayoutAttachment,
     AttachmentLayoutContext,

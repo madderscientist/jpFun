@@ -1,6 +1,6 @@
 import { test } from "node:test";
 
-import type { VisualTemporalNode } from "../src/lowering/types.js";
+import type { VisualTemporalNode } from "../src/functions/temporal.js";
 import { compileScore } from "../src/pipeline.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import {

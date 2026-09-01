@@ -9,7 +9,7 @@ import {
     TemporalNodeBase,
     type TimeState,
     type VisualTemporalNode,
-} from "../../lowering/types.js";
+} from "../temporal.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { ParserContext } from "../../parser/parserContext.js";
 import type { Painter, PathCommand } from "../../render/types.js";

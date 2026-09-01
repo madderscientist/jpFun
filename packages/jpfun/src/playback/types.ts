@@ -1,6 +1,7 @@
 import type { Diagnostic } from "../diagnostic.js";
 import type { Fraction } from "../fraction.js";
-import type { LoweringAttachment, TemporalNodeBase } from "../lowering/types.js";
+import type { LoweringAttachment } from "../lowering/types.js";
+import type { TemporalNodeBase } from "../functions/temporal.js";
 import type { Track } from "../lowering/track.js";
 import type {
     PlaybackDraftEvent,
