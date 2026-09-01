@@ -71,4 +71,3 @@ pnpm run test:update       # 重写测试快照基线
 ## todo
 - [ ] VSCode 插件
 - [ ] 教程网站，wiki
-- [ ] 渐强渐弱

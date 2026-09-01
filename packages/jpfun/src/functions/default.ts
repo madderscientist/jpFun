@@ -6,6 +6,7 @@ import { BoxNode } from "./box/index.js";
 import { DashNode } from "./dash/index.js";
 import { DivNode } from "./div/index.js";
 import { DotNode } from "./dot/index.js";
+import { DynNode } from "./dyn/index.js";
 import { GraceNode } from "./grace/index.js";
 import { HeadNode } from "./head/index.js";
 import { KeyNode } from "./key/index.js";
@@ -33,7 +34,7 @@ export const defaultFunctions: ASTFunctionClass[] = [
     StackNode,  // 时间同步
     UpNode, DownNode,
     GraceNode,  // 倚音
-    TieNode, BeamNode,
+    TieNode, BeamNode, DynNode,
     BoxNode, VoltaNode,
     AdjustNode,   // 手工微调
     SetNode, KeyNode, MeterNode, TempoNode,    // 设置

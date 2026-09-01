@@ -83,13 +83,19 @@ below 只向下扩张；主体内部或上方几何由具体 Temporal 的 `prepa
 
 引擎从 `LoweringResult.attachments` 中筛出具备 `LayoutAttachment` 能力的对象，再从最终 geometry 生成只读 `PlacedAttachment`；`DocumentLayoutResult.attachments` 只保存最终几何，两者不共享半成品状态。
 
-`getHostExtent(line, track)` 只返回可见主体的稳定占用，不含 attachment。attachment 之间不互相避让；确实要读另一个 attachment 边界的（例如 `@box` 框住写在框内的 `@tie`）用 `getAttachmentBox`——几何按 lowering 注册顺序生成，而分组总在组内对象之后注册，所以只能读到排在自己之前的。归属只按 lowering 作用域判定：写在框外的关系不会因为端点在框内就被框住。
+`getHostExtent(line, track)` 只返回可见主体的整行稳定占用，不含 attachment。需要局部避让的 attachment 调用 `getRangeExtents(line, columns?)`：主体按闭区间时间列精确筛选，并用 `onPlaced` 后的最终 `box.y` 折算高度；本轮已经生成的 attachment 按这些列最终盒子的横向范围相交筛选。省略 columns 表示整行。
+
+`measureAttachments` 按 lowering 注册顺序边生成几何边登记占用，所以当前对象只能看见先注册的 attachment，规则是“后声明者排在外层”。这类位置由范围内最高点或最低点决定的是**避让型**，当前包括 tuplet、volta 和 dyn；tie 与歌词的位置由宿主端口决定，属于**对齐型**，不会自动避让中间对象。
+
+dyn 的插值与绘制使用同一闭区间，楔形线从起点完整宿主盒的左边界画到终点完整宿主盒的右边界；折叠成员参与播放，但布局只读取其可见宿主，端点里的 `$p`、`$f` 也计入主体占用。
+
+确实要读取某一个 attachment 完整边界的对象（例如 `@box` 框住写在框内的 `@tie`）使用 `getAttachmentBox`。分组总在组内对象之后注册，因此依赖天然可见；归属只按 lowering 作用域判定，写在框外的关系不会因为端点在框内就被框住。
 
 ### 写一个跨行 attachment
 
 1. 按 `layoutLine` 排序端点；
 2. 首末段连接端点与内容区边界；
-3. 为每个中间逻辑行生成一段，即使该行没有可见主体；
+3. 是否跨越没有可见主体的中间行由具体语义决定：volta 连到页边，dyn 只连接本轨有内容的行；
 4. 每段返回准确的 `line + track` 占用；
 5. `createGeometry` 每次返回新的完整结果，不修改或累加上一次结果。
 

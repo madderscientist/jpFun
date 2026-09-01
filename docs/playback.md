@@ -151,6 +151,12 @@ accent、tr 和 mordent 使用 `affectFollowing`。目标 Temporal 完整发布 
 
 ornament 用 `stateAt(NoteOn.at).effectiveBpm` 决定极端速度下的密度。
 
+### Dyn
+
+`@dyn(from, to, dv)` 不生成运行期 relation。Lowering 在所有 `onTimeState` 完成后遍历 `astToTemporal`，给普通音符以及 up/grace 的折叠成员累计力度增量；区间内按记谱时间从 0 线性变化到 `dv`，区间后保持完整增量，直到下一次原始力度变化。
+
+增量叠加在每个音符自己的固化力度上，dyn 不识别 `$p`、`$f` 或其它具体函数。因此区间内的力度记号仍独立生效，多条 dyn 的贡献按普通数值加法累计。Event-first playback 只从 note 的 `playbackState.velocity` 发布 NoteOn；反复访问相同 Temporal 时自然重放同一条记谱力度曲线。
+
 ### Dash
 
 dash 用 `defer` 捕获自己的 Track、start 和 end。顺序流执行到 dash 时，它从当前位置附近向前找到同轨且恰好在 start 的 NoteOff，并把该事件移动到 end。
