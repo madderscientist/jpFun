@@ -160,7 +160,7 @@ test("颤音从通用调内位置求每个音符自己的上方二度", () => {
 });
 
 test("内置 symbol 使用固定图形生成稳定几何和绘制命令", () => {
-    const names = ["tr", "fermata", "mordent", "accent",
+    const names = ["tr", "fermata", "mordent", "accent", "dc",
         "ppp", "pp", "p", "mp", "mf", "f", "ff", "fff"];
     for (const name of names) {
         const layout = layoutOf(`$${name}`);
@@ -205,5 +205,17 @@ test("力度记号是三个字母的横向拼接，共用一条力度阶梯", ()
     assert(nearly(box("mf").h, box("f").h) && nearly(box("mp").h, box("p").h),
         "带 m 的记号高度由后一个字母决定");
     assert(box("p").h < box("f").h, "p 没有升部，盒子应比 f 矮");
+});
+
+test("$dc 跳回曲首再演一遍，它所在的时间列不发声", () => {
+    const played = (source: string) =>
+        playedNotes(compilePlayback(lower(source))).map(note => note.midi).join(" ");
+
+    assert(played("1 2 3") === "60 62 64", "没有 $dc 时只演奏一遍");
+    assert(played("1 2 3 $dc") === "60 62 64 60 62 64", "$dc 应跳回曲首再演一遍");
+    // 反复线每条只回跳一次，所以 D.C. 之后的那一遍不再重复曲中的反复段
+    assert(played("|: 1 :| 2 $dc") === "60 60 62 60 62", "D.C. 之后不再重复曲中的反复段");
+    // 跳转的定义是当前列不演奏，所以叠在音符上会吞掉第一遍的那个音
+    assert(played("1 2 3^$dc") === "60 62 60 62 64", "$dc 所在的列在跳转的那一遍不发声");
 });
 

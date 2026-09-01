@@ -2,7 +2,7 @@ import { ErrorDiagnostic } from "../../diagnostic.js";
 import type { LayoutBox, Rect } from "../../layout/types.js";
 import { DEFAULT_KEY, TemporalNodeBase, type TimeState } from "../../lowering/types.js";
 import type { GrammarCallNodeTyped } from "../../parser/grammarType.js";
-import type { PlaybackEmitter } from "../../playback/types.js";
+import type { PlaybackColumnOf, PlaybackEmitter, PlaybackFlow, PlaybackFlowHook } from "../../playback/types.js";
 import type { Painter } from "../../render/types.js";
 import {
     ASTFunctionNode,
@@ -16,6 +16,7 @@ import {
 import { paintSymbol, symbolBounds, type SymbolShape } from "./shape.js";
 
 import { accentSymbol } from "./symbols/accent.js";
+import { dcSymbol } from "./symbols/dc.js";
 import { dynamicSymbols } from "./symbols/dynamics.js";
 import { fermataSymbol } from "./symbols/fermata.js";
 import { mordentSymbol } from "./symbols/mordent.js";
@@ -36,10 +37,12 @@ export interface SymbolDefinition {
     readonly onTimeState?: (state: TimeState) => void;
     /** 发布系统控制，或注册对同一折叠序列后续音符的局部变换 */
     readonly emitPlayback?: (emitter: PlaybackEmitter) => void;
+    /** 参与播放顺序决策；definition 由所有同名符号共用，所以本次访问的节点由调用方传入 */
+    readonly playbackFlow?: (node: TemporalNodeBase, columnOf: PlaybackColumnOf) => PlaybackFlowHook | undefined;
 }
 
 const symbolTable: ReadonlyMap<string, SymbolDefinition> = new Map(
-    [trSymbol, fermataSymbol, mordentSymbol, accentSymbol, ...dynamicSymbols]
+    [trSymbol, fermataSymbol, mordentSymbol, accentSymbol, ...dynamicSymbols, dcSymbol]
         .map(definition => [definition.name.toLowerCase(), definition]),
 );
 
@@ -108,7 +111,7 @@ class SymbolFunction extends ASTFunctionNode {
 
 export const SymbolNode: ASTFunctionClass = SymbolFunction;
 
-class SymbolTemporal extends TemporalNodeBase {
+class SymbolTemporal extends TemporalNodeBase implements PlaybackFlow {
     declare ast: SymbolFunction;
     declare box: LayoutBox;
 
@@ -137,5 +140,10 @@ class SymbolTemporal extends TemporalNodeBase {
 
     override paint(painter: Painter) {
         paintSymbol(painter, this.ast.definition.shapes, this.bounds, this.box, this.scale);
+    }
+
+    /** 控制流在生成事件之前展开，emitPlayback 够不到，所以单独接一次 */
+    playbackFlow(columnOf: PlaybackColumnOf) {
+        return this.ast.definition.playbackFlow?.(this, columnOf);
     }
 }
