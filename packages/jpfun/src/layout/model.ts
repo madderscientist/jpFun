@@ -397,7 +397,7 @@ function solveHorizontal(
  * @param fixed 当前区间的 gap 是否已经固定，长度必须为 X.length - 1；通常是全行 fixed 的 subarray。fixed[i]==1 表示第 i、i+1 列只能整体移动。既是输入也是输出
  * @param limit 当前区间左右墙之间的可用宽度
  * @param options 已补齐默认值的求解参数
- * @param fillMinRatio 自然宽度至少占可用宽度的比例时才 fill；省略表示不 fill，0 表示无条件 fill
+ * @param fillMinRatio 自然宽度至少占可用宽度的比例时才 fill；省略表示不 fill，0 表示无条件 fill。fill 表示是否精确将左右拉到可用宽度，包括宽度不足和弹簧导致的溢出
  */
 export function layoutHorizontalRegion(
     columns: LayoutElement[][],
@@ -468,7 +468,7 @@ export function layoutHorizontalRegion(
     const hasRoom = solveHorizontal(solvedColumns, rows, solvedX, limit, options);
     fixed.fill(1);
 
-    if (fillMinRatio !== void 0 && hasRoom) {
+    if (fillMinRatio !== void 0) {
         let leftWidth = 0;
         let rightWidth = 0;
         for (let row = 0; row < rows; row++) {
@@ -476,12 +476,12 @@ export function layoutHorizontalRegion(
             rightWidth = Math.max(rightWidth, solvedColumns[solvedColumns.length - 1][row].WR);
         }
         const naturalWidth = solvedX[solvedX.length - 1] + rightWidth - solvedX[0] + leftWidth;
-        if (naturalWidth >= limit * fillMinRatio) {
+        if (!hasRoom || naturalWidth >= limit * fillMinRatio) {
             // 让首尾贴墙，并把余量平均分到自由间隙
             const shift = leftWidth - solvedX[0];
             const extra = limit - naturalWidth;
             for (let i = 0; i < solvedX.length; i++) {
-                solvedX[i] += shift + (extra > 0 && solvedX.length > 1
+                solvedX[i] += shift + (solvedX.length > 1
                     ? extra * i / (solvedX.length - 1)
                     : 0);
             }
