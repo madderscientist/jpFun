@@ -164,11 +164,19 @@ export function layoutDocument(
     const views = buildLineViews(lines, options.globalC);
     for (const object of objects) object.prepareHorizontal?.(views[object.layoutLine]);
     for (const attachment of layoutAttachments) attachment.prepareHorizontal?.(views, context);
-    for (const line of lines) {
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+        const line = lines[lineIndex];
         const elements = line.columns.map(column =>
             column.map(node => layoutElement(node.springConfig, node.box, node, options.globalC))
         );
-        layoutHorizontal(elements, contentWidth, options, line.horizontalLayoutHooks);
+        layoutHorizontal(
+            elements,
+            contentWidth,
+            options,
+            line.horizontalLayoutHooks,
+            // 最后一行可以不填满，其余行会拉满
+            lineIndex < lines.length - 1 ? 0.5 : undefined,
+        );
         for (const column of line.columns) {
             for (const node of column) node.box.x += originX;
         }

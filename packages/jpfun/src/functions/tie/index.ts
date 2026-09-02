@@ -104,16 +104,6 @@ interface TieSegment extends Rect {
     track: Track;
 }
 
-/** 二次贝塞尔在某一维上的内部极值 */
-function quadExtremum(p0: number, p1: number, p2: number): number | null {
-    const d = p0 - 2 * p1 + p2;
-    if (Math.abs(d) < 1e-9) return null;
-    const t = (p0 - p1) / d;
-    if (t <= 0 || t >= 1) return null;
-    const u = 1 - t;
-    return u * u * p0 + 2 * u * t * p1 + t * t * p2;
-}
-
 class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
     layer = "foreground" as const;
     readonly sourceSpan: SourceSpan;
@@ -201,8 +191,8 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
         };
     }
 
-    private absolutePort(node: VisualTemporalNode, name: string): LayoutPoint {
-        const port = node.ports[name];
+    private tiePort(node: VisualTemporalNode): LayoutPoint {
+        const port = node.ports["tie.top"];
         if (port) {
             return {
                 x: node.box.x + port.x,
@@ -216,7 +206,7 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
         };
     }
 
-    /** 根据端点固化后的行号选择同行弧线或跨行分段。 */
+    /** 根据端点固化后的行号选择同行弧线或跨行分段 */
     private createSegments(context: AttachmentLayoutContext) {
         const segments: TieSegment[] = [];
 
@@ -226,8 +216,8 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
             // 标签书写顺序不保证时间顺序，先按谱面行升序规范化
             if (startNode.layoutLine > endNode.layoutLine) [startNode, endNode] = [endNode, startNode];
 
-            const start = this.absolutePort(startNode, "tie.top");
-            const end = this.absolutePort(endNode, "tie.top");
+            const start = this.tiePort(startNode);
+            const end = this.tiePort(endNode);
 
             if (startNode.layoutLine === endNode.layoutLine) {
                 const startTop = context.getVisualAxis(startNode.layoutLine, startNode.track)
@@ -246,7 +236,7 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
             // 首行先起弧，再沿水平段延伸到当前谱面行最右侧
             segments.push(this.openingSegment(
                 start,
-                context.originX + context.width,
+                this.lineRightX(context, startNode.layoutLine),
                 this.plateauY(context, startNode.layoutLine, startNode.track, start.y),
                 startNode.layoutLine,
                 startNode.track,
@@ -255,17 +245,17 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
             // 中间行可能没有任何可见对象，仍然需要逐行补一段水平线
             for (let line = startNode.layoutLine + 1; line < endNode.layoutLine; line++) {
                 segments.push(this.horizontalSegment(
-                    context.originX,
-                    context.originX + context.width,
+                    this.lineEntryX(context, line, startNode.track),
+                    this.lineRightX(context, line),
                     this.plateauY(context, line, startNode.track),
                     line,
                     startNode.track,
                 ));
             }
 
-            // 末行从最左侧进入，经过水平段后落弧到终点
+            // 跳过声部名、大括号等位于端点列之前的系统前缀，再落弧到终点
             segments.push(this.closingSegment(
-                context.originX,
+                this.lineEntryX(context, endNode.layoutLine, endNode.track),
                 end,
                 this.plateauY(context, endNode.layoutLine, endNode.track, end.y),
                 endNode.layoutLine,
@@ -273,6 +263,27 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
             ));
         }
         return segments;
+    }
+
+    private lineEntryX(
+        context: AttachmentLayoutContext,
+        lineIndex: number,
+        track: Track,
+    ) {
+        const line = context.lines[lineIndex];
+        const host = line.trackRuns.get(track)?.find(host => !host.T.isZero());
+        return host?.box.x ?? context.originX;
+    }
+
+    private lineRightX(context: AttachmentLayoutContext, lineIndex: number) {
+        const runs = context.lines[lineIndex].trackRuns;
+        if (runs.size === 0) return context.originX + context.width;
+
+        let right = context.originX;
+        for (const run of runs.values()) {
+            for (const host of run) right = Math.max(right, host.box.x + host.box.w);
+        }
+        return right;
     }
 
     /** 沿用普通端点的抬高量，但基准至少是当前 Track 的最高主体。 */
@@ -322,8 +333,8 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
         line: number,
         track: Track,
     ) {
-        const span = Math.max(0, right - start.x);
-        const run = Math.min(this.height * 1.2, span * 0.4);
+        const run = this.height * 1.2;
+        right = Math.max(right, start.x + run);
         const curveX = start.x + run;
         const controlX = start.x + run * 0.45;
         const bottom = plateauY + this.thickness;
@@ -347,8 +358,8 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
         line: number,
         track: Track,
     ) {
-        const span = Math.max(0, end.x - left);
-        const run = Math.min(this.height * 1.2, span * 0.4);
+        const run = this.height * 1.2;
+        left = Math.min(left, end.x - run);
         const curveX = end.x - run;
         const controlX = end.x - run * 0.45;
         const bottom = plateauY + this.thickness;

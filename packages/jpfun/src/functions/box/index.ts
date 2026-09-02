@@ -177,7 +177,7 @@ class BoxLayoutAttachment implements LayoutAttachment {
                 fixed.subarray(start, end),
                 this.owner.width,
                 options,
-                true,
+                0,
             );
             const actualWidth = regionX[regionX.length - 1] - regionX[0] + leftInset + rightInset;
             if (Math.abs(actualWidth - this.owner.width) > 1e-6) {

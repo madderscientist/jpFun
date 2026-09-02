@@ -5,7 +5,7 @@ import { layoutDocument } from "../src/layout/engine.js";
 import type { LayoutAttachment } from "../src/layout/types.js";
 import { isVisualTemporalNode } from "../src/functions/temporal.js";
 import { compileScore } from "../src/pipeline.js";
-import { assert, expectSnapshot, layoutContext, lower, nearly } from "./helpers.js";
+import { assert, expectSnapshot, layoutContext, layoutOf, lower, nearly } from "./helpers.js";
 
 /** 综合样例：数字、升降号、减时线、小节线、延音与文本 */
 const result = compileScore(`1 #2'./ | - @text("进入")`, { rowGap: 12 }).layout;
@@ -44,6 +44,23 @@ test("综合样例的每个 LayoutBox 都有效且保持横向顺序", () => {
 
     expectSnapshot("layout-metrics",
         `objects=${result.objects.length} width=${result.bounds.w.toFixed(2)} height=${result.bounds.h.toFixed(2)}`);
+});
+
+test("非末行超过半页时横向撑满，短行与末行保持自然宽度", () => {
+    const page = "@page(width=200px,left=10px,right=10px) ";
+    const filled = layoutOf(`${page}1 2 3 4 @br() 5`);
+    const filledLine = filled.objects.filter(object => object.layoutLine === 0);
+    assert(nearly(filledLine[0].box.x, 10), "a filled line must start at the left content edge");
+    assert(nearly(filledLine.at(-1)!.box.x + filledLine.at(-1)!.box.w, 190),
+        "a non-final line wider than half the content area must reach the right edge");
+
+    const short = layoutOf(`${page}1 2 @br() 3`).objects.filter(object => object.layoutLine === 0);
+    assert(short.at(-1)!.box.x + short.at(-1)!.box.w < 100,
+        "a line shorter than half the content area must keep its natural spacing");
+
+    const final = layoutOf(`${page}1 2 3 4`).objects;
+    assert(final.at(-1)!.box.x + final.at(-1)!.box.w < 190,
+        "the final line must keep its natural spacing");
 });
 
 test("完全被宿主包含的附件不触发重排", () => {

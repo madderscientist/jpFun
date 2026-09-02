@@ -80,7 +80,7 @@ export interface AttachmentLayoutContext extends LayoutPrepareContext {
     width: number;      // 整篇可用的内容宽（页宽减左右边距），与行无关
     originX: number;    // 内容区的左边界，即页面左边距
     pages: readonly Rect[]; // 本轮分页得到的纸张边界 page函数用于获取页码内容和位置
-    lines: readonly Pick<HorizontalLineView, "columns" | "columnOf">[]; // 已完成横向求解的时间列拓扑与主体
+    lines: readonly Omit<HorizontalLineView, "registerHorizontalLayoutHook">[]; // 已完成横向求解的时间列拓扑与主体
     getVisualAxis(line: number, track: Track): number;
     /** 只包含可见主体的轴局部占用（top 通常为负），不受 attachment 或最终分页坐标影响 */
     getHostExtent(line: number, track: Track): Readonly<Extent> | undefined;

@@ -140,6 +140,68 @@ test("跨系统连音线按首、中、尾分段绘制", () => {
     );
 });
 
+test("短行跨行连音线的首尾段最短时只有起落弧", () => {
+    const layout = layoutOf(`3@x
+
+4@tie()`);
+    const firstLineRight = Math.max(...layout.objects
+        .filter(object => object.layoutLine === 0)
+        .map(object => object.box.x + object.box.w));
+    const opening = layout.attachments[0].regions.find(region => region.line === 0);
+    assert(opening && opening.x + opening.w >= firstLineRight,
+        "a short opening tie segment must cover its system's actual content edge");
+    const curveWidth = layout.objects[0].ast.size * 0.5 * 1.2;
+    assert(nearly(opening.w, curveWidth),
+        "a short opening tie segment must be exactly one rising curve wide");
+    const closing = layout.attachments[0].regions.find(region => region.line === 1);
+    assert(closing && nearly(closing.w, curveWidth),
+        "a short closing tie segment must be exactly one falling curve wide");
+
+    const paths = attachmentCommands(layout.attachments[0]).filter(command => command.kind === "path");
+    const openingCurve = paths[0].commands[1];
+    const openingLine = paths[0].commands[2];
+    assert(openingCurve.op === "Q" && openingLine.op === "L" && nearly(openingCurve.x, openingLine.x),
+        "the shortest opening segment must have no horizontal line");
+    const closingStart = paths[1].commands[0];
+    const closingLine = paths[1].commands[1];
+    assert(closingStart.op === "M" && closingLine.op === "L" && nearly(closingStart.x, closingLine.x),
+        "the shortest closing segment must have no horizontal line");
+});
+
+test("进入多声部系统的连音线从大括号右侧开始", () => {
+    const source = `1@a @br()
+@voices(@voice({2@b 3}, A), @voice({4 5}, B))
+@tie(a,b)`;
+    const layout = layoutOf(source);
+    const brace = layout.attachments.find(attachment => attachment.layer === "background");
+    const tie = layout.attachments.find(attachment => attachment.sourceSpan
+        && source.slice(attachment.sourceSpan.start, attachment.sourceSpan.end).startsWith("@tie"));
+    assert(brace && tie, "the sample must create both a voices brace and a tie");
+    const closingPath = attachmentCommands(tie).filter(command => command.kind === "path").at(-1);
+    assert(closingPath?.kind === "path" && closingPath.commands[0]?.op === "M",
+        "the closing tie segment must begin with a path move");
+    assert(closingPath.commands[0].x >= brace.box.x + brace.box.w,
+        "the closing tie segment must not pass through the voices brace");
+});
+
+test("进入多声部系统中段端点的连音线从该 Track 首音开始", () => {
+    const source = `3@x
+
+N: 44@tie(x)
+N: 3`;
+    const layout = layoutOf(source);
+    const firstFour = layout.objects.find(object => object.ast.sourceSpan.start === source.indexOf("44"));
+    assert(firstFour, "the sample must contain the first 4 on the target track");
+    const tie = layout.attachments.find(attachment => attachment.sourceSpan
+        && source.slice(attachment.sourceSpan.start, attachment.sourceSpan.end).startsWith("@tie"));
+    assert(tie, "the sample must create a tie");
+    const closingPath = attachmentCommands(tie).filter(command => command.kind === "path").at(-1);
+    assert(closingPath?.kind === "path" && closingPath.commands[0]?.op === "M",
+        "the closing tie segment must begin with a path move");
+    assert(nearly(closingPath.commands[0].x, firstFour.box.x),
+        "the closing tie segment must start at the target track's leftmost note edge");
+});
+
 test("三行与含空行的连音线都保持每系统一段", () => {
     const threeLineTieResult = layoutOf(`1@a @br() 2 @br() 3@b @tie(a,b)`);
     assert(attachmentCommands(threeLineTieResult.attachments[0]).filter(command => command.kind === "path").length === 3,
