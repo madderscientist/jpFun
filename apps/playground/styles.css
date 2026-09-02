@@ -570,10 +570,8 @@ button:focus-visible, [tabindex]:focus-visible {
 }
 .preview-playback-cursor {
     position: absolute;
-    border: 1px solid color-mix(in srgb, var(--accent) 72%, transparent);
     border-radius: 2px;
     background: color-mix(in srgb, var(--accent) 20%, transparent);
-    box-shadow: 0 0 0 1px color-mix(in srgb, #ffffff 45%, transparent) inset;
     transition: left 80ms linear, top 80ms linear, width 80ms linear, height 80ms linear;
 }
 .preview-focus-ripple::before, .preview-focus-ripple::after {

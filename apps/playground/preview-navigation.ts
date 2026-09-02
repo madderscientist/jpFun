@@ -95,6 +95,13 @@ export function createPreviewNavigationMap(compiled: CompileScoreResult): Previe
     const objects = new Set<VisualTemporalNode>(compiled.layout.objects.filter(object =>
         object.box.w > 0 || object.box.h > 0
     ));
+    const lineTops = new Array<number>(compiled.layout.lineCount).fill(Infinity);
+    const lineBottoms = new Array<number>(compiled.layout.lineCount).fill(-Infinity);
+    for (const object of objects) {
+        const line = object.layoutLine;
+        lineTops[line] = Math.min(lineTops[line], object.box.y);
+        lineBottoms[line] = Math.max(lineBottoms[line], object.box.y + object.box.h);
+    }
 
     // grace/up 等折叠成员不在 layout.objects，但布局完成后仍保留最终 box。
     for (const temporals of compiled.lowering.astToTemporal.values()) {
@@ -111,22 +118,21 @@ export function createPreviewNavigationMap(compiled: CompileScoreResult): Previe
         let last = first + 1;
         while (last < columns.length && columns[last][0].t.equals(columns[first][0].t)) last++;
         let left = Infinity;
-        let top = Infinity;
         let right = -Infinity;
-        let bottom = -Infinity;
+        let layoutLine = -1;
         for (let index = first; index < last; index++) {
             for (const node of columns[index]) {
                 if (!isPlaybackCursorNode(node)) continue;
                 left = Math.min(left, node.box.x);
-                top = Math.min(top, node.box.y);
                 right = Math.max(right, node.box.x + node.box.w);
-                bottom = Math.max(bottom, node.box.y + node.box.h);
+                layoutLine = node.layoutLine;
             }
         }
         if (left < Infinity) {
+            const top = lineTops[layoutLine];
             playbackRegions.push({
                 scoreTime: columns[first][0].t.toNumber(),
-                region: { x: left, y: top, w: right - left, h: bottom - top },
+                region: { x: left, y: top, w: right - left, h: lineBottoms[layoutLine] - top },
             });
         }
         first = last;
