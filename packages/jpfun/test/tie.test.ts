@@ -213,7 +213,7 @@ test("三行与含空行的连音线都保持每系统一段", () => {
         "an attachment must render a segment on an otherwise empty system");
 });
 
-test("连音线可以跨行与跨轨，并避开轨上最高的宿主", () => {
+test("连音线可以跨行与跨轨，首尾弧从端点固定抬高", () => {
     const crossLineTieResult = layoutOf(`1@a @br() 2@b @tie(a,b)`);
     assert(attachmentCommands(crossLineTieResult.attachments[0]).filter(command => command.kind === "path").length === 2,
         "a two-system tie must render one segment in each system");
@@ -226,12 +226,24 @@ test("连音线可以跨行与跨轨，并避开轨上最高的宿主", () => {
     const tieIntoUp = layoutOf(`1@x
 
 @up(3,4) 5@y @tie(x,y)`);
-    assert(horizontalBandBottom(tieIntoUp.attachments[0], 1) < tieIntoUp.objects[1].box.y,
-        "a closing tie segment must stay above the highest host on its target track");
+    const closingPath = attachmentCommands(tieIntoUp.attachments[0])
+        .filter(command => command.kind === "path").at(-1);
+    assert(closingPath?.kind === "path"
+        && closingPath.commands[0]?.op === "M"
+        && closingPath.commands[2]?.op === "Q",
+    "the closing tie segment must contain its plateau and endpoint");
+    assert(nearly(closingPath.commands[2].y - closingPath.commands[0].y, 11),
+        "a closing tie plateau must be exactly one configured height above its endpoint");
 
     const tieOutOfUp = layoutOf(`@up(3,4) 5@x @br() 1@y @tie(x,y)`);
-    assert(horizontalBandBottom(tieOutOfUp.attachments[0], 0) < tieOutOfUp.objects[0].box.y,
-        "an opening tie segment must stay above the highest host on its source track");
+    const openingPath = attachmentCommands(tieOutOfUp.attachments[0])
+        .find(command => command.kind === "path");
+    assert(openingPath?.kind === "path"
+        && openingPath.commands[0]?.op === "M"
+        && openingPath.commands[1]?.op === "Q",
+    "the opening tie segment must contain its endpoint and plateau");
+    assert(nearly(openingPath.commands[0].y - openingPath.commands[1].y, 11),
+        "an opening tie plateau must be exactly one configured height above its endpoint");
 
     const compactCrossTrackTie = layoutOf(`
 @page(width=200px,height=150px,top=10px,bottom=10px,left=10px,right=10px)

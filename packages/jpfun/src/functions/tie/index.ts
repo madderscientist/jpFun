@@ -286,16 +286,17 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
         return right;
     }
 
-    /** 沿用普通端点的抬高量，但基准至少是当前 Track 的最高主体。 */
+    /** 有端点时从端点固定抬高；中间段没有端点，才以当前 Track 的主体顶部为基准 */
     private plateauY(
         context: AttachmentLayoutContext,
         line: number,
         track: Track,
         endpointY: number = Infinity,
     ) {
+        if (Number.isFinite(endpointY)) return endpointY - this.height;
         const axis = context.getVisualAxis(line, track);
         const hostTop = context.getHostExtent(line, track)?.top ?? 0;
-        return Math.min(endpointY, axis + hostTop) - this.height;
+        return axis + hostTop - this.height;
     }
 
     /** 一条三次贝塞尔的外缘配上反向内缘，得到两端收尖、中部最厚的乐谱弧线 */
