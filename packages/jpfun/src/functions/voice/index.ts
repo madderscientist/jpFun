@@ -338,12 +338,25 @@ L: ...
         }
     }
 
+    /**
+     * 把歌词拆成与音符一一对应的槽位。
+     * 例如 `hello world` 拆成 `hello`、`world`，`hel-lo` 拆成 `hel-`、`lo`；
+     * `你好吗` 默认逐字拆分，`你 @ 好` 中的 `@` 留出一个空槽，`{你好} 啊` 则把 `你好` 放在同一个槽位。
+     */
     static parseLyric(value: string): string[] {
         const result: string[] = [];
         let lastPos = 0;
         for (let i = 0; i < value.length; i++) {
             const ch = value[i];
-            if (WHITEPACE_RE.test(ch)) {
+            if (ch === "{") {
+                const close = value.indexOf("}", i + 1);
+                if (close >= 0) {
+                    if (i > lastPos) result.push(value.slice(lastPos, i));
+                    result.push(value.slice(i + 1, close));
+                    i = close;
+                    lastPos = close + 1;
+                }
+            } else if (WHITEPACE_RE.test(ch)) {
                 if (i > lastPos) result.push(value.slice(lastPos, i));
                 lastPos = i + 1;
             } else if (ch === "-") {
