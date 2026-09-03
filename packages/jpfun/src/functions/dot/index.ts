@@ -3,9 +3,12 @@ import { ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import type { LayoutDecorationHandler } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
+import type { LoweringGroup } from "../../lowering/types.js";
 
 const DOT_FUNC_NAME = "dot";
 const DOT_ADDON_KEY = functionAddonKey(DOT_FUNC_NAME);
+
+type DotLoweringGroup = LoweringGroup & { temporalCount: number };
 
 function durationFactor(count: number): [number, number] {
     const denominator = 2 ** count;
@@ -17,10 +20,10 @@ class DotFunction extends ASTFunctionNode {
         name: [DOT_FUNC_NAME, "."],
         description: "附点",
         example: `@dot(C1, 2): C1右侧创建2个点 仅接收一个可接收元素
-语法糖：在音符后加斜杠'.'，可以多个
+语法糖：在目标后加'.'，可以多个
 @dot(C1, 2) === C1..
-@dot(C1 C2/ @dash(), 2) 报错 因为点只能接收一个元素
-设置命名参数前缀: dot
+{1^2}. === {1.^2}
+@dot(C1 C2/ @dash(), 2) 报错 因为点只能接收一个可见时间元素
 `,
         allowExtraArgs: false,
         args: [
@@ -118,8 +121,10 @@ class DotFunction extends ASTFunctionNode {
     };
     override loweringEnter(ctx: LoweringContext) {
         const count = this.n;
-        ctx.beginLoweringGroup(this, {
+        const group: DotLoweringGroup = {
+            temporalCount: 0,
             onTemporal(node) {
+                group.temporalCount++;
                 if (count === 0) return;
                 const addon = node.addon ??= {};
                 const current = Number(addon[DOT_ADDON_KEY]) || 0;
@@ -132,11 +137,19 @@ class DotFunction extends ASTFunctionNode {
                 );
                 addon[DOT_ADDON_KEY] = total;
             },
-        });
+        };
+        ctx.beginLoweringGroup(this, group);
         return [];
     }
     override loweringExit(ctx: LoweringContext) {
-        ctx.endLoweringGroup(this);
+        const group = ctx.endLoweringGroup(this) as DotLoweringGroup;
+        if (group.temporalCount !== 1) {
+            throw new ErrorDiagnostic(
+                "E_DOT_INVALID_CONTENT",
+                `函数 @dot 只能接收 1个元素，但找到了 ${group.temporalCount} 个`,
+                this.sourceSpan,
+            );
+        }
         return [];
     }
     override timeFlowModel() {
@@ -153,14 +166,6 @@ class DotFunction extends ASTFunctionNode {
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
         [this.content, this.n] = this.getArgValue(args, ctx) as [ASTNodeBase, number];
-        const contentJudge = DotFunction.leafNum(this.content);
-        if (contentJudge !== 1) {
-            throw new ErrorDiagnostic(
-                "E_DOT_INVALID_CONTENT",
-                `函数 @dot 只能接收 1个元素，但找到了 ${contentJudge} 个`,
-                sourceSpan
-            );
-        }
         this.content.parent = this;
         const n = Math.max(0, Math.trunc(this.n));
         if (n !== this.n) {
@@ -175,16 +180,6 @@ class DotFunction extends ASTFunctionNode {
 
     override toString(source: string) {
         return `@dot(${this.content.toString(source)}, ${this.n})`;
-    }
-
-    // 判断叶节点数量
-    static leafNum(node: ASTNodeBase): number {
-        let count = 0;
-        const chs = node.children;
-        if (chs) {  // 不是叶节点
-            for (const child of chs) count += DotFunction.leafNum(child);
-        } else count ++;
-        return count;
     }
 }
 

@@ -342,41 +342,52 @@ L: ...
      * 把歌词拆成与音符一一对应的槽位。
      * 例如 `hello world` 拆成 `hello`、`world`，`hel-lo` 拆成 `hel-`、`lo`；
      * `你好吗` 默认逐字拆分，`你 @ 好` 中的 `@` 留出一个空槽，`{你好} 啊` 则把 `你好` 放在同一个槽位。
+     * 转义符：hel\-lo \@ {你\}好} 会得到 ["hel-lo", "@", "你}好"]，而不是把 -、@、} 当控制符
      */
     static parseLyric(value: string): string[] {
         const result: string[] = [];
-        let lastPos = 0;
+        let token = "";
+        const pushToken = () => {
+            if (token) result.push(token);
+            token = "";
+        };
         for (let i = 0; i < value.length; i++) {
             const ch = value[i];
-            if (ch === "{") {
-                const close = value.indexOf("}", i + 1);
-                if (close >= 0) {
-                    if (i > lastPos) result.push(value.slice(lastPos, i));
-                    result.push(value.slice(i + 1, close));
-                    i = close;
-                    lastPos = close + 1;
+            if (ch === "\\" && i + 1 < value.length && /[\\{}@-]/.test(value[i + 1])) {
+                token += value[++i];
+            } else if (ch === "{") {
+                let close = i + 1;
+                let grouped = "";
+                for (; close < value.length && value[close] !== "}"; close++) {
+                    if (value[close] === "\\" && close + 1 < value.length && /[\\{}@-]/.test(value[close + 1])) {
+                        grouped += value[++close];
+                    }
+                    else grouped += value[close];
                 }
+                if (close < value.length) {
+                    pushToken();
+                    result.push(grouped);
+                    i = close;
+                } else token += ch;
             } else if (WHITEPACE_RE.test(ch)) {
-                if (i > lastPos) result.push(value.slice(lastPos, i));
-                lastPos = i + 1;
+                pushToken();
             } else if (ch === "-") {
                 // 如果前面有内容 则把-放到前一个词里
-                if (i > lastPos) {
-                    result.push(value.slice(lastPos, i + 1));
-                    lastPos = i + 1;
-                } else lastPos = i;    // 把-放到下一个词里
+                token += ch;
+                if (token.length > 1) pushToken();
             } else if (ch === "@") {
-                if (i > lastPos) result.push(value.slice(lastPos, i + 1));
+                if (token) {
+                    token += ch;
+                    pushToken();
+                }
                 result.push('');
-                lastPos = i + 1;
             } else if (ch.charCodeAt(0) > 0x7F) {
                 // 遇到中文等非ASCII字符 直接切分成单个字符
-                if (i > lastPos) result.push(value.slice(lastPos, i));
+                pushToken();
                 result.push(ch);
-                lastPos = i + 1;
-            }
+            } else token += ch;
         }
-        if (lastPos < value.length) result.push(value.slice(lastPos));
+        pushToken();
         return result;
     }
 

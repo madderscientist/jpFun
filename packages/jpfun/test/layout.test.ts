@@ -54,6 +54,12 @@ test("非末行超过半页时横向撑满，短行与末行保持自然宽度",
     assert(nearly(filledLine.at(-1)!.box.x + filledLine.at(-1)!.box.w, 190),
         "a non-final line wider than half the content area must reach the right edge");
 
+    const compressed = layoutOf(`${page}1 2 3 4 5 6 7 1 2 3 @br() 4`);
+    const compressedLine = compressed.objects.filter(object => object.layoutLine === 0);
+    assert(nearly(compressedLine[0].box.x, 10), "a compressed line must start at the left content edge");
+    assert(nearly(compressedLine.at(-1)!.box.x + compressedLine.at(-1)!.box.w, 190),
+        "a compressed line must distribute its outside gaps and reach the right edge");
+
     const short = layoutOf(`${page}1 2 @br() 3`).objects.filter(object => object.layoutLine === 0);
     assert(short.at(-1)!.box.x + short.at(-1)!.box.w < 100,
         "a line shorter than half the content area must keep its natural spacing");

@@ -78,6 +78,21 @@ test("up 内外的修饰都累加到和弦本身", () => {
         "modifiers inside and outside up must accumulate on the chord itself");
 });
 
+test("附点可以修饰整个 up/down，且仍由宿主承担节奏", () => {
+    for (const source of [`{1^2}.`, `{1_2}.`, `{1.^2}`]) {
+        const chord = lower(source).columns[0][0] as TemporalNodeBase & {
+            members: readonly TemporalNodeBase[];
+        };
+        assert(chord.T.equals(3, 2) && chord.addon?.["@dot"] === 1,
+            `${source} must apply one dot to the folded event`);
+        assert(chord.members.every(member => member.T.equals(3, 2)),
+            `${source} must synchronize the dotted duration to every rhythmic member`);
+    }
+    assert(recordCommands(layoutOf(`{1^2}.`)).filter(command => command.kind === "circle").length === 1,
+        "a dot outside up must be painted once by the host member");
+    expectLoweringError(`{1 2}.`, "E_DOT_INVALID_CONTENT");
+});
+
 test("和弦的减时线交还给代表成员，落在数字与下八度点之间", () => {
     const chordDivCommands = recordCommands(layoutOf(`1,,,/^3`));
     const chordDivDots = chordDivCommands.filter(command => command.kind === "circle");

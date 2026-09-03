@@ -2,7 +2,6 @@ import { test } from "node:test";
 
 import { compilePlayback } from "../src/playback/compile.js";
 import { secondsToScoreTime, scoreTimeToSeconds } from "../src/playback/time.js";
-import type { RecordedPaintCommand } from "../src/render/recording.js";
 import { assert, attachmentCommands, expectSnapshot, layoutOf, lower, nearly, playedNotes } from "./helpers.js";
 /** 用相对 C4 的半音数（C4 记作 1）表示演奏序列，断言失败时比 MIDI 号好读 */
 function played(source: string) {
@@ -142,9 +141,8 @@ test("跨谱面行时逐行补满，只有真正的首尾下折", () => {
     const house = layout.attachments[0];
     assert(house.regions.length === 3, `跨三行应各画一段，实际 ${house.regions.length}`);
 
-    const horizontal = attachmentCommands(house)
-        .filter((command): command is Extract<RecordedPaintCommand, { kind: "line" }> =>
-            command.kind === "line" && nearly(command.y1, command.y2));
+    const lines = attachmentCommands(house).filter(command => command.kind === "line");
+    const horizontal = lines.filter(command => nearly(command.y1, command.y2));
     const objectsOn = (line: number) => layout.objects.filter(object => object.layoutLine === line);
     const firstTimedOn = (line: number) => objectsOn(line).find(object => !object.T.isZero())!;
     const visualRightOn = (line: number) => Math.max(...objectsOn(line).map(object => object.box.x + object.box.w));
@@ -154,8 +152,7 @@ test("跨谱面行时逐行补满，只有真正的首尾下折", () => {
         && nearly(horizontal[2].x1, firstTimedOn(2).box.x),
         "跨行中间段和末段应从各自系统的首个正时值主体起笔");
 
-    const vertical = attachmentCommands(house)
-        .filter(command => command.kind === "line" && nearly(command.x1, command.x2));
+    const vertical = lines.filter(command => nearly(command.x1, command.x2));
     assert(vertical.length === 2,
         `换行断点处不下折，竖线只应有首末两条，实际 ${vertical.length}`);
 
