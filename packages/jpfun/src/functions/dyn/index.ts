@@ -210,16 +210,12 @@ class DynAttachment implements LayoutAttachment {
             const end = line === to.line ? to.column : view.columns.length - 1;
             let firstColumn = -1;
             let lastColumn = -1;
-            let left = Infinity;
-            let right = -Infinity;
 
             for (let column = start; column <= end; column++) {
                 for (const host of view.columns[column]) {
                     if (host.track !== this.track) continue;
                     firstColumn = firstColumn < 0 ? column : firstColumn;
                     lastColumn = column;
-                    left = Math.min(left, host.box.x);
-                    right = Math.max(right, host.box.x + host.box.w);
                     size = Math.max(size, host.ast.size);
                 }
             }
@@ -227,12 +223,17 @@ class DynAttachment implements LayoutAttachment {
 
             ranges.push({
                 line,
-                startX: line === from.line ? this.fromHost.box.x : left,
+                startX: line === from.line ? this.fromHost.box.x : this.lineEntryX(context, line),
                 endX: line === to.line
                     ? this.toHost.box.x + this.toHost.box.w
-                    : right,
+                    : this.lineRightX(context, line),
                 columns: [firstColumn, lastColumn],
             });
+        }
+
+        // 允许左边超出一点
+        for (const range of ranges) {
+            if (range.line > from.line) range.startX -= size / 4;
         }
 
         const strokeWidth = Math.max(0.75, size * 0.035);
@@ -290,5 +291,21 @@ class DynAttachment implements LayoutAttachment {
                 }
             },
         };
+    }
+
+    private lineEntryX(context: AttachmentLayoutContext, line: number) {
+        const host = context.lines[line].trackRuns.get(this.track)?.find(item => !item.T.isZero());
+        return host?.box.x ?? context.originX;
+    }
+
+    private lineRightX(context: AttachmentLayoutContext, line: number) {
+        const runs = context.lines[line].trackRuns;
+        if (runs.size === 0) return context.originX + context.width;
+
+        let right = context.originX;
+        for (const run of runs.values()) {
+            for (const host of run) right = Math.max(right, host.box.x + host.box.w);
+        }
+        return right;
     }
 }

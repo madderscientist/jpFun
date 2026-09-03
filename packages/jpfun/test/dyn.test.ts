@@ -140,14 +140,29 @@ test("dyn 使用最终端点位置并跨行连续绘制", () => {
 
     const middle = hairpin(`1@a @br() @adjust({2}, dx=200px) 3 @br() 4@b @dyn(a,b,20)`);
     const middleHosts = middle.layout.objects.filter(host => host.layoutLine === 1);
-    const middleLeft = Math.min(...middleHosts.map(host => host.box.x));
+    const middleEntry = middleHosts.find(host => !host.T.isZero());
     const middleRight = Math.max(...middleHosts.map(host => host.box.x + host.box.w));
-    assert(nearly(middle.lines[2].x1, middleLeft) && nearly(middle.lines[2].x2, middleRight),
-        "a middle segment must use final visual edges rather than temporal order");
+    assert(middleEntry && nearly(middle.lines[2].x1, middleEntry.box.x - middleEntry.ast.size / 2)
+        && nearly(middle.lines[2].x2, middleRight),
+    "a middle segment may extend half a size left of its first timed host");
 
     const blank = hairpin(`1@a @br(2) 2@b @dyn(a,b,20)`);
     assert(blank.attachment.regions.length === 2,
         "a hairpin must not invent a segment on an empty middle line");
+
+    const voicesSource = `@stack({1@a @br() @text(Prefix) 2@b}, {3 4 @br() 5}) @dyn(a,b,20)`;
+    const voices = hairpin(voicesSource);
+    const endHost = voices.layout.objects.find(host =>
+        host.ast.sourceSpan.start === voicesSource.indexOf("2@b"));
+    assert(endHost, "the end host must exist on the continued track");
+    const firstTimedHost = voices.layout.objects.find(host =>
+        host.layoutLine === 1 && host.track === endHost.track && !host.T.isZero());
+    const firstLineRight = Math.max(...voices.layout.objects
+        .filter(host => host.layoutLine === 0)
+        .map(host => host.box.x + host.box.w));
+    assert(firstTimedHost && nearly(voices.lines[0].x2, firstLineRight)
+        && nearly(voices.lines[2].x1, firstTimedHost.box.x - firstTimedHost.ast.size / 2),
+    "a broken hairpin must end at the system's visual right edge and resume half a size before the track's first timed host");
 });
 
 test("dyn 绘制单行楔形并申报上方占用", () => {
