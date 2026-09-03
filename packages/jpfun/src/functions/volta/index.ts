@@ -4,6 +4,7 @@ import type {
     LayoutHost,
 } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
+import type { Track } from "../../lowering/track.js";
 import {
     ANCHOR_KEY,
     isVisualTemporalNode,
@@ -190,16 +191,6 @@ class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
         const draws = Array.from({ length: lastLine - firstLine + 1 }, (_, offset) => {
             const line = firstLine + offset;
 
-            // 跨行断开的那一侧一直画到页边，接上下一行
-            const rawLeft = line !== firstLine ? context.originX
-                : leftBar?.layoutLine === line ? leftBar.box.x + leftBar.box.anchor + 5 // 5是防止前后房子竖线重合
-                    : head.box.x + (head.ports["body.left"]?.x ?? 0);
-            const rawRight = line !== lastLine ? context.originX + context.width
-                : rightBar?.layoutLine === line ? rightBar.box.x + rightBar.box.anchor
-                    : tail.box.x + (tail.ports["body.right"]?.x ?? tail.box.w);
-            const left = Math.min(rawLeft, rawRight);
-            const right = Math.max(rawLeft, rawRight);
-
             let topTrack = head.track;
             let hostTop = Infinity;
             const range = coverage[offset];
@@ -215,6 +206,16 @@ class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
             }
             // 整行空白时没有主体可以参照，退到轨道轴上
             if (hostTop === Infinity) hostTop = context.getVisualAxis(line, topTrack);
+
+            // 换行断点跟随系统的视觉边界；空行没有主体时仍退到内容区页边
+            const rawLeft = line !== firstLine ? this.lineEntryX(context, line, topTrack)
+                : leftBar?.layoutLine === line ? leftBar.box.x + leftBar.box.anchor + 5 // 5是防止前后房子竖线重合
+                    : head.box.x + (head.ports["body.left"]?.x ?? 0);
+            const rawRight = line !== lastLine ? this.lineRightX(context, line)
+                : rightBar?.layoutLine === line ? rightBar.box.x + rightBar.box.anchor
+                    : tail.box.x + (tail.ports["body.right"]?.x ?? tail.box.w);
+            const left = Math.min(rawLeft, rawRight);
+            const right = Math.max(rawLeft, rawRight);
             return { left, right, lineY: hostTop - size * 0.2 - hook, line, track: topTrack };
         });
 
@@ -240,5 +241,21 @@ class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
                 }
             },
         };
+    }
+
+    private lineEntryX(context: AttachmentLayoutContext, line: number, track: Track) {
+        const host = context.lines[line].trackRuns.get(track)?.find(item => !item.T.isZero());
+        return host?.box.x ?? context.originX;
+    }
+
+    private lineRightX(context: AttachmentLayoutContext, line: number) {
+        const runs = context.lines[line].trackRuns;
+        if (runs.size === 0) return context.originX + context.width;
+
+        let right = context.originX;
+        for (const run of runs.values()) {
+            for (const host of run) right = Math.max(right, host.box.x + host.box.w);
+        }
+        return right;
     }
 }

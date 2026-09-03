@@ -2,6 +2,7 @@ import { test } from "node:test";
 
 import { compilePlayback } from "../src/playback/compile.js";
 import { secondsToScoreTime, scoreTimeToSeconds } from "../src/playback/time.js";
+import type { RecordedPaintCommand } from "../src/render/recording.js";
 import { assert, attachmentCommands, expectSnapshot, layoutOf, lower, nearly, playedNotes } from "./helpers.js";
 /** 用相对 C4 的半音数（C4 记作 1）表示演奏序列，断言失败时比 MIDI 号好读 */
 function played(source: string) {
@@ -141,10 +142,17 @@ test("跨谱面行时逐行补满，只有真正的首尾下折", () => {
     const house = layout.attachments[0];
     assert(house.regions.length === 3, `跨三行应各画一段，实际 ${house.regions.length}`);
 
-    const [top, middle, bottom] = house.regions;
-    assert(nearly(middle.x, bottom.x), "中间行与末行都应从页面左边缘起笔");
-    assert(nearly(middle.x + middle.w, top.x + top.w), "中间行与首行都应画到页面右边缘");
-    assert(middle.w > top.w && middle.w > bottom.w, "整行的中间段应比首末段更宽");
+    const horizontal = attachmentCommands(house)
+        .filter((command): command is Extract<RecordedPaintCommand, { kind: "line" }> =>
+            command.kind === "line" && nearly(command.y1, command.y2));
+    const objectsOn = (line: number) => layout.objects.filter(object => object.layoutLine === line);
+    const firstTimedOn = (line: number) => objectsOn(line).find(object => !object.T.isZero())!;
+    const visualRightOn = (line: number) => Math.max(...objectsOn(line).map(object => object.box.x + object.box.w));
+    assert(nearly(horizontal[0].x2, visualRightOn(0)) && nearly(horizontal[1].x2, visualRightOn(1)),
+        "跨行首段和中间段应止于各自系统的视觉最右边");
+    assert(nearly(horizontal[1].x1, firstTimedOn(1).box.x)
+        && nearly(horizontal[2].x1, firstTimedOn(2).box.x),
+        "跨行中间段和末段应从各自系统的首个正时值主体起笔");
 
     const vertical = attachmentCommands(house)
         .filter(command => command.kind === "line" && nearly(command.x1, command.x2));
@@ -154,6 +162,8 @@ test("跨谱面行时逐行补满，只有真正的首尾下折", () => {
     // 中间整行空白时没有主体可参照，仍要补上这一段
     const blank = layoutOf(`1@a @br(2) 2@b @volta(a, b, 1)`).attachments[0];
     assert(blank.regions.length === 3, `空白行也要补一段，实际 ${blank.regions.length}`);
+    assert(blank.regions[1].w > blank.regions[0].w && blank.regions[1].w > blank.regions[2].w,
+        "空白中间行仍应回退到完整内容区宽度");
 
     expectSnapshot("volta-cross-line", house.regions.map(region =>
         `line${region.line}=${region.x.toFixed(2)},${region.y.toFixed(2)},`
@@ -202,6 +212,11 @@ N: 45
         .filter(command => nearly(command.y1, command.y2))
         .at(-1)!;
     assert(lastLineTop.y1 < lineTop, "跨行房子应画在 voices 全部主体的上方");
+    const lastRegion = house.regions.at(-1)!;
+    const firstTimedHost = layout.objects.find(object => object.layoutLine === lastLine
+        && object.track === lastRegion.track && !object.T.isZero())!;
+    assert(nearly(lastLineTop.x1, firstTimedHost.box.x),
+        "跨行房子的续行入口应跳过声部名，从本轨首个正时值主体起笔");
 
     const lowerSource = `1@x
 
