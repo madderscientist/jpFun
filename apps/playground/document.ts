@@ -9,12 +9,23 @@ interface FilePickerWindow extends Window {
 
 interface DocumentControllerOptions {
     getSource(): string;
+    importFile(file: File): Promise<{ source: string; fileName: string; linked: boolean }>;
     replaceSource(source: string): void;
     onStateChanged(fileName: string, dirty: boolean): void;
     onError(action: "打开" | "保存", error: unknown): void;
 }
 
-const pickerOptions = {
+const openPickerOptions = {
+    types: [{
+        description: "jpFun 或 MIDI 曲谱",
+        accept: {
+            "text/plain": [".jpfun"],
+            "audio/midi": [".mid", ".midi"],
+        },
+    }],
+    excludeAcceptAllOption: true,
+};
+const savePickerOptions = {
     types: [{ description: "jpFun 曲谱", accept: { "text/plain": [".jpfun"] } }],
     excludeAcceptAllOption: true,
 };
@@ -32,10 +43,10 @@ function isCancelled(error: unknown): boolean {
 
 function chooseUploadedFile(): Promise<File | null> {
     return new Promise(resolve => {
-    const input = document.createElement("input");
+        const input = document.createElement("input");
         const controller = new AbortController();
-    input.type = "file";
-    input.accept = ".jpfun,text/plain";
+        input.type = "file";
+        input.accept = ".jpfun,.mid,.midi";
         function finish(file: File | null) {
             controller.abort();
             resolve(file);
@@ -102,18 +113,23 @@ export function createDocumentController(options: DocumentControllerOptions) {
             let sourceFile: File | null;
             let nextHandle: FileSystemFileHandle | null = null;
             if (pickerWindow.showOpenFilePicker) {
-                [nextHandle] = await pickerWindow.showOpenFilePicker(pickerOptions);
+                [nextHandle] = await pickerWindow.showOpenFilePicker(openPickerOptions);
                 sourceFile = await nextHandle.getFile();
             } else {
                 sourceFile = await chooseUploadedFile();
             }
             if (!sourceFile) return;
 
-            const source = await sourceFile.text();
-            fileName = sourceFile.name;
-            fileHandle = nextHandle;
-            options.replaceSource(source);
-            markSaved(source);
+            const imported = await options.importFile(sourceFile);
+            fileName = imported.fileName;
+            fileHandle = imported.linked ? nextHandle : null;
+            savedSource = imported.linked ? imported.source : null;
+            options.replaceSource(imported.source);
+            if (imported.linked) markSaved(options.getSource());
+            else {
+                flushDraft();
+                updateState();
+            }
         } catch (error) {
             if (!isCancelled(error)) options.onError("打开", error);
         }
@@ -124,7 +140,7 @@ export function createDocumentController(options: DocumentControllerOptions) {
         try {
             if (!fileHandle && pickerWindow.showSaveFilePicker) {
                 fileHandle = await pickerWindow.showSaveFilePicker({
-                    ...pickerOptions,
+                    ...savePickerOptions,
                     suggestedName: fileName,
                 });
                 fileName = fileHandle.name;

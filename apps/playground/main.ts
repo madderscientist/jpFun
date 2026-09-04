@@ -24,6 +24,7 @@ import {
 import { initializeTheme } from "./theme.js";
 import { createWorkspaceController } from "./workspace.js";
 import { createPlaybackController, type PlaybackController } from "./playback.js";
+import { importScoreFile } from "./score-import.js";
 
 const editorHost = requiredElement<HTMLElement>("#sourceEditor");
 const statusMessage = requiredElement<HTMLElement>("#statusMessage");
@@ -73,6 +74,7 @@ const editor = createSourceEditor({
 });
 documents = createDocumentController({
     getSource: source,
+    importFile: importScoreFile,
     replaceSource(nextSource) {
         editor.dispatch({
             changes: { from: 0, to: editor.state.doc.length, insert: nextSource },

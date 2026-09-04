@@ -139,7 +139,25 @@ const playback = compilePlayback(result.lowering, { maxFlowSteps: 200_000 });
 
 The default is 65,536 visited columns. Exceeding it throws instead of returning a partial playback plan.
 
-The plan stores device-independent `note-on`, `note-off`, and `tempo` events. Its track number is the same channel identity used by the visual Track; Web Audio, Web MIDI, and Standard MIDI File adapters consume that identity and the exact `Fraction` timestamps at their boundary.
+The plan stores device-independent `note-on`, `note-off`, `tempo`, `time-signature`, and `program-change` events. Its track number is the same channel identity used by the visual Track; Web Audio, Web MIDI, and Standard MIDI File adapters consume that identity and the exact `Fraction` timestamps at their boundary.
+
+## MIDI JSON Conversion
+
+`midiJsonToJpFun` converts the JSON returned by madderscientist's [`midi.js`](https://madderscientist.github.io/noteDigger/lib/midi.js) `JSON()` method into jpFun source. MIDI byte parsing stays in the application boundary; the core converter only consumes structured data and has no runtime dependency on a MIDI parser.
+
+```ts
+import { midiJsonToJpFun } from "jpfun";
+
+const source = midiJsonToJpFun(parsedMidiJson, {
+  title: "My Score",
+  alignRate: 4,
+  barsPerLine: 0,
+});
+```
+
+`pitchMode` defaults to `"absolute"`; use `"relative"` for C-based numbered notation. `alignRate` controls adaptive binary quantization. Equal start/end groups become `@up` chords, overlapping lanes become `@stack`, and separate MIDI tracks become named voices. `barsPerLine` defaults to `0`; non-positive values select measured automatic breaks, while a positive value fixes the measures per system. `title` overrides the MIDI header name.
+
+The converter preserves notes, track names, tempo, time signatures, and MIDI programs, and recognizes standard 3:2 quarter-, eighth-, and sixteenth-note triplets. Other tuplets are unsupported. Percussion channel 10 is skipped; velocity, control changes, pitch bends, lyrics, and other MIDI metadata are ignored. Time-signature changes snap to measure boundaries, and continuations that cannot use `-` are emitted as tied notes.
 
 ## Syntax Example
 

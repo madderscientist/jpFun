@@ -12,6 +12,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./converter/midi": {
+      "types": "./dist/converter/midi.d.ts",
+      "import": "./dist/converter/midi.js"
+    },
     "./package.json": "./package.json"
   },
   "sideEffects": false,
