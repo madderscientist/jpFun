@@ -499,7 +499,7 @@ test("所有空白使用可见休止符，绝对与相对音高均可选", () =>
     const relative = midiJsonToJpFun(input, { pitchMode: "relative" });
     assert(absolute === midiJsonToJpFun(input, { pitchMode: "absolute" }),
         "默认调用必须等价于显式 absolute 模式");
-    assert(relative.includes("0") && relative.includes("1#"), `相对模式应生成休止和 C 调数字：${relative}`);
+    assert(relative.includes("0") && relative.includes("#1"), `相对模式应生成休止和 C 调数字：${relative}`);
     assert(!absolute.includes("@1(C4)") && absolute.includes("C#4"), `绝对模式应生成字母音名：${absolute}`);
     assert(compilePlayback(lower(relative)).diagnostics.length === 0, "休止拆分不得产生增时线诊断");
 });
@@ -531,7 +531,7 @@ test("绝对零八度和相对低八度和弦不丢失音高", () => {
         note(0, 480, 60),
     ]]), { pitchMode: "relative" });
     const chordPitches = playedNotes(compilePlayback(lower(chord))).map(item => item.midi).sort((a, b) => a - b);
-    assert(chord.includes("{2#, ^ 1}") && chordPitches.join() === "51,60",
+    assert(chord.includes("{#2, ^ 1}") && chordPitches.join() === "51,60",
         `低八度逗号在和弦语法糖中必须保持音高：${chord}`);
 });
 

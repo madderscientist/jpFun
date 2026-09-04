@@ -11,44 +11,11 @@
 import { ANCHOR_KEY } from "../functions/temporal.js";
 import { DEFAULT_PAGE_CONFIG } from "../layout/page.js";
 import { compileScore } from "../pipeline.js";
+import type { MidiJson, MidiJsonInstrument, MidiJsonNote, MidiJsonTrack } from "./midi-json.js";
 import { identifyTriplets, type TripletMark } from "./midi-triplet.js";
 import { attachAbove, quote, renderHead, renderPitch, renderSystems, type PitchMode } from "./source.js";
 
-export interface MidiJsonNote {
-    ticks: number;
-    durationTicks: number;
-    midi: number;
-    intensity: number;
-}
-
-export interface MidiJsonControlChange {
-    ticks: number;
-    controller: number;
-    value: number;
-}
-
-export interface MidiJsonInstrument {
-    ticks: number;
-    number: number;
-}
-
-export interface MidiJsonTrack {
-    channel: number;
-    name: string;
-    controlChanges: readonly MidiJsonControlChange[];
-    instruments: readonly MidiJsonInstrument[];
-    notes: readonly MidiJsonNote[];
-}
-
-export interface MidiJson {
-    header: {
-        name: string;
-        tick: number;
-        tempos: readonly { ticks: number; bpm: number }[];
-        timeSignatures: readonly { ticks: number; timeSignature: readonly [number, number] }[];
-    };
-    tracks: readonly MidiJsonTrack[];
-}
+export type * from "./midi-json.js";
 
 export interface MidiToJpFunOptions {
     pitchMode?: PitchMode;
@@ -224,7 +191,7 @@ function normalizeMeterTicks(points: readonly RawMeterPoint[], ticksPerQuarter: 
     return result;
 }
 
-/** 返回拍号变化之间所有真正的小节边界，三连音不能跨过这些位置。 */
+/** 返回拍号变化之间所有真正的小节边界，三连音不能跨过这些位置 */
 function measureBoundaries(meters: readonly RawMeterPoint[], rawEnd: number, ticksPerQuarter: number) {
     const result: number[] = [];
     for (let index = 0; index < meters.length; index++) {
@@ -236,7 +203,7 @@ function measureBoundaries(meters: readonly RawMeterPoint[], rawEnd: number, tic
     return result;
 }
 
-/** 同起点、同终点的音符组成和弦；不同长度的重叠音仍保持独立。 */
+/** 同起点、同终点的音符组成和弦；不同长度的重叠音仍保持独立 */
 function combineChords(notes: readonly QuantizedNote[]) {
     const groups = new Map<string, QuantizedChord>();
     for (const note of notes) {
@@ -258,7 +225,7 @@ function combineChords(notes: readonly QuantizedNote[]) {
     return result.sort((left, right) => left.start - right.start || left.end - right.end);
 }
 
-/** 把同一识别组的三个槽折叠为一个三连音原子，其余和弦原样保留。 */
+/** 把同一识别组的三个槽折叠为一个三连音原子，其余和弦原样保留 */
 function groupTriplets(chords: readonly QuantizedChord[]) {
     const groups = new Map<number, QuantizedChord[]>();
     const result: QuantizedItem[] = [];
@@ -282,6 +249,7 @@ function groupTriplets(chords: readonly QuantizedChord[]) {
  */
 function splitLanes(items: readonly QuantizedItem[]) {
     const lanes: Lane[] = [];
+    // active 按结束时间回收 lane，available 按原索引优先复用空闲 lane
     const active: { end: number; laneIndex: number }[] = [];
     const available: number[] = [];
     const compareActive = (left: { end: number; laneIndex: number }, right: { end: number; laneIndex: number }) =>
@@ -297,6 +265,7 @@ function splitLanes(items: readonly QuantizedItem[]) {
         lane.items.push(item);
         heapPush(active, { end: item.end, laneIndex }, compareActive);
     }
+    // 低音 lane 排在前面，最高 lane 固定承载全谱状态以保持输出稳定
     const averagePitch = (lane: Lane) => {
         let sum = 0;
         let count = 0;
@@ -335,7 +304,7 @@ function splitRegions(items: readonly QuantizedItem[]) {
     return regions;
 }
 
-/** 把整数时值分解为 jpFun 的 `/` 与 `.` 后缀；剩余部分会另写为 dash/rest。 */
+/** 把整数时值分解为 jpFun 的 `/` 与 `.` 后缀；剩余部分会另写为 dash/rest */
 function rhythmSuffixes(duration: number, scale: number) {
     const result: string[] = [];
     let remaining = duration;
@@ -353,8 +322,7 @@ function rhythmSuffixes(duration: number, scale: number) {
         const divisions = Math.log2(scale / base);
         result.push("/".repeat(divisions) + ".".repeat(dots));
         first = false;
-    }
-    return result;
+    } return result;
 }
 
 /**
@@ -366,12 +334,14 @@ function automaticLineBreaks(
     bars: readonly number[],
     scale: number,
 ) {
+    // 超宽页面关闭自动换行，从真实布局对象取得每个小节的自然宽度
     const naturalWidth = Math.max(1_000_000, source.length * 64);
     const naturalSource = `@page(width=${naturalWidth}px, height=0px, top=0px, bottom=0px, left=0px, right=0px)\n${source}`;
     const layout = compileScore(naturalSource).layout;
     const bodyLine = Math.max(...layout.objects.filter(node => !node.T.isZero()).map(node => node.layoutLine));
     const bodyObjects = layout.objects.filter(node => node.layoutLine === bodyLine && node.box.w > 0);
     const measureBounds = bars.map(() => ({ left: Infinity, right: -Infinity }));
+    // 按对象起点归入小节，小节线本身属于左侧刚结束的小节
     for (const node of bodyObjects) {
         const at = Math.round(node.t.toNumber() * scale);
         let low = 0;
@@ -392,11 +362,13 @@ function automaticLineBreaks(
         - DEFAULT_PAGE_CONFIG.marginLeft - DEFAULT_PAGE_CONFIG.marginRight;
     const targetWidth = contentWidth * AUTO_LINE_TARGET_RATIO;
     const limitWidth = contentWidth * AUTO_LINE_LIMIT_RATIO;
+    // best[end] 保存排完前 end 个小节的最小累计失衡和上一断点
     const best: { imbalance: number; previous: number }[] = [
         { imbalance: 0, previous: -1 },
     ];
     for (let end = 1; end <= bars.length; end++) {
         let choice: typeof best[number] | undefined;
+        // 向前枚举当前行起点，只保留宽度和最大小节数允许的候选
         for (let start = end - 1; start >= Math.max(0, end - AUTO_LINE_MAX_BARS); start--) {
             let left = Infinity;
             let right = -Infinity;
@@ -419,6 +391,7 @@ function automaticLineBreaks(
         best[end] = choice!;
     }
 
+    // 从终点沿 previous 回溯得到全局最优断点
     const lineBreaks = new Set<number>();
     for (let end = bars.length; best[end].previous > 0; end = best[end].previous) {
         lineBreaks.add(bars[best[end].previous - 1]);
@@ -457,6 +430,7 @@ function renderLane(
     programs: ReadonlyMap<number, number> | undefined,
     nextTieLabel: () => string,
 ) {
+    // 事件边界与所有控制点共同切分时间线，保证每个片段内语义不变
     const points = new Set<number>([rangeStart, rangeEnd]);
     for (const item of lane.items) {
         points.add(item.start);
@@ -472,11 +446,13 @@ function renderLane(
     const timeline = [...points].sort((left, right) => left - right);
     const timelineIndex = new Map(timeline.map((at, index) => [at, index]));
     const tieChains = new Map<QuantizedChord, string[][]>();
+    // 每次重写和弦都为每个成员生成标签并追加到各自的 tie 链
     const extendTieChains = (chains: string[][]) => chains.map(chain => {
         const label = nextTieLabel();
         chain.push(label);
         return label;
     });
+    // 预扫描找出不能只用 dash 延续的音符，提前为其建立逐音高标签链
     for (const item of lane.items) {
         if ("members" in item) continue;
         const startIndex = timelineIndex.get(item.start)!;
@@ -484,7 +460,7 @@ function renderLane(
             const suffixes = rhythmSuffixes((timeline[index + 1] - timeline[index]) / timeFactor, rhythmScale);
             if ((timeline[index] > item.start && bars.has(timeline[index]))
                 || suffixes.some((suffix, suffixIndex) =>
-                (timeline[index] > item.start || suffixIndex > 0) && suffix.includes("/"))) {
+                    (timeline[index] > item.start || suffixIndex > 0) && suffix.includes("/"))) {
                 tieChains.set(item, item.notes.map(() => []));
                 break;
             }
@@ -494,6 +470,7 @@ function renderLane(
     const outputs: string[][] = Array.from({ length: lineBreaks.size + 1 }, () => []);
     let outputIndex = [...lineBreaks].filter(at => at <= rangeStart).length;
     let itemIndex = 0;
+    // 沿时间片单向推进当前事件，依次输出控制项、音符或补齐休止
     for (let index = 0; index < timeline.length; index++) {
         const at = timeline[index];
         while (itemIndex < lane.items.length && lane.items[itemIndex].end <= at) itemIndex++;
@@ -508,6 +485,7 @@ function renderLane(
         const changes = adjustments?.get(at) ?? [];
         const item = lane.items[itemIndex];
         if (item && item.start <= at && item.end >= next) {
+            // 三连音作为原子一次输出，外层时间线直接跳到整组末尾
             if ("members" in item && at === item.start) {
                 const writtenDuration = (item.members[0].end - item.members[0].start) * 3 / (2 * timeFactor);
                 const suffix = rhythmSuffixes(writtenDuration, rhythmScale).join("");
@@ -518,6 +496,7 @@ function renderLane(
             }
             if ("members" in item) throw new Error("MIDI triplet rendering must start at its first slot");
             const suffixes = rhythmSuffixes((next - at) / timeFactor, rhythmScale);
+            // 普通音符可能拆成多个二进制片段，只有首片段承载状态变化
             for (let suffixIndex = 0; suffixIndex < suffixes.length; suffixIndex++) {
                 const suffix = suffixes[suffixIndex];
                 const continuation = at > item.start || suffixIndex > 0;
@@ -541,6 +520,7 @@ function renderLane(
                 }
             }
         } else {
+            // 没有事件覆盖的时间片用可见休止补齐每条 lane
             outputs[outputIndex].push(...rhythmSuffixes((next - at) / timeFactor, rhythmScale)
                 .map((suffix, index) => index === 0 ? attachAbove(`0${suffix}`, changes) : `0${suffix}`));
         }
@@ -560,12 +540,14 @@ function renderTrack(
     const outputs: string[][] = Array.from({ length: lineCount }, () => []);
     const segments: TrackRegion[] = [];
     let cursor = 0;
+    // 在重叠区域之间插入空区域，让每条 track 覆盖完整乐谱时长
     for (const region of track.regions) {
         if (cursor < region.start) segments.push({ start: cursor, end: region.start, lanes: [{ items: [] }] });
         segments.push(region);
         cursor = region.end;
     }
     if (cursor < scoreEnd) segments.push({ start: cursor, end: scoreEnd, lanes: [{ items: [] }] });
+    // 每个重叠区域独立渲染，多 lane 只在该区域局部组成 @stack
     for (const region of segments) {
         if (region.start > 0 && bars.has(region.start)) {
             const lineIndex = [...lineBreaks].filter(at => at < region.start).length;
@@ -592,6 +574,7 @@ function renderTrack(
  * 方便后续加入力度、乐器和踏板时直接扩展现有时间线。
  */
 export function midiJsonToJpFun(input: MidiJson, options: MidiToJpFunOptions = {}) {
+    // 入口先验证容器形状和影响全局算法的选项
     if (!input || typeof input !== "object" || !input.header || typeof input.header !== "object") {
         throw new TypeError("MIDI JSON must contain a header");
     }
@@ -617,6 +600,7 @@ export function midiJsonToJpFun(input: MidiJson, options: MidiToJpFunOptions = {
     const sourceTracks: { source: MidiJsonTrack; notes: SourceNote[]; programs: MidiJsonInstrument[] }[] = [];
     let rawNoteEnd = 0;
     let globalDivisions = 1;
+    // 逐轨校验并复制会被后续阶段标记的 note，跳过尚未建模的打击乐通道
     for (const [trackIndex, track] of input.tracks.entries()) {
         if (!track || typeof track !== "object" || typeof track.name !== "string") {
             throw new TypeError(`tracks[${trackIndex}] must contain a string name`);
@@ -625,11 +609,13 @@ export function midiJsonToJpFun(input: MidiJson, options: MidiToJpFunOptions = {
         if (track.channel === 9) continue;
         expectArray(track.notes, `tracks[${trackIndex}].notes`);
         expectArray(track.instruments, `tracks[${trackIndex}].instruments`);
+        // program 事件保留原始 tick，等统一时间尺度确定后再换算
         const programs = track.instruments.map((item, index) => {
             expectSafeInteger(item.ticks, `tracks[${trackIndex}].instruments[${index}].ticks`);
             expectSafeInteger(item.number, `tracks[${trackIndex}].instruments[${index}].number`, 0, 127);
             return { ...item };
         });
+        // 每个时值独立决定所需精度，全曲采用其中最高精度
         const notes = track.notes.map((note, index) => {
             expectSafeInteger(note.ticks, `tracks[${trackIndex}].notes[${index}].ticks`);
             expectSafeInteger(note.durationTicks, `tracks[${trackIndex}].notes[${index}].durationTicks`, 1);
@@ -643,6 +629,7 @@ export function midiJsonToJpFun(input: MidiJson, options: MidiToJpFunOptions = {
     }
 
     // 第二阶段：在原始 tick 域规范化全谱拍号和速度
+    // 默认拍号先参与同刻覆盖，保证结果始终从 tick 0 开始
     const rawMeters = normalizeMeterTicks([
         { ticks: 0, timeSignature: DEFAULT_TIME_SIGNATURE },
         ...input.header.timeSignatures,
@@ -657,20 +644,21 @@ export function midiJsonToJpFun(input: MidiJson, options: MidiToJpFunOptions = {
         return { ticks: item.ticks, numerator, denominator };
     }).sort((left, right) => left.ticks - right.ticks), ticksPerQuarter);
 
+    // 速度只保留尾音之前的点，同刻点稍后按后写覆盖
     const rawTempos = [
         { ticks: 0, bpm: DEFAULT_BPM },
         ...input.header.tempos.map((item, index) => {
             expectSafeInteger(item.ticks, `header.tempos[${index}].ticks`);
             if (!Number.isFinite(item.bpm) || item.bpm <= 0) {
                 throw new RangeError(`header.tempos[${index}].bpm must be positive and finite`);
-            }
-            return item;
+            } return item;
         }),
     ].filter(item => item.ticks === 0 || item.ticks < rawNoteEnd)
         .sort((left, right) => left.ticks - right.ticks);
 
     // 第三阶段：先识别三连音。命中时把内部时间轴乘 3，使三分槽也能用整数表示
     const rhythmScale = 2 ** globalDivisions;
+    // 状态变化和小节边界都是三连音识别不可跨越的 blocker
     const timeFactor = identifyTriplets(
         sourceTracks,
         ticksPerQuarter,
@@ -682,6 +670,7 @@ export function midiJsonToJpFun(input: MidiJson, options: MidiToJpFunOptions = {
         ],
     ) ? 3 : 1;
     const scale = rhythmScale * timeFactor;
+    // rawUnits 保留三分槽精度，binaryUnitAt 强制回到二进制网格
     const rawUnits = (ticks: number) => {
         if (!Number.isSafeInteger(ticks * scale)) throw new RangeError("MIDI timeline is too large to quantize exactly");
         return ticks * scale / ticksPerQuarter;
@@ -699,12 +688,14 @@ export function midiJsonToJpFun(input: MidiJson, options: MidiToJpFunOptions = {
     // 第四阶段：量化音符；同一原始 tick 共用最高精度，防止和弦成员起点错开
     const convertedTracks: ConvertedTrack[] = [];
     const startDivisions = new Map<number, number>();
+    // 同一 onset 的所有和弦成员共享其中最细的起点网格
     for (const track of sourceTracks) {
         for (const note of track.notes) {
             startDivisions.set(note.ticks, Math.max(startDivisions.get(note.ticks) ?? 1, note.divisions));
         }
     }
     let lastNoteEnd = 0;
+    // 每轨依次量化、合并和弦、折叠三连音并划分局部重叠区域
     for (const track of sourceTracks) {
         const notes = track.notes.map(note => {
             const tripletUnit = note.triplet
@@ -731,6 +722,7 @@ export function midiJsonToJpFun(input: MidiJson, options: MidiToJpFunOptions = {
         });
     }
 
+    // 乐谱末尾补齐到当前拍号的完整小节边界
     const activeMeter = pointAt(meters, lastNoteEnd);
     const finalMeasureLength = meterDuration(activeMeter, scale);
     const scoreEnd = lastNoteEnd === 0
@@ -743,8 +735,9 @@ export function midiJsonToJpFun(input: MidiJson, options: MidiToJpFunOptions = {
     }))).filter(item => item.at === 0 || item.at < lastNoteEnd);
     const relevantMeters = meters.filter(item => item.at === 0 || item.at < lastNoteEnd);
 
-    // 第五阶段：建立最终小节线和正文中的 tempo/meter 调整。
+    // 第五阶段：建立最终小节线和正文中的 tempo/meter 调整
     const bars = new Set<number>();
+    // 每段拍号各自产生规则小节线，拍号变化点本身也是边界
     for (let index = 0; index < relevantMeters.length; index++) {
         const meter = relevantMeters[index];
         const next = relevantMeters[index + 1]?.at ?? scoreEnd;
@@ -755,6 +748,7 @@ export function midiJsonToJpFun(input: MidiJson, options: MidiToJpFunOptions = {
     if (scoreEnd > 0) bars.add(scoreEnd);
     const orderedBars = [...bars].sort((left, right) => left - right);
     const scoreAdjustments = new Map<number, string[]>();
+    // 同一时刻的多个全谱状态按写入顺序叠到最高 lane
     const addAdjustment = (at: number, source: string) => {
         const sources = scoreAdjustments.get(at) ?? [];
         sources.push(source);
@@ -776,6 +770,7 @@ export function midiJsonToJpFun(input: MidiJson, options: MidiToJpFunOptions = {
     // 第六阶段：先生成单行候选做自然宽度测量，再用选出的断点生成最终源码
     const renderScore = (lineBreaks: ReadonlySet<number>) => {
         let tieIndex = 0;
+        // 每次渲染重新编号 tie，单行测量与最终源码因此保持相同标签结构
         const tracks = convertedTracks.map((track, trackIndex) => renderTrack(track, scoreEnd, bars, lineBreaks, (region, lane) =>
             renderLane(
                 lane,
