@@ -132,9 +132,21 @@ test("有限高度的页面把系统分页并分配行间距", () => {
     const [pageLine0, pageLine1, pageLine2, pageLine3] = paged.objects;
     const fullPageGap = pageLine1.box.y - pageLine0.box.y - pageLine0.box.h;
     const lastPageGap = pageLine3.box.y - pageLine2.box.y - pageLine2.box.h;
-    const expectedFullPageGap = 80 - 10 - 10 - pageLine0.box.h - pageLine1.box.h;
-    assert(nearly(fullPageGap, expectedFullPageGap), "a closed full page must distribute all remaining height into its system gaps");
+    const remaining = 80 - 10 - 10 - pageLine0.box.h - pageLine1.box.h - 5;
+    const share = remaining / 2;
+    const fullPageBottom = 80 - 10 - pageLine1.box.y - pageLine1.box.h;
+    assert(nearly(pageLine0.box.y, 10), "a closed full page must keep its first system at the top margin");
+    assert(nearly(fullPageGap, 5 + share), "a closed full page must add one share below each non-final system");
+    assert(nearly(fullPageBottom, share), "a closed full page must leave the final system's share at the bottom");
     assert(nearly(lastPageGap, 5), "the final page must retain the configured minimum system gap");
+
+    const singlePerPage = layoutOf(`
+@page(width=200px, height=50px, top=10px, bottom=10px, left=20px, right=20px, gap=5px)
+1 @br() 2
+`);
+    assert(singlePerPage.pages.length === 2, "the sample must place one system on each page");
+    assert(nearly(singlePerPage.objects[0].box.y, 10),
+        "a closed page with one system must keep it at the top instead of centering it");
 });
 
 test("重复与嵌套的 page 声明只报警并保留第一份", () => {

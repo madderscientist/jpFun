@@ -94,12 +94,13 @@ export function paginateLayoutLines(
     let used = 0;
     let contentHeight = 0;
 
-    /** 写出 [start, end) 这一页；完整页拉伸行距，末页保留最小行距 */
+    /** 写出 [start, end) 这一页；完整页把剩余高度均分到每行下方，末页保留最小行距 */
     const closePage = (end: number, justify: boolean) => {
         const count = end - start;
-        const gap = justify && count > 1
-            ? (availableHeight - contentHeight) / (count - 1)
-            : page.lineGap;
+        const remaining = justify
+            ? Math.max(0, availableHeight - contentHeight - page.lineGap * (count - 1))
+            : 0;
+        const gap = page.lineGap + remaining / count;
         let lineTop = pageTop + page.marginTop;
 
         for (let i = start; i < end; i++) {
