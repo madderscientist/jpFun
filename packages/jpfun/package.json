@@ -1,6 +1,6 @@
 {
   "name": "jpfun",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A functional numbered musical notation typesetting engine",
   "type": "module",
   "main": "./dist/index.js",
@@ -15,6 +15,10 @@
     "./converter/midi": {
       "types": "./dist/converter/midi.d.ts",
       "import": "./dist/converter/midi.js"
+    },
+    "./converter/musicxml": {
+      "types": "./dist/converter/musicxml.d.ts",
+      "import": "./dist/converter/musicxml.js"
     },
     "./package.json": "./package.json"
   },
@@ -60,6 +64,7 @@
   "license": "Apache-2.0",
   "devDependencies": {
     "@types/node": "^26.2.0",
+    "@xmldom/xmldom": "^0.9.12",
     "esbuild": "^0.25.0",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2"

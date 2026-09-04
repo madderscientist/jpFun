@@ -207,6 +207,14 @@
         </footer>
     </div>
 
+    <div class="drop-overlay" id="dropOverlay" data-state="accepted" role="status" aria-live="polite" hidden>
+        <div class="drop-message">
+            <span class="drop-icon" aria-hidden="true"></span>
+            <strong id="dropTitle">松开即可导入</strong>
+            <span id="dropDetail">jpFun、MIDI 或 MusicXML 曲谱</span>
+        </div>
+    </div>
+
     <div class="print-host" id="printHost" aria-hidden="true"></div>
 
     <script type="module" src="/main.ts"></script>

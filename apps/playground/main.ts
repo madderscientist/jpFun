@@ -24,7 +24,20 @@ import {
 import { initializeTheme } from "./theme.js";
 import { createWorkspaceController } from "./workspace.js";
 import { createPlaybackController, type PlaybackController } from "./playback.js";
-import { importScoreFile } from "./score-import.js";
+import { importScoreFile, isSupportedScoreFile } from "./score-import.js";
+
+const POSSIBLE_SCORE_MIME_TYPES = new Set([
+    "",
+    "application/octet-stream",
+    "application/vnd.recordare.musicxml+xml",
+    "application/xml",
+    "application/x-midi",
+    "audio/mid",
+    "audio/midi",
+    "audio/x-midi",
+    "text/plain",
+    "text/xml",
+]);
 
 const editorHost = requiredElement<HTMLElement>("#sourceEditor");
 const statusMessage = requiredElement<HTMLElement>("#statusMessage");
@@ -37,9 +50,13 @@ const exportButton = requiredElement<HTMLButtonElement>("#exportButton");
 const exportMenu = requiredElement<HTMLElement>("#exportMenu");
 const exportPpiInput = requiredElement<HTMLInputElement>("#exportPpi");
 const exportFormatButtons = [...exportMenu.querySelectorAll<HTMLButtonElement>("[data-export-format]")];
+const dropOverlay = requiredElement<HTMLElement>("#dropOverlay");
+const dropTitle = requiredElement<HTMLElement>("#dropTitle");
+const dropDetail = requiredElement<HTMLElement>("#dropDetail");
 
 let fatal = false;
 let renderTimer: number | undefined;
+let dropFeedbackTimer: number | undefined;
 let preview: PreviewController;
 let documents: ReturnType<typeof createDocumentController>;
 let playback: PlaybackController | undefined;
@@ -92,6 +109,80 @@ documents = createDocumentController({
         statusMessage.title = formatError(error);
     },
 });
+
+function inspectDraggedFiles(dataTransfer: DataTransfer | null) {
+    const items = [...(dataTransfer?.items ?? [])].filter(item => item.kind === "file");
+    const files = [...(dataTransfer?.files ?? [])];
+    if (files.length === 0) {
+        for (const item of items) {
+            const file = item.getAsFile();
+            if (file) files.push(file);
+        }
+    }
+    const count = files.length || items.length;
+    return {
+        files,
+        count,
+        name: files[0]?.name ?? items[0]?.webkitGetAsEntry()?.name,
+        type: (files[0]?.type ?? items[0]?.type ?? "").toLowerCase(),
+        hasFile: count > 0 || dataTransfer?.types.includes("Files") === true,
+    };
+}
+
+function updateDropOverlay(dataTransfer: DataTransfer | null) {
+    window.clearTimeout(dropFeedbackTimer);
+    dropFeedbackTimer = void 0;
+    const { count, name, type, hasFile } = inspectDraggedFiles(dataTransfer);
+    const supported = !!name && isSupportedScoreFile({ name });
+    const accepted = hasFile && count <= 1 && supported;
+    const rejected = count > 1 || !!name && !supported
+        || count === 1 && !name && !POSSIBLE_SCORE_MIME_TYPES.has(type);
+    dropOverlay.hidden = !hasFile;
+    dropOverlay.dataset.state = accepted ? "accepted" : rejected ? "rejected" : "pending";
+    dropTitle.textContent = accepted ? "松开即可导入" : rejected ? "无法导入此文件" : "松开以检查文件";
+    dropDetail.textContent = count > 1
+        ? "一次只能导入一个曲谱"
+        : accepted
+        ? name
+        : "支持 .jpfun、.mid、.midi 和 .musicxml";
+    if (dataTransfer) dataTransfer.dropEffect = rejected ? "none" : "copy";
+    return hasFile;
+}
+
+document.addEventListener("dragover", event => {
+    if (!updateDropOverlay(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+}, { capture: true });
+document.addEventListener("dragleave", event => {
+    if (event.relatedTarget === null && dropFeedbackTimer === undefined) dropOverlay.hidden = true;
+});
+document.addEventListener("drop", event => {
+    const { files, hasFile } = inspectDraggedFiles(event.dataTransfer);
+    if (!hasFile) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const file = files[0];
+    if (files.length === 1 && isSupportedScoreFile(file)) {
+        dropOverlay.hidden = true;
+        void documents.openFile(file);
+        return;
+    }
+    const reason = files.length > 1
+        ? "一次只能导入一个曲谱"
+        : `不支持的文件类型：${file?.name ?? "未知文件"}`;
+    dropOverlay.hidden = false;
+    dropOverlay.dataset.state = "rejected";
+    dropTitle.textContent = "文件已拒绝";
+    dropDetail.textContent = reason;
+    dropFeedbackTimer = window.setTimeout(() => {
+        dropOverlay.hidden = true;
+        dropFeedbackTimer = void 0;
+    }, 1500);
+    statusMessage.dataset.state = "error";
+    statusMessage.textContent = "文件已拒绝";
+    statusMessage.title = reason;
+}, { capture: true });
 const workspace = createWorkspaceController(editor, {
     onSourceTabReselect() {
         void documents.open();

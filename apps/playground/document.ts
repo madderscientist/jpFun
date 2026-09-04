@@ -17,10 +17,11 @@ interface DocumentControllerOptions {
 
 const openPickerOptions = {
     types: [{
-        description: "jpFun 或 MIDI 曲谱",
+        description: "jpFun、MIDI 或 MusicXML 曲谱",
         accept: {
             "text/plain": [".jpfun"],
             "audio/midi": [".mid", ".midi"],
+            "application/vnd.recordare.musicxml+xml": [".musicxml"],
         },
     }],
     excludeAcceptAllOption: true,
@@ -46,7 +47,7 @@ function chooseUploadedFile(): Promise<File | null> {
         const input = document.createElement("input");
         const controller = new AbortController();
         input.type = "file";
-        input.accept = ".jpfun,.mid,.midi";
+        input.accept = ".jpfun,.mid,.midi,.musicxml";
         function finish(file: File | null) {
             controller.abort();
             resolve(file);
@@ -104,10 +105,35 @@ export function createDocumentController(options: DocumentControllerOptions) {
         updateState();
     }
 
-    async function open() {
-        if (savedSource === null || options.getSource() !== savedSource) {
-            if (!window.confirm("当前曲谱尚未保存，打开其他文件将替换这些修改。是否继续？")) return;
+    function confirmReplace() {
+        return savedSource !== null && options.getSource() === savedSource
+            || window.confirm("当前曲谱尚未保存，打开其他文件将替换这些修改。是否继续？");
+    }
+
+    async function importSourceFile(sourceFile: File, nextHandle: FileSystemFileHandle | null = null) {
+        const imported = await options.importFile(sourceFile);
+        fileName = imported.fileName;
+        fileHandle = imported.linked ? nextHandle : null;
+        savedSource = imported.linked ? imported.source : null;
+        options.replaceSource(imported.source);
+        if (imported.linked) markSaved(options.getSource());
+        else {
+            flushDraft();
+            updateState();
         }
+    }
+
+    async function openFile(sourceFile: File) {
+        if (!confirmReplace()) return;
+        try {
+            await importSourceFile(sourceFile);
+        } catch (error) {
+            options.onError("打开", error);
+        }
+    }
+
+    async function open() {
+        if (!confirmReplace()) return;
 
         try {
             let sourceFile: File | null;
@@ -120,16 +146,7 @@ export function createDocumentController(options: DocumentControllerOptions) {
             }
             if (!sourceFile) return;
 
-            const imported = await options.importFile(sourceFile);
-            fileName = imported.fileName;
-            fileHandle = imported.linked ? nextHandle : null;
-            savedSource = imported.linked ? imported.source : null;
-            options.replaceSource(imported.source);
-            if (imported.linked) markSaved(options.getSource());
-            else {
-                flushDraft();
-                updateState();
-            }
+            await importSourceFile(sourceFile, nextHandle);
         } catch (error) {
             if (!isCancelled(error)) options.onError("打开", error);
         }
@@ -160,5 +177,5 @@ export function createDocumentController(options: DocumentControllerOptions) {
     }
 
     updateState();
-    return { sourceChanged, rendered, flushDraft, open, save };
+    return { sourceChanged, rendered, flushDraft, openFile, open, save };
 }

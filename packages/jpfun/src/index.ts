@@ -7,6 +7,7 @@ export * from "./functions/default.js";
 export * from "./diagnostic.js";
 export * from "./fraction.js";
 export * from "./converter/midi.js";
+export * from "./converter/musicxml.js";
 export * from "./parser/types.js";
 export * from "./parser/grammarType.js";
 export * from "./parser/parserContext.js";

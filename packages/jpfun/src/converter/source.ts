@@ -43,7 +43,7 @@ export function renderPitch(pitch: SourcePitch, mode: PitchMode, suffix = "") {
             : `${pitch.name}${pitch.accidental}${pitch.octave}${suffix}`;
     }
     const octaveMarks = pitch.octave > 0 ? "'".repeat(pitch.octave) : ",".repeat(-pitch.octave);
-    return `${pitch.name}${pitch.accidental}${octaveMarks}${suffix}`;
+    return `${pitch.accidental}${pitch.name}${octaveMarks}${suffix}`;
 }
 
 function renderHeadText(field: HeadTextField, value: string) {

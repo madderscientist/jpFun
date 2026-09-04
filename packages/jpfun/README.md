@@ -159,6 +159,26 @@ const source = midiJsonToJpFun(parsedMidiJson, {
 
 The converter preserves notes, track names, tempo, time signatures, and MIDI programs, and recognizes standard 3:2 quarter-, eighth-, and sixteenth-note triplets. Other tuplets are unsupported. Percussion channel 10 is skipped; velocity, control changes, pitch bends, lyrics, and other MIDI metadata are ignored. Time-signature changes snap to measure boundaries, and continuations that cannot use `-` are emitted as tied notes.
 
+## MusicXML Conversion
+
+`musicXmlToJpFun` converts a parsed MusicXML root element into jpFun source. XML parsing stays at the application boundary, so the core package has no XML parser dependency. In a browser, use the native `DOMParser`:
+
+```ts
+import { musicXmlToJpFun } from "jpfun";
+
+const xml = await file.text();
+const document = new DOMParser().parseFromString(xml, "application/xml");
+if (document.querySelector("parsererror")) throw new SyntaxError("Invalid MusicXML");
+
+const source = musicXmlToJpFun(document.documentElement, {
+  barsPerLine: 4,
+});
+```
+
+In Node.js, use any DOM implementation and pass a compatible root element. The converter supports partwise and timewise scores, parts/staves/voices, exact durations, rests, chords, grace notes, ties, tuplets, lyrics, score state, dynamics, repeats/endings, and basic system, page, and title metadata. `pitchMode` defaults to `"absolute"`; `"relative"` uses the active MusicXML key. Generated source uses compact jpFun syntax where unambiguous.
+
+Compressed `.mxl` archives are unsupported. Decompress them first or export `.musicxml`. Percussion channel 10 is skipped; pedal, arpeggiation, detailed engraving coordinates, and other control information are ignored.
+
 ## Syntax Example
 
 ```jpfun

@@ -38,6 +38,12 @@ flowchart LR
 
 ## 架构边界
 
+### 外部格式转换
+
+[`src/converter/`](../packages/jpfun/src/converter/) 先把 MIDI 或 MusicXML 解释成各自的时间模型，再生成 jpFun 源码。`source.ts` 只拥有目标 DSL 的 token、谱头和系统序列化规则，不读取任何输入格式；MIDI 的整数网格与 MusicXML 的精确 `Fraction` 时值保持独立。
+
+MusicXML 转换按依赖方向分为：`musicxml-dom.ts` 的最小 DOM 读取、`musicxml-features.ts` 的无状态元素语义、`musicxml-model.ts` 的解析结果契约，以及 `musicxml.ts` 的时间线编排和渲染。新增单个 MusicXML 元素通常落在 features；需要跨事件状态或配对时才修改主编排；目标 jpFun 语法变化优先修改共享 source 层。
+
 ### 引擎调度，函数声明
 
 内置符号都位于 [`src/functions/`](../packages/jpfun/src/functions/)。一个函数类可以按需声明：

@@ -623,6 +623,60 @@ button:focus-visible, [tabindex]:focus-visible {
 .status-message[data-state="ok"] { color: var(--status-success); }
 .status-message[data-state="warning"] { color: var(--status-warning); }
 .status-message[data-state="error"] { color: var(--status-error); }
+.drop-overlay {
+    position: fixed;
+    z-index: 100;
+    inset: 0;
+    display: grid;
+    padding: 20px;
+    place-items: center;
+    pointer-events: none;
+    background: color-mix(in srgb, var(--canvas) 76%, transparent);
+    backdrop-filter: blur(3px);
+}
+.drop-overlay[hidden] { display: none; }
+.drop-overlay::before {
+    position: absolute;
+    inset: 18px;
+    border: 2px dashed var(--accent);
+    content: "";
+}
+.drop-message {
+    z-index: 1;
+    display: grid;
+    min-width: min(340px, calc(100vw - 64px));
+    padding: 28px 34px;
+    place-items: center;
+    border: 1px solid var(--control-border);
+    border-radius: 6px;
+    color: var(--ink);
+    background: var(--surface);
+    box-shadow: 0 12px 36px var(--preview-shadow);
+}
+.drop-icon {
+    display: grid;
+    width: 42px;
+    height: 42px;
+    margin-bottom: 14px;
+    place-items: center;
+    border-radius: 50%;
+    color: #ffffff;
+    background: var(--accent);
+    font-family: "Cascadia Mono", monospace;
+    font-size: 25px;
+}
+.drop-icon::before { content: "↓"; }
+.drop-message strong { font-size: 16px; }
+.drop-message > span:last-child { margin-top: 7px; color: var(--muted); font-size: 11px; }
+.drop-overlay[data-state="rejected"] {
+    background: color-mix(in srgb, var(--error-surface) 88%, transparent);
+}
+.drop-overlay[data-state="rejected"]::before,
+.drop-overlay[data-state="rejected"] .drop-message { border-color: var(--error); }
+.drop-overlay[data-state="rejected"] .drop-icon { background: var(--error); }
+.drop-overlay[data-state="rejected"] .drop-icon::before { content: "×"; }
+.drop-overlay[data-state="rejected"] .drop-message strong { color: var(--error); }
+.drop-overlay[data-state="pending"] .drop-icon { color: var(--ink); background: var(--hover); }
 .print-host { display: none; }
 
 @media (max-width: 800px) {

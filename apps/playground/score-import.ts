@@ -8,10 +8,29 @@ function jpFunName(fileName: string) {
     return `${scoreTitle(fileName)}.jpfun`;
 }
 
+function parseMusicXml(source: string) {
+    const document = new DOMParser().parseFromString(source, "application/xml");
+    const error = document.querySelector("parsererror");
+    if (error) throw new SyntaxError(`Invalid MusicXML: ${error.textContent?.trim() || "parse error"}`);
+    return document.documentElement;
+}
+
+export function isSupportedScoreFile(file: { readonly name: string }) {
+    return /\.(?:jpfun|mid|midi|musicxml)$/i.test(file.name);
+}
+
 export async function importScoreFile(file: File) {
     const extension = file.name.match(/\.([^.]+)$/)?.[1].toLowerCase();
     if (extension === "jpfun") {
         return { source: await file.text(), fileName: file.name, linked: true };
+    }
+    if (extension === "musicxml") {
+        const { musicXmlToJpFun } = await import("jpfun/converter/musicxml");
+        return {
+            source: musicXmlToJpFun(parseMusicXml(await file.text())),
+            fileName: jpFunName(file.name),
+            linked: false,
+        };
     }
     if (extension === "mid" || extension === "midi") {
         const { midiJsonToJpFun } = await import("jpfun/converter/midi");
