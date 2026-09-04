@@ -19,6 +19,13 @@ export interface PlaybackTimeSignatureEvent {
     readonly denominator: number;
 }
 
+export interface PlaybackProgramChangeEvent {
+    readonly kind: "program-change";
+    readonly at: Fraction;
+    readonly track: number;
+    readonly program: number;
+}
+
 export interface PlaybackNoteOnEvent {
     readonly kind: "note-on";
     readonly at: Fraction;
@@ -40,6 +47,7 @@ export interface PlaybackNoteOffEvent {
 export type PlaybackEvent =
     | PlaybackTempoEvent
     | PlaybackTimeSignatureEvent
+    | PlaybackProgramChangeEvent
     | PlaybackNoteOnEvent
     | PlaybackNoteOffEvent;
 
@@ -82,11 +90,18 @@ export interface PlaybackDraftTimeSignatureEvent extends PlaybackDraftEventBase 
     denominator: number;
 }
 
+export interface PlaybackDraftProgramChangeEvent extends PlaybackDraftEventBase {
+    kind: "program-change";
+    track: Track;
+    program: number;
+}
+
 export type PlaybackDraftEvent =
     | PlaybackDraftNoteOnEvent
     | PlaybackDraftNoteOffEvent
     | PlaybackDraftTempoEvent
-    | PlaybackDraftTimeSignatureEvent;
+    | PlaybackDraftTimeSignatureEvent
+    | PlaybackDraftProgramChangeEvent;
 
 export type PlaybackEventInput =
     | {
@@ -112,8 +127,9 @@ export type PlaybackEventInput =
 const EVENT_PRIORITY = {
     tempo: 0,
     "time-signature": 1,
-    "note-off": 2,
-    "note-on": 3,
+    "program-change": 2,
+    "note-off": 3,
+    "note-on": 4,
 } satisfies Record<PlaybackDraftEvent["kind"], number>;
 
 export function comparePlaybackDraftEvents(left: PlaybackDraftEvent, right: PlaybackDraftEvent) {
@@ -158,20 +174,35 @@ export function finalizePlaybackEvents(
         if (!trackIds.has(track)) trackIds.set(track, trackIds.size);
     }
 
-    const output: PlaybackEvent[] = events.map(event => {
-        if (event.kind === "tempo") return { kind: "tempo", at: event.at, bpm: event.bpm };
+    const output: PlaybackEvent[] = [];
+    for (const event of events) {
+        if (event.kind === "tempo") {
+            output.push({ kind: "tempo", at: event.at, bpm: event.bpm });
+            continue;
+        }
         if (event.kind === "time-signature") {
-            return {
+            output.push({
                 kind: "time-signature",
                 at: event.at,
                 numerator: event.numerator,
                 denominator: event.denominator,
-            };
+            });
+            continue;
+        }
+        if (event.kind === "program-change") {
+            const track = trackIds.get(event.track);
+            if (track !== undefined) output.push({
+                kind: "program-change",
+                at: event.at,
+                track,
+                program: event.program,
+            });
+            continue;
         }
         const on = event.kind === "note-on" ? event : noteOns.get(event.noteId)!;
         const track = trackIds.get(on.track)!;
         if (event.kind === "note-on") {
-            return {
+            output.push({
                 kind: "note-on",
                 at: event.at,
                 noteId: event.noteId,
@@ -179,15 +210,16 @@ export function finalizePlaybackEvents(
                 midi: event.midi,
                 velocity: event.velocity,
                 sourceSpans: event.sourceSpans,
-            };
+            });
+            continue;
         }
-        return {
+        output.push({
             kind: "note-off",
             at: event.at,
             noteId: event.noteId,
             track,
             midi: on.midi,
-        };
-    });
+        });
+    }
     return { events: output, tracks: [...trackIds.keys()] };
 }

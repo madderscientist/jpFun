@@ -15,9 +15,10 @@ compilePlayback(lowering, options?): PlaybackPlan
 NoteOn(at, noteId, track, midi, velocity)
 NoteOff(at, noteId, track, midi)
 TimeSignature(at, numerator, denominator)
+ProgramChange(at, track, program)
 ```
 
-最终 `PlaybackPlan.events` 当前包含 `tempo`、`time-signature`、`note-on`、`note-off`。同一时刻固定按 `tempo -> time-signature -> note-off -> note-on` 排序，同类保持来源顺序。拍号不参与 QN 到秒的积分，只供 MIDI、节拍显示等设备适配器消费。
+最终 `PlaybackPlan.events` 当前包含 `tempo`、`time-signature`、`program-change`、`note-on`、`note-off`。同一时刻固定按 `tempo -> time-signature -> program-change -> note-off -> note-on` 排序，同类保持来源顺序。拍号不参与 QN 到秒的积分，只供 MIDI、节拍显示等设备适配器消费。
 
 NoteOn 的 `midi` 保留核心按记谱语义计算出的逻辑音高，不在这里钳制或整数化；具体 MIDI 适配器负责转换为目标设备接受的音高表示。
 
@@ -104,7 +105,7 @@ emitter.control(emitter.end, state => state.bpmScale.mul(2));
 
 系统按时刻合并基础状态同步与控制函数；发现 effective BPM 改变后自动生成最终 `tempo` 事件。反复回跳后，实际访问到的 Temporal 继续按自身 `playbackState` 更新系统。
 
-将来实际加入 ProgramChange、ControlChange 或 PitchBend 时，再按对应 MIDI 事件扩展系统状态和最终事件类型；当前不预留无人使用的每轨状态表。
+program 同样先由 `onTimeState` 固化到记谱位置，默认值为 0；但它按 Track 流动，不进入全局 `PlaybackSystemState`。编译器按实际访问顺序维护每轨当前 program，只在变化时生成 `program-change`。因此反复回跳能恢复目标音符的音色，又不需要全局每轨状态表或跳转快照。ControlChange 和 PitchBend 尚未加入。
 
 ## Origin 与局部变换
 
@@ -137,7 +138,11 @@ accent 原地修改 `events`；ornament 返回替换后的事件数组，下一�
 
 note 从固化音高、力度和 Track 发布一对 NoteOn/NoteOff。休止符、占位符和节拍记号不发声，但仍推进 performance QN。
 
-力度是 `TimeState` 里唯一按音轨各自流动的字段（见 lowering 文档），所以 `$p`、`$f` 和 `@dyn` 都只影响自己所在的声部，新声部则继承分叉处的力度；速度和调性仍整篇共享。
+力度和 program 在 `TimeState` 中按音轨各自流动（见 lowering 文档），所以 `$p`、`$f`、`@dyn` 和 `@program` 都只影响自己所在的声部，新声部则继承分叉处的状态；速度和调性仍整篇共享。
+
+### Program
+
+`@program(0..127)` 产生不可见的零时值 Temporal。它在 lowering 时修改当前 Track 的 program，后续音符保存该位置的快照；播放编译时，program 声明和音符快照共同保证顺序演奏与控制流跳转得到相同结果。
 
 ### Meter
 
@@ -187,4 +192,4 @@ Lowering 的 Track 仍完整描述视觉拓扑，`lowering.tracks` 可以包含 
 
 Web Audio、Web MIDI 和 Standard MIDI File 适配器都消费同一份事件计划。设备选择、PPQ 量化、实时调度和文件编码不属于 core playback 编译器。
 
-playground 只在播放标签首次激活、标签保持激活且源码重新排版成功，或用户明确请求 MIDI 导出时调用 `compilePlayback`，相同源码版本复用计划。tinySynth 适配器把 NoteOn/NoteOff 配对后按 Tempo 积分成秒，并用短前瞻窗口调度到 AudioContext；MIDI 适配器固定使用 480 PPQ，在文件边界完成整数化与设备范围检查。两者都不重新解释反复、房子、倚音或装饰音。
+playground 只在播放标签首次激活、标签保持激活且源码重新排版成功，或用户明确请求 MIDI 导出时调用 `compilePlayback`，相同源码版本复用计划。tinySynth 适配器把 NoteOn/NoteOff 配对后按 Tempo 积分成秒，并在调度 NoteOn 前应用该音符位置的 program；`PlaybackTrackSettings.program` 始终有值，`overrideProgram` 单独表示混音器是否整轨覆盖谱面。MIDI 适配器固定使用 480 PPQ，在文件边界完成整数化与设备范围检查。两者都不重新解释反复、房子、倚音或装饰音。

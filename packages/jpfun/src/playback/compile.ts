@@ -181,6 +181,7 @@ export function compilePlayback(
     const diagnostics: Diagnostic[] = [];
     const events: PlaybackDraftEvent[] = []; // 状态扫描先写 Tempo，顺序流再追加音符
     const sequence: (PlaybackDraftEvent | PlaybackHook)[] = [];
+    const activePrograms = new Map<TemporalNodeBase["track"], number>();
     // 同刻稳定次序与 NoteOn/NoteOff 配对各用独立的单调序号
     let nextEventOrder = 0;
     let nextId = 0;
@@ -217,6 +218,19 @@ export function compilePlayback(
         // 同一个 Temporal 在反复中会走到这里多次；每次创建独立 origin 对象区分访问实例
         const origin: PlaybackOrigin = { node };
         const lineage = [...ancestors, origin]; // 来源链
+
+        const program = node.playbackState?.program;
+        if (program !== undefined && activePrograms.get(node.track) !== program) {
+            activePrograms.set(node.track, program);
+            sequence.push({
+                kind: "program-change",
+                at: start.clone(),
+                order: nextEventOrder++,
+                origins: [...lineage],
+                track: node.track,
+                program,
+            });
+        }
 
         // 每个实际访问到的 Temporal 把自己的记谱状态同步到演奏轴
         // 目前是无条件覆盖

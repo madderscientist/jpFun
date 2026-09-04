@@ -55,12 +55,12 @@ export interface PlaybackFlow {
 /**
  * 记谱位置固化到 Temporal 上的基础状态
  *
- * 将来支持音色时，在这里增加具名的 `program?: number`，并同步扩展系统状态和最终 ProgramChange 事件
  * 不要用任意键索引，否则具体 MIDI 状态会失去类型约束
  */
 export interface PlaybackState {
     readonly bpm?: number;
     readonly velocity?: number;
+    readonly program?: number;
 }
 
 /** 按线性化时间扫描的可变系统状态 */
@@ -142,7 +142,7 @@ export interface PlaybackScorePoint {
  * 应表示为有限计划加循环点，不是无限序列。
  */
 export interface PlaybackPlan {
-    /** 按演奏时间升序；同刻依次为 tempo、time-signature、note-off、note-on */
+    /** 按演奏时间升序；同刻依次为 tempo、time-signature、program-change、note-off、note-on */
     readonly events: readonly PlaybackEvent[];
     readonly scoreMap: readonly PlaybackScorePoint[];
     /** 最终至少含一个 NoteOn 的原始 Track；事件 track 是此数组的索引 */

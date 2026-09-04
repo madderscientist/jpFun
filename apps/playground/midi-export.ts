@@ -1,35 +1,9 @@
-import { DEFAULT_BPM, type PlaybackPlan } from "jpfun";
-import { loadClassicScript } from "./platform.js";
+import { DEFAULT_BPM, DEFAULT_PROGRAM, type PlaybackPlan } from "jpfun";
+import { loadMidiApi, type MidiEventLike } from "./midi-api.js";
 import type { PlaybackTrackSettings } from "./tiny-synth.js";
 
-const MIDI_URL = "https://madderscientist.github.io/noteDigger/lib/midi.js";
 const PPQ = 480;
 const DEFAULT_TIME_SIGNATURE = [4, 4] as const;
-
-interface MidiEventLike {
-    ticks: number;
-    code: number;
-    value: number[];
-}
-
-interface MidiTrack {
-    addEvent(event: MidiEventLike | readonly MidiEventLike[]): unknown;
-    export(trackId: number): number[];
-}
-
-interface MidiTrackConstructor {
-    new(name?: string, events?: MidiEventLike[]): MidiTrack;
-    number_hex(value: number, length?: number): number[];
-}
-
-interface MidiEventConstructor {
-    new(...args: unknown[]): MidiEventLike;
-    tempo(at: number, bpm: number): MidiEventLike;
-    time_signature(at: number, numerator: number, denominator: number): MidiEventLike;
-}
-
-declare const mtrk: MidiTrackConstructor;
-declare const midiEvent: MidiEventConstructor;
 
 function constrain(value: number, min: number, max: number) {
     return Math.min(max, Math.max(min, value));
@@ -60,6 +34,9 @@ function validatePlan(plan: PlaybackPlan) {
                 || !Number.isInteger(Math.log2(event.denominator))) {
                 throw new Error(`MIDI 拍号分母必须是 2 的幂，无法导出 ${event.numerator}/${event.denominator}`);
             }
+        } else if (event.kind === "program-change"
+            && (!Number.isSafeInteger(event.program) || event.program < 0 || event.program > 127)) {
+            throw new Error(`MIDI program 必须在 0..127，无法导出 ${event.program}`);
         }
     }
     return { hasInitialTempo, hasInitialTimeSignature };
@@ -70,10 +47,7 @@ export async function createMidiBlob(
     settings: readonly PlaybackTrackSettings[],
 ): Promise<Blob> {
     const initial = validatePlan(plan);
-    await loadClassicScript(MIDI_URL);
-    if (typeof mtrk !== "function" || typeof midiEvent !== "function") {
-        throw new Error("midi.js 未提供预期的导出类");
-    }
+    const { mtrk, midiEvent } = await loadMidiApi();
 
     const conductorEvents: MidiEventLike[] = [];
     if (!initial.hasInitialTempo) {
@@ -83,14 +57,19 @@ export async function createMidiBlob(
         conductorEvents.push(midiEvent.time_signature(0, ...DEFAULT_TIME_SIGNATURE));
     }
     const tracks = Array.from({ length: plan.tracks.length }, (_, index) => new mtrk(`声部 ${index + 1}`));
+    const programTracks = new Set(plan.events
+        .filter(event => event.kind === "program-change")
+        .map(event => event.track));
 
     for (let index = 0; index < plan.tracks.length; index++) {
-        const setting = settings[index] ?? { program: 0, volume: 100 };
-        tracks[index].addEvent({
-            ticks: 0,
-            code: 0xc,
-            value: [Math.round(constrain(setting.program, 0, 127))],
-        });
+        const setting = settings[index] ?? { program: DEFAULT_PROGRAM, overrideProgram: false, volume: 100 };
+        if (setting.overrideProgram || !programTracks.has(index)) {
+            tracks[index].addEvent({
+                ticks: 0,
+                code: 0xc,
+                value: [Math.round(constrain(setting.program, 0, 127))],
+            });
+        }
         tracks[index].addEvent({
             ticks: 0,
             code: 0xb,
@@ -108,6 +87,12 @@ export async function createMidiBlob(
                 event.numerator,
                 event.denominator,
             ));
+        } else if (event.kind === "program-change") {
+            if (!settings[event.track]?.overrideProgram) tracks[event.track].addEvent({
+                ticks,
+                code: 0xc,
+                value: [event.program],
+            });
         } else {
             tracks[event.track].addEvent({
                 ticks,

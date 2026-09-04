@@ -162,7 +162,9 @@ export function createPlaybackController(options: PlaybackControllerOptions): Pl
             const strong = document.createElement("strong");
             strong.textContent = `声部 ${index + 1}`;
             const instrumentName = document.createElement("span");
-            instrumentName.textContent = instruments[setting.program] ?? `音色 ${setting.program + 1}`;
+            instrumentName.textContent = setting.overrideProgram
+                ? instruments[setting.program] ?? `音色 ${setting.program + 1}`
+                : "按谱面";
             title.append(strong, instrumentName);
 
             const actions = document.createElement("div");
@@ -212,16 +214,21 @@ export function createPlaybackController(options: PlaybackControllerOptions): Pl
             instrumentLabel.append("乐器");
             const instrument = document.createElement("select");
             instrument.setAttribute("aria-label", `声部 ${index + 1} 乐器`);
+            const scoreProgram = document.createElement("option");
+            scoreProgram.value = "";
+            scoreProgram.textContent = "按谱面";
+            instrument.append(scoreProgram);
             for (const [program, name] of instruments.entries()) {
                 const item = document.createElement("option");
                 item.value = String(program);
                 item.textContent = `${program + 1}. ${name}`;
                 instrument.append(item);
             }
-            instrument.value = String(setting.program);
+            instrument.value = setting.overrideProgram ? String(setting.program) : "";
             instrument.addEventListener("change", () => {
-                setting.program = instrument.selectedIndex;
-                instrumentName.textContent = instruments[setting.program];
+                setting.overrideProgram = instrument.value !== "";
+                if (setting.overrideProgram) setting.program = Number(instrument.value);
+                instrumentName.textContent = setting.overrideProgram ? instruments[setting.program] : "按谱面";
                 void player.updateTrackSettings(settings, true);
             });
             instrumentLabel.append(instrument);
@@ -327,6 +334,7 @@ export function createPlaybackController(options: PlaybackControllerOptions): Pl
             plan = nextPlan;
             settings = Array.from({ length: plan.tracks.length }, () => ({
                 program: 0,
+                overrideProgram: false,
                 volume: 100,
                 muted: false,
                 solo: false,

@@ -1,5 +1,6 @@
 import {
     DEFAULT_BPM,
+    DEFAULT_PROGRAM,
     type PlaybackNoteOnEvent,
     type PlaybackPlan,
 } from "jpfun";
@@ -32,6 +33,7 @@ declare const TinySynth: TinySynthConstructor;
 
 export interface PlaybackTrackSettings {
     program: number;
+    overrideProgram: boolean;
     volume: number;
     muted: boolean;
     solo: boolean;
@@ -43,6 +45,7 @@ interface ScheduledNote {
     track: number;
     midi: number;
     velocity: number;
+    program: number;
 }
 
 interface TinySynthPlayerOptions {
@@ -60,8 +63,9 @@ function audioContextConstructor() {
 }
 
 function notesOf(plan: PlaybackPlan): ScheduledNote[] {
-    const active = new Map<number, { event: PlaybackNoteOnEvent; start: number }>();
+    const active = new Map<number, { event: PlaybackNoteOnEvent; start: number; program: number }>();
     const notes: ScheduledNote[] = [];
+    const programs = new Map<number, number>();
     let scoreTime = 0;
     let seconds = 0;
     let bpm = DEFAULT_BPM;
@@ -73,8 +77,12 @@ function notesOf(plan: PlaybackPlan): ScheduledNote[] {
             bpm = event.bpm;
             continue;
         }
+        if (event.kind === "program-change") {
+            programs.set(event.track, event.program);
+            continue;
+        }
         if (event.kind === "note-on") {
-            active.set(event.noteId, { event, start: seconds });
+            active.set(event.noteId, { event, start: seconds, program: programs.get(event.track) ?? DEFAULT_PROGRAM });
             continue;
         }
         if (event.kind !== "note-off") continue;
@@ -87,6 +95,7 @@ function notesOf(plan: PlaybackPlan): ScheduledNote[] {
             track: started.event.track,
             midi: started.event.midi,
             velocity: started.event.velocity,
+            program: started.program,
         });
     }
     notes.sort((left, right) => left.start - right.start);
@@ -251,7 +260,7 @@ export class TinySynthPlayer {
         if (!this.synth) return;
         while (this.synth.channel.length < this.channelCount) {
             const index = this.synth.channel.length;
-            this.synth.addChannel(index, this.settings[index]?.program ?? 0);
+            this.synth.addChannel(index, this.settings[index]?.program ?? DEFAULT_PROGRAM);
         }
         const anySolo = this.settings.some(track => track.solo);
         for (let index = 0; index < this.synth.channel.length; index++) {
@@ -261,7 +270,9 @@ export class TinySynthPlayer {
                 channel.out.gain.value = 0;
                 continue;
             }
-            channel.instrument = Math.round(constrain(setting.program, 0, 127));
+            if (setting.overrideProgram) {
+                channel.instrument = Math.round(constrain(setting.program, 0, 127));
+            }
             const audible = !setting.muted && (!anySolo || setting.solo);
             channel.out.gain.value = audible ? constrain(setting.volume, 0, 100) / 100 : 0;
         }
@@ -339,6 +350,11 @@ export class TinySynthPlayer {
 
     private schedule(note: ScheduledNote, position: number) {
         if (!this.synth || note.end <= position) return;
+        this.synth.channel[note.track].instrument = Math.round(constrain(
+            this.settings[note.track]?.overrideProgram ? this.settings[note.track].program : note.program,
+            0,
+            127,
+        ));
         const midi = Math.round(constrain(note.midi + this.transpose, 0, 127));
         const start = Math.max(position, note.start);
         const contextTime = Math.max(

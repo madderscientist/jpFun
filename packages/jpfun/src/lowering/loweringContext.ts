@@ -5,6 +5,7 @@ import type { PageConfig } from "../layout/types.js";
 import {
     ANCHOR_KEY,
     DEFAULT_BPM,
+    DEFAULT_PROGRAM,
     DEFAULT_TONALITY,
     DEFAULT_VELOCITY,
     TemporalNodeBase,
@@ -138,16 +139,22 @@ export class LoweringContext {
             bpm: DEFAULT_BPM,
             velocity: DEFAULT_VELOCITY,
             keySignature: DEFAULT_TONALITY,
+            program: DEFAULT_PROGRAM,
         };
-        // 力度按音轨各自流动，新分叉的声部继承分叉处父轨的值
+        // 力度和音色按音轨各自流动，新分叉的声部继承分叉处父轨的值
         const velocities = new Map<Track, number>();
+        const programs = new Map<Track, number>();
         const velocityOf = (track: Track): number =>
             velocities.get(track) ?? (track.parent ? velocityOf(track.parent) : DEFAULT_VELOCITY);
+        const programOf = (track: Track): number =>
+            programs.get(track) ?? (track.parent ? programOf(track.parent) : DEFAULT_PROGRAM);
         for (const column of columns) {
             for (const node of column) {
                 state.velocity = velocityOf(node.track);
+                state.program = programOf(node.track);
                 node.onTimeState?.(state);
                 velocities.set(node.track, state.velocity);
+                programs.set(node.track, state.program);
             }
         }
     }

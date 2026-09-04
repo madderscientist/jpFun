@@ -47,10 +47,44 @@ test("拍号按实际播放访问发布且不参与速度积分", () => {
     assert(signatures.map(event => `${event.at}:${event.numerator}/${event.denominator}`).join(" ")
         === "0:3/4 1:6/8 3:6/8",
     "反复段内的拍号应在每次实际访问时重新发布，段外拍号只发布一次");
-    assert(plan.events.slice(0, 3).map(event => event.kind).join(" ")
-        === "tempo time-signature note-on",
-    "同刻事件应按 tempo、拍号、note-off、note-on 的系统顺序输出");
+    assert(plan.events.slice(0, 4).map(event => event.kind).join(" ")
+        === "tempo time-signature program-change note-on",
+    "同刻事件应按 tempo、拍号、program-change、note-off、note-on 的系统顺序输出");
     assert(nearly(plan.durationSeconds, 8 / 3), "拍号事件不能改变 QN 到秒的速度积分");
+});
+
+test("音色按音轨固化并在反复后恢复", () => {
+    const plan = compilePlayback(lower(`@program(10) |: 1 @program(20) 2 :|`));
+    const programs = plan.events.filter(event => event.kind === "program-change");
+
+    assert(programs.map(event => `${event.at}:${event.track}:${event.program}`).join(" ")
+        === "0:0:10 1:0:20 2:0:10 3:0:20",
+    "反复回到旧记谱位置时，应恢复该音符固化的音色");
+    assert(plan.events.slice(0, 3).map(event => event.kind).join(" ")
+        === "tempo program-change note-on",
+    "同刻 program-change 应先于 note-on");
+
+    const defaultProgram = compilePlayback(lower(`1`)).events
+        .find(event => event.kind === "program-change");
+    assert(defaultProgram?.program === 0, "未声明音色时应在首音前明确使用 program 0");
+    assert(lower(`@program(10) 1`).columns[0][0].box === undefined,
+        "program 应进入时间列但不产生可见布局对象");
+    for (const source of [`@program(-1)`, `@program(1.5)`, `@program(128)`]) {
+        let thrown: unknown;
+        try { lower(source); } catch (error) { thrown = error; }
+        assert(thrown instanceof ErrorDiagnostic && thrown.code === "E_PROGRAM_INVALID",
+            `${source} 应拒绝 0..127 之外的 program`);
+    }
+});
+
+test("音色按 Track 继承且互不回灌", () => {
+    const plan = compilePlayback(lower(`@program(10) @stack({1 @program(20) 2}, {3 4})`));
+    const programs = plan.events.filter(event => event.kind === "program-change");
+
+    assert(programs.filter(event => event.track === 0).map(event => event.program).join() === "10,20",
+        "分支应继承父轨音色，并允许只修改自身后续音色");
+    assert(programs.filter(event => event.track === 1).map(event => event.program).join() === "10",
+        "一个分支的 program 不能回灌父轨或泄漏到兄弟轨");
 });
 
 test("播放只导出发声 Track 并压成连续编号，NoteOff 先于同刻 NoteOn", () => {

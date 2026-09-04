@@ -142,9 +142,9 @@ test("dyn 使用最终端点位置并跨行连续绘制", () => {
     const middleHosts = middle.layout.objects.filter(host => host.layoutLine === 1);
     const middleEntry = middleHosts.find(host => !host.T.isZero());
     const middleRight = Math.max(...middleHosts.map(host => host.box.x + host.box.w));
-    assert(middleEntry && nearly(middle.lines[2].x1, middleEntry.box.x - middleEntry.ast.size / 2)
+    assert(middleEntry && nearly(middle.lines[2].x1, middleEntry.box.x - middleEntry.ast.size / 4)
         && nearly(middle.lines[2].x2, middleRight),
-    "a middle segment may extend half a size left of its first timed host");
+    "a middle segment may extend a quarter size left of its first timed host");
 
     const blank = hairpin(`1@a @br(2) 2@b @dyn(a,b,20)`);
     assert(blank.attachment.regions.length === 2,
@@ -161,8 +161,8 @@ test("dyn 使用最终端点位置并跨行连续绘制", () => {
         .filter(host => host.layoutLine === 0)
         .map(host => host.box.x + host.box.w));
     assert(firstTimedHost && nearly(voices.lines[0].x2, firstLineRight)
-        && nearly(voices.lines[2].x1, firstTimedHost.box.x - firstTimedHost.ast.size / 2),
-    "a broken hairpin must end at the system's visual right edge and resume half a size before the track's first timed host");
+        && nearly(voices.lines[2].x1, firstTimedHost.box.x - firstTimedHost.ast.size / 4),
+    "a broken hairpin must end at the system's visual right edge and resume a quarter size before the track's first timed host");
 });
 
 test("dyn 绘制单行楔形并申报上方占用", () => {

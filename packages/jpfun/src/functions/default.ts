@@ -15,6 +15,7 @@ import { BrNode } from "./br/index.js";
 import { NoteNode } from "./note/index.js";
 import { UpNode, DownNode } from "./up/index.js";
 import { PageNode } from "./page/index.js";
+import { ProgramNode } from "./program/index.js";
 import { StackNode } from "./stack/index.js";
 import { SymbolNode } from "./symbol/index.js";
 import { SetNode } from "./set/index.js";
@@ -37,6 +38,6 @@ export const defaultFunctions: ASTFunctionClass[] = [
     TieNode, BeamNode, DynNode,
     BoxNode, VoltaNode,
     AdjustNode,   // 手工微调
-    SetNode, KeyNode, MeterNode, TempoNode,    // 设置
+    SetNode, KeyNode, MeterNode, TempoNode, ProgramNode,    // 设置
     TextNode, SymbolNode,
 ];

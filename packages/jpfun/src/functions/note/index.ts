@@ -278,7 +278,7 @@ class NoteTemporalNode extends TemporalNodeBase {
 
     override onTimeState(state: TimeState) {
         const keySignature = state.keySignature;
-        this.playbackState = { bpm: state.bpm, velocity: state.velocity };
+        this.playbackState = { bpm: state.bpm, velocity: state.velocity, program: state.program };
         this.resolvedMidi = resolveNoteMidi(this.name, this.acc, this.octave, keySignature);
         this.transposeDiatonic = createDiatonicTranspose(this.name, this.acc, this.octave, keySignature);
         // 数字音名本身就是简谱显示形式，直接保留原始数字和相对八度

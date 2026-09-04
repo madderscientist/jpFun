@@ -30,6 +30,7 @@
     - 彻底读不懂时（`X`、`H4`）退回 `C4`，同样报 `W_KEY_TONALITY`
     - `strict` 为真时，以上两种情况都抛 `E_KEY_TONALITY`
 - `@tempo(number)` 修改bpm 作用域为当前时间之后
+- `@program(number)` 将当前音轨后续音符切换到 MIDI program `0..127`，默认值为 `0`
 - `@meter(num, den, size=0.7em)` 设置拍号 `num/den`，以分数形式显示
     - 第一条小节线前允许不满拍，但不能超拍；之后由小节线、拍号变更或文档结尾关闭并校验完整时长
 - `@set(key=value, ...)` 修改函数的缺省值，作用域为当前 `{}`

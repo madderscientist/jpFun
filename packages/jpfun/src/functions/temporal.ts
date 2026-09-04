@@ -21,20 +21,22 @@ import type { Painter } from "../render/types.js";
 /**
  * 沿记谱顺序流动的时间状态
  *
- * 速度、力度、调性是系统级字段：有确定的类型和初值，任何时刻都能直接读，不用写兼容分支。
+ * 速度、力度、调性、音色是系统级字段：有确定的类型和初值，任何时刻都能直接读，不用写兼容分支。
  * 其余键由具体函数自行约定，核心不认识。
  *
- * velocity 按音轨各自流动，新音轨继承分叉处父轨的值；其余键整篇共享。
+ * velocity 和 program 按音轨各自流动，新音轨继承分叉处父轨的值；其余键整篇共享。
  */
 export interface TimeState {
     bpm: number;
     velocity: number;
     keySignature: string;
+    program: number;
     [key: string]: any;
 }
 export const DEFAULT_BPM = 120;
 export const DEFAULT_VELOCITY = 80;
 export const DEFAULT_TONALITY = "C4";
+export const DEFAULT_PROGRAM = 0;
 
 /**
  * 事件的合并组：同一时刻 mergeKey 相等的事件归并成一列
