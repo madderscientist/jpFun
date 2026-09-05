@@ -7,6 +7,7 @@ import {
     type MidiJson,
     type MidiJsonNote,
 } from "../src/index.js";
+import { convertMidiJsonToJpFun } from "../src/converter/midi/convert.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import { assert, lower, playedNotes } from "./helpers.js";
 
@@ -464,6 +465,13 @@ test("MIDI 默认自动换行，barsPerLine 正数可强制覆盖", () => {
         `同起止和弦只能占一个视觉时间列，不得按成员数增加系统：${chord}`);
     assert(systemCount(balanced) === 2, `四个十三列小节应利用弹性上限全局分成 2+2：${balanced}`);
     assert(systemCount(forced) === 2, `显式 barsPerLine=2 必须固定为两个系统：${forced}`);
+});
+
+test("MIDI 固定换行不需要 core 布局能力", () => {
+    const input = midi([[note(0, 1920, 60), note(1920, 1920, 62)]]);
+    const source = convertMidiJsonToJpFun(input, { barsPerLine: 1 });
+    assert(source.split("\n\n").length === 3,
+        `无布局能力时仍应按每行一小节生成两个系统：${source}`);
 });
 
 test("拍号对齐到最近小节边界并忽略尾音之后的元事件", () => {

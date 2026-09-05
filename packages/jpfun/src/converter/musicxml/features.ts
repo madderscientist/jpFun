@@ -1,8 +1,8 @@
 import {
     child, children, descendant, descendants, nameOf, number, text,
     type MusicXmlElement,
-} from "./musicxml-dom.js";
-import type { MusicXmlEvent, MusicXmlPitch } from "./musicxml-model.js";
+} from "./dom.js";
+import type { MusicXmlEvent, MusicXmlPitch } from "./model.js";
 
 /** 统一两种 MusicXML 根结构中的小节内容与外层小节容器 */
 export interface MusicXmlMeasureSource {

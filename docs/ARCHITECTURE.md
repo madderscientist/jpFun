@@ -40,9 +40,11 @@ flowchart LR
 
 ### 外部格式转换
 
-[`src/converter/`](../packages/jpfun/src/converter/) 先把 MIDI 或 MusicXML 解释成各自的时间模型，再生成 jpFun 源码。`source.ts` 只拥有目标 DSL 的 token、谱头和系统序列化规则，不读取任何输入格式；MIDI 的整数网格与 MusicXML 的精确 `Fraction` 时值保持独立。
+[`src/converter/`](../packages/jpfun/src/converter/) 先把 MIDI 或 MusicXML 解释成各自的时间模型，再生成 jpFun 源码。格式私有实现分别位于 [`midi/`](../packages/jpfun/src/converter/midi/) 与 [`musicxml/`](../packages/jpfun/src/converter/musicxml/)；根目录的 `source.ts` 只拥有目标 DSL 的 token、谱头和系统序列化规则，不读取任何输入格式。MIDI 的整数网格与 MusicXML 的精确 `Fraction` 时值保持独立。
 
-MusicXML 转换按依赖方向分为：`musicxml-dom.ts` 的最小 DOM 读取、`musicxml-features.ts` 的无状态元素语义、`musicxml-model.ts` 的解析结果契约，以及 `musicxml.ts` 的时间线编排和渲染。新增单个 MusicXML 元素通常落在 features；需要跨事件状态或配对时才修改主编排；目标 jpFun 语法变化优先修改共享 source 层。
+MusicXML 转换按依赖方向分为：`musicxml/dom.ts` 的最小 DOM 读取、`musicxml/features.ts` 的无状态元素语义、`musicxml/model.ts` 的解析结果契约，以及 `musicxml/index.ts` 的时间线编排和渲染。新增单个 MusicXML 元素通常落在 features；需要跨事件状态或配对时才修改主编排；目标 jpFun 语法变化优先修改共享 source 层。
+
+浏览器 classic script 提供全量 `jpfun.min.js`，以及 core、from-midi、from-musicxml 三个按需产物。MusicXML 导入不依赖编译流水线；MIDI 的量化、分轨、三连音和固定断行同样独立，只有按真实几何自动断行通过窄能力边界调用 core 布局。
 
 ### 引擎调度，函数声明
 

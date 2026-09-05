@@ -1,4 +1,4 @@
-import type { Fraction } from "../fraction.js";
+import type { Fraction } from "../../fraction.js";
 
 /** 单个书面音高，tie 标记保留在音高上以支持和弦成员独立连音 */
 export interface MusicXmlPitch {

@@ -8,20 +8,34 @@
  *
  * MIDI 字节解析不属于 core；这里接收的是 midi.js 已解析好的 JSON。
  */
-import { ANCHOR_KEY } from "../functions/temporal.js";
-import { DEFAULT_PAGE_CONFIG } from "../layout/page.js";
-import { compileScore } from "../pipeline.js";
-import type { MidiJson, MidiJsonInstrument, MidiJsonNote, MidiJsonTrack } from "./midi-json.js";
-import { identifyTriplets, type TripletMark } from "./midi-triplet.js";
-import { attachAbove, quote, renderHead, renderPitch, renderSystems, type PitchMode } from "./source.js";
+import type { MidiJson, MidiJsonInstrument, MidiJsonNote, MidiJsonTrack } from "./json.js";
+import { identifyTriplets, type TripletMark } from "./triplet.js";
+import { attachAbove, quote, renderHead, renderPitch, renderSystems, type PitchMode } from "../source.js";
 
-export type * from "./midi-json.js";
+export type * from "./json.js";
 
 export interface MidiToJpFunOptions {
     pitchMode?: PitchMode;
     alignRate?: number;
     barsPerLine?: number;
     title?: string;
+}
+
+// 和 core 解除直接依赖关系
+export interface MidiLayoutCapability {
+    compileScore: (source: string) => {
+        layout: {
+            objects: {
+                T: { isZero(): boolean };
+                t: { toNumber(): number };
+                layoutLine: number;
+                mergeKey: number;
+                box: { x: number; w: number };
+            }[];
+        };
+    };
+    anchorKey: number;
+    page: { width: number; marginLeft: number; marginRight: number };
 }
 
 // 同一个音符在各阶段逐步补充信息，不复制或丢弃 intensity 等原始 MIDI 字段。
@@ -333,11 +347,12 @@ function automaticLineBreaks(
     source: string,
     bars: readonly number[],
     scale: number,
+    capability: MidiLayoutCapability,
 ) {
     // 超宽页面关闭自动换行，从真实布局对象取得每个小节的自然宽度
     const naturalWidth = Math.max(1_000_000, source.length * 64);
     const naturalSource = `@page(width=${naturalWidth}px, height=0px, top=0px, bottom=0px, left=0px, right=0px)\n${source}`;
-    const layout = compileScore(naturalSource).layout;
+    const layout = capability.compileScore(naturalSource).layout;
     const bodyLine = Math.max(...layout.objects.filter(node => !node.T.isZero()).map(node => node.layoutLine));
     const bodyObjects = layout.objects.filter(node => node.layoutLine === bodyLine && node.box.w > 0);
     const measureBounds = bars.map(() => ({ left: Infinity, right: -Infinity }));
@@ -349,7 +364,7 @@ function automaticLineBreaks(
         while (low < high) {
             const middle = (low + high) >>> 1;
             const end = bars[middle];
-            if (at < end || (at === end && node.mergeKey === ANCHOR_KEY)) high = middle;
+            if (at < end || (at === end && node.mergeKey === capability.anchorKey)) high = middle;
             else low = middle + 1;
         }
         let measure = low;
@@ -358,8 +373,8 @@ function automaticLineBreaks(
         bounds.left = Math.min(bounds.left, node.box.x);
         bounds.right = Math.max(bounds.right, node.box.x + node.box.w);
     }
-    const contentWidth = DEFAULT_PAGE_CONFIG.width
-        - DEFAULT_PAGE_CONFIG.marginLeft - DEFAULT_PAGE_CONFIG.marginRight;
+    const contentWidth = capability.page.width
+        - capability.page.marginLeft - capability.page.marginRight;
     const targetWidth = contentWidth * AUTO_LINE_TARGET_RATIO;
     const limitWidth = contentWidth * AUTO_LINE_LIMIT_RATIO;
     // best[end] 保存排完前 end 个小节的最小累计失衡和上一断点
@@ -573,7 +588,11 @@ function renderTrack(
  * 公开转换入口。options 只控制表示方式；量化后的 track/note 仍保留原始字段，
  * 方便后续加入力度、乐器和踏板时直接扩展现有时间线。
  */
-export function midiJsonToJpFun(input: MidiJson, options: MidiToJpFunOptions = {}) {
+export function convertMidiJsonToJpFun(
+    input: MidiJson,
+    options: MidiToJpFunOptions = {},
+    layoutCapability?: MidiLayoutCapability,
+) {
     // 入口先验证容器形状和影响全局算法的选项
     if (!input || typeof input !== "object" || !input.header || typeof input.header !== "object") {
         throw new TypeError("MIDI JSON must contain a header");
@@ -788,7 +807,7 @@ export function midiJsonToJpFun(input: MidiJson, options: MidiToJpFunOptions = {
         return `${head}\n\n${renderSystems(tracks)}`;
     };
     const lineBreaks = barsPerLine <= 0
-        ? automaticLineBreaks(renderScore(new Set()), orderedBars, scale)
+        ? automaticLineBreaks(renderScore(new Set()), orderedBars, scale, layoutCapability!)
         : new Set(orderedBars.filter((at, index) =>
             (index + 1) % barsPerLine === 0 && at < scoreEnd));
     return renderScore(lineBreaks);

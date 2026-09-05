@@ -8,17 +8,17 @@
  *
  * XML 文本解析和 .mxl 解压都属于应用边界，core 不依赖具体 XML parser
  */
-import { Fraction } from "../fraction.js";
-import { NoteNameMap } from "../parser/parse-utils/note-utils.js";
+import { Fraction } from "../../fraction.js";
+import { NoteNameMap } from "../../parser/parse-utils/note-utils.js";
 import {
     child, children, descendant, nameOf, number, text,
     type MusicXmlElement,
-} from "./musicxml-dom.js";
+} from "./dom.js";
 import {
     directionDynamic, directionTexts, endingPasses, metronomeBpm,
     noteLyrics, noteModifiers, parsePitch,
     parseTimeSignature, partMeasures, timeModification,
-} from "./musicxml-features.js";
+} from "./features.js";
 import type {
     MusicXmlDirectionPoint as DirectionPoint,
     MusicXmlEndingPoint as EndingPoint,
@@ -31,10 +31,10 @@ import type {
     MusicXmlPitch as Pitch,
     MusicXmlWedgePoint as WedgePoint,
     MusicXmlWedgeSpan as WedgeSpan,
-} from "./musicxml-model.js";
-import { attachAbove, quote, renderHead, renderPitch, renderSystems, type PitchMode } from "./source.js";
+} from "./model.js";
+import { attachAbove, quote, renderHead, renderPitch, renderSystems, type PitchMode } from "../source.js";
 
-export type { MusicXmlElement, MusicXmlNode } from "./musicxml-dom.js";
+export type { MusicXmlElement, MusicXmlNode } from "./dom.js";
 
 export interface MusicXmlToJpFunOptions {
     pitchMode?: PitchMode;

@@ -13,12 +13,12 @@
       "import": "./dist/index.js"
     },
     "./converter/midi": {
-      "types": "./dist/converter/midi.d.ts",
-      "import": "./dist/converter/midi.js"
+      "types": "./dist/converter/midi/index.d.ts",
+      "import": "./dist/converter/midi/index.js"
     },
     "./converter/musicxml": {
-      "types": "./dist/converter/musicxml.d.ts",
-      "import": "./dist/converter/musicxml.js"
+      "types": "./dist/converter/musicxml/index.d.ts",
+      "import": "./dist/converter/musicxml/index.js"
     },
     "./package.json": "./package.json"
   },
@@ -47,7 +47,7 @@
   "scripts": {
     "clean": "node -e \"for (const path of ['dist', 'tsconfig.tsbuildinfo']) require('node:fs').rmSync(path, { recursive: true, force: true })\"",
     "build": "pnpm run clean && tsc -p tsconfig.json && pnpm run build:bundle",
-    "build:bundle": "esbuild dist/index.js --bundle --minify --format=iife --global-name=jpfun --target=es2022 --legal-comments=none --banner:js=\"/*! jpfun | Apache-2.0 | github.com/madderscientist/jpFun */\" --outfile=dist/jpfun.min.js",
+    "build:bundle": "node ../../scripts/build-jpfun-bundles.mjs && node --test ../../scripts/test-jpfun-bundles.mjs",
     "prepack": "pnpm run build",
     "typecheck": "tsc -p test/tsconfig.json",
     "test": "node --import tsx --test \"test/*.test.ts\"",

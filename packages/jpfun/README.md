@@ -50,6 +50,36 @@ For ES modules, jsDelivr bundles the package on the fly:
 
 Both URLs resolve to the latest published version. In production, append an exact version (`jpfun@x.y.z`) so that publishing a new release cannot change an existing page.
 
+The default URL is the complete build. Plain pages can instead load only the capabilities they use; every script extends the same `jpfun` global:
+
+```html
+<!-- Parse, layout, render, and playback without format converters. -->
+<script src="https://unpkg.com/jpfun/dist/jpfun.core.min.js"></script>
+
+<!-- MusicXML import works by itself. -->
+<script src="https://unpkg.com/jpfun/dist/jpfun.from-musicxml.min.js"></script>
+<script>
+  const document = new DOMParser().parseFromString(musicXmlText, "application/xml");
+  const musicXmlSource = jpfun.musicXmlToJpFun(document.documentElement);
+</script>
+
+<!-- MIDI JSON import with a fixed measure count works by itself. -->
+<script src="https://unpkg.com/jpfun/dist/jpfun.from-midi.min.js"></script>
+<script>
+  const midiSource = jpfun.midiJsonToJpFun(parsedMidiJson, { barsPerLine: 4 });
+</script>
+```
+
+Measured automatic MIDI line breaking uses the layout engine. Load both scripts before calling the converter with an omitted or non-positive `barsPerLine`:
+
+```html
+<script src="https://unpkg.com/jpfun/dist/jpfun.core.min.js"></script>
+<script src="https://unpkg.com/jpfun/dist/jpfun.from-midi.min.js"></script>
+<script>
+  const source = jpfun.midiJsonToJpFun(parsedMidiJson);
+</script>
+```
+
 ## Quick Start
 
 ```ts
@@ -156,6 +186,8 @@ const source = midiJsonToJpFun(parsedMidiJson, {
 ```
 
 `pitchMode` defaults to `"absolute"`; use `"relative"` for C-based numbered notation. `alignRate` controls adaptive binary quantization. Equal start/end groups become `@up` chords, overlapping lanes become `@stack`, and separate MIDI tracks become named voices. `barsPerLine` defaults to `0`; non-positive values select measured automatic breaks, while a positive value fixes the measures per system. `title` overrides the MIDI header name.
+
+With classic scripts, measured automatic breaks require `jpfun.core.min.js`; a positive `barsPerLine` lets `jpfun.from-midi.min.js` run independently.
 
 The converter preserves notes, track names, tempo, time signatures, and MIDI programs, and recognizes standard 3:2 quarter-, eighth-, and sixteenth-note triplets. Other tuplets are unsupported. Percussion channel 10 is skipped; velocity, control changes, pitch bends, lyrics, and other MIDI metadata are ignored. Time-signature changes snap to measure boundaries, and continuations that cannot use `-` are emitted as tied notes.
 
