@@ -2,7 +2,7 @@ import {
     child, children, descendant, descendants, nameOf, number, text,
     type MusicXmlElement,
 } from "./dom.js";
-import type { MusicXmlEvent, MusicXmlPitch } from "./model.js";
+import type { MusicXmlArpeggio, MusicXmlEvent, MusicXmlPitch } from "./model.js";
 
 /** 统一两种 MusicXML 根结构中的小节内容与外层小节容器 */
 export interface MusicXmlMeasureSource {
@@ -91,6 +91,31 @@ export function noteModifiers(note: MusicXmlElement) {
             const ornament = child(ornaments, tag);
             if (ornament) result.push({ name, placement: placementOf(ornament, "above") });
         }
+    }
+    return result;
+}
+
+/** 无箭头不覆盖显式方向，两个相反的显式方向不能属于同一和弦。 */
+export function mergeArpeggio(current?: MusicXmlArpeggio, next?: MusicXmlArpeggio) {
+    if (!next || next === "none") return current ?? next;
+    if (current && current !== "none" && current !== next) {
+        throw new RangeError("Conflicting MusicXML arpeggiate directions in one chord");
+    }
+    return next;
+}
+
+/** 读取和弦成员上的琶音方向；none 表示无箭头但仍按自下而上演奏。 */
+export function noteArpeggio(note: MusicXmlElement): MusicXmlArpeggio | undefined {
+    const notations = child(note, "notations");
+    if (!notations) return undefined;
+    let result: MusicXmlArpeggio | undefined;
+    for (const arpeggiate of children(notations, "arpeggiate")) {
+        const attribute = arpeggiate.getAttribute("direction");
+        const value = attribute === null || attribute === "" ? "none" : attribute;
+        if (value !== "none" && value !== "up" && value !== "down") {
+            throw new RangeError(`Unsupported MusicXML arpeggiate direction: ${value}`);
+        }
+        result = mergeArpeggio(result, value);
     }
     return result;
 }

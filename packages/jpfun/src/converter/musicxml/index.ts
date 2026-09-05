@@ -16,7 +16,7 @@ import {
 } from "./dom.js";
 import {
     directionDynamic, directionTexts, endingPasses, metronomeBpm,
-    noteLyrics, noteModifiers, parsePitch,
+    mergeArpeggio, noteArpeggio, noteLyrics, noteModifiers, parsePitch,
     parseTimeSignature, partMeasures, timeModification,
 } from "./features.js";
 import type {
@@ -409,6 +409,7 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                 let event = chord ? previousEvent : undefined;
                 const lyrics = noteLyrics(item);
                 const modifiers = noteModifiers(item);
+                const arpeggio = noteArpeggio(item);
                 // chord 成员只有起点和时值都一致时才合并到前一事件
                 if (!event || !event.start.equals(start) || !event.duration.equals(duration) || event.rest) {
                     event = {
@@ -422,6 +423,7 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                         preGraces: pendingGraces.get(laneKey) ?? [],
                         postGraces: [],
                         lyrics,
+                        arpeggio,
                         program: instrument?.program,
                         timeModification: timeModification(item),
                     };
@@ -430,6 +432,7 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                     lastEvent.set(laneKey, event);
                 } else {
                     event.program ??= instrument?.program;
+                    event.arpeggio = mergeArpeggio(event.arpeggio, arpeggio);
                     for (const modifier of modifiers) {
                         if (!event.modifiers.some(item => item.name === modifier.name && item.placement === modifier.placement)) {
                             event.modifiers.push(modifier);
@@ -669,6 +672,12 @@ function eventSource(
     if (event.rest || event.pitches.length === 0) source = `0${suffix}`;
     else if (event.pitches.length === 1) source = pitchSource(event.pitches[0], mode, key, metadata, suffix);
     else source = `{${event.pitches.map((pitch, index) => pitchSource(pitch, mode, key, metadata, index === 0 ? suffix : "")).join(" ^ ")}}`;
+
+    if (event.arpeggio && event.pitches.length >= 2) {
+        source = event.arpeggio === "none"
+            ? `@arp(${source})`
+            : `@arp(${source}, direction=${event.arpeggio})`;
+    }
 
     const graceSource = (groups: Pitch[][]) => groups.map(group => group.length === 1
             ? pitchSource(group[0], mode, key, metadata)

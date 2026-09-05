@@ -207,9 +207,9 @@ const source = musicXmlToJpFun(document.documentElement, {
 });
 ```
 
-In Node.js, use any DOM implementation and pass a compatible root element. The converter supports partwise and timewise scores, parts/staves/voices, exact durations, rests, chords, grace notes, ties, tuplets, lyrics, score state, dynamics, repeats/endings, and basic system, page, and title metadata. `pitchMode` defaults to `"absolute"`; `"relative"` uses the active MusicXML key. Generated source uses compact jpFun syntax where unambiguous.
+In Node.js, use any DOM implementation and pass a compatible root element. The converter supports partwise and timewise scores, parts/staves/voices, exact durations, rests, chords, arpeggios, grace notes, ties, tuplets, lyrics, score state, dynamics, repeats/endings, and basic system, page, and title metadata. `pitchMode` defaults to `"absolute"`; `"relative"` uses the active MusicXML key. Generated source uses compact jpFun syntax where unambiguous.
 
-Compressed `.mxl` archives are unsupported. Decompress them first or export `.musicxml`. Percussion channel 10 is skipped; pedal, arpeggiation, detailed engraving coordinates, and other control information are ignored.
+Compressed `.mxl` archives are unsupported. Decompress them first or export `.musicxml`. Percussion channel 10 is skipped; pedal, cross-staff arpeggio grouping, detailed engraving coordinates, and other control information are ignored.
 
 ## Syntax Example
 

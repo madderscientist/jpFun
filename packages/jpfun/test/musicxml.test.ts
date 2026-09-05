@@ -188,6 +188,39 @@ test("MusicXML 后续和弦成员的 modifier 合并到和弦", () => {
     `相同名称和位置的 modifier 必须去重：${source}`);
 });
 
+test("MusicXML arpeggiate 转成上下行 arp", () => {
+  const source = musicXmlToJpFun(`<?xml version="1.0"?>
+<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Arpeggio</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+<note><pitch><step>G</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><notations><arpeggiate number="1"/></notations></note>
+<note><chord/><pitch><step>B</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><notations><arpeggiate number="1"/></notations></note>
+<note><chord/><pitch><step>D</step><octave>5</octave></pitch><duration>2</duration><voice>1</voice><notations><arpeggiate number="1"/></notations></note>
+<note><pitch><step>G</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><notations><arpeggiate direction="down" number="1"/></notations></note>
+<note><chord/><pitch><step>B</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><notations><arpeggiate direction="down" number="1"/></notations></note>
+<note><chord/><pitch><step>D</step><octave>5</octave></pitch><duration>2</duration><voice>1</voice><notations><arpeggiate direction="down" number="1"/></notations></note>
+</measure></part></score-partwise>`);
+  assert(source.includes("@arp({G4 ^ B4 ^ D5})")
+    && source.includes("@arp({G4 ^ B4 ^ D5}, direction=down)"),
+  `MusicXML 琶音方向必须包装整个和弦：${source}`);
+  const notes = playedNotes(compilePlayback(lower(source)));
+  assert(notes.slice(0, 3).map(note => note.midi).join(",") === "67,71,74"
+    && notes.slice(3, 6).map(note => note.midi).join(",") === "74,71,67",
+  `导入后的上下行琶音必须改变播放顺序：${source}`);
+
+  const explicitUp = musicXmlToJpFun(`<?xml version="1.0"?>
+<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Up</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes>
+<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><notations><arpeggiate direction="up"/></notations></note>
+<note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><notations><arpeggiate/></notations></note>
+</measure></part></score-partwise>`);
+  assert(explicitUp.includes("@arp({C4 ^ E4}, direction=up)"),
+    `显式 up 必须保留向上箭头，未指定方向的和弦成员不得制造冲突：${explicitUp}`);
+
+  throws(() => musicXmlToJpFun(`<?xml version="1.0"?>
+<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Conflict</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes>
+<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><notations><arpeggiate direction="up"/></notations></note>
+<note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><notations><arpeggiate direction="down"/></notations></note>
+</measure></part></score-partwise>`), /Conflicting MusicXML arpeggiate directions/);
+});
+
 test("最上方 MusicXML lane 提前结束后仍在休止时间线上保留状态", () => {
   const source = musicXmlToJpFun(`<?xml version="1.0"?>
 <score-partwise version="4.0"><part-list><score-part id="P0"><part-name>Short</part-name></score-part><score-part id="P1"><part-name>Long</part-name></score-part></part-list><part id="P0"><measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice></note></measure><measure number="2"><direction><sound tempo="80"/></direction><forward><duration>1</duration></forward></measure></part><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure><measure number="2"><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure></part></score-partwise>`);

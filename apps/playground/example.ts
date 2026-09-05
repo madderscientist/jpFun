@@ -54,7 +54,7 @@ L: 满天都是小星星
 1 > {2 < 4} > 3 > 4 < 3 > 5 < 6 < 7 % 语法糖
 
 @text("延音线")
-1@x 2 3@a 4@y 5^6@b @tie(a, b) @tie(x, y) % 需要打标签
+1@x 2 3@a 4@y @arp(5^6@b) @tie(a, b) @tie(x, y) % 需要打标签
 
 @text("符号")
 $ppp $pp $p $mp $mf $f $ff $fff $segno $ds $dc $fine $mordent $prall $tr $accent

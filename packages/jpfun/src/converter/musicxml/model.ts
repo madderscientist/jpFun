@@ -1,5 +1,7 @@
 import type { Fraction } from "../../fraction.js";
 
+export type MusicXmlArpeggio = "none" | "up" | "down";
+
 /** 单个书面音高，tie 标记保留在音高上以支持和弦成员独立连音 */
 export interface MusicXmlPitch {
     step: string;
@@ -21,6 +23,7 @@ export interface MusicXmlEvent {
     preGraces: MusicXmlPitch[][];
     postGraces: MusicXmlPitch[][];
     lyrics: Map<string, string>;
+    arpeggio?: MusicXmlArpeggio;
     program?: number;
     timeModification?: {
         actual: number;

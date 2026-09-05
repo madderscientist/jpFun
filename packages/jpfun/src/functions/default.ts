@@ -1,5 +1,6 @@
 import { ASTFunctionClass } from "./ASTtypes.js";
 import { AdjustNode } from "./adjust/index.js";
+import { ArpeggioNode } from "./arpeggio/index.js";
 import { BarNode } from "./bar/index.js";
 import { BeamNode } from "./beam/index.js";
 import { BoxNode } from "./box/index.js";
@@ -34,6 +35,7 @@ export const defaultFunctions: ASTFunctionClass[] = [
     PageNode, HeadNode,   // 文档页面与谱头
     StackNode,  // 时间同步
     UpNode, DownNode,
+    ArpeggioNode,
     GraceNode,  // 倚音
     TieNode, BeamNode, DynNode,
     BoxNode, VoltaNode,
