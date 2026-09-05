@@ -464,7 +464,13 @@ export class ParserContext {
                         Diagnostic.warning.InvalidBoolean(text, r)
                     ); return null;
                 }
-            case "content":
+            case "content": {
+                // 用于失败后恢复（撤销改动）
+                const candidates = this.labelableNodes;
+                const length = candidates.length;
+                const target = candidates.at(-1);
+                const label = target?.label;
+                const hadLabel = target && Object.hasOwn(target, "label");
                 // 开启新的局部解析器
                 try {
                     const subParser = new ParserContext(this);
@@ -472,13 +478,17 @@ export class ParserContext {
                     if (n.length === 1) return n[0];
                     return new ASTBraceNode(r, n, null);
                 } catch (e) {
-                    if (this.strict) throw e;
+                    candidates.length = length;
+                    if (target) {
+                        if (hadLabel) target.label = label;
+                        else delete target.label;
+                    }
+                    if (this.strict || !(e instanceof Diagnostic)) throw e;
                     // 当前参数会被跳过，因此在恢复点记录被吞掉的具体错误
-                    if (e instanceof Diagnostic) this.diagnostics.push(e);
-                    this.diagnostics.push(
-                        Diagnostic.warning.InvalidContent(r)
-                    ); return null;
+                    this.diagnostics.push(e, Diagnostic.warning.InvalidContent(r));
+                    return null;
                 }
+            }
             case "label":
                 // 应对潜在的问题: 如果先解析了content会导致ctx.lavelableNodes被污染
                 funcStart ??= span.start;
