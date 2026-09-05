@@ -76,8 +76,7 @@ export class LoweringContext {
     registerFunctions(functionClasses: ASTFunctionClass[]) {
         const augmenters: LoweringAugmenter[] = this.loweringAugmenters = [];
         const finalizers: LoweringFinalizer[] = this.loweringFinalizers = [];
-        for (const cls of functionClasses) {
-            const functionClass = cls as unknown as typeof ASTNodeBase;
+        for (const functionClass of functionClasses) {
             if (functionClass.loweringAugment) augmenters.push(functionClass.loweringAugment);
             if (functionClass.loweringFinalize) finalizers.push(functionClass.loweringFinalize);
         }
@@ -266,7 +265,7 @@ export class LoweringContext {
         );
 
         // 处理子元素
-        const model = node.timeFlowModel();
+        const model = node.timeFlowModel(this);
         if (model) {
             switch (model.mode) {
                 case "sequence": {

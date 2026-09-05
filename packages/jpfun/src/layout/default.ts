@@ -1,5 +1,4 @@
 import {
-    ASTFunctionNode,
     functionAddonKey,
     type ASTFunctionClass,
 } from "../functions/ASTtypes.js";
@@ -26,11 +25,10 @@ export function createLayoutPrepareContext(
     const uniqueClasses = new Set(functionClasses);
 
     for (const functionClass of uniqueClasses) {
-        const staticClass = functionClass as unknown as typeof ASTFunctionNode;
-        const handler = staticClass.layoutDecorationHandler;
+        const handler = functionClass.layoutDecorationHandler;
         if (!handler) continue;
 
-        const names = staticClass.def?.name;
+        const names = functionClass.def?.name;
         if (!names) continue;
         const primaryName = Array.isArray(names) ? names[0] : names;
         handlers.set(functionAddonKey(primaryName), handler);

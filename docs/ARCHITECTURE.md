@@ -61,6 +61,8 @@ Parser、Lowering 和 Layout 只调用这些协议，不应针对具体函数名
 
 AST 保存语法结构、已固化参数和源码位置。解析完成后，AST 保持只读；每次编译产生的时间、轨道和布局状态都写入新的中间对象。这样同一棵 AST 可以再次 Lowering，也不会携带上一次布局的临时状态。
 
+多份 lowering 结果的时间、轨道和布局对象彼此独立，可以先生成 A、B，再以任意顺序布局。需要跨 hook 共享的本轮状态放在 `LoweringGroup` 或已有 Temporal 上，不通过 AST 寻找“最近一次”的事件。例如 `head` 的首个左边界 Temporal 保存本轮成员、六个边界及轨道测量状态；AST 只保存槽内容、字号和间距。
+
 ### 时间、几何、绘制彼此分离
 
 - Lowering 使用音乐时间和 Track，不计算像素。
@@ -85,10 +87,10 @@ AST 保存语法结构、已固化参数和源码位置。解析完成后，AST 
 
 | 契约 | 作用 | 定义位置 |
 | --- | --- | --- |
-| `ASTFunctionNode` | 函数定义、参数、去糖和阶段 hooks 的入口 | [`ASTtypes.ts`](../packages/jpfun/src/functions/ASTtypes.ts) |
+| `ASTFunctionClass` / `ASTFunctionNode` | 注册器读取的静态声明 / 函数 AST 实例及参数行为 | [`ASTtypes.ts`](../packages/jpfun/src/functions/ASTtypes.ts) |
 | `LoweringResult` | 时间列、attachments、Track 树及 AST 到事件的索引 | [`lowering/types.ts`](../packages/jpfun/src/lowering/types.ts) |
 | `LoweringAttachment` | 不推进时间的中立附属协议 | [`lowering/types.ts`](../packages/jpfun/src/lowering/types.ts) |
-| `TemporalNodeBase` | 一次编译中的时间事件及其可选视觉主体 | [`lowering/types.ts`](../packages/jpfun/src/lowering/types.ts) |
+| `TemporalNodeBase` | 一次编译中的时间事件及其可选视觉主体 | [`functions/temporal.ts`](../packages/jpfun/src/functions/temporal.ts) |
 | `PlaybackPlan` / `PlaybackEmitter` | MIDI 事件计划 / 函数事件声明接口 | [`playback/types.ts`](../packages/jpfun/src/playback/types.ts) |
 | `LayoutBox` | 主体的尺寸、位置和对齐轴 | [`layout/types.ts`](../packages/jpfun/src/layout/types.ts) |
 | `LayoutAttachment` | 跨主体关系的语义定义与横向准备协议 | [`layout/types.ts`](../packages/jpfun/src/layout/types.ts) |
@@ -99,26 +101,28 @@ AST 保存语法结构、已固化参数和源码位置。解析完成后，AST 
 
 ## 一个函数如何穿过系统
 
-函数只实现自己真正需要的阶段：
+函数只实现自己真正需要的阶段。先区分声明的归属和调用方向，而不是把所有方法当成平级 hook。
 
-| 需求 | 主要扩展点 |
+**函数类的静态声明**由 `ASTFunctionClass` 描述，定义在 `ASTFunctionNode` 上；注册器按函数种类收集，不属于某个 AST 实例：
+
+| 声明 | 消费方与时机 |
 | --- | --- |
-| 定义函数和参数 | `ASTFunctionNode.def` |
-| 实现语法糖 | `deSugarAtom` / `deSugarRelation` |
-| 产生或组织时间事件 | `loweringEnter` / `loweringExit` / `timeFlowModel` |
-| 在最终时间确定后固化状态（含速度、力度这类持续量） | `onTimeState` |
-| 发布播放事件或递归展开折叠成员 | `emitPlayback` / `PlaybackEmitter.play` |
-| 修饰同一 play frame 中后续的音符事件 | `PlaybackEmitter.affectFollowing` |
-| 在演奏时刻修改系统状态 | `PlaybackEmitter.control` |
-| 在当前位置处理此前已发布的播放事件 | `PlaybackEmitter.defer` |
-| 给所在时间列贴播放标记 | `TemporalNodeBase.playbackMarks` |
-| 决定反复、房子等播放顺序 | `PlaybackFlow.playbackFlow` |
-| 观察完整播放计划或处理跨节点关系 | `PlaybackRelation.applyPlayback` |
-| 扫描完整 lowering 结果或做最终校验 | `loweringAugment` / `loweringFinalize` |
-| 创建主体几何 | `prepareLayout` / `finalizeLayout` / `onPlaced` |
-| 创建局部装饰 | `layoutDecorationHandler` |
-| 创建附属对象 | `LoweringAttachment` + 所需的 layout/playback 能力接口 |
-| 绘制 | `paint(Painter)` |
+| `def`、`deSugarAtom`、`deSugarRelation` | Parser 识别函数、参数和语法糖 |
+| `loweringAugment` | 最终时间列固化后生成派生附件，所有返回值统一追加 |
+| `loweringFinalize` | 所有派生附件追加完成后，按注册顺序处理完整结果 |
+| `layoutDecorationHandler` | Layout 按函数主名对应的 addon key 创建局部装饰 |
+
+**实例回调**由引擎在本轮编译中调用，状态归相应的本轮对象：
+
+| 所属对象 | 回调与职责 |
+| --- | --- |
+| `ASTNodeBase` | `loweringEnter` 产生事件，`timeFlowModel(ctx)` 声明子节点展开方式，`loweringExit` 收尾；不保存运行结果 |
+| `LoweringGroup` | `onTemporal` / `onAttachment` 观察当前子树，按内到外调用 |
+| `TemporalNodeBase` | `onTimeState` 固化时间状态，`emitPlayback` 发布播放语义；`playbackMarks` 声明列标记 |
+| 可见 Temporal | `prepareLayout` 建主体，装饰完成后 `finalizeLayout`，`prepareHorizontal` 参与横向求解，`onPlaced` 同步最终坐标，`paint` 只读绘制 |
+| Attachment | 按需实现 `prepareHorizontal` / `createGeometry`；播放侧的 `playbackFlow` 决定访问顺序，`applyPlayback` 处理完整计划 |
+
+**引擎 API**则由函数主动调用：`beginLoweringGroup/endLoweringGroup` 管理作用域，`addAttachment` 提交附件，`getTemporalNodes` 查询本轮事件。它们不是新的阶段。播放侧的 `play` 展开成员，`affectFollowing` 修饰同 frame 后续音符，`control` 按演奏时间修改状态，`defer` 处理当前位置之前的事件；各自可见的数据范围见[播放](playback.md)。
 
 典型生命周期如下：
 
@@ -153,6 +157,7 @@ Attachment 与 Temporal 的阶段边界不同：`LoweringAttachment` 不进入�
 - **源码映射**：AST 节点保留 `SourceSpan`，后续对象通过来源 AST 追溯源码。
 - **坐标与单位**：Lowering 的 `t/T` 是音乐时间；Layout 和 Painter 使用 px。局部端口相对所属 `LayoutBox`，attachment 区域使用全局坐标。
 - **可重复性**：绘制只读；需要重新布局时，应从 AST 重新 Lowering，避免复用已被布局写入坐标的对象。
+- **阶段边界**：派生附件先统一追加，再执行全局收尾；装饰先完成，再发布依赖最终尺寸的端口；`onPlaced` 可能被重放，不能累积位移。这些保证由相邻的 lowering、head、layout 测试验证，不依赖新的调度框架。
 
 ## 新贡献者阅读顺序
 

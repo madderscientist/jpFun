@@ -11,7 +11,7 @@ export interface LoweringAttachment {
     readonly sourceSpan?: SourceSpan;
 }
 
-/** 时间流固化后生成额外 attachment；所有 augmenter 读取同一份输入快照 */
+/** 时间流固化后生成额外 attachment；读取统一追加前的结果，不直接修改结果 */
 export type LoweringAugmenter = (result: LoweringResult) => Iterable<LoweringAttachment>;
 
 /** 所有 augmenter 结果追加完成后的最终处理；按注册顺序执行，可修改完整结果或抛出语义错误 */

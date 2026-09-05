@@ -1,3 +1,4 @@
+import { deepStrictEqual } from "node:assert/strict";
 import { test } from "node:test";
 
 import {
@@ -10,15 +11,19 @@ import {
 } from "../src/functions/ASTtypes.js";
 import { defaultFunctions } from "../src/functions/default.js";
 import { TemporalNodeBase, type VisualTemporalNode } from "../src/functions/temporal.js";
+import { layoutDocument } from "../src/layout/engine.js";
 import { compileScore } from "../src/pipeline.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import {
     assert,
     commandsOfKind,
+    createLowering,
     expectLoweringError,
+    layoutContext,
     layoutOf,
     lower,
     nearly,
+    parse,
     playedNotes,
     recordCommands,
 } from "./helpers.js";
@@ -95,6 +100,50 @@ test("head 使用全局弹簧分开左中右三槽", () => {
     const centerBox = textObjects(source).get("C")!.box;
     assert(Math.abs(centerBox.x + centerBox.w / 2 - PAGE_CENTER) < SOLVER_TOLERANCE,
         "center slot must align to the page content center");
+});
+
+test("head lowering results from the same AST remain independent", () => {
+    const source = `@head(
+        left={@text(L1) @text(L2)},
+        center={@box(@text(Title, 2em)) @text(Subtitle)},
+        right={@text(R)}
+    ) @br() 1`;
+    const expected = recordCommands(layoutOf(source));
+    for (const reverse of [false, true]) {
+        const ast = parse(source);
+        const pending: ASTNodeBase[] = [ast];
+        while (pending.length > 0) {
+            const node = pending.pop()!;
+            pending.push(...node.children ?? []);
+            Object.freeze(node);
+        }
+        const lowering = createLowering();
+        const results = [lowering.lowerDocument(ast), lowering.lowerDocument(ast)];
+        if (reverse) results.reverse();
+        for (const result of results) {
+            deepStrictEqual(recordCommands(layoutDocument(result, layoutContext)), expected);
+        }
+    }
+});
+
+test("head track measurement state belongs to each lowering result", () => {
+    const ast = parse("@head(left={@text(L)}, center={@text(C)}, right={@text(R)})");
+    const lowering = createLowering();
+    const first = lowering.lowerDocument(ast).rootTrack.groups;
+    const second = lowering.lowerDocument(ast).rootTrack.groups;
+    const host = { top: 0, bottom: 0 };
+    const left = { top: 0, bottom: 20 };
+    const right = { top: 0, bottom: 5 };
+    first[0].measure([left], 0);
+    first[1].measure([{ top: 0, bottom: 10 }], 0);
+    first[2].measure([right], 0);
+    const positions = [first[0].place!(host, left, 0), first[2].place!(host, right, 0)];
+    deepStrictEqual(positions, [10, 25]);
+
+    second[0].measure([{ top: 0, bottom: 200 }], 0);
+    second[1].measure([{ top: 0, bottom: 100 }], 0);
+    second[2].measure([{ top: 0, bottom: 50 }], 0);
+    deepStrictEqual([first[0].place!(host, left, 0), first[2].place!(host, right, 0)], positions);
 });
 
 test("center 的位置与两侧内容宽度无关", () => {

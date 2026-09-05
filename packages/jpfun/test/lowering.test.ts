@@ -1,6 +1,12 @@
+import { deepStrictEqual } from "node:assert/strict";
 import { test } from "node:test";
 
+import { Fraction } from "../src/fraction.js";
+import { ASTFunctionNode, ASTNodeBase } from "../src/functions/ASTtypes.js";
 import { layoutDocument } from "../src/layout/engine.js";
+import { LoweringContext } from "../src/lowering/loweringContext.js";
+import { Track } from "../src/lowering/track.js";
+import type { LoweringResult } from "../src/lowering/types.js";
 import { assert, createLowering, layoutContext, layoutOf, lower, nearly, parse } from "./helpers.js";
 
 test("dot 与 div 的嵌套顺序不影响时值和计数", () => {
@@ -77,4 +83,88 @@ test("复用 LoweringContext 时每轮重新收集实际 Track", () => {
         "each lowering run must collect its own used tracks");
     assert(first.tracks[0] !== second.tracks[0],
         "a reused context must not retain the previous run's track registration");
+});
+
+test("all augmenters finish before any finalizer sees their attachments", () => {
+    const calls: string[] = [];
+    const firstAttachment = { sourceSpan: { start: 0, end: 1 } };
+    const secondAttachment = { sourceSpan: { start: 1, end: 2 } };
+    class Consumer extends ASTFunctionNode {
+        constructor() { super({ start: 0, end: 0 }); }
+        static override loweringFinalize(result: LoweringResult) {
+            calls.push("finalize:consumer");
+            deepStrictEqual(result.attachments, [firstAttachment, secondAttachment]);
+        }
+    }
+    class FirstProducer extends ASTFunctionNode {
+        constructor() { super({ start: 0, end: 0 }); }
+        static override loweringAugment(result: LoweringResult) {
+            calls.push("augment:first");
+            deepStrictEqual(result.attachments, []);
+            return [firstAttachment];
+        }
+        static override loweringFinalize() { calls.push("finalize:first"); }
+    }
+    class SecondProducer extends ASTFunctionNode {
+        constructor() { super({ start: 0, end: 0 }); }
+        static override loweringAugment(result: LoweringResult) {
+            calls.push("augment:second");
+            deepStrictEqual(result.attachments, []);
+            return [secondAttachment];
+        }
+        static override loweringFinalize() { calls.push("finalize:second"); }
+    }
+    const context = new LoweringContext();
+    context.registerFunctions([Consumer, FirstProducer, SecondProducer]);
+    const result = context.lowerDocument(parse("1"));
+    deepStrictEqual(calls, [
+        "augment:first", "augment:second",
+        "finalize:consumer", "finalize:first", "finalize:second",
+    ]);
+    assert(result.duration.equals(1), "postprocessing must not advance the time cursor");
+});
+
+test("lowering groups observe inside out and resume after isolation", () => {
+    const context = new LoweringContext();
+    const outer = new ASTNodeBase({ start: 0, end: 3 });
+    const inner = new ASTNodeBase({ start: 0, end: 3 });
+    const leafAttachment = { sourceSpan: { start: 0, end: 1 } };
+    const innerAttachment = { sourceSpan: { start: 0, end: 2 } };
+    const outerAttachment = { sourceSpan: { start: 0, end: 3 } };
+    const calls: string[] = [];
+    context.beginLoweringGroup(outer, {
+        attachment: outerAttachment,
+        onTemporal(node) {
+            calls.push("outer:temporal");
+            assert(node.T.equals(1, 2), "outer observers must see inner modifications");
+        },
+        onAttachment(attachment) { calls.push(`outer:attachment:${attachment.sourceSpan!.end}`); },
+    });
+    context.beginLoweringGroup(inner, {
+        attachment: innerAttachment,
+        onTemporal(node) {
+            calls.push("inner:temporal");
+            assert(context.getTemporalNodes(node.ast).includes(node), "events must be indexed before observers run");
+            node.T.divPow2(1);
+        },
+        onAttachment(attachment) { calls.push(`inner:attachment:${attachment.sourceSpan!.end}`); },
+    });
+    const track = new Track();
+    context.isolateFromLoweringGroups(() => {
+        const isolated = context.trackedEvents(parse("3"), new Fraction(), track);
+        assert(isolated[0][0].T.equals(1), "isolated events must not receive outer modifiers");
+        context.addAttachment(leafAttachment);
+    });
+    deepStrictEqual(calls, []);
+
+    const cursor = new Fraction();
+    const columns = context.trackedEvents(parse("1 2"), cursor, track);
+    assert(columns[1][0].t.equals(1, 2) && cursor.equals(1), "modified durations must drive cursor advancement");
+    context.addAttachment(leafAttachment);
+    context.endLoweringGroup(inner);
+    context.endLoweringGroup(outer);
+    deepStrictEqual(calls, [
+        "inner:temporal", "outer:temporal", "inner:temporal", "outer:temporal",
+        "inner:attachment:1", "outer:attachment:1", "outer:attachment:2",
+    ]);
 });

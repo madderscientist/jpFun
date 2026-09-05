@@ -1,3 +1,4 @@
+import { deepStrictEqual } from "node:assert/strict";
 import { test } from "node:test";
 
 import { DIV_ADDON_KEY } from "../src/functions/div/index.js";
@@ -5,7 +6,7 @@ import { layoutDocument } from "../src/layout/engine.js";
 import type { LayoutAttachment } from "../src/layout/types.js";
 import { isVisualTemporalNode } from "../src/functions/temporal.js";
 import { compileScore } from "../src/pipeline.js";
-import { assert, expectSnapshot, layoutContext, layoutOf, lower, nearly } from "./helpers.js";
+import { assert, expectSnapshot, layoutContext, layoutOf, lower, nearly, recordCommands } from "./helpers.js";
 
 /** 综合样例：数字、升降号、减时线、小节线、延音与文本 */
 const result = compileScore(`1 #2'./ | - @text("进入")`, { rowGap: 12 }).layout;
@@ -13,6 +14,44 @@ const result = compileScore(`1 #2'./ | - @text("进入")`, { rowGap: 12 }).layou
 test("装饰处理器从主函数名推导注册键", () => {
     assert(layoutContext.decorationHandlers.has(DIV_ADDON_KEY),
         "div layout must derive its handler key from the primary function name");
+});
+
+test("finalizeLayout sees completed decorations before horizontal preparation", () => {
+    const lowered = lower("1.//");
+    const host = lowered.columns.flat().find(isVisualTemporalNode);
+    assert(host, "the lifecycle test requires a visual host");
+    const calls: string[] = [];
+    const finalize = host.finalizeLayout;
+    host.finalizeLayout = context => {
+        calls.push("finalize");
+        assert(host.decorations.length === 2 && host.box.h > host.ast.size,
+            "finalization must see both decorators and their completed below-space");
+        finalize?.call(host, context);
+    };
+    host.prepareHorizontal = () => {
+        calls.push("horizontal");
+        deepStrictEqual(host.ports.lyric, { x: host.box.anchor, y: host.box.h });
+    };
+    layoutDocument(lowered, layoutContext);
+    deepStrictEqual(calls, ["finalize", "horizontal"]);
+});
+
+test("repeated placement synchronization and painting do not accumulate offsets", () => {
+    const sources = [
+        "@adjust(@up(1,3), dx=3px, dy=-4px) 2",
+        "@adjust({1@a}, dx=5px) 2@b @tie(a,b,height=60px)",
+        "@head(left={@text(L)}, center={@box(@text(C))}, right={@text(R)}) @br() 1",
+    ];
+    for (const source of sources) {
+        const layout = layoutOf(source);
+        const boxes = layout.objects.map(object => ({ ...object.box }));
+        const commands = recordCommands(layout);
+        for (let repeat = 0; repeat < 2; repeat++) {
+            for (const object of layout.objects) object.onPlaced?.();
+            deepStrictEqual(recordCommands(layout), commands);
+            deepStrictEqual(layout.objects.map(object => ({ ...object.box })), boxes);
+        }
+    }
 });
 
 test("综合样例的每个 LayoutBox 都有效且保持横向顺序", () => {

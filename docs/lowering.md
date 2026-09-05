@@ -48,7 +48,7 @@ class TemporalNodeBase {
 入口是 `LoweringContext.lowerDocument(root)`。它创建根 Track，然后递归调用 `trackedEvents`：
 ```text
 进入节点：调用 loweringEnter
-展开子节点：按 timeFlowModel 选择 sequence 或 parallel
+展开子节点：按 timeFlowModel(ctx) 选择 sequence 或 parallel
 离开节点：调用 loweringExit
 ```
 
@@ -64,7 +64,7 @@ class TemporalNodeBase {
 必须观察完整作用域才能决定比例的函数可在 `LoweringGroup` 中只收集事件，再在 `loweringExit(ctx, track, timeOffset)` 中统一修改。此时必须同时重写已收集事件的 `t/T` 和可变的 `timeOffset`，保证后继事件仍从新的组尾开始。`tuplet` 使用这一模式；只改其中一边会破坏时间线一致性。
 
 ### 2. 展开子节点
-节点通过 `timeFlowModel()` 声明子节点如何流动：
+节点通过 `timeFlowModel(ctx)` 声明子节点如何流动：
 ```ts
 type TimeFlowModel =
     | { mode: "sequence"; children: ASTNodeBase[] }
@@ -74,6 +74,8 @@ type TimeFlowModel =
 - `sequence`：依次展开；后一个子节点从前一个的结束时间开始。
 - `parallel`：所有分支从同一时间开始，各自在自己的 Track 上展开，再按时间和锚点局部归并；父节点结束时间取最晚的分支。
 - 返回 `null`：通用递归器不展开子节点，适合由函数自行折叠内容的复合符号。
+
+调用发生在当前节点 `loweringEnter` 返回的事件已加入索引之后、子节点展开之前。需要本轮事件时使用 `ctx.getTemporalNodes(ast)`，不要在 AST 上暂存事件。`head` 据此为三个槽创建引用本轮首边界 Temporal 的测量策略；策略捕获的可变状态不能跨 lowering 共享。
 
 ### 3. 固化行号和时间状态
 递归完成后，`solidifyColumns` 先处理 `br` 请求并写入最终 `layoutLine`，再按列调用 `onTimeState(state)`。
@@ -87,9 +89,11 @@ type TimeFlowModel =
 ### 4. 生成附属对象
 时间列、Track 和行号全部稳定后，Lowering 才处理需要观察完整结果的 attachment：
 
-1. 所有 `loweringAugment` 读取同一份结果快照，生成额外 attachment。
+1. 所有 `loweringAugment` 读取统一追加前的结果，返回额外 attachment，不直接修改结果。
 2. 新 attachment 统一加入结果。
 3. `loweringFinalize` 按函数注册顺序执行最终校验或收尾。
+
+这里没有深拷贝快照；统一追加保证各生成器看不到其它生成器尚待追加的附件。即使消费者在函数列表中排在生成器之前，它的 `loweringFinalize` 也能看到全部派生附件；各 finalizer 之间仍按注册顺序执行。
 
 例如自动 beam 需要先看到最终的事件顺序、Track 和谱面行；显式 beam 也要到此时才能检查端点是否相邻。
 
@@ -100,6 +104,8 @@ type TimeFlowModel =
 - **LayoutDecoration**：属于单个主体的局部装饰，例如附点和减时线；Lowering 只把已冻结的语义放进 Temporal 的 `addon`，layout 再据此创建装饰。
 
 `LoweringGroup` 是收集局部范围的通用工具：`onTemporal` 观察事件，`onAttachment` 观察嵌套 attachment，退出时还可以提交自己的 attachment。核心引擎因此不必认识 `dot`、`div`、`box` 等具体函数。
+
+分组必须按栈顺序结束；结束时先移出自身，再把其 attachment 交给外层分组，所以子附件先于外层附件注册。折叠函数通过 `isolateFromLoweringGroups` 展开内部成员，使外层只观察折叠宿主，不重复修饰成员；隔离结束后恢复原来的作用域。
 
 ## 输出
 ```ts

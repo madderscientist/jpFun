@@ -32,30 +32,6 @@ export class ASTNodeBase {
     ) {}
 
     /**
-     * lowering 固化后的 attachment 生成钩子
-     *
-     * 普通 loweringEnter/loweringExit 在递归遍历 AST 时执行，
-     * 此时尚未完成锚点归并，事件的 t、track 和 layoutLine 不可用，因此需要观察完整事件流的功能不能在普通 hook 中可靠决定分组。
-    * 该 hook 读取 LoweringResult 并返回新建的 LoweringAttachment，LoweringContext 将返回值追加到当前文档或 fragment 的 attachments，不会把它们放入时间列或推进时间。
-     *
-     * 例：autobeam 扫描最终列，按轨道、谱面行、拍点和显式 beam 端点决定分组，再生成 BeamLayoutAttachment
-     */
-    static loweringAugment?: LoweringAugmenter;
-
-    /**
-     * 所有 loweringAugment 结果追加完成后的最终处理；此时已经得到了完整的 lowering 语义
-     * 可以进行校验（如 beam 和 tie）或者修改某些值
-     */
-    static loweringFinalize?: LoweringFinalizer;
-
-    /**
-     * 装饰函数可选的排版声明
-     * layout 引擎按 key 收集，不需要识别具体函数类
-     * addon 中的 `@key` 标志会使用该装饰
-     */
-    static layoutDecorationHandler?: LayoutDecorationHandler;
-
-    /**
      * 进入当前层级的回调
      * @param ctx 当前的 lowering 上下文
      * @param track 当前事件所在的纵向音轨
@@ -70,10 +46,11 @@ export class ASTNodeBase {
 
     /**
      * 时间求解模式
-     * 由 loweringContext 调用，决定当前节点在时间求解阶段的展开方式
+     * loweringEnter 返回的事件已规范化并加入索引后调用，决定子节点的展开方式。
+     * 需要本轮事件时通过 ctx.getTemporalNodes 查询
      * @returns 返回 null 表示没有子元素，返回对象表示参与时间求解
      */
-    timeFlowModel(): TimeFlowModel | null { return null; }
+    timeFlowModel(_ctx: LoweringContext): TimeFlowModel | null { return null; }
 
     /**
      * 离开当前层级的回调 同 loweringEnter
@@ -239,6 +216,31 @@ export class ASTFunctionNode extends ASTNodeBase {
     }
 
     /**
+     * lowering 固化后的 attachment 生成钩子
+     *
+     * 普通 loweringEnter/loweringExit 在递归遍历 AST 时执行，
+     * 此时尚未完成锚点归并，事件的 t、track 和 layoutLine 不可用，因此需要观察完整事件流的功能不能在普通 hook 中可靠决定分组。
+     * 该 hook 读取 LoweringResult 并返回新建的 LoweringAttachment，LoweringContext 将返回值追加到当前文档或 fragment 的 attachments，不会把它们放入时间列或推进时间。
+     *
+     * 例：autobeam 扫描最终列，按轨道、谱面行、拍点和显式 beam 端点决定分组，再生成 BeamLayoutAttachment
+     */
+    static loweringAugment?: LoweringAugmenter;
+
+    /**
+     * 所有 loweringAugment 结果追加完成后的最终处理；此时已经得到了完整的 lowering 语义
+     * 所有派生 attachment 追加完成后，按函数注册顺序处理完整结果
+     * 可以进行校验（如 beam 和 tie）或者修改某些值
+     */
+    static loweringFinalize?: LoweringFinalizer;
+
+    /**
+     * 装饰函数可选的排版声明
+     * layout 引擎按 key 收集，不需要识别具体函数类
+     * addon 中的 `@key` 标志会使用该装饰
+     */
+    static layoutDecorationHandler?: LayoutDecorationHandler;
+
+    /**
      * 在子树里找标签承载者
      * 未实现 labelable = 透明，继续下潜；实现了就采信它的返回值，null 即拒绝，不再往里找。
      * 拒绝时别退回去遍历 children —— grace 的 labelable() 内部已经走过整棵子树
@@ -269,9 +271,12 @@ export class ASTFunctionNode extends ASTNodeBase {
 }
 
 // 有实际含义的函数类的构造都应该长这样
-export type ASTFunctionClass = new (
+export type ASTFunctionClass = (new (
     sourceSpan: SourceSpan,
     args: FunctionArgs,
     ctx: ParserContext,
     parent: ASTNodeBase | null
-) => ASTFunctionNode;
+) => ASTFunctionNode) & Pick<typeof ASTFunctionNode,
+    "prototype" | "def" | "deSugarAtom" | "deSugarRelation"
+    | "loweringAugment" | "loweringFinalize" | "layoutDecorationHandler"
+>;

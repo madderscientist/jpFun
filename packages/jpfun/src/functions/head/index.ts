@@ -2,7 +2,8 @@ import { ErrorDiagnostic } from "../../diagnostic.js";
 import { layoutHorizontalRegion, type HorizontalLayoutHookContext } from "../../layout/model.js";
 import type { HorizontalLineView, LayoutBox, Extent } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
-import type { MeasureFn, TrackArrangement, TrackPlacement } from "../../lowering/track.js";
+import type { TrackArrangement, TrackPlacement } from "../../lowering/track.js";
+import type { LoweringGroup } from "../../lowering/types.js";
 import {
     isVisualTemporalNode,
     TemporalNodeBase,
@@ -114,6 +115,11 @@ function measureRows(
 class HeadBoundaryTemporal extends TemporalNodeBase {
     declare ast: HeadSlotNode;
     declare box: LayoutBox;
+    members: TemporalNodeBase[] = [];
+    slots: { ast: HeadSlotNode; start: HeadBoundaryTemporal; end: HeadBoundaryTemporal }[] = [];
+    private titleBottom = 0;
+    private leftExtent: Extent | null = null;
+    private rightExtent: Extent | null = null;
 
     constructor(ast: HeadSlotNode) {
         super();
@@ -125,25 +131,142 @@ class HeadBoundaryTemporal extends TemporalNodeBase {
 
     override prepareHorizontal(line: HorizontalLineView) {
         // 只由第一个边界协调一次整块 Head，避免六个边界重复改弹簧
-        if (this.ast.name === "left" && this === this.ast.start) this.ast.owner.prepareHead(line);
+        if (this.slots.length > 0) this.prepareHead(line);
     }
 
     override onPlaced() {
-        if (this.ast.name === "left" && this === this.ast.start) this.ast.owner.alignHead();
+        if (this.slots.length > 0) this.alignHead();
+    }
+
+    createTracks(slot: HeadSlotNode): TrackArrangement {
+        const { name, owner } = slot;
+        return {
+            laneKey: `head/rows/${owner.sourceSpan.start}/${name}`,
+            hostIndex: null,
+            measure: members => {
+                if (name === "center") {
+                    const placements = measureRows(members, owner.gap);
+                    const first = placements.find(placement => placement !== null);
+                    this.titleBottom = first ? first.offset + first.extent.bottom : 0;
+                    return placements;
+                }
+                return measureRows(members, owner.gap, extent => {
+                    if (name === "left") this.leftExtent = extent;
+                    else this.rightExtent = extent;
+                });
+            },
+            place: name === "center" ? undefined : () => {
+                const extent = name === "left" ? this.leftExtent : this.rightExtent;
+                if (!extent) return this.titleBottom;
+                const leftHeight = this.leftExtent ? this.leftExtent.bottom - this.leftExtent.top : 0;
+                const rightHeight = this.rightExtent ? this.rightExtent.bottom - this.rightExtent.top : 0;
+                // 两侧共享底边；以较高侧定总高度，使它的顶部恰好贴标题底边
+                const targetBottom = this.titleBottom + Math.max(leftHeight, rightHeight);
+                return targetBottom - extent.bottom;
+            },
+        };
+    }
+
+    private prepareHead(line: HorizontalLineView) {
+        if (this.members.some(node => isVisualTemporalNode(node) && node.layoutLine !== line.index)) {
+            throw new ErrorDiagnostic("E_HEAD_INTERNAL_BREAK", "@head 的内容不能跨谱面行", this.ast.owner.sourceSpan);
+        }
+        const [left, center, right] = this.slots;
+        // 最外侧不受墙的推力，两个点才能落在纸面边缘
+        left.start.springConfig.alpha_L = 0;
+        right.end.springConfig.alpha_R = 0;
+        // 串联弹簧的静长是两端之和、刚度由软端主导，所以只需 center 自己向两侧撑开
+        this.stretch(center.start, "L");
+        this.stretch(center.end, "R");
+        for (const slot of this.slots) {
+            line.registerHorizontalLayoutHook(slot.start, slot.end,
+                context => layoutHeadSlot(context, slot === center));
+        }
+    }
+
+    private alignHead() {
+        // 全局列已经完成求解；这里不改 TimeColumn，只覆盖 left/right 主体的最终 box.x
+        // center 不参与后置重排，继续使用全局列坐标
+        const cells = new Map<ASTNodeBase, VisualTemporalNode[]>();
+        for (const member of this.members) {
+            if (!isVisualTemporalNode(member)) continue;
+            const cell = this.sideCellOf(member.ast);
+            if (!cell) continue;
+            const members = cells.get(cell);
+            if (members) members.push(member);
+            else cells.set(cell, [member]);
+        }
+        const [left, , right] = this.slots;
+        this.packRows(left.ast, left.start.box.x, "left", cells);
+        this.packRows(right.ast, right.end.box.x, "right", cells);
+    }
+
+    private stretch(node: VisualTemporalNode, side: "L" | "R") {
+        const alpha = side === "L" ? "alpha_L" : "alpha_R";
+        const beta = side === "L" ? "beta_L" : "beta_R";
+        // alpha 撑开槽间空间；beta 反向缩放，避免弹簧刚度随 alpha 一起失控
+        node.springConfig[alpha] = node.springConfig[alpha]! * HEAD_STRETCH;
+        node.springConfig[beta] = node.springConfig[beta]! * 3 / HEAD_STRETCH;
+    }
+
+    private packRows(
+        slot: HeadSlotNode,
+        target: number,
+        side: SideName,
+        cells: ReadonlyMap<ASTNodeBase, VisualTemporalNode[]>,
+    ) {
+        const gap = this.ast.owner.size * ITEM_GAP_EM;
+        const fromLeft = side === "left";
+        const direction = fromLeft ? 1 : -1;
+        for (const row of slot.rows) {
+            const rowCells = row instanceof ASTBraceNode ? row.content : [row];
+            let cursor = target;
+            for (
+                let index = fromLeft ? 0 : rowCells.length - 1;
+                index >= 0 && index < rowCells.length;
+                index += direction
+            ) {
+                const members = cells.get(rowCells[index]);
+                if (!members) continue;
+                let left = Infinity;
+                let right = -Infinity;
+                for (const member of members) {
+                    left = Math.min(left, member.box.x);
+                    right = Math.max(right, member.box.x + member.box.w);
+                }
+                const offset = cursor - (fromLeft ? left : right);
+                for (const member of members) member.box.x += offset;
+                // 复合单元先整体平移，再让其内部成员读取彼此的最终坐标
+                for (const member of members) member.onPlaced?.();
+                cursor += direction * (right - left + gap);
+            }
+        }
+    }
+
+    /** 找到成员所属侧栏行的顶层单元；复合节点内部成员会归回同一个直接子节点 */
+    private sideCellOf(ast: ASTNodeBase): ASTNodeBase | null {
+        let cell = ast;
+        while (cell.parent) {
+            const parent = cell.parent;
+            const slot = parent instanceof HeadSlotNode
+                ? parent
+                : parent instanceof ASTBraceNode && parent.parent instanceof HeadSlotNode
+                    ? parent.parent
+                    : null;
+            if (slot?.owner === this.ast.owner) return slot.name === "center" ? null : cell;
+            cell = parent;
+        }
+        return null;
     }
 }
 
 /** 一个槽既是 AST 容器，也是把每个顶层行分配到独立 Track 的边界 */
 class HeadSlotNode extends ASTNodeBase {
-    start!: HeadBoundaryTemporal;
-    end!: HeadBoundaryTemporal;
-
     constructor(
         span: SourceSpan,
         readonly owner: HeadFunction,
         readonly name: SlotName,
         readonly rows: ASTNodeBase[],
-        private readonly tracks: TrackArrangement,
     ) {
         super(span, owner);
         for (const row of this.rows) row.parent = this;
@@ -154,23 +277,22 @@ class HeadSlotNode extends ASTNodeBase {
 
     override get children() { return this.rows; }
 
-    override timeFlowModel() {
+    override timeFlowModel(ctx: LoweringContext) {
         if (this.rows.length === 0) return null;
+        const head = ctx.getTemporalNodes(this.owner.slots[0])[0] as HeadBoundaryTemporal;
         return {
             mode: "parallel" as const,
             children: this.rows,
-            tracks: this.tracks,
+            tracks: head.createTracks(this),
         };
     }
 
     override loweringEnter() {
-        this.start = new HeadBoundaryTemporal(this);
-        return [this.start];
+        return [new HeadBoundaryTemporal(this)];
     }
 
     override loweringExit() {
-        this.end = new HeadBoundaryTemporal(this);
-        return [this.end];
+        return [new HeadBoundaryTemporal(this)];
     }
 
     addRow(row: ASTNodeBase) {
@@ -251,7 +373,6 @@ H.left: / H.center: / H.right: 接受对应槽的任意零时长 DSL 内容
     readonly slots: [HeadSlotNode, HeadSlotNode, HeadSlotNode];
     readonly size: number;
     readonly gap: number;
-    private readonly members: TemporalNodeBase[] = [];
     private createdBySugar = false;
 
     override get children() { return this.slots; }
@@ -374,60 +495,37 @@ H.left: / H.center: / H.right: 接受对应槽的任意零时长 DSL 内容
         super(span, parent);
         this.size = ctx.fontSize;
         this.gap = ctx.length2px(this.getArgValue(args, ctx)[3] as LengthValue);
-        // laneKey 必须区分同一宿主轨上的多个 Head；源码起点是稳定且无需额外存储的身份
-        const laneKey = `head/rows/${span.start}`;
-        let titleBottom = 0;
-        let leftExtent: Extent | null = null;
-        let rightExtent: Extent | null = null;
-        const sideTracks = (name: SideName): TrackArrangement => ({
-            laneKey: `${laneKey}/${name}`,
-            hostIndex: null,
-            measure: members => measureRows(members, this.gap, extent => {
-                if (name === "left") leftExtent = extent;
-                else rightExtent = extent;
-            }),
-            place: () => {
-                const extent = name === "left" ? leftExtent : rightExtent;
-                if (!extent) return titleBottom;
-                const leftHeight = leftExtent ? leftExtent.bottom - leftExtent.top : 0;
-                const rightHeight = rightExtent ? rightExtent.bottom - rightExtent.top : 0;
-                // 两侧共享底边；以较高侧定总高度，使它的顶部恰好贴标题底边
-                const targetBottom = titleBottom + Math.max(leftHeight, rightHeight);
-                return targetBottom - extent.bottom;
-            },
-        });
-        const centerMeasure: MeasureFn = members => {
-            const placements = measureRows(members, this.gap);
-            const first = placements.find(placement => placement !== null);
-            titleBottom = first ? first.offset + first.extent.bottom : 0;
-            return placements;
-        };
         const rows = (name: SlotName, index: number) => {
             const value = args.get(name) ?? args.get(index);
             if (!(value instanceof ASTNodeBase)) return [];
             return value instanceof ASTBraceNode ? value.content : [value];
         };
         this.slots = [
-            new HeadSlotNode(span, this, "left", rows("left", 0), sideTracks("left")),
-            new HeadSlotNode(span, this, "center", rows("center", 1), {
-                laneKey: `${laneKey}/center`,
-                hostIndex: null,
-                measure: centerMeasure,
-            }),
-            new HeadSlotNode(span, this, "right", rows("right", 2), sideTracks("right")),
+            new HeadSlotNode(span, this, "left", rows("left", 0)),
+            new HeadSlotNode(span, this, "center", rows("center", 1)),
+            new HeadSlotNode(span, this, "right", rows("right", 2)),
         ];
     }
 
     override loweringEnter(ctx: LoweringContext) {
-        this.members.length = 0;
         // 收集真实全局事件：退出时校验时值，放置后按 AST 行归属做横向对齐
-        ctx.beginLoweringGroup(this, { onTemporal: node => this.members.push(node) });
+        const group = {
+            members: [] as TemporalNodeBase[],
+            onTemporal(node: TemporalNodeBase) { this.members.push(node); },
+        };
+        ctx.beginLoweringGroup(this, group);
         return [];
     }
 
     override loweringExit(ctx: LoweringContext) {
-        ctx.endLoweringGroup(this);
-        for (const node of this.members) {
+        const { members } = ctx.endLoweringGroup(this) as LoweringGroup & { members: TemporalNodeBase[] };
+        const head = ctx.getTemporalNodes(this.slots[0])[0] as HeadBoundaryTemporal;
+        head.members = members;
+        head.slots = this.slots.map(ast => {
+            const [start, end] = ctx.getTemporalNodes(ast) as readonly HeadBoundaryTemporal[];
+            return { ast, start, end };
+        });
+        for (const node of members) {
             if (!node.T.isZero()) {
                 throw new ErrorDiagnostic(
                     "E_HEAD_NONZERO_DURATION",
@@ -450,40 +548,6 @@ H.left: / H.center: / H.right: 接受对应槽的任意零时长 DSL 内容
         this.slots.find(slot => slot.name === name)!.addRow(row);
     }
 
-    prepareHead(line: HorizontalLineView) {
-        if (this.members.some(node => isVisualTemporalNode(node) && node.layoutLine !== line.index)) {
-            throw new ErrorDiagnostic("E_HEAD_INTERNAL_BREAK", "@head 的内容不能跨谱面行", this.sourceSpan);
-        }
-        const [left, center, right] = this.slots;
-        // 最外侧不受墙的推力，两个点才能落在纸面边缘
-        left.start.springConfig.alpha_L = 0;
-        right.end.springConfig.alpha_R = 0;
-        // 串联弹簧的静长是两端之和、刚度由软端主导，所以只需 center 自己向两侧撑开
-        this.stretch(center.start, "L");
-        this.stretch(center.end, "R");
-        for (const slot of this.slots) {
-            line.registerHorizontalLayoutHook(slot.start, slot.end,
-                context => layoutHeadSlot(context, slot === center));
-        }
-    }
-
-    alignHead() {
-        // 全局列已经完成求解；这里不改 TimeColumn，只覆盖 left/right 主体的最终 box.x
-        // center 不参与后置重排，继续使用全局列坐标
-        const cells = new Map<ASTNodeBase, VisualTemporalNode[]>();
-        for (const member of this.members) {
-            if (!isVisualTemporalNode(member)) continue;
-            const cell = this.sideCellOf(member.ast);
-            if (!cell) continue;
-            const members = cells.get(cell);
-            if (members) members.push(member);
-            else cells.set(cell, [member]);
-        }
-        const [left, , right] = this.slots;
-        this.packRows(left, left.start.box.x, "left", cells);
-        this.packRows(right, right.end.box.x, "right", cells);
-    }
-
     override toString(source: string) {
         const slots = this.slots
             .filter(slot => slot.rows.length > 0)
@@ -497,63 +561,6 @@ H.left: / H.center: / H.right: 接受对应槽的任意零时长 DSL 内容
         return `@head(\n${slots.join(",\n")}\n)`;
     }
 
-    private stretch(node: VisualTemporalNode, side: "L" | "R") {
-        const alpha = side === "L" ? "alpha_L" : "alpha_R";
-        const beta = side === "L" ? "beta_L" : "beta_R";
-        // alpha 撑开槽间空间；beta 反向缩放，避免弹簧刚度随 alpha 一起失控
-        node.springConfig[alpha] = node.springConfig[alpha]! * HEAD_STRETCH;
-        node.springConfig[beta] = node.springConfig[beta]! * 3 / HEAD_STRETCH;
-    }
-
-    private packRows(
-        slot: HeadSlotNode,
-        target: number,
-        side: SideName,
-        cells: ReadonlyMap<ASTNodeBase, VisualTemporalNode[]>,
-    ) {
-        const gap = this.size * ITEM_GAP_EM;
-        const fromLeft = side === "left";
-        const direction = fromLeft ? 1 : -1;
-        for (const row of slot.rows) {
-            const rowCells = row instanceof ASTBraceNode ? row.content : [row];
-            let cursor = target;
-            for (
-                let index = fromLeft ? 0 : rowCells.length - 1;
-                index >= 0 && index < rowCells.length;
-                index += direction
-            ) {
-                const members = cells.get(rowCells[index]);
-                if (!members) continue;
-                let left = Infinity;
-                let right = -Infinity;
-                for (const member of members) {
-                    left = Math.min(left, member.box.x);
-                    right = Math.max(right, member.box.x + member.box.w);
-                }
-                const offset = cursor - (fromLeft ? left : right);
-                for (const member of members) member.box.x += offset;
-                // 复合单元先整体平移，再让其内部成员读取彼此的最终坐标
-                for (const member of members) member.onPlaced?.();
-                cursor += direction * (right - left + gap);
-            }
-        }
-    }
-
-    /** 找到成员所属侧栏行的顶层单元；复合节点内部成员会归回同一个直接子节点 */
-    private sideCellOf(ast: ASTNodeBase): ASTNodeBase | null {
-        let cell = ast;
-        while (cell.parent) {
-            const parent = cell.parent;
-            const slot = parent instanceof HeadSlotNode
-                ? parent
-                : parent instanceof ASTBraceNode && parent.parent instanceof HeadSlotNode
-                    ? parent.parent
-                    : null;
-            if (slot?.owner === this) return slot.name === "center" ? null : cell;
-            cell = parent;
-        }
-        return null;
-    }
 }
 
 export const HeadNode: ASTFunctionClass = HeadFunction;

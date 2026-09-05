@@ -107,9 +107,9 @@ export class ParserContext {
         const deSugarAtomFns: deSugarAtomFunction[] = [];
         const deSugarRelationFns: deSugarRelationFunction[] = [];
         for (const fnClass of cls) {
-            const deSugarAtom = (fnClass as unknown as typeof ASTFunctionNode).deSugarAtom;
+            const deSugarAtom = fnClass.deSugarAtom;
             if (deSugarAtom && deSugarAtom !== ASTFunctionNode.deSugarAtom) deSugarAtomFns.push(deSugarAtom);
-            const deSugarRelation = (fnClass as unknown as typeof ASTFunctionNode).deSugarRelation;
+            const deSugarRelation = fnClass.deSugarRelation;
             if (deSugarRelation && deSugarRelation !== ASTFunctionNode.deSugarRelation) deSugarRelationFns.push(deSugarRelation);
         } return [deSugarAtomFns, deSugarRelationFns];
     }
@@ -144,7 +144,7 @@ export class ParserContext {
     registerFunctions(functionClasses: ASTFunctionClass[]) {
         const map = this.functions;
         for (const funcClass of functionClasses) {
-            const def = (funcClass as unknown as typeof ASTFunctionNode).def;
+            const def = funcClass.def;
             if (!def) continue; // 没有定义的函数不注册
             const names = Array.isArray(def.name) ? def.name : [def.name];
             for (const name of names) {
@@ -211,7 +211,7 @@ export class ParserContext {
         this.addSyntax("function", call.nameSpan);
         this.addSyntax("punctuation", call.openParenSpan);
         this.addSyntax("punctuation", call.closeParenSpan);
-        const def = this.functions.get(call.name.toLowerCase())?.prototype.def;
+        const def = this.functions.get(call.name.toLowerCase())?.def;
         for (let index = 0; index < call.args.length; index++) {
             const arg = call.args[index];
             this.addSyntax("property", arg.nameSpan);
@@ -393,9 +393,8 @@ export class ParserContext {
 
     parseCallNode(callNode: GrammarCallNode): ASTFunctionNode {
         const callFNClass = this.functions.get(callNode.name.toLowerCase());
-        const def = callFNClass?.prototype.def;
-        const defArgs: FunctionArgDef[] | undefined = def?.args;
-        if (!callFNClass || !defArgs) {
+        const def = callFNClass?.def;
+        if (!callFNClass || !def) {
             if (this.strict) {
                 throw Diagnostic.error.UnknownFunction(callNode.name, callNode.span);
             } else {
@@ -406,6 +405,7 @@ export class ParserContext {
             // 未知函数，保留位置，但直接跳过
             return new ASTFunctionNode(callNode.span, null);
         }
+        const defArgs: FunctionArgDef[] = def.args;
         // 用实际传参查询定义
         if (!callNode.typed) {
             const args: FunctionArgs = new Map();
