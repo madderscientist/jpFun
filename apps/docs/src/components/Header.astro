@@ -1,0 +1,83 @@
+---
+import Search from "@astrojs/starlight/components/Search.astro";
+import SiteTitle from "@astrojs/starlight/components/SiteTitle.astro";
+import ThemeSelect from "@astrojs/starlight/components/ThemeSelect.astro";
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const withBase = (path: string) => `${base}/${path}`;
+const current = Astro.url.pathname;
+---
+
+<div class="site-header">
+  <div class="title-wrapper sl-flex">
+    <SiteTitle />
+  </div>
+  <nav class="site-nav print:hidden" aria-label="主导航">
+    <a href={withBase("docs/")} aria-current={current.startsWith(withBase("docs/")) ? "page" : undefined}>文档</a>
+    <a href={withBase("examples/")} aria-current={current.startsWith(withBase("examples")) ? "page" : undefined}>示例乐谱</a>
+    <a href={withBase("playground/")} target="_blank" rel="noopener noreferrer">编辑器</a>
+    <a class="github-link" href="https://github.com/madderscientist/jpFun">GitHub</a>
+  </nav>
+  <div class="search sl-flex print:hidden">
+    <Search />
+  </div>
+  <div class="sl-flex print:hidden theme-select">
+    <ThemeSelect />
+  </div>
+</div>
+
+<style>
+  @layer starlight.core {
+    .site-header {
+      display: grid;
+      grid-template-columns: auto auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: var(--sl-nav-gap);
+      height: 100%;
+    }
+
+    .title-wrapper {
+      min-width: 0;
+      margin: -0.25rem;
+      padding: 0.25rem;
+      overflow: clip;
+    }
+
+    .site-nav {
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+      white-space: nowrap;
+    }
+
+    .site-nav a {
+      color: var(--sl-color-text);
+      font-size: var(--sl-text-sm);
+      text-decoration: none;
+    }
+
+    .site-nav a:hover, .site-nav a[aria-current] {
+      color: var(--sl-color-accent-high);
+    }
+
+    .search {
+      justify-self: end;
+      justify-content: flex-end;
+      width: 100%;
+      max-width: 22rem;
+    }
+
+    .theme-select {
+      align-items: center;
+    }
+
+    @media (max-width: 49.99rem) {
+      .site-header { grid-template-columns: 1fr auto auto; gap: .5rem 1rem; padding-right: 2.5rem; }
+      .site-nav { grid-row: 2; grid-column: 1 / -1; gap: 1.5rem; }
+      .site-nav a { font-size: .875rem; }
+      .github-link { display: none; }
+      .search { grid-row: 1; grid-column: 2; }
+      .theme-select { grid-row: 1; grid-column: 3; }
+    }
+  }
+</style>

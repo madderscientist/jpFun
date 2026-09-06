@@ -5,13 +5,18 @@
   "packageManager": "pnpm@12.1.0",
   "scripts": {
     "clean": "node scripts/clean.mjs",
-    "build": "pnpm run clean && pnpm run build:core && pnpm run build:playground",
+    "build": "pnpm run clean && pnpm run build:core && pnpm run build:playground && pnpm run build:docs && node scripts/assemble-site.mjs",
     "build:core": "pnpm --filter jpfun build",
     "build:playground": "pnpm --filter @jpfun/playground build",
-    "test": "pnpm --filter jpfun test",
+    "build:docs": "pnpm --filter @jpfun/docs build",
+    "test": "pnpm run build:core && pnpm --filter jpfun exec node --import tsx --test \"test/*.test.ts\" \"../../apps/playground/test/*.test.mjs\"",
     "test:update": "pnpm --filter jpfun test:update",
     "typecheck": "pnpm --filter jpfun typecheck",
     "predev": "pnpm run build:core",
-    "dev": "node scripts/dev-server.mjs"
+    "dev": "node scripts/dev-server.mjs",
+    "predev:playground": "pnpm run build:core",
+    "dev:playground": "pnpm --filter @jpfun/playground dev",
+    "predev:docs": "pnpm run build:core",
+    "dev:docs": "pnpm --filter @jpfun/docs dev"
   }
 }

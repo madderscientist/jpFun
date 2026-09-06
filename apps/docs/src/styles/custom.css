@@ -1,0 +1,73 @@
+:root {
+  --sl-color-accent-low: #193d2f;
+  --sl-color-accent: #6bad87;
+  --sl-color-accent-high: #b9e3cb;
+  --site-green: #2d7050;
+  --site-coral: #db7964;
+  --site-blue: #789ed0;
+  --site-surface: #202724;
+  --site-error: #ffb4a5;
+  --site-brand-font: "Trebuchet MS", "Arial Rounded MT Bold", "Microsoft YaHei", sans-serif;
+  --sl-font: "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --sl-font-mono: "Cascadia Code", Consolas, monospace;
+  --sl-content-width: 52rem;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #e7f1eb;
+  --sl-color-accent: #2d7050;
+  --sl-color-accent-high: #24573e;
+  --sl-color-bg: #fcfdfc;
+  --sl-color-bg-nav: #fcfdfc;
+  --sl-color-bg-sidebar: #f5f7f6;
+  --site-coral: #bd523e;
+  --site-blue: #4f78ad;
+  --site-surface: #f0f4f2;
+  --site-error: #a62919;
+}
+
+.site-title { font-family: var(--site-brand-font); font-weight: 800; }
+.sl-markdown-content { line-height: 1.85; }
+.sl-markdown-content:not(:has(.site-page)) h2 { border-top: 1px solid var(--sl-color-hairline); padding-top: 1.5rem; }
+.sl-markdown-content :is(h1, h2, h3, h4) { letter-spacing: 0; }
+.sl-markdown-content table { display: block; overflow-x: auto; font-size: .875rem; }
+.sl-markdown-content .design-story { margin-top: 1.25rem; }
+.sl-markdown-content .design-story summary {
+  width: fit-content;
+  padding: .55rem .85rem;
+  border: 1px solid var(--sl-color-accent);
+  border-radius: 6px;
+  color: var(--sl-color-accent-high);
+  font-weight: 700;
+  cursor: pointer;
+}
+.sl-markdown-content .design-story summary:hover { background: var(--sl-color-accent-low); }
+.sl-markdown-content .design-story[open] summary { margin-bottom: 1.5rem; }
+:focus-visible { outline-offset: 3px; }
+
+@media (min-width: 72rem) {
+  [data-has-sidebar][data-has-toc] .right-sidebar-container,
+  [data-has-sidebar][data-has-toc] .right-sidebar {
+    width: 14rem;
+  }
+
+  [data-has-sidebar][data-has-toc] .right-sidebar-container {
+    flex: none;
+  }
+
+  [data-has-sidebar][data-has-toc] .right-sidebar-panel .sl-container {
+    width: auto;
+    max-width: none;
+  }
+
+  [data-has-sidebar][data-has-toc] .main-pane {
+    --sl-content-margin-inline: auto;
+    flex: 1;
+    min-width: 0;
+    width: auto;
+  }
+}
+
+@media (max-width: 49.99rem) {
+  :root { --sl-nav-height: 7rem; }
+}

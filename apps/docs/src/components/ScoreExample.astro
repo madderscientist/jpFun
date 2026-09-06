@@ -1,0 +1,99 @@
+---
+import { analyzeScoreSyntax, type SyntaxTokenKind } from "jpfun";
+import { Icon } from "@astrojs/starlight/components";
+import OpenScoreButton from "./OpenScoreButton.astro";
+import ScoreSvg from "./ScoreSvg.astro";
+
+interface Props {
+  source: string;
+  title?: string;
+  fit?: "fill" | "natural";
+}
+
+const { source, title = "jpFun 谱例", fit = "fill" } = Astro.props;
+const tokens = analyzeScoreSyntax(source).syntax.tokens;
+const segments: { text: string; kind?: SyntaxTokenKind }[] = [];
+let offset = 0;
+for (const token of tokens) {
+  if (token.span.start > offset) segments.push({ text: source.slice(offset, token.span.start) });
+  segments.push({ text: source.slice(token.span.start, token.span.end), kind: token.kind });
+  offset = token.span.end;
+}
+if (offset < source.length) segments.push({ text: source.slice(offset) });
+---
+
+<figure class="score-example not-content">
+  <figcaption><span>{title}</span><OpenScoreButton source={source} /></figcaption>
+  <div class="score-code-panel">
+    <pre class="score-code" aria-label="jpFun 源码"><code>{segments.map((segment) => segment.kind ? <span class={`token-${segment.kind}`}>{segment.text}</span> : segment.text)}</code></pre>
+    <div class="copy-control">
+      <button type="button" class="copy-code" aria-label="复制代码" data-state="idle">
+        <Icon name="document" class="copy-icon" />
+        <Icon name="approve-check" class="copied-icon" />
+      </button>
+      <span class="copy-tooltip" role="status">复制代码</span>
+    </div>
+  </div>
+  <div class="score-result" tabindex="0" role="region" aria-label={`${title}的谱面`}>
+    <ScoreSvg source={source} label={title} fit={fit} />
+  </div>
+</figure>
+
+<script>
+  for (const button of document.querySelectorAll<HTMLButtonElement>(".copy-code")) {
+    const panel = button.closest(".score-code-panel")!;
+    const tooltip = panel.querySelector<HTMLElement>(".copy-tooltip")!;
+    let resetTimer: number | undefined;
+    button.addEventListener("click", async () => {
+      window.clearTimeout(resetTimer);
+      button.disabled = true;
+      try {
+        await navigator.clipboard.writeText(panel.querySelector("code")!.textContent ?? "");
+        button.dataset.state = "copied";
+        tooltip.textContent = "已复制";
+      } catch {
+        button.dataset.state = "error";
+        tooltip.textContent = "复制失败，请手动选择代码";
+      } finally {
+        button.disabled = false;
+        resetTimer = window.setTimeout(() => {
+          button.dataset.state = "idle";
+          tooltip.textContent = "复制代码";
+        }, 2500);
+      }
+    });
+  }
+</script>
+
+<style>
+  .score-example { margin: 1.75rem 0; border: 1px solid var(--sl-color-gray-5); border-radius: 6px; overflow: hidden; }
+  figcaption { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem 1rem; padding: .6rem 1rem; border-bottom: 1px solid var(--sl-color-gray-5); background: var(--site-surface); }
+  figcaption > span { font-size: .875rem; font-weight: 600; }
+  .score-code-panel { display: grid; grid-template-columns: minmax(0, 1fr) 3rem; position: relative; border-bottom: 1px solid var(--sl-color-gray-5); background: var(--sl-color-bg); }
+  .score-code { min-width: 0; margin: 0; padding: 1.25rem 1.5rem; overflow: auto; border-radius: 0; background: transparent; color: var(--sl-color-text); font: .9rem/1.9 var(--sl-font-mono); tab-size: 4; }
+  .score-code code { font: inherit; }
+  .copy-control { position: relative; padding-top: .75rem; }
+  .copy-code { display: grid; place-items: center; width: 2rem; height: 2rem; border: 1px solid var(--sl-color-gray-5); border-radius: 4px; color: var(--sl-color-gray-2); background: var(--sl-color-bg); cursor: pointer; }
+  .copy-code:hover, .copy-code:focus-visible, .copy-code[data-state="copied"] { color: var(--sl-color-accent-high); background: var(--sl-color-accent-low); border-color: var(--sl-color-accent); }
+  .copy-code :global(.copied-icon), .copy-code[data-state="copied"] :global(.copy-icon) { display: none; }
+  .copy-code[data-state="copied"] :global(.copied-icon) { display: block; }
+  .copy-tooltip { position: absolute; right: 1rem; top: 3.15rem; z-index: 2; width: max-content; max-width: 14rem; padding: .35rem .6rem; border-radius: 4px; background: var(--sl-color-gray-1); color: var(--sl-color-black); font: .75rem/1.5 var(--sl-font); opacity: 0; pointer-events: none; }
+  .copy-code:hover + .copy-tooltip, .copy-code:focus-visible + .copy-tooltip, .copy-code:not([data-state="idle"]) + .copy-tooltip { opacity: 1; }
+  .copy-code[data-state="error"] { color: var(--site-error); }
+  .score-result { padding: .5rem 1rem; overflow: auto; background: #fff; color: #171717; }
+  .token-comment, .token-punctuation { color: #8a969a; }
+  .token-comment { font-style: italic; }
+  .token-function, .token-property { color: #88baf0; }
+  .token-function { font-weight: 600; }
+  .token-atom, .token-number, .token-length { color: #90ceb0; }
+  .token-string { color: #e5c489; }
+  .token-label { color: #e6a6a9; }
+  .token-operator, .token-boolean { color: #c6b2ee; }
+  :global([data-theme="light"]) .token-comment, :global([data-theme="light"]) .token-punctuation { color: #65766e; }
+  :global([data-theme="light"]) .token-function, :global([data-theme="light"]) .token-property { color: #225fa2; }
+  :global([data-theme="light"]) .token-atom, :global([data-theme="light"]) .token-number, :global([data-theme="light"]) .token-length { color: #246449; }
+  :global([data-theme="light"]) .token-string { color: #8d551b; }
+  :global([data-theme="light"]) .token-label { color: #a13952; }
+  :global([data-theme="light"]) .token-operator, :global([data-theme="light"]) .token-boolean { color: #7953a1; }
+  @media (max-width: 30rem) { figcaption { padding-inline: .75rem; } .score-code { padding: 1rem; } .score-result { padding-inline: .5rem; } }
+</style>

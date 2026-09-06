@@ -1,0 +1,36 @@
+---
+import MarkdownContent from "@astrojs/starlight/components/MarkdownContent.astro";
+import "katex/dist/katex.min.css";
+---
+
+<MarkdownContent><slot /></MarkdownContent>
+
+<script>
+  const blocks = [...document.querySelectorAll<HTMLElement>('pre[data-language="mermaid"]')];
+  if (blocks.length > 0) {
+    const { default: mermaid } = await import("mermaid");
+    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "neutral" });
+    for (const [index, block] of blocks.entries()) {
+      try {
+        const lines = [...block.querySelectorAll(".ec-line")];
+        const source = lines.length > 0 ? lines.map((line) => line.textContent).join("\n") : block.textContent ?? "";
+        await mermaid.parse(source);
+        const { svg } = await mermaid.render(`jpfun-diagram-${index}`, source);
+        const figure = document.createElement("figure");
+        figure.className = "architecture-diagram not-content";
+        figure.setAttribute("role", "img");
+        figure.setAttribute("aria-label", "架构流程图");
+        figure.innerHTML = svg;
+        (block.closest(".expressive-code") ?? block).replaceWith(figure);
+      } catch {
+        block.setAttribute("aria-label", "架构图源码");
+      }
+    }
+  }
+</script>
+
+<style is:global>
+  .architecture-diagram { margin: 1.5rem 0; padding: 1rem; background: #fff; border: 1px solid #dce2de; border-radius: 4px; overflow-x: auto; }
+  .architecture-diagram svg { display: block; min-width: 30rem; margin-inline: auto; }
+  .katex-display { overflow-x: auto; overflow-y: hidden; padding-block: .5rem; }
+</style>

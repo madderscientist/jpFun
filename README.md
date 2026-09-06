@@ -5,7 +5,7 @@
 
 > 框架实现机制，函数定义行为；函数之间解耦，注册到框架中被调用。
 
-[在线试用](https://madderscientist.github.io/jpFun/)
+[在线编辑器](https://madderscientist.github.io/jpFun/playground)
 
 ## 起因
 乐谱排版 DSL 并不是一个新鲜玩意。早在 1996 年，LilyPond 就已经实现了一个功能完备的五线谱排版系统（简直是乐谱界的 Latex）。同一时期还有 ABC 记谱法等 DSL 方案。
@@ -43,29 +43,44 @@ pnpm test
 
 常用命令：
 ```sh
-pnpm run dev               # 启动 Playground
+pnpm dev                   # 一起启动文档、编辑器及核心编译监听
+pnpm dev:playground        # 只启动编辑器，默认 http://127.0.0.1:4173/
+pnpm dev:docs              # 只启动文档，默认 http://127.0.0.1:4321/
 pnpm run build:core        # 构建核心包
 pnpm run build:playground  # 构建 Playground
 pnpm run typecheck         # 只做类型检查（tsx 跑测试时不检查类型）
 pnpm run test:update       # 重写测试快照基线
 ```
 
+`pnpm dev` 的统一入口默认是 `http://127.0.0.1:4321/`：
+
+- `/`：首页
+- `/docs/`：文档
+- `/examples/`：示例列表
+- `/playground/`：编辑器
+
+文档与编辑器共享同一来源，示例打开时的 localStorage 能直接互通，两边均支持热更新。编辑器内部端口自动分配，无需单独访问。若 4321 已占用，会自动选择下一个可用端口，以终端输出的地址为准；可用 `PORT`、`HOST` 环境变量指定统一入口的端口和监听地址。Ctrl+C 会一起关闭本次启动的服务和核心监听。
+
+三个命令都会先构建核心包。`dev:docs` 与 `dev:playground` 不启动另一个应用，因此单独使用 `dev:docs` 时 `/playground/` 不可用；需要完整跳转流程时使用 `pnpm dev`。修改核心源码需要持续联动时也使用 `pnpm dev`。
+
 ## 仓库结构
 - `packages/jpfun/`：可独立发布的 `jpfun` npm 包、源码与测试
 - `apps/playground/`：通过 `workspace:*` 使用公开包入口的 Vite 网页应用
-- `docs/`：架构与实现文档
+- `apps/docs/`：基于 Starlight 的文档网站，包含教程、函数速查和开发者文档
 - `scripts/`：仓库开发脚本
 
 ## npm 包
 核心包位于 [`packages/jpfun`](./packages/jpfun/README.md)，使用 Apache-2.0 许可证
 
 ## 开发文档
-- [架构总览](docs/ARCHITECTURE.md)
-- [语法解析](docs/parseAST.md)
-- [Lowering](docs/lowering.md)
-- [布局系统](docs/layout.md)
-- [渲染后端](docs/render.md)
-- [编辑器集成](docs/editor.md)
+- [架构总览](apps/docs/src/content/docs/docs/developer/architecture.md)
+- [语法解析](apps/docs/src/content/docs/docs/developer/parser.md)
+- [Lowering](apps/docs/src/content/docs/docs/developer/lowering.md)
+- [布局系统](apps/docs/src/content/docs/docs/developer/layout.md)
+- [渲染后端](apps/docs/src/content/docs/docs/developer/render.md)
+- [播放](apps/docs/src/content/docs/docs/developer/playback.md)
+- [编辑器集成](apps/docs/src/content/docs/docs/developer/editor.md)
+- [教程与网站维护](apps/docs/README.md)
 - [完整语法规范](packages/jpfun/grammar.md)
 
 ## todo

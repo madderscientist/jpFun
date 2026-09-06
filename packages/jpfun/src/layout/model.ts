@@ -1,5 +1,5 @@
 /**
- * 基于弹簧的有时长物体排版模型 原理参考 docs/layout.md
+ * 基于弹簧的有时长物体排版模型 原理参考 apps/docs/src/content/docs/docs/developer/layout.md
  * 基本使用: 借助 layoutElement() 构建 LayoutElement[][]，调用 layout() 函数进行排版
  */
 import type { HorizontalSpringConfig, LayoutBox, TimeLineEvent } from "./types.js";

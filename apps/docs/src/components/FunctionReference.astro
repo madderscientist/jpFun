@@ -1,0 +1,68 @@
+---
+import { defaultFunctions, primaryName, type FunctionArgDef } from "jpfun";
+
+const definitions = defaultFunctions.map((node) => node.prototype.def).filter((definition) => definition !== undefined);
+function defaultValue(value: FunctionArgDef["default"]): string {
+  if (value === null) return "必填";
+  if (typeof value === "object" && "unit" in value) return `${value.value}${value.unit}`;
+  return JSON.stringify(value);
+}
+---
+
+<div class="function-reference not-content">
+  <label class="filter-label" for="function-filter">查找函数</label>
+  <input id="function-filter" type="search" placeholder="名称、别名或功能" autocomplete="off" />
+  <p class="empty" hidden role="status">没有匹配的函数。</p>
+  <div class="function-index" aria-label="函数索引">
+    {definitions.map((definition) => <a href={`#${primaryName(definition)}`}>@{primaryName(definition)}</a>)}
+  </div>
+  {definitions.map((definition) => {
+    const names = Array.isArray(definition.name) ? definition.name : [definition.name];
+    return <section class="function-entry" id={names[0]} data-search={`${names.join(" ")} ${definition.description}`.toLowerCase()}>
+      <h2><a href={`#${names[0]}`}>@{names[0]}</a></h2>
+      {names.length > 1 && <p class="aliases">别名：{names.slice(1).map((name) => `@${name}`).join("、")}</p>}
+      <p class="description">{definition.description}</p>
+      {definition.args.length > 0 && <div class="table-scroll"><table>
+        <thead><tr><th>参数</th><th>类型</th><th>默认值</th></tr></thead>
+        <tbody>{definition.args.map((argument, index) => <tr>
+          <td><code>{argument.name ?? `第 ${index + 1} 个参数`}</code></td>
+          <td>{argument.type}</td><td><code>{defaultValue(argument.default)}</code></td>
+        </tr>)}</tbody>
+      </table></div>}
+      {definition.allowExtraArgs && <p class="aliases">支持额外参数{definition.extraArgType ? `（位置参数类型：${definition.extraArgType}）` : ""}。</p>}
+      {definition.example && <pre><code>{definition.example}</code></pre>}
+    </section>;
+  })}
+</div>
+
+<script>
+  const filter = document.querySelector<HTMLInputElement>("#function-filter")!;
+  const entries = [...document.querySelectorAll<HTMLElement>(".function-entry")];
+  const links = [...document.querySelectorAll<HTMLAnchorElement>(".function-index a")];
+  filter.addEventListener("input", () => {
+    const query = filter.value.trim().replace(/^@/, "").toLowerCase();
+    for (const [index, entry] of entries.entries()) {
+      entry.hidden = !entry.dataset.search!.includes(query);
+      links[index].hidden = entry.hidden;
+    }
+    document.querySelector<HTMLElement>(".function-reference .empty")!.hidden = entries.some((entry) => !entry.hidden);
+  });
+</script>
+
+<style>
+  .filter-label { display: block; font-weight: 600; margin-bottom: .5rem; }
+  input { width: 100%; padding: .8rem 1rem; border: 1px solid var(--sl-color-gray-4); border-radius: 4px; background: var(--sl-color-bg); color: var(--sl-color-text); font: inherit; }
+  .function-index { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin: 1.5rem 0 2rem; }
+  .function-index a, h2 { font-family: var(--sl-font-mono); }
+  .function-entry { border-top: 1px solid var(--sl-color-hairline); padding: 1.5rem 0; scroll-margin-top: 6rem; }
+  h2 { font-size: 1.4rem; margin: 0; }
+  h2 a { text-decoration: none; }
+  p { line-height: 1.8; }
+  .description { white-space: pre-line; }
+  .aliases { color: var(--sl-color-gray-2); font-size: .875rem; }
+  pre { padding: 1rem; background: var(--sl-color-bg-inline-code); overflow: auto; border-radius: 4px; font-size: .875rem; }
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+  th, td { padding: .6rem; text-align: left; border-bottom: 1px solid var(--sl-color-hairline); }
+  [hidden] { display: none; }
+</style>

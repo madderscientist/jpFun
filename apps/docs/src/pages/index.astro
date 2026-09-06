@@ -1,0 +1,128 @@
+---
+import { Icon } from "@astrojs/starlight/components";
+import SitePage from "../components/SitePage.astro";
+import ScoreSvg from "../components/ScoreSvg.astro";
+import { PLAYGROUND_EXAMPLE } from "../../../playground/example";
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const withBase = (path: string) => `${base}/${path}`;
+const advantages = [
+  { number: "01", title: "文本即乐谱", text: "用熟悉的数字记下旋律。复制、搜索、版本管理，都和处理一份文本一样自然。", detail: "纯文本 · 语法糖 · 函数调用" },
+  { number: "02", title: "让排版处理细节", text: "间距、声部对齐和分页交给引擎。和弦、歌词与跨行关系，也能在同一份源码里表达。", detail: "自动排版 · 多声部 · 精确时值" },
+  { number: "03", title: "不止停留在纸面", text: "写下的音符可以播放，也可以导出为图像、PDF 或 MIDI。从记谱到聆听，不必重新输入。", detail: "即时预览 · 播放 · 多格式导出" },
+];
+const guides = [
+  { label: "TUTORIAL", title: "开始写谱", text: "从音符、小节线和节奏开始。", href: "docs/tutorial/" },
+  { label: "REFERENCE", title: "函数速查", text: "参数、别名与常用写法。", href: "docs/reference/" },
+  { label: "DEVELOPERS", title: "理解内部实现", text: "编译流水线、模块边界与扩展。", href: "docs/developer/" },
+];
+
+const indexJPFUN = `@set(fontsize=13px)
+@page(width=720px, height=0px, top=0px, bottom=0px, left=25px, right=25px, gap=0.8em)
+H.title: Another Day of Sun
+H.subtitle: OST from movie "La La Land"
+H.author: Justin Hurwitz/Benj Pasek/Justin Paul
+H.author: jpFun 制谱
+H.signature: 1=Eb4 4/4
+H.tempo: 126
+
+N("Flute"): { @program(73) 0 0 0 0 | 0 0 0 0 | 0 0 0 0 | 0 0 0 0 | {Ab4/ _ $mf} C5/ Eb5/ Eb5// Ab4// 0// Ab4// C5/ Eb5/ Eb5/ | }
+N("Clarinet in Bb"): { @program(71) 0 0 0 0 | 0 0 0 0 | 0 0 0 0 | 0 0 0 0 | {Bb3/ _ $mf} D4/ F4/ F4// Bb3// 0// Bb3// D4/ F4/ F4/ | }
+N("Piano"): { @program(0) {Ab3/ _ $mf} C4/ Eb4/ Eb4// Ab3//@mx114 Ab3//@mx115 @tie(mx114, mx115) Ab3// C4/ Eb4/ Eb4/ | Ab3/ D4/ F4/ F4// Bb3//@mx116 Bb3//@mx117 @tie(mx116, mx117) D4// F4/ Bb4/ Ab4/ | G4/ Eb4/ C4/ C4// G4//@mx118 G4//@mx119 @tie(mx118, mx119) G4// Eb4/ C4/ C4/ | D4/ Bb3/ G3/ G3// D4//@mx120 D4//@mx121 @tie(mx120, mx121) D4// Bb3/ G3/ G3/ | Ab3/ C4/ Eb4/ Eb4// Ab3//@mx122 Ab3//@mx123 @tie(mx122, mx123) Ab3// C4/ Eb4/ Eb4/ | }
+N: { @program(0) {Ab2/ _ $mf} C3/ Eb3/ Eb3// Ab2//@mx308 Ab2//@mx309 @tie(mx308, mx309) Ab2// C3/ Eb3/ Eb3/ | Ab2/ D3/ F3/ F3// Bb2//@mx310 Bb2//@mx311 @tie(mx310, mx311) D3// F3/ Bb3/ Ab3/ | G3/ Eb3/ C3/ C3// G3//@mx312 G3//@mx313 @tie(mx312, mx313) G3// Eb3/ C3/ C3/ | D3/ Bb2/ G2/ G2// D3//@mx314 D3//@mx315 @tie(mx314, mx315) D3// Bb2/ G2/ G2/ | Ab2/ C3/ Eb3/ Eb3// Ab2//@mx316 Ab2//@mx317 @tie(mx316, mx317) Ab2// C3/ Eb3/ Eb3/ |  }
+N("Violin"): { @program(40) 0 0 0 0 | 0 0 0 0 | 0 0 0 0 | 0 0 0 0 | {{Ab4/ ^ $accent} _ $mf} 0/ 0 0 0/ {Ab4/ ^ $accent} | }
+N("ViolonCello"): { @program(42) 0 0 0 0 | 0 0 0 0 | 0 0 0 0 | 0 0 0 0 | {{F2/ ^ $accent} _ $mf} 0/ 0 0 0/ {F2/ ^ $accent} | }
+
+N: {  Ab4/ D5/ F5/ F5// Bb4// 0// D5// F5/ Bb5/ Ab5/ | G5/ Eb5/ Bb4/ Bb4// G5// 0// G5// Eb5/ Bb4/ Bb4/ | D5/ Bb4/ G4/ G4// D5// 0// D5// Bb4/ G4/ G4/ | {0 ^ @box("9",padding=2PX)} 0 0 0 | 0 0 0 0 | }
+N: { Bb3/ E4/ G4/ G4// C4// 0// E4// G4/ C5/ Bb4/ | A4/ F4/ C4/ C4// A4// 0// A4// F4/ C4/ C4/ | E4/ C4/ A3/ A3// E4// 0// E4// C4/ A3/ A3/ | 0 0 0 0 | 0 0 0 0 | }
+N: { Ab3/ D4/ F4/ F4// Bb3//@mx124 Bb3//@mx125 @tie(mx124, mx125) D4// F4/ Bb4/ Ab4/ |  G4/ Eb4/ Bb3/ Bb3// G4//@mx126 G4//@mx127 @tie(mx126, mx127) G4// Eb4/ Bb3/ Bb3/ | D4/ Bb3/ G3/ G3// D4//@mx128 D4//@mx129 @tie(mx128, mx129) D4// Bb3/ G3/ G3/ | F4/ Eb4// F4//@mx130 F4/@mx131 @tie(mx130, mx131) Ab4/ C4 0/ C4/ | Bb3/ Bb3/ D4/ F4// Bb4//@mx132 Bb4/@mx133 @tie(mx132, mx133) Ab4/ G4/ F4/ | }
+N: { Ab2/ D3/ F3/ F3// Bb2//@mx318 Bb2//@mx319 @tie(mx318, mx319) D3// F3/ Bb3/ Ab3/ | G3/ Eb3/ Bb2/ Bb2// G3//@mx320 G3//@mx321 @tie(mx320, mx321) G3// Eb3/ Bb2/ Bb2/ | D3/ Bb2/ G2/ G2// D3//@mx322 D3//@mx323 @tie(mx322, mx323) D3// Bb2/ G2/ G2/ | {0/ _ $mp} {F3/@mx324 ^ Ab3@mx326} {F3@mx325 ^ Ab3@mx327} - - @tie(mx324, mx325) @tie(mx326, mx327) | 0/ {Bb2/@mx328 ^ F3@mx330 ^ Ab3@mx332} {Bb2@mx329 ^ F3@mx331 ^ Ab3@mx333} - - @tie(mx328, mx329) @tie(mx330, mx331) @tie(mx332, mx333) | }
+N: { {Bb4/ ^ $accent} 0/ 0 0 0 | {Eb4/ ^ $accent} 0/ 0 0 0/ {Eb4/ ^ $accent} | {G4/ ^ $accent} 0/ 0 Bb4/ C5/ D5/ Eb5/ | F5/ Eb5// F5//@mx506 F5/@mx507 @tie(mx506, mx507) Ab5/ C5 0/ C5/ | Bb4/ Bb4/ D5/ F5// Bb5//@mx508 Bb5/@mx509 @tie(mx508, mx509) Ab5/ G5/ F5/ | }
+N: { {Bb2/ ^ $accent} 0/ 0 0 0 | {Eb2/ ^ $accent} 0/ 0 0 0/ {Eb2/ ^ $accent} | {G2/ ^ $accent} 0/ 0 0 0 | {F3/ ^ "pizz."} Eb3/ D3/ C3/ Bb2/ Ab2/ G2/ F2/ | Bb2/ C3/ D3/ Bb2/ Bb3/ Ab3/ G3/ F3/ | }
+`;
+---
+
+<SitePage title="jpFun · 函数式简谱语言" description="用简洁文本写简谱，自动排版、即时预览、播放与导出。">
+  <section class="intro reveal" aria-labelledby="brand-title">
+    <div class="wrap intro-layout">
+      <div class="intro-copy">
+        <p class="eyebrow">函数式简谱语言 / OPEN SOURCE</p>
+        <h1 id="brand-title">jp<span>Fun</span><span class="brand-dot" aria-hidden="true">.</span></h1>
+        <p class="tagline">让音乐，写在文本里。</p>
+        <p class="lead">简洁的记谱方式，可组合的函数。<br />从一行旋律，到可排版、可播放的完整乐谱。</p>
+        <div class="actions">
+          <a class="button primary" href={withBase("playground/")} target="_blank" rel="noopener noreferrer">打开编辑器 <Icon name="right-arrow" /></a>
+          <a class="button" href={withBase("docs/tutorial/")}>开始学习 <Icon name="open-book" /></a>
+        </div>
+      </div>
+      <div class="intro-score" aria-hidden="true">
+        <ScoreSvg source={indexJPFUN} />
+      </div>
+    </div>
+  </section>
+  <section class="advantages wrap" aria-labelledby="advantages-title">
+    <div class="section-heading"><p class="eyebrow">WHY JPFUN</p><h2 id="advantages-title">专注音乐，也保留控制。</h2></div>
+    <div class="advantage-grid">
+      {advantages.map((advantage) => <article>
+        <span class="number">{advantage.number}</span>
+        <h3>{advantage.title}</h3><p>{advantage.text}</p><p class="detail">{advantage.detail}</p>
+      </article>)}
+    </div>
+  </section>
+  <section class="learn" aria-labelledby="learn-title">
+    <div class="wrap">
+      <div class="section-heading"><p class="eyebrow">DOCUMENTATION</p><h2 id="learn-title">从这里继续。</h2></div>
+      <div class="guide-grid">{guides.map((guide) => <a class="guide" href={withBase(guide.href)}>
+        <span class="guide-label">{guide.label}</span>
+        <h3>{guide.title}<Icon name="right-arrow" /></h3><p>{guide.text}</p>
+      </a>)}</div>
+    </div>
+  </section>
+</SitePage>
+
+<style>
+  .intro { padding: 4rem 0 3.5rem; border-bottom: 1px solid var(--sl-color-hairline); overflow: clip; }
+  .intro-layout { position: relative; isolation: isolate; }
+  .intro-copy { position: relative; z-index: 1; width: 100%; max-width: 36rem; text-shadow: 0 0 .4rem var(--sl-color-bg); }
+  .intro-score { position: absolute; z-index: 0; top: 0; right: -2rem; bottom: -2rem; width: max(65%, 26rem); overflow: hidden; pointer-events: none; mask-image: linear-gradient(to right, transparent, #000 30%, #000 94%, transparent), linear-gradient(to bottom, #000 75%, transparent 100%); mask-composite: intersect; }
+  .intro .button { text-shadow: none; }
+  .intro .button:not(.primary) { background: var(--sl-color-bg); }
+  :global([data-theme="dark"]) .intro-score { filter: grayscale(1) invert(1); opacity: .75; }
+  h1 { margin: 0; font: 800 7rem/1 var(--site-brand-font); }
+  h1 > span:first-child { color: var(--sl-color-accent-high); }
+  h1 .brand-dot { color: var(--site-coral); }
+  .tagline { font: 600 1.9rem/1.5 "Noto Serif SC", "Songti SC", Georgia, serif; margin: 1.4rem 0 .5rem; }
+  .lead { color: var(--sl-color-gray-2); font-size: 1.05rem; margin: 0 0 1.8rem; }
+  .advantages { padding-block: 3rem 4rem; }
+  .section-heading { margin-bottom: 2rem; }
+  .section-heading .eyebrow { font-size: .7rem; margin-bottom: .6rem; }
+  h2 { margin: 0; font: 600 1.9rem/1.4 "Noto Serif SC", "Songti SC", Georgia, serif; }
+  .advantage-grid, .guide-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2.5rem; }
+  .advantage-grid article { border-top: 2px solid var(--site-green); padding-top: 1rem; }
+  .advantage-grid article:nth-child(2) { border-color: var(--site-coral); }
+  .advantage-grid article:nth-child(3) { border-color: var(--site-blue); }
+  .number { font: .8rem var(--sl-font-mono); color: var(--sl-color-gray-2); }
+  h3 { font-size: 1.15rem; margin: .9rem 0 .7rem; }
+  .advantage-grid p, .guide p { font-size: .925rem; color: var(--sl-color-gray-2); margin: 0; }
+  .advantage-grid .detail { font-size: .75rem; margin-top: 1.5rem; color: var(--sl-color-accent-high); }
+  .learn { padding-block: 3rem 4rem; background: var(--site-surface); }
+  .guide { display: block; text-decoration: none; padding: 1rem 0; border-top: 1px solid var(--sl-color-gray-4); }
+  .guide h3 { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+  .guide-label { font: .7rem var(--sl-font-mono); color: var(--sl-color-gray-2); }
+  .guide:hover h3 { color: var(--sl-color-accent-high); }
+  @media (max-width: 60rem) { h1 { font-size: 5.5rem; } .tagline { font-size: 1.6rem; } }
+  @media (max-width: 50rem) {
+    .intro { padding-block: 2.5rem; }
+    .intro .intro-layout { width: calc(100% - 2rem); }
+    .intro-score { right: -7rem; opacity: .3; }
+    :global([data-theme="dark"]) .intro-score { opacity: .3; }
+    h1 { font-size: 4rem; white-space: nowrap; }
+    .tagline { font-size: 1.4rem; }
+    .lead { font-size: .925rem; }
+    .intro .button { padding-inline: .65rem; font-size: .875rem; }
+    h2 { font-size: 1.5rem; }
+    .advantage-grid, .guide-grid { grid-template-columns: 1fr; gap: 1.5rem; }
+    .advantages, .learn { padding-block: 2.5rem; }
+    .advantage-grid .detail { margin-top: .75rem; }
+  }
+</style>

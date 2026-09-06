@@ -1,4 +1,4 @@
-name: Deploy Playground to GitHub Pages
+name: Deploy jpFun Site to GitHub Pages
 
 on:
   workflow_dispatch:
@@ -31,12 +31,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm run build
+        env:
+          BASE_PATH: /jpFun
 
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: apps/playground/dist
+          path: apps/docs/dist
 
       - name: Deploy to GitHub Pages
         id: deployment

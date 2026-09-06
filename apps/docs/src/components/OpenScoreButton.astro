@@ -1,0 +1,53 @@
+---
+import { Icon } from "@astrojs/starlight/components";
+
+interface Props {
+  source: string;
+}
+
+const { source } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+---
+
+<div class="open-score">
+  <a class="open-score-button" data-source={source} href={`${base}/playground/`} target="_blank" rel="noopener noreferrer">
+    在编辑器中打开 <Icon name="right-arrow" />
+  </a>
+  <p class="open-score-error" role="alert" hidden></p>
+</div>
+
+<script>
+  import { DRAFT_STORAGE_KEY } from "../../../playground/document";
+
+  for (const button of document.querySelectorAll<HTMLAnchorElement>(".open-score-button")) {
+    const prepareSource = (event: MouseEvent) => {
+      if (event.button !== 0 && event.button !== 1) return;
+      const source = button.dataset.source!;
+      const error = button.parentElement!.querySelector<HTMLElement>(".open-score-error")!;
+      error.hidden = true;
+      try {
+        const draft = localStorage.getItem(DRAFT_STORAGE_KEY);
+        if (draft !== null && draft !== source && !window.confirm("打开谱例会替换编辑器中的本地草稿。请确认已保存需要保留的内容，是否继续？")) {
+          event.preventDefault();
+          return;
+        }
+        localStorage.setItem(DRAFT_STORAGE_KEY, source);
+      } catch {
+        event.preventDefault();
+        error.textContent = "无法写入本地草稿，请允许浏览器存储后重试。";
+        error.hidden = false;
+      }
+    };
+    button.addEventListener("click", prepareSource);
+    button.addEventListener("auxclick", prepareSource);
+  }
+</script>
+
+<style>
+  .open-score { min-width: 0; }
+  .open-score-button { display: inline-flex; align-items: center; justify-content: center; gap: .65rem; min-height: 2.5rem; padding: .5rem .8rem; border: 1px solid var(--sl-color-gray-5); border-radius: 4px; background: var(--sl-color-bg); color: var(--sl-color-accent-high); font: 600 .8rem/1.5 var(--sl-font); white-space: nowrap; text-decoration: none; cursor: pointer; }
+  .open-score-button:hover { background: var(--sl-color-accent-low); border-color: var(--sl-color-accent); }
+  .open-score-button:focus-visible { outline: 2px solid var(--sl-color-accent); outline-offset: 3px; }
+  .open-score-error { max-width: 22rem; margin: .5rem 0 0; color: var(--site-error); font: .8rem/1.6 var(--sl-font); }
+  [hidden] { display: none; }
+</style>

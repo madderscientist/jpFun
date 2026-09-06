@@ -1,0 +1,24 @@
+---
+import { compileScore, renderLayoutPagesToSvg } from "jpfun";
+
+interface Props {
+  source: string;
+  label?: string;
+  fit?: "fill" | "natural";
+}
+
+const { source, label = "简谱渲染结果", fit = "fill" } = Astro.props;
+const pages = renderLayoutPagesToSvg(compileScore(source).layout);
+---
+
+<div class="score-svg" data-fit={fit} role="img" aria-label={label}>
+  {pages.map((svg) => <div class="score-page" set:html={svg} />)}
+</div>
+
+<style>
+  .score-svg { width: 100%; }
+  .score-page + .score-page { margin-top: 1rem; border-top: 1px solid #e2e6e3; }
+  .score-page :global(svg) { display: block; height: auto; }
+  [data-fit="fill"] .score-page :global(svg) { width: 100%; }
+  [data-fit="natural"] .score-page :global(svg) { width: auto; max-width: none; }
+</style>

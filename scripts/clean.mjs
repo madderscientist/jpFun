@@ -5,4 +5,5 @@ await Promise.all([
     "packages/jpfun/dist",
     "packages/jpfun/tsconfig.tsbuildinfo",
     "apps/playground/dist",
+    "apps/docs/dist",
 ].map(path => rm(path, { recursive: true, force: true })));

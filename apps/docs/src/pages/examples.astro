@@ -1,0 +1,43 @@
+---
+import OpenScoreButton from "../components/OpenScoreButton.astro";
+import SitePage from "../components/SitePage.astro";
+import { examples } from "../data/examples";
+---
+
+<SitePage title="示例乐谱" description="浏览 jpFun 示例，在编辑器中打开并试写。">
+  <section class="catalog wrap reveal" aria-labelledby="examples-title">
+    <header class="catalog-heading">
+      <p class="eyebrow">EXAMPLES / 乐谱集</p>
+      <h1 id="examples-title">示例乐谱<span>{String(examples.length).padStart(2, "0")}</span></h1>
+    </header>
+    <ul class="example-list">
+      {examples.map((example, index) => <li class="example" id={example.id}>
+        <span class="number" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+        <div class="example-info">
+          <h2>{example.title}</h2>
+          <p>{example.description}</p>
+        </div>
+        <OpenScoreButton source={example.source} />
+      </li>)}
+    </ul>
+  </section>
+</SitePage>
+
+<style>
+  .catalog { padding-block: 4rem 5rem; min-height: calc(100svh - var(--sl-nav-height) - 8rem); }
+  .catalog-heading { margin-bottom: 2.5rem; }
+  h1 { margin: 0; font-size: 2.75rem; }
+  h1 span { margin-left: 1rem; color: var(--site-coral); font: 1rem var(--sl-font-mono); vertical-align: top; }
+  .example-list { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--sl-color-gray-4); }
+  .example { display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; align-items: center; gap: 1.5rem; padding: 1.75rem 0; border-bottom: 1px solid var(--sl-color-hairline); }
+  .example-info { min-width: 0; }
+  .number { align-self: start; padding-top: .25rem; font: .8rem var(--sl-font-mono); color: var(--sl-color-gray-2); }
+  h2 { font-size: 1.125rem; margin: 0 0 .5rem; }
+  .example-info > p { max-width: 42rem; margin: 0; font-size: .925rem; color: var(--sl-color-gray-2); }
+  @media (max-width: 50rem) {
+    .catalog { padding-block: 2.5rem; }
+    h1 { font-size: 2.2rem; }
+    .example { grid-template-columns: 1.5rem minmax(0, 1fr); gap: 1rem; }
+    .example :global(.open-score) { grid-column: 2; justify-self: end; }
+  }
+</style>

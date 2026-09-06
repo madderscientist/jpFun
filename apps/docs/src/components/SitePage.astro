@@ -1,0 +1,50 @@
+---
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+
+interface Props {
+  title: string;
+  description: string;
+}
+const { title, description } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+---
+
+<StarlightPage frontmatter={{ title, description, template: "splash", pagefind: false }} lang="zh-CN">
+  <div class="site-page not-content">
+    <slot />
+    <footer class="site-footer">
+      <a class="wordmark" href={`${base}/`}>jpFun<span>函数式简谱语言</span></a>
+      <div><a href={`${base}/docs/`}>文档</a><a href="https://github.com/madderscientist/jpFun">GitHub</a><span>Apache-2.0</span></div>
+    </footer>
+  </div>
+</StarlightPage>
+
+<style is:global>
+  body:has(.site-page) .main-pane main > .content-panel:first-child { display: none; }
+  body:has(.site-page) .content-panel { border: 0; padding: 0; }
+  body:has(.site-page) .main-pane { width: 100%; }
+  body:has(.site-page) .sl-container { max-width: none; }
+  body:has(.site-page) .main-frame { padding-top: var(--sl-nav-height); }
+  .site-page { color: var(--sl-color-text); }
+  .site-page *, .site-page *::before, .site-page *::after { box-sizing: border-box; letter-spacing: 0; }
+  .site-page .wrap { width: min(100% - 3rem, 70rem); margin-inline: auto; }
+  .site-page h1, .site-page h2, .site-page h3 { color: var(--sl-color-white); line-height: 1.25; }
+  .site-page p { line-height: 1.85; }
+  .site-page .eyebrow { margin: 0 0 1rem; font-size: .8rem; font-weight: 600; color: var(--sl-color-accent-high); }
+  .site-page .actions { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; }
+  .site-page .button { display: inline-flex; align-items: center; justify-content: center; gap: .75rem; padding: .8rem 1.2rem; border: 1px solid var(--sl-color-gray-4); border-radius: 4px; color: var(--sl-color-white); text-decoration: none; font: inherit; font-size: .95rem; background: transparent; cursor: pointer; }
+  .site-page .button.primary { background: var(--site-green); border-color: var(--site-green); color: #fff; }
+  .site-page .button:hover { border-color: var(--sl-color-accent); background: var(--sl-color-accent-low); }
+  .site-page .button.primary:hover { background: #21593f; color: #fff; }
+  .site-page a:focus-visible, .site-page button:focus-visible { outline: 3px solid var(--sl-color-accent); outline-offset: 4px; }
+  .site-footer { max-width: 70rem; margin: 0 auto; padding: 2rem 0; display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; border-top: 1px solid var(--sl-color-hairline); font-size: .8rem; }
+  .site-footer a { text-decoration: none; color: var(--sl-color-text); }
+  .site-footer .wordmark { font: 800 1.3rem var(--site-brand-font); color: var(--sl-color-white); }
+  .site-footer .wordmark span { font: .8rem var(--sl-font); margin-left: 1rem; color: var(--sl-color-gray-2); }
+  .site-footer > div { display: flex; flex-wrap: wrap; gap: 1.25rem; }
+  @media (max-width: 50rem) { .site-footer { margin-inline: 1.5rem; flex-direction: column; align-items: flex-start; } }
+  @media (prefers-reduced-motion: no-preference) {
+    .site-page .reveal { animation: reveal .6s ease-out both; }
+    @keyframes reveal { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  }
+</style>
