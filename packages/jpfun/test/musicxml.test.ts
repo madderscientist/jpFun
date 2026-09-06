@@ -468,7 +468,7 @@ test("MusicXML first/second ending 生成 volta 并控制反复顺序", () => {
     assert(source.includes("@page(") && source.includes("Real Title")
       && source.includes("Subtitle") && source.includes("Composer") && !source.includes("Untitled Score"),
     `页面与 credit 元数据应写入源码：${source}`);
-    assert(compileScore(source).parser.diagnostics.length === 0, `带页面谱头的结果应无诊断：${source}`);
+    assert(compileScore(source).diagnostics.length === 0, `带页面谱头的结果应无诊断：${source}`);
   });
 
   test("score-timewise、metronome、minor key 与绝对音高均受支持", () => {
@@ -500,7 +500,7 @@ test("MusicXML first/second ending 生成 volta 并控制反复顺序", () => {
     <note><pitch><step>C</step><alter>1</alter><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note>
   </measure></part></score-partwise>`, { pitchMode: "relative" });
     assert(source.includes("#1"), `相对音高应输出前置升号：${source}`);
-    assert(compileScore(source).parser.diagnostics.length === 0, `前置升号输出必须可重新编译：${source}`);
+    assert(compileScore(source).diagnostics.length === 0, `前置升号输出必须可重新编译：${source}`);
   });
 
   test("measure sound、64th metronome、复合拍号和标准调式均正确换算", () => {

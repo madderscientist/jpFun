@@ -8,6 +8,7 @@ import {
 } from "./layout/engine.js";
 import { LoweringContext } from "./lowering/loweringContext.js";
 import type { LoweringResult } from "./lowering/types.js";
+import type { Diagnostic } from "./diagnostic.js";
 import { ParserContext } from "./parser/parserContext.js";
 import { preprocessSource } from "./parser/preprocess.js";
 import type { TextMeasurer } from "./render/types.js";
@@ -20,7 +21,8 @@ export interface CompileScoreOptions extends DocumentLayoutOptions {
 
 export interface CompileScoreResult {
     lineStarts: number[];       // diagnostics 使用的逻辑行起点
-    parser: ParserContext;      // parser.source 同时保留预处理后的源码
+    maskedSource: string;       // 保持源码偏移不变的预处理结果
+    diagnostics: Diagnostic[];  // parser、lowering 与 layout 共享的诊断信息
     ast: ASTBraceNode;          // 完整 AST 根节点
     lowering: LoweringResult;   // 时间流与关系对象
     layout: DocumentLayoutResult; // 最终几何结果
@@ -61,7 +63,8 @@ export function compileScore(
 
     return {
         lineStarts,
-        parser,
+        maskedSource,
+        diagnostics: parser.diagnostics,
         ast,
         lowering,
         layout,

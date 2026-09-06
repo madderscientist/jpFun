@@ -80,7 +80,7 @@ test("dyn 校验增量、音轨和时间跨度", () => {
     expectLoweringError(`1@a ^ 3@b @dyn(a,b,20)`, "E_DYN_ZERO_SPAN");
 
     const clamped = compileScore(`1@a ^ $p 2 3@b @dyn(a,b,200)`);
-    assert(clamped.parser.diagnostics.some(item => item.code === "W_DYN_DELTA_CLAMPED"),
+    assert(clamped.diagnostics.some(item => item.code === "W_DYN_DELTA_CLAMPED"),
         "a finite delta outside the velocity range must be clamped with a warning");
     assert(playedNotes(compilePlayback(clamped.lowering))[1].velocity === 111.5,
         "the clamped delta must be used for interpolation");

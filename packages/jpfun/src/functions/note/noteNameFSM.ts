@@ -1,7 +1,7 @@
 import { Diagnostic, ErrorDiagnostic } from "../../diagnostic.js";
 
 const LETTER_NOTE_START_RE = /^[A-G]/;
-const NUM_NOTE_START_RE = /^[0-9]/;
+const NUM_NOTE_START_RE = /^[0-9XZ]/;
 const SHARP_RE = /^[#bn]+/;
 const ABS_OCTAVE_RE = /^[+-]?\d+/;
 const RELATIVE_OCTAVE_RE = /^[,']+/;
@@ -43,7 +43,7 @@ export function parseNoteName(str: string, start: number = 0, end: number = str.
                         state = 7;
                     } else return new ErrorDiagnostic(
                         "E_WRONG_NOTE_NAME",
-                        `函数 @note 的参数 [0]:"name" 格式错误: 首字符 "${ch}" 不合法，期望 A-G (a-g) 或 0-9 开头，或在开头直接使用升降号(#/b/n)`,
+                        `函数 @note 的参数 [0]:"name" 格式错误: 首字符 "${ch}" 不合法，期望 A-G (a-g)、0-9、X 或 Z 开头，或在开头直接使用升降号(#/b/n)`,
                         { start: pos, end: pos + 1 }
                     );
                 } break;

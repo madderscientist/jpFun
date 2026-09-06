@@ -36,7 +36,7 @@ test("meter 非法参数回落为 4/4", () => {
         const meter = compiled.lowering.columns[0][0].ast as unknown as MeterAst;
         assert(meter.numerator === 4 && meter.denominator === 4 && meter.measureDuration.equals(4),
             `${source} must fall back to 4/4`);
-        assert(compiled.parser.diagnostics.some(diagnostic => diagnostic.code === "W_METER_INVALID"),
+        assert(compiled.diagnostics.some(diagnostic => diagnostic.code === "W_METER_INVALID"),
             `${source} must report W_METER_INVALID`);
     }
 });

@@ -307,7 +307,7 @@ function compileAndRender(): boolean {
         });
         latestCompiled = compiled;
         latestCompiledSource = sourceText;
-        scoreDiagnostics = [...compiled.parser.diagnostics];
+        scoreDiagnostics = [...compiled.diagnostics];
         if (playbackSource !== sourceText) {
             playbackDiagnostics = [];
         }

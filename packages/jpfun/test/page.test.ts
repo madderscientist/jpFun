@@ -53,7 +53,7 @@ test("br 的偏移参数保留空行，0 被修正并报警", () => {
     assert(offsetBreakResult.layout.objects[1].layoutLine === 2, "the event after br(2) must move to line 2");
 
     const zeroBreakResult = compileScore(`1 @br(0) 2`);
-    assert(zeroBreakResult.parser.diagnostics.some(item => item.code === "W_BR_OFFSET"),
+    assert(zeroBreakResult.diagnostics.some(item => item.code === "W_BR_OFFSET"),
         "br(0) must report that its offset was corrected");
     assert(zeroBreakResult.layout.lineCount === 2, "br(0) must be corrected to br(1)");
     assert(zeroBreakResult.layout.objects[1].layoutLine === 1, "br(0) must move following events to the next line");
@@ -151,11 +151,11 @@ test("有限高度的页面把系统分页并分配行间距", () => {
 
 test("重复与嵌套的 page 声明只报警并保留第一份", () => {
     const duplicatePageResult = compileScore(`@page(width=200px) @page(width=-1px) 1`);
-    assert(duplicatePageResult.parser.diagnostics.some(item => item.code === "W_DUPLICATE_PAGE"), "a repeated page declaration must create a diagnostic");
+    assert(duplicatePageResult.diagnostics.some(item => item.code === "W_DUPLICATE_PAGE"), "a repeated page declaration must create a diagnostic");
     assert(duplicatePageResult.layout.pages[0].bounds.w === 200, "the first page declaration must win");
 
     const nestedPageResult = compileScore(`{@page(width=-1px) 1}`);
-    assert(nestedPageResult.parser.diagnostics.some(item => item.code === "W_PAGE_NOT_TOP_LEVEL"), "a nested page declaration must create a diagnostic");
+    assert(nestedPageResult.diagnostics.some(item => item.code === "W_PAGE_NOT_TOP_LEVEL"), "a nested page declaration must create a diagnostic");
     assert(nestedPageResult.layout.pages[0].bounds.w === 794, "a nested page declaration must be ignored");
 });
 

@@ -62,10 +62,13 @@ test("综合示例乐谱可以完成时间固化", () => {
 });
 
 test("compileScore 一次性返回可直接渲染的完整结果", () => {
-    const compiled = compileScore("1 2 | 3");
+    const source = "1 % comment\n2 | 3";
+    const compiled = compileScore(source);
     assert(compiled.layout.objects.length === 4, "compileScore must return a directly renderable layout");
     assert(compiled.lowering.columns.length === 4, "compileScore must preserve the complete lowering result");
-    assert(compiled.parser.diagnostics.length === 0, "valid default pipeline input must not create diagnostics");
+    assert(compiled.diagnostics.length === 0, "valid default pipeline input must not create diagnostics");
+    assert(compiled.maskedSource === preprocessSource(source).maskedSource,
+        "compileScore must expose the offset-preserving preprocessing result");
 });
 
 test("多声部跨行乐谱的轨道、歌词与连音线", () => {

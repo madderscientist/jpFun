@@ -43,7 +43,7 @@ test("琶音只接受至少两个成员的同轨 Fold", () => {
 test("非法方向警告后回退到无箭头上行", () => {
     const source = `@arp({1 ^ 3}, direction=sideways)`;
     const compiled = compileScore(source);
-    assert(compiled.parser.diagnostics.some(item => item.code === "W_ARPEGGIO_INVALID_DIRECTION"),
+    assert(compiled.diagnostics.some(item => item.code === "W_ARPEGGIO_INVALID_DIRECTION"),
         "an invalid direction must report a warning");
     const notes = playedNotes(compilePlayback(compiled.lowering));
     assert(notes.map(note => note.midi).join(",") === "60,64", "fallback playback must remain upward");

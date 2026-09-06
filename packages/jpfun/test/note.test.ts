@@ -124,6 +124,36 @@ test("附点优先使用宿主端口，缺失时才退回右边界", () => {
     );
 });
 
+test("X 与数字 9 使用相同的节拍记号语义", () => {
+    const source = `X @note(X) 9`;
+    const result = layoutOf(source);
+    const glyphs = recordCommands(result)
+        .filter(command => command.kind === "text")
+        .map(command => command.text);
+    const notes = result.objects as (VisualTemporalNode & { resolvedMidi: number | null })[];
+
+    assert(glyphs.join("") === "XXX", "X 和 9 都必须绘制为 X");
+    assert(notes.every(note => note.resolvedMidi === null), "X 和 9 都必须只推进节拍而不发音");
+    assert(notes[0].ast.toString(source).startsWith("@n(X,"), "X 的去糖写法必须保留 X");
+    assert(nearly(notes[0].box.w, notes[2].box.w) && nearly(notes[0].box.h, notes[2].box.h),
+        "X 和 9 必须使用相同的记谱盒");
+});
+
+test("Z 与数字 0 使用相同的休止符语义", () => {
+    const source = `Z @note(Z) 0`;
+    const result = layoutOf(source);
+    const glyphs = recordCommands(result)
+        .filter(command => command.kind === "text")
+        .map(command => command.text);
+    const notes = result.objects as (VisualTemporalNode & { resolvedMidi: number | null })[];
+
+    assert(glyphs.join("") === "000", "Z 和 0 都必须绘制为休止符 0");
+    assert(notes.every(note => note.resolvedMidi === null), "Z 和 0 都必须推进节拍而不发音");
+    assert(notes[0].ast.toString(source).startsWith("@n(Z,"), "Z 的去糖写法必须保留 Z");
+    assert(nearly(notes[0].box.w, notes[2].box.w) && nearly(notes[0].box.h, notes[2].box.h),
+        "Z 和 0 必须使用相同的记谱盒");
+});
+
 test("小节线与音符共享视觉中心轴，并加强附近的弹簧", () => {
     const barAlignmentResult = layoutOf(`1 | 2/ 3, |`);
     const visualAxes = barAlignmentResult.objects.map(object => object.box.y + object.box.visualAxis);

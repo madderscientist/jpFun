@@ -21,14 +21,14 @@ test("fontsize 写 em 时相对当前字号", () => {
 
 test("bool 默认值不会被当成非空字符串", () => {
     // 旧实现存字符串 "false"，恒为真，反而打开了 strict
-    const { diagnostics } = compileScore(`@set(strict=false) @nosuchfn()`).parser;
+    const { diagnostics } = compileScore(`@set(strict=false) @nosuchfn()`);
     assert(diagnostics.some(item => item.code === "W_UNKNOWN_FUNCTION"),
         "strict=false must keep the unknown function tolerant");
 });
 
 test("目标参数不存在时报警而不是静默无效", () => {
     const source = `@set(text.sizee=2em) @text(A)`;
-    const item = compileScore(source).parser.diagnostics.find(d => d.code === "W_SET_UNKNOWN_TARGET");
+    const item = compileScore(source).diagnostics.find(d => d.code === "W_SET_UNKNOWN_TARGET");
     assert(item !== undefined, "a mistyped target must be reported");
     assert(source.slice(item.span.start, item.span.end) === "text.sizee",
         `the warning must point at the key itself, got ${source.slice(item.span.start, item.span.end)}`);

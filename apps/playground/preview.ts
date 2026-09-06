@@ -270,7 +270,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
     function focusSourcePosition(position: number) {
         clearFocus();
         if (!result || !navigation) return;
-        const character = result.parser.source[position];
+        const character = result.maskedSource[position];
         if (!character || /\s/.test(character)) return;
         const target = sourceTargetAt(navigation, position);
         const region = target?.regions[0];

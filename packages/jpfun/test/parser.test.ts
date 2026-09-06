@@ -211,7 +211,7 @@ test("content recovery preserves label boundaries", () => {
 test("successful content keeps labels visible to later references", () => {
     for (const source of ["@div({1@x}) 2@y @tie(x,y)", "1 @div({@x}) 2@y @tie(x,y)"]) {
         const result = compileScore(source);
-        deepStrictEqual(result.parser.diagnostics, []);
+        deepStrictEqual(result.diagnostics, []);
         assert(result.lowering.attachments.length === 1, "successful labels must remain valid tie endpoints");
     }
 });

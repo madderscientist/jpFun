@@ -14,7 +14,7 @@ class NoteFunction extends ASTFunctionNode {
         example: `@note(name, acc, octave, color)
 参数说明:
 - name: [必填]音符名，可以是大写字母或者数字，不允许小写字母（会和降号冲突）。此参数写法有语法糖，见下。
-  其中 0 是休止符，8 是隐形占位，9 是只打拍不发音的节拍记号（显示为 X），这三者都不显示升降号和八度点。
+  其中 0 或 Z 是休止符，8 是隐形占位，9 或 X 是只打拍不发音的节拍记号（显示为 X），这三者都不显示升降号和八度点。
 - acc: [可选]的额外升降号字符串，例如 "##" 表示再升两个半音，"b" 表示再降一个半音。
 - octave: [可选]八度，类型为数字。如果 name 是字母，则此项代表绝对八度；如果是数字，则此项代表相对八度。
 
@@ -92,7 +92,7 @@ class NoteFunction extends ASTFunctionNode {
             parseResult.span = sourceSpan;   // 定位到整个函数调用
             throw parseResult;
         }
-        this.name = parseResult.name;
+        this.name = parseResult.name === "X" ? "9" : parseResult.name === "Z" ? "0" : parseResult.name;
         // 校验octave
         const inputOctave = args.get("octave") ?? args.get(2);
         if (inputOctave !== void 0) {

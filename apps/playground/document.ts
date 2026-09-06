@@ -1,6 +1,6 @@
 import { readStoredValue, storeValue } from "./platform.js";
 
-const DRAFT_STORAGE_KEY = "jpfun-draft-source";
+export const DRAFT_STORAGE_KEY = "jpfun-draft-source";
 
 interface FilePickerWindow extends Window {
     showOpenFilePicker?: (options: object) => Promise<FileSystemFileHandle[]>;
