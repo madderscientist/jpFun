@@ -56,21 +56,30 @@ export async function createMidiBlob(
     if (!initial.hasInitialTimeSignature) {
         conductorEvents.push(midiEvent.time_signature(0, ...DEFAULT_TIME_SIGNATURE));
     }
-    const tracks = Array.from({ length: plan.tracks.length }, (_, index) => new mtrk(`声部 ${index + 1}`));
-    const programTracks = new Set(plan.events
-        .filter(event => event.kind === "program-change")
-        .map(event => event.track));
+    const percussionIds = new Set<number>();
+    const programTracks = new Set<number>();
+    const tracks = new Array<InstanceType<typeof mtrk> | undefined>(plan.tracks.length);
+    for (const event of plan.events) {
+        if (event.kind === "program-change") programTracks.add(event.track);
+        else if (event.kind === "note-on") {
+            if (event.percussion) percussionIds.add(event.noteId);
+            else tracks[event.track] ??= new mtrk(`声部 ${event.track + 1}`);
+        }
+    }
+    let percussionTrack: InstanceType<typeof mtrk> | undefined;
 
     for (let index = 0; index < plan.tracks.length; index++) {
+        const track = tracks[index];
+        if (!track) continue;
         const setting = settings[index] ?? { program: DEFAULT_PROGRAM, overrideProgram: false, volume: 100 };
         if (setting.overrideProgram || !programTracks.has(index)) {
-            tracks[index].addEvent({
+            track.addEvent({
                 ticks: 0,
                 code: 0xc,
                 value: [Math.round(constrain(setting.program, 0, 127))],
             });
         }
-        tracks[index].addEvent({
+        track.addEvent({
             ticks: 0,
             code: 0xb,
             value: [7, Math.round(constrain(setting.volume, 0, 100) * 127 / 100)],
@@ -88,19 +97,28 @@ export async function createMidiBlob(
                 event.denominator,
             ));
         } else if (event.kind === "program-change") {
-            if (!settings[event.track]?.overrideProgram) tracks[event.track].addEvent({
+            if (!settings[event.track]?.overrideProgram) tracks[event.track]?.addEvent({
                 ticks,
                 code: 0xc,
                 value: [event.program],
             });
         } else {
-            tracks[event.track].addEvent({
+            let track = tracks[event.track];
+            let velocity = event.kind === "note-on" ? Math.round(constrain(event.velocity, 0, 127)) : 0;
+            if (percussionIds.has(event.noteId)) {
+                const volume = constrain(settings[event.track]?.volume ?? 100, 0, 100) / 100;
+                if (volume === 0) continue;
+                if (!percussionTrack) {
+                    percussionTrack = new mtrk("打击乐");
+                    percussionTrack.addEvent({ ticks: 0, code: 0xb, value: [7, 127] });
+                }
+                track = percussionTrack;
+                if (event.kind === "note-on") velocity = constrain(Math.round(event.velocity * volume), 1, 127);
+            }
+            track!.addEvent({
                 ticks,
                 code: 0x9,
-                value: [
-                    Math.round(constrain(event.midi, 0, 127)),
-                    event.kind === "note-on" ? Math.round(constrain(event.velocity, 0, 127)) : 0,
-                ],
+                value: [Math.round(constrain(event.midi, 0, 127)), velocity],
             });
         }
     }
@@ -111,7 +129,12 @@ export async function createMidiBlob(
     }));
 
     const trackData = [new mtrk("", conductorEvents).export(0)];
-    for (const [index, track] of tracks.entries()) trackData.push(track.export(index));
+    for (const [index, track] of tracks.entries()) {
+        const slot = index % 15;
+        const channelId = Math.floor(index / 15) * 16 + slot + (slot >= 9 ? 1 : 0);
+        if (track) trackData.push(track.export(channelId));
+    }
+    if (percussionTrack) trackData.push(percussionTrack.export(9));
     const header = [
         77, 84, 104, 100, 0, 0, 0, 6, 0, 1,
         ...mtrk.number_hex(trackData.length, 2),

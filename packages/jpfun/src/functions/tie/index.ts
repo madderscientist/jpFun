@@ -144,6 +144,7 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
                     && note.origins.some(origin => origin.node === this.endPoints[i])
                     && note.track === head.track
                     && note.midi === head.midi
+                    && note.percussion === head.percussion
                     && end.at.equals(note.at));
                 if (!next) break;
                 const nextOff = noteOff(next.noteId);

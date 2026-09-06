@@ -24,7 +24,7 @@ test("playback 从已固化 lowering 生成音符与速度计划", () => {
     const plan = compilePlayback(lower(`@tempo(90) @1(D4) 1 0 8 9`));
     const notes = playedNotes(plan);
 
-    assert(notes.length === 1, "休止符、占位符和节拍记号不能发出 MIDI 音符");
+    assert(notes.length === 2, "休止符和占位符不发声，节拍记号应发打击音");
     const note = notes[0];
     assert(note.midi === 62, `D4 调性的简谱 1 应解析为 MIDI 62，实际为 ${note.midi}`);
     assert(note.start.equals(0) && note.duration.equals(1), "无演奏变换时演奏时间应等于乐谱时间");
@@ -38,6 +38,55 @@ test("playback 从已固化 lowering 生成音符与速度计划", () => {
     assert(nearly(performanceTimeToSeconds(plan.events, 2), 4 / 3), "正向时间换算应分段积分 tempo");
     assert(nearly(secondsToPerformanceTime(plan.events, 4 / 3), 2), "秒数应可反查演奏时间");
     assert(nearly(scoreTimeToSeconds(plan, 2), 4 / 3), "谱面位置应可换算为秒数，供点击谱面起播");
+});
+
+test("9/X 发布固定打击音并自然支持增时线", () => {
+    for (const source of ["9- - 1", "X - - 1", "@note(X) - - 1"]) {
+        const plan = compilePlayback(lower(source));
+        const starts = plan.events.filter(event => event.kind === "note-on");
+        const notes = playedNotes(plan);
+        assert(starts.length === 2 && starts[0].percussion === true && starts[0].midi === 37,
+            `${source} 应以固定打击键 37 起音`);
+        assert(!("percussion" in starts[1]) && starts[0].track === starts[1].track,
+            "普通音的对象形状与原声部归属应保持不变");
+        assert(notes[0].duration.equals(3) && notes[1].start.equals(3),
+            "两条增时线应延长 NoteOff，而不增加打击起音或移动后继音");
+        assert(plan.diagnostics.length === 0, "打击音应是合法的增时线目标");
+    }
+    const silence = compilePlayback(lower("0 Z 8"));
+    assert(playedNotes(silence).length === 0 && silence.tracks.length === 0,
+        "休止符和占位符必须保持静音");
+    const repeated = compilePlayback(lower("|: 9 - :|"));
+    assert(playedNotes(repeated).length === 2 && repeated.diagnostics.length === 0,
+        "每次反复应重新起音，增时线不应串到另一遍");
+    const chord = playedNotes(compilePlayback(lower("1^9 -")));
+    assert(chord.length === 2 && chord.every(note => note.duration.equals(2)),
+        "混合和弦的旋律音和打击音应一起延长");
+    const parallel = playedNotes(compilePlayback(lower("@stack({9 -}, {9})")));
+    assert(parallel.length === 2 && parallel[0].duration.equals(2) && parallel[1].duration.equals(1),
+        "不同声部的打击音不能互相延长");
+});
+
+test("tie 只合并同种类的同键号音符", () => {
+    for (const source of ["C#2@a 9@b @tie(a,b)", "9@a C#2@b @tie(a,b)"]) {
+        const notes = playedNotes(compilePlayback(lower(source)));
+        assert(notes.length === 2 && notes.every(note => note.midi === 37 && note.duration.equals(1)),
+            "普通音高 37 与打击键 37 不得被合并");
+    }
+    const tied = playedNotes(compilePlayback(lower("9@a X@b @tie(a,b)")));
+    assert(tied.length === 1 && tied[0].duration.equals(2), "相同打击音仍可连音");
+});
+
+test("打击音保留力度而不参与音高装饰", () => {
+    const accented = compilePlayback(lower("9 ^ $accent"));
+    const note = accented.events.find(event => event.kind === "note-on");
+    assert(note?.percussion === true && note.velocity === 100, "打击音应接受重音力度");
+    for (const symbol of ["tr", "prall", "mordent"]) {
+        const plan = compilePlayback(lower(`@1(D4) 9 ^ $${symbol}`));
+        const starts = plan.events.filter(event => event.kind === "note-on");
+        assert(starts.length === 1 && starts[0].percussion === true && starts[0].midi === 37,
+            "调性和音高装饰不能改变打击键或产生派生音");
+    }
 });
 
 test("拍号按实际播放访问发布且不参与速度积分", () => {

@@ -133,7 +133,7 @@ test("X 与数字 9 使用相同的节拍记号语义", () => {
     const notes = result.objects as (VisualTemporalNode & { resolvedMidi: number | null })[];
 
     assert(glyphs.join("") === "XXX", "X 和 9 都必须绘制为 X");
-    assert(notes.every(note => note.resolvedMidi === null), "X 和 9 都必须只推进节拍而不发音");
+    assert(notes.every(note => note.resolvedMidi === null), "X 和 9 都不具有旋律音高，打击键由播放事件指定");
     assert(notes[0].ast.toString(source).startsWith("@n(X,"), "X 的去糖写法必须保留 X");
     assert(nearly(notes[0].box.w, notes[2].box.w) && nearly(notes[0].box.h, notes[2].box.h),
         "X 和 9 必须使用相同的记谱盒");

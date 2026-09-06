@@ -33,6 +33,7 @@ export interface PlaybackNoteOnEvent {
     readonly track: number;
     readonly midi: number;
     readonly velocity: number;
+    readonly percussion?: true;
     readonly sourceSpans: readonly SourceSpan[];
 }
 
@@ -70,6 +71,7 @@ export interface PlaybackDraftNoteOnEvent extends PlaybackDraftEventBase {
     track: Track;
     midi: number;
     velocity: number;
+    percussion?: true;
     transpose?: (steps: number) => number;
     sourceSpans: SourceSpan[];
 }
@@ -110,6 +112,7 @@ export type PlaybackEventInput =
         noteId: PlaybackNoteId;
         midi: number;
         velocity: number;
+        percussion?: true;
         transpose?: (steps: number) => number;
     }
     | {
@@ -209,6 +212,7 @@ export function finalizePlaybackEvents(
                 track,
                 midi: event.midi,
                 velocity: event.velocity,
+                ...(event.percussion ? { percussion: true as const } : {}),
                 sourceSpans: event.sourceSpans,
             });
             continue;

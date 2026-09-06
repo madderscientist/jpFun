@@ -124,7 +124,7 @@ import {
     resolveNoteMidi,
 } from "../../parser/parse-utils/note-utils.js";
 
-// 8 是隐形占位，9 是只打拍不发音的节拍记号，空串表示不绘制
+// 8 是隐形占位，9 是固定打击音的节拍记号，空串表示不绘制
 const NOTE_GLYPH: Record<string, string> = { "8": "", "9": "X" };
 
 class NoteTemporalNode extends TemporalNodeBase {
@@ -299,15 +299,17 @@ class NoteTemporalNode extends TemporalNodeBase {
     }
 
     override emitPlayback(emitter: PlaybackEmitter) {
-        if (this.resolvedMidi === null || emitter.end.compare(emitter.start) <= 0) return;
+        const percussion = this.ast.name === "9";
+        const midi = percussion ? 37 : this.resolvedMidi;
+        if (midi === null || emitter.end.compare(emitter.start) <= 0) return;
         const noteId = emitter.nextNoteId();
         emitter.emit({
             kind: "note-on",
             at: emitter.start,
             noteId,
-            midi: this.resolvedMidi,
+            midi,
             velocity: this.playbackState?.velocity ?? DEFAULT_VELOCITY,
-            transpose: this.transposeDiatonic,
+            ...(percussion ? { percussion: true as const } : { transpose: this.transposeDiatonic }),
         });
         emitter.emit({ kind: "note-off", at: emitter.end, noteId });
     }

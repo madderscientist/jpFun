@@ -10,6 +10,8 @@ const TINY_SYNTH_URL = "https://madderscientist.github.io/noteDigger/lib/tinySyn
 const SCHEDULE_INTERVAL = 100;
 const SCHEDULE_AHEAD_SECONDS = 1;
 const START_LATENCY_SECONDS = 0.02;
+const PERCUSSION_INSTRUMENT = 128;  // 前端播放额外增加的打击乐器，用于 9
+const PERCUSSION_DURATION_SECONDS = 0.025;
 
 interface TinySynthChannel {
     instrument: number;
@@ -26,7 +28,8 @@ interface TinySynthInstance {
 
 interface TinySynthConstructor {
     new(context?: AudioContext, loadAll?: boolean): TinySynthInstance;
-    readonly instrument: readonly string[];
+    readonly instrument: string[];
+    readonly wave: { w: string; t: number; f: number; v: number; a: number; h: number; d: number; s: number; r: number }[][];
 }
 
 declare const TinySynth: TinySynthConstructor;
@@ -46,6 +49,7 @@ interface ScheduledNote {
     midi: number;
     velocity: number;
     program: number;
+    percussion?: true;
 }
 
 interface TinySynthPlayerOptions {
@@ -96,6 +100,7 @@ function notesOf(plan: PlaybackPlan): ScheduledNote[] {
             midi: started.event.midi,
             velocity: started.event.velocity,
             program: started.program,
+            percussion: started.event.percussion,
         });
     }
     notes.sort((left, right) => left.start - right.start);
@@ -104,10 +109,14 @@ function notesOf(plan: PlaybackPlan): ScheduledNote[] {
 
 export async function loadTinySynth(): Promise<readonly string[]> {
     await loadClassicScript(TINY_SYNTH_URL);
-    if (typeof TinySynth !== "function" || !Array.isArray(TinySynth.instrument)) {
+    if (typeof TinySynth !== "function" || !Array.isArray(TinySynth.instrument) || !Array.isArray(TinySynth.wave)) {
         throw new Error("tinySynth.js 未提供预期的 TinySynth 类");
     }
-    return TinySynth.instrument;
+    TinySynth.instrument[PERCUSSION_INSTRUMENT] ??= "jpFun Side Stick";
+    TinySynth.wave[PERCUSSION_INSTRUMENT] ??= [
+        { w: "triangle", t: 0, f: 1800, v: 0.35, a: 0.001, h: 0, d: 0.006, s: 0, r: 0.005 },
+    ];
+    return TinySynth.instrument.slice(0, PERCUSSION_INSTRUMENT);
 }
 
 export class TinySynthPlayer {
@@ -290,7 +299,7 @@ export class TinySynthPlayer {
 
         for (let index = 0; index < this.nextNote; index++) {
             const note = this.notes[index];
-            if (note.end > position) this.schedule(note, position);
+            if (!note.percussion && note.end > position) this.schedule(note, position);
         }
         this.fillSchedule();
         this.timer = window.setInterval(() => this.scheduleTick(), SCHEDULE_INTERVAL);
@@ -350,12 +359,12 @@ export class TinySynthPlayer {
 
     private schedule(note: ScheduledNote, position: number) {
         if (!this.synth || note.end <= position) return;
-        this.synth.channel[note.track].instrument = Math.round(constrain(
+        this.synth.channel[note.track].instrument = note.percussion ? PERCUSSION_INSTRUMENT : Math.round(constrain(
             this.settings[note.track]?.overrideProgram ? this.settings[note.track].program : note.program,
             0,
             127,
         ));
-        const midi = Math.round(constrain(note.midi + this.transpose, 0, 127));
+        const midi = Math.round(constrain(note.midi + (note.percussion ? 0 : this.transpose), 0, 127));
         const start = Math.max(position, note.start);
         const contextTime = Math.max(
             this.synth.audioContext.currentTime + START_LATENCY_SECONDS,
@@ -366,7 +375,7 @@ export class TinySynthPlayer {
             f: 440 * 2 ** ((midi - 69) / 12),
             v: Math.round(constrain(note.velocity, 0, 127)),
             t: contextTime,
-            last: (note.end - start) / this.rate,
+            last: note.percussion ? PERCUSSION_DURATION_SECONDS : (note.end - start) / this.rate,
         });
     }
 }
