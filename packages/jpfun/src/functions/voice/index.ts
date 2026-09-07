@@ -22,6 +22,21 @@ import type {
 import type { Painter, PathCommand, TextStyle } from "../../render/types.js";
 
 const WHITEPACE_RE = /\s/;
+// 分词跟后面的标点
+const LYRIC_OPENING_PUNCTUATION = new Set("（([［｛〈《「『【〔〖〘〚‘“");
+// 不发声的标点；位于歌词槽首尾时只渲染，不占位，也不参与对齐中心计算
+const LYRIC_SILENT_PUNCTUATION = new Set([
+    ...LYRIC_OPENING_PUNCTUATION,
+    ..."，。！？；：、,.!?;:）)]］｝〉》」』】〕〗〙〛’”\"'…—–",
+]);
+// 分词
+function splitLyricText(text: string) {
+    let start = 0;
+    let end = text.length;
+    while (start < end && LYRIC_SILENT_PUNCTUATION.has(text[start])) start++;
+    while (end > start && LYRIC_SILENT_PUNCTUATION.has(text[end - 1])) end--;
+    return { prefix: text.slice(0, start), body: text.slice(start, end) };
+}
 
 /**
  * voices 块在宿主基线上局部居中：首末两条 voice 基线的中点对齐宿主轴
@@ -347,8 +362,13 @@ L: ...
     static parseLyric(value: string): string[] {
         const result: string[] = [];
         let token = "";
+        let prefix = "";
+        const pushSlot = (text: string) => {
+            result.push(prefix + text);
+            prefix = "";
+        };
         const pushToken = () => {
-            if (token) result.push(token);
+            if (token) pushSlot(token);
             token = "";
         };
         for (let i = 0; i < value.length; i++) {
@@ -366,7 +386,7 @@ L: ...
                 }
                 if (close < value.length) {
                     pushToken();
-                    result.push(grouped);
+                    pushSlot(grouped);
                     i = close;
                 } else token += ch;
             } else if (WHITEPACE_RE.test(ch)) {
@@ -381,13 +401,24 @@ L: ...
                     pushToken();
                 }
                 result.push('');
+            } else if (LYRIC_OPENING_PUNCTUATION.has(ch)) {
+                pushToken();
+                prefix += ch;
+            } else if (LYRIC_SILENT_PUNCTUATION.has(ch)) {
+                if (token) token += ch;
+                else if (prefix || !result.at(-1)) prefix += ch;
+                else result[result.length - 1] += ch;
             } else if (ch.charCodeAt(0) > 0x7F) {
                 // 遇到中文等非ASCII字符 直接切分成单个字符
                 pushToken();
-                result.push(ch);
+                pushSlot(ch);
             } else token += ch;
         }
         pushToken();
+        if (prefix) {
+            if (result.at(-1)) result[result.length - 1] += prefix;
+            else result.push(prefix);
+        }
         return result;
     }
 
@@ -723,7 +754,10 @@ class VoiceLyricsAttachment implements LayoutAttachment {
             let halfWidth = 0;
             for (const lyric of lyrics) {
                 const text = lyric.tokens[i];
-                if (text) halfWidth = Math.max(halfWidth, context.textMeasurer.measureText(text, style).w / 2);
+                if (text) {
+                    const { body } = splitLyricText(text);
+                    if (body) halfWidth = Math.max(halfWidth, context.textMeasurer.measureText(body, style).w / 2);
+                }
             }
             if (halfWidth === 0) continue;
             // 只扩大求解占用；视觉盒和端口不动，音符内部几何因此保持原位。
@@ -791,11 +825,14 @@ class VoiceLyricsAttachment implements LayoutAttachment {
                 if (!text || bottom === undefined) continue;
 
                 const metrics = context.textMeasurer.measureText(text, lyricStyle);
+                const { prefix, body } = splitLyricText(text);
+                const bodyWidth = body ? context.textMeasurer.measureText(body, lyricStyle).w : 0;
+                const prefixWidth = prefix ? context.textMeasurer.measureText(prefix, lyricStyle).w : 0;
                 preparedText.push({
                     text,
                     style: lyricStyle,
                     textBaselineY: metrics.baseline,
-                    x: target.box.x + target.ports["lyric"].x - metrics.w / 2,
+                    x: target.box.x + target.ports["lyric"].x - bodyWidth / 2 - prefixWidth,
                     y: baselineOf(bottom, row) - metrics.baseline,
                     w: metrics.w,
                     h: metrics.h,

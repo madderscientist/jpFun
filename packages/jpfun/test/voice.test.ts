@@ -1,11 +1,87 @@
 import { test } from "node:test";
 
 import { compileScore } from "../src/pipeline.js";
-import { assert, attachmentCommands, commandsOfKind, expectSnapshot, layoutOf, nearly } from "./helpers.js";
+import { assert, attachmentCommands, commandsOfKind, expectSnapshot, layoutContext, layoutOf, nearly } from "./helpers.js";
 
 const axisOf = (object: { box: { y: number; visualAxis: number } }) => object.box.y + object.box.visualAxis;
 /** 无名声部的名称占位盒只为括线预留横向空间，高度为 0；纵向断言只关心真正可见的对象 */
 const drawn = (source: string) => layoutOf(source).objects.filter(object => object.box.h > 0);
+
+test("歌词标点附着正文，不单独消耗音符槽", () => {
+    const cases: [string, string[]][] = [
+        ["你好，世界！", ["你", "好，", "世", "界！"]],
+        ["“你好！”", ["“你", "好！”"]],
+        ["（你）【好】", ["（你）", "【好】"]],
+        ["你……好？！", ["你……", "好？！"]],
+        ["{你好，}啊", ["你好，", "啊"]],
+        ["“{你好}！”", ["“你好！”"]],
+        ["hello, world!", ["hello,", "world!"]],
+        ["don't stop", ["don't", "stop"]],
+        ["hel-lo 你 @ 好", ["hel-", "lo", "你", "好"]],
+        ["你， @ “好”", ["你，", "“好”"]],
+        [String.raw`hel\-lo \@ {你\}好}`, ["hel-lo", "@", "你}好"]],
+    ];
+    for (const [text, expected] of cases) {
+        const result = layoutOf(`@voice({1 2 3 4 5 6 7 1 2 3 4 5}, , ${JSON.stringify(text)})`);
+        const actual = attachmentCommands(result.attachments[0])
+            .filter(command => command.kind === "text")
+            .map(command => command.text);
+        assert(JSON.stringify(actual) === JSON.stringify(expected),
+            `${text}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    }
+});
+
+test("歌词首尾标点悬挂，不改变正文中心和音符间距", () => {
+    const cases: [string, string, string[]][] = [
+        ["你好世界", "你好，世界！", ["", "", "", ""]],
+        ["你好", "“你”“好！”", ["“", "“"]],
+        ["你好", "（你）【好】", ["（", "【"]],
+        ["{你好}世界", "“{你好，}”世界……", ["“", "", ""]],
+        ["internationalization characterization", "internationalization, characterization!", ["", ""]],
+        ["don't stop", "don't stop!", ["", ""]],
+        ["{你，好}啊", "“{你，好}！”啊", ["“", ""]],
+    ];
+    for (const [plain, punctuated, prefixes] of cases) {
+        for (const notes of ["1 2 3 4", "1 @br() 2 3 4"]) {
+            const baseline = layoutOf(`@voice({${notes}}, , ${JSON.stringify(plain)})`);
+            const result = layoutOf(`@voice({${notes}}, , ${JSON.stringify(punctuated)})`);
+            assert(result.objects.length === baseline.objects.length, "punctuation must not add notes");
+            for (let index = 0; index < result.objects.length; index++) {
+                assert(nearly(result.objects[index].box.x, baseline.objects[index].box.x),
+                    `${punctuated}: punctuation must not move note ${index}`);
+            }
+            const plainRegions = baseline.attachments[0].regions;
+            const regions = result.attachments[0].regions;
+            const texts = attachmentCommands(result.attachments[0]).filter(command => command.kind === "text");
+            assert(regions.length === plainRegions.length, "punctuation must not consume lyric slots");
+            for (let index = 0; index < regions.length; index++) {
+                const prefixWidth = prefixes[index]
+                    ? layoutContext.textMeasurer.measureText(prefixes[index], texts[index].style).w : 0;
+                assert(nearly(regions[index].x + prefixWidth, plainRegions[index].x),
+                    `${punctuated}: lyric body ${index} must remain aligned`);
+                assert(nearly(regions[index].w,
+                    layoutContext.textMeasurer.measureText(texts[index].text, texts[index].style).w),
+                    "drawing regions must include punctuation");
+                assert(result.bounds.x <= regions[index].x + 1e-6
+                    && result.bounds.x + result.bounds.w >= regions[index].x + regions[index].w - 1e-6,
+                    "document bounds must include hanging punctuation");
+            }
+        }
+    }
+});
+
+test("歌词分组内部标点保留间距，多行歌词按正文宽度避让", () => {
+    const plain = layoutOf(`@voice({1 2}, , "{你好}啊")`);
+    const internal = layoutOf(`@voice({1 2}, , "{你，好}啊")`);
+    assert(internal.objects[1].box.x - internal.objects[0].box.x
+        > plain.objects[1].box.x - plain.objects[0].box.x,
+        "internal punctuation must still contribute to grouped lyric spacing");
+
+    const baseline = layoutOf(`@voice({1 2}, , "{你好}啊", "internationalization characterization")`);
+    const result = layoutOf(`@voice({1 2}, , "“{你好}！”啊", "internationalization, characterization!")`);
+    assert(result.objects.every((object, index) => nearly(object.box.x, baseline.objects[index].box.x)),
+        "multiple lyric rows must reserve only their widest body");
+});
 
 test("声部的名称不推进时间，歌词行归一个附件并计入文档边界", () => {
     const voiceResult = layoutOf(`@voice({1 2 3}, 主, 男="你 好 啊", 女="我 也 是")`);
