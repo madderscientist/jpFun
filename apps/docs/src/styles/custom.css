@@ -30,6 +30,12 @@
 .sl-markdown-content { line-height: 1.85; }
 .sl-markdown-content:not(:has(.site-page)) h2 { border-top: 1px solid var(--sl-color-hairline); padding-top: 1.5rem; }
 .sl-markdown-content :is(h1, h2, h3, h4) { letter-spacing: 0; }
+.sl-markdown-content blockquote {
+  border-inline-start: 4px solid var(--sl-color-accent);
+  background: color-mix(in srgb, var(--sl-color-accent) 10%, transparent);
+  line-height: 1;
+  padding: 1.3rem;
+}
 .sl-markdown-content table { display: block; overflow-x: auto; font-size: .875rem; }
 .sl-markdown-content .design-story { margin-top: 1.25rem; }
 .sl-markdown-content .design-story summary {

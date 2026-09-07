@@ -2,7 +2,6 @@
 import { Icon } from "@astrojs/starlight/components";
 import SitePage from "../components/SitePage.astro";
 import ScoreSvg from "../components/ScoreSvg.astro";
-import { PLAYGROUND_EXAMPLE } from "../../../playground/example";
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, "");
 const withBase = (path: string) => `${base}/${path}`;
@@ -52,7 +51,7 @@ N: { {Bb2/ ^ $accent} 0/ 0 0 0 | {Eb2/ ^ $accent} 0/ 0 0 0/ {Eb2/ ^ $accent} | {
         <p class="lead">简洁的记谱方式，可组合的函数。<br />从一行旋律，到可排版、可播放的完整乐谱。</p>
         <div class="actions">
           <a class="button primary" href={withBase("playground/")} target="_blank" rel="noopener noreferrer">打开编辑器 <Icon name="right-arrow" /></a>
-          <a class="button" href={withBase("docs/tutorial/")}>开始学习 <Icon name="open-book" /></a>
+          <a class="button" href={withBase("docs/")}>开始学习 <Icon name="open-book" /></a>
         </div>
       </div>
       <div class="intro-score" aria-hidden="true">

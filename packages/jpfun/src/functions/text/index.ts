@@ -24,7 +24,7 @@ class TextFunction extends ASTFunctionNode {
                 name: "size",
                 type: "length" as const,
                 default: {
-                    value: 1,
+                    value: 0.8, // 常用于标记，默认小一些
                     unit: "em",
                 } as LengthValue,
             },

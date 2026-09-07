@@ -174,8 +174,7 @@ export function layoutDocument(
             contentWidth,
             options,
             line.horizontalLayoutHooks,
-            // 最后一行可以不填满，其余行会拉满
-            lineIndex < lines.length - 1 ? 0.5 : undefined,
+            0.5,    // 满半行直接撑满
         );
         for (const column of line.columns) {
             for (const node of column) node.box.x += originX;
