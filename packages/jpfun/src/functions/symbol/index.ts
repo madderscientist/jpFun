@@ -1,4 +1,4 @@
-import { ErrorDiagnostic } from "../../diagnostic.js";
+import { ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import type { LayoutBox, LayoutPrepareContext, Rect } from "../../layout/types.js";
 import { DEFAULT_KEY, TemporalNodeBase, type TimeState } from "../temporal.js";
 import type { GrammarCallNodeTyped } from "../../parser/grammarType.js";
@@ -102,7 +102,7 @@ class SymbolFunction extends ASTFunctionNode {
     }
 
     readonly size: number;
-    readonly definition: SymbolDefinition;
+    readonly definition?: SymbolDefinition;
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
@@ -110,23 +110,30 @@ class SymbolFunction extends ASTFunctionNode {
         this.size = ctx.length2px(size);
         const definition = symbolTable.get(name.toLowerCase());
         if (!definition) {
-            throw new ErrorDiagnostic(
-                "E_UNKNOWN_SYMBOL",
-                `@symbol: 未知符号: $${name}`,
-                sourceSpan
-            );
+            const message = `@symbol: 未知符号: $${name}`;
+            if (ctx.strict) throw new ErrorDiagnostic("E_UNKNOWN_SYMBOL", message, sourceSpan);
+            ctx.diagnostics.push(new WarningDiagnostic("W_UNKNOWN_SYMBOL", message, sourceSpan));
+            return;
         }
         this.definition = definition;
     }
 
-    override loweringEnter() { return [new SymbolTemporal(this)]; }
-    override toString() { return `@symbol(${this.definition.name})`; }
+    override loweringEnter(): TemporalNodeBase[] {
+        return [this.definition
+            ? new SymbolTemporal(this as ResolvedSymbolFunction)
+            : new TemporalNodeBase()];
+    }
+    override toString(source: string) {
+        return this.definition ? `@symbol(${this.definition.name})` : super.toString(source);
+    }
 }
 
 export const SymbolNode: ASTFunctionClass = SymbolFunction;
 
+type ResolvedSymbolFunction = SymbolFunction & { readonly definition: SymbolDefinition };
+
 class SymbolTemporal extends TemporalNodeBase implements PlaybackFlow {
-    declare ast: SymbolFunction;
+    declare ast: ResolvedSymbolFunction;
     declare box: LayoutBox;
 
     /** 符号自身坐标系里的固有包围盒，与布局轮次无关 */
@@ -137,7 +144,7 @@ class SymbolTemporal extends TemporalNodeBase implements PlaybackFlow {
     private scale = 1;
     private baseline = 0;
 
-    constructor(ast: SymbolFunction) {
+    constructor(ast: ResolvedSymbolFunction) {
         super();
         this.ast = ast;
         this.mergeKey = DEFAULT_KEY;

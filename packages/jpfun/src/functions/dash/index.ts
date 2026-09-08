@@ -50,6 +50,7 @@ class DashTemporalNode extends TemporalNodeBase {
     declare ast: DashFunction;
     declare box: LayoutBox;
 
+    private lineWidth = 0;
     private lineY = 0;
 
     constructor(ast: DashFunction) {
@@ -66,13 +67,13 @@ class DashTemporalNode extends TemporalNodeBase {
 
     override prepareLayout() {
         const size = this.ast.size;
-        const width = size * 0.42;
+        this.lineWidth = size * 0.42;
 
         // dash 与数字音符共享视觉中心和完整字号高度
         // 线本身位于数字视觉中心，不使用极小的 glyph 高度作为轨道高度
-        this.box.w = width;
+        this.box.w = this.lineWidth;
         this.box.h = size;
-        this.box.anchor = width / 2;
+        this.box.anchor = this.lineWidth / 2;
         this.lineY = size * 0.5;
         this.box.visualAxis = this.lineY;
     }
@@ -111,7 +112,7 @@ class DashTemporalNode extends TemporalNodeBase {
         painter.drawLine(
             this.box.x,
             this.box.y + this.lineY,
-            this.box.x + this.box.w,
+            this.box.x + this.lineWidth,
             this.box.y + this.lineY,
             { stroke: "#000", strokeWidth: Math.max(1, this.ast.size * 0.1) },
         );

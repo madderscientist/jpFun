@@ -1,0 +1,132 @@
+---
+title: 节奏与时值
+description: jpFun 节奏写法，从基本时值函数和简写，到减时线的分组、自动连接与手工连接
+sidebar:
+  order: 3
+---
+
+import ScoreExample from "../../../../components/ScoreExample.astro";
+
+上一章介绍了音符的音名与音高。这一章给音符加入节奏：先用 `@div`、`@dot` 和 `@dash` 写出减时线、附点与增时线，再把它们缩写成日常使用的 `/`、`.` 和 `-`。最后会进一步介绍减时线的分组、自动连接，以及需要精确控制时使用的 `@beam` 函数。
+
+## 三个基本节奏函数
+jpFun 以四分音符为一个时值单位。一个没有节奏修饰的普通音符占一拍；下面三个函数在这个基础上缩短或延长时值：
+```jpfun
+@div({content}, n=1, autobeam=true)
+@dot({content}, n=1)
+@dash()
+```
+
+| 函数 | 作用 |
+| --- | --- |
+| `@div` | 给 `content` 中的每个元素添加 `n` 条减时线；每多一条，时值变为一半 |
+| `@dot` | 给 `content` 添加 `n` 个附点；一个附点将时值延长为原来的 1.5 倍，两个延长为 1.75 倍。<br/>不过注意，**content 只能有一个元素** |
+| `@dash` | 创建一根增时线，占一个四分音符的时值，并延续前面正在发声的音符 |
+
+`@div` 和 `@dot` 的 `n` 都默认为 `1`。因此，`@div(1)` 是八分音符，`@div(1, 2)` 是十六分音符；`@dot(1)` 是附点四分音符，`@dot(@div(1), 1)` 则是附点八分音符。令减时线个数为 $n$，附点个数为 $m$，时长计算公式如下：
+$$
+\text{时值} = \frac{1}{2^n} \times (2 - \frac{1}{2^m})
+$$
+
+减时线与附点可以嵌套使用。无论在函数调用中先写 `@div` 还是先写 `@dot`，jpFun 都会先计算减时线，再计算附点；不过按简谱的阅读习惯，通常把减时线写在前面（里面）。
+
+`@dash` 与前两个函数略有不同：它不接收内容，而是单独放在被延长的音符后面。一根增时线增加一拍，两根就增加两拍。
+
+export const rhythmFunctionExample = `\
+@note(1)
+@div(@note(2), 1)
+@dot(@note(3), 1)
+@dot(@div(@note(4), 1), 1)
+@note(5) @dash() @dash() @dash()`;
+
+<ScoreExample title="使用函数写节奏" source={rhythmFunctionExample} />
+
+`dash` 也可以被 `div` 和 `dot` 修饰。实际上，jpFun 中，减时线和附点可以加给任意视觉元素，非常自由：
+
+export const freeFormExample = `\
+@div({
+    1 @dot(@dash(), 3) 2
+}, 1)
+@div(@text("文本") $tr, 1)`;
+
+<ScoreExample title="自由组合减时线、附点与增时线" source={freeFormExample} />
+
+## 节奏的简写
+完整函数调用便于理解参数，但写旋律时会显得很长。三个基本节奏函数都有紧凑的简写：
+
+| 函数调用 | 简写 | 含义 |
+| --- | --- | --- |
+| `@div(1, 1)` | `1/` | 八分音符 |
+| `@div(1, 2)` | `1//` | 十六分音符 |
+| `@dot(1, 1)` | `1.` | 附点四分音符 |
+| `@dot(1, 2)` | `1..` | 双附点四分音符 |
+| `@dot(@div(1, 1), 1)` | `1/.` | 附点八分音符 |
+| `1 @dash() @dash()` | `1 --` | 将音符 `1` 延长两拍 |
+
+`/` 和 `.` 都写在要修饰的音符后面，可以连续写多个；`-` 本身就是一个独立的节奏位置。
+
+export const rhythmSugarExample = `1 2/ 3,// 4'/. #5. b6.. n7/./. - -. -/ `;
+
+<ScoreExample title="使用简写写节奏" source={rhythmSugarExample} />
+
+日常写谱时优先使用简写即可。需要修改 `n`、`autobeam` 等参数，或者要把一组音符作为整体处理时，再使用完整的函数调用。
+
+## 自动连接减时线
+`@div` 的 `autobeam` 参数默认为 `true`，意味着不同的 `@div` 之间会尝试自动连接。jpFun 会把同一音轨、相邻连续且处于同一四分音符拍内的减时音符连成一组：
+
+export const autoBeamExample = `\
+1,/ 2,/ 3,/ 4,/ 5,/. 6,// 7,// 1/. |
+1// 2// 3// 4// 5/ 6// 7// 1'/ 2'/ 2'//@tie() 3'/.`;
+
+<ScoreExample title="按四分音符拍自动分组" source={autoBeamExample} />
+
+> `@tie` 的语法在[《函数与基本语法》](../grammar/#标签和关系函数) 中就说过了哦
+
+如果不希望独立写出的减时线自动连接（或者希望全部手动连接），可以修改 `div.autobeam` 的值：
+
+export const autoBeamOffExample = `\
+1/ 2/ 3/ 4/\n
+1/ @div(2, 1, autobeam=false) 3/ 4/\n
+@set(div.autobeam=false)
+1/ 2/ 3/ 4/
+`;
+
+<ScoreExample title="关闭自动连接的减时线" source={autoBeamOffExample} />
+
+被关闭的 `div` 会成为分组边界，左右两侧不会越过它继续连接。不过，`autobeam=false` 只会断开**不同 `div` 之间**的自动连接；写在同一个 `@div({...})` 里的内容仍然保持一组——利用这个特性我们可以实现手动分组↓
+
+## 手动节拍切分
+`@div` 的 `content` 不只可以是一个音符，也可以是一段内容。用花括号把多个音符交给同一个 `@div`，它们会一起缩短时值，减时线也会连接成一组：
+```jpfun
+@div({1 2 3 4}, 1)  等价于  {1 2 3 4}/
+```
+
+这段代码给四个音符各加一条减时线，并用一条连续的线把它们连接起来，而不管节奏如何切分、是否自动分组——即强制分组。基于此我们可以手动调整减时线的连接：
+
+export const divGroupExample = `\
+@set(div.autobeam=false)    % 这行不写也没事，因为下面强制先连接2和3
+1/ {2 3}/ 4/`;
+
+<ScoreExample title="手动减时线分组" source={divGroupExample} />
+
+## 使用 `@beam` 手工连接
+我们还可以使用 `@beam` 明确指定一组减时音符。它接收一串标签，按参数顺序连接对应元素已有的减时线：
+
+export const explicitBeamExample = `\
+0/ 1/. 2// 3/\n
+@set(div.autobeam=false)
+0/ 1/.@a 2//@b 3/@c @beam(a, b, c)`;
+
+<ScoreExample title="使用 @beam 手工连接减时线" source={explicitBeamExample} />
+
+这里先关闭自动连接，再给三个连续音符标上 `a`、`b`、`c`，最后由 `@beam(a, b, c)` 把它们连成一组。`@beam` 不受 `div.autobeam` 设置影响，也不会替音符添加新的减时线；音符本身仍需通过 `/` 或 `@div` 具有相应的减时线。
+
+端点必须按时间顺序排列，并且是同一音轨、同一谱面行中的相邻可见元素。中间夹着未传给 `@beam` 的音符、跨越换行或连接不同音轨都会报错。不传标签时，`@beam()` 会尝试使用它前面最近的两个可标注对象；明确写出标签通常更容易读懂，也更适合连接三个以上的音符。
+
+## 小结
+- `@div` 缩短时值并绘制减时线，`@dot` 添加附点，`@dash` 创建增时线。
+- `/`、`.`、`-` 是三个函数的日常简写，可以组合成 `1/.`、`1//`、`1 --` 等节奏。
+- 同一个 `@div({...})` 中的减时线始终连接；独立的 `div` 默认按四分音符拍自动分组。
+- `autobeam=false` 关闭不同 `div` 之间的自动连接，`@beam` 则用标签手工指定连接关系。
+
+完整参数和默认值可以随时在[函数速查](../../reference/)中查看。

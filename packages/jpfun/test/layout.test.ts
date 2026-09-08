@@ -85,6 +85,16 @@ test("综合样例的每个 LayoutBox 都有效且保持横向顺序", () => {
         `objects=${result.objects.length} width=${result.bounds.w.toFixed(2)} height=${result.bounds.h.toFixed(2)}`);
 });
 
+test("增时线与附点之间保留细小间隙", () => {
+    const commands = recordCommands(layoutOf("1 -."));
+    const dash = commands.find(command => command.kind === "line");
+    const dot = commands.find(command => command.kind === "circle");
+    assert(dash?.kind === "line" && dot?.kind === "circle", "应绘制一根增时线和一个附点");
+
+    const gap = dot.cx - dot.r - (dash.x2 + (dash.style?.strokeWidth ?? 0) / 2);
+    assert(gap > 0 && gap < 22 * 0.2, `增时线与附点应留一丁点间隙，实际为 ${gap}px`);
+});
+
 test("非末行超过半页时横向撑满，短行与末行保持自然宽度", () => {
     const page = "@page(width=200px,left=10px,right=10px) ";
     const filled = layoutOf(`${page}1 2 3 4 @br() 5`);

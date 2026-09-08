@@ -14,7 +14,7 @@ import ScoreExample from "../../../../components/ScoreExample.astro";
 音符由 `@note` 函数创建，它还有一个较短的别名 `@n`：
 
 ```jpfun
-@note(name, acc="", octave=3, color="#000")
+@note(name, acc="", octave=4, color="#000")
 ```
 
 | 参数 | 含义 |
@@ -48,7 +48,7 @@ export const specialNoteExample = `\
 <ScoreExample title="特殊音符示例" source={specialNoteExample} />
 
 ## 数字音名与字母音名
-数字音名与字母音名的区别在于它们确定实际音高的方式。
+`name` 参数支持写数字和字母。数字音名与字母音名的区别在于它们确定实际音高的方式。简单来说，数字音名忠于视觉，适合打谱；字母音名忠于音高，适合转调。
 
 ### 数字音名是相对音高
 简谱中，一个数字音名的音高并不是绝对的，而是和调性相关的。比如，在 D 大调中，数字 `1` 其实是钢琴上的 `D4`，频率约为 293.66 Hz。jpFun 吸纳了这个记录方法，`1`～`7` 表示相对于当前调性基准的音级。

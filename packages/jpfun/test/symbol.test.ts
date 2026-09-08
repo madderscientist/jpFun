@@ -1,7 +1,7 @@
 import { test } from "node:test";
 
-import { DEFAULT_VELOCITY } from "../src/functions/temporal.js";
-import { analyzeScoreSyntax } from "../src/pipeline.js";
+import { DEFAULT_VELOCITY, TemporalNodeBase } from "../src/functions/temporal.js";
+import { analyzeScoreSyntax, compileScore } from "../src/pipeline.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import { assert, expectDiagnostic, layoutOf, lower, nearly, parse, playedNotes, recordCommands } from "./helpers.js";
 
@@ -15,9 +15,18 @@ test("$name 由词法层识别为完整的 symbol 原子", () => {
         "symbol token 应覆盖完整名称");
 });
 
-test("未登记的 symbol 在语义层明确报错", () => {
-    expectDiagnostic(() => parse(`$not-registered`), "E_UNKNOWN_SYMBOL");
-    expectDiagnostic(() => parse(`@symbol(not-registered)`), "E_UNKNOWN_SYMBOL");
+test("未登记的 symbol 在宽容模式报警，严格模式报错", () => {
+    for (const source of [`$not-registered`, `@symbol(not-registered)`, `@div($tr_2)`]) {
+        const result = compileScore(source);
+        assert(result.diagnostics.length === 1 && result.diagnostics[0].code === "W_UNKNOWN_SYMBOL",
+            "宽容模式应只报告未知符号警告");
+
+        expectDiagnostic(() => parse(`@set(strict=true) ${source}`), "E_UNKNOWN_SYMBOL");
+    }
+
+    const fallback = compileScore(`@div($tr_2)`).lowering.columns[0]?.[0];
+    assert(fallback?.constructor === TemporalNodeBase && fallback.T.isZero() && !fallback.box,
+        "未知 symbol 应降级为零时值、不可见的基础 Temporal");
 });
 
 test("effect 类符号只影响同一 up 中位于其下方的成员", () => {
