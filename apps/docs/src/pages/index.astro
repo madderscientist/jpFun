@@ -43,7 +43,12 @@ N: { {Bb2/ ^ $accent} 0/ 0 0 0 | {Eb2/ ^ $accent} 0/ 0 0 0/ {Eb2/ ^ $accent} | {
 `;
 ---
 
-<SitePage title={pageTitle} documentTitle={pageTitle} description={pageDescription}>
+<SitePage
+  title={pageTitle}
+  documentTitle={pageTitle}
+  description={pageDescription}
+  head={[{ tag: "meta", attrs: { name: "msvalidate.01", content: "675258B9620330F89A324C974E5FF134" } }]}
+>
   <section class="intro reveal" aria-labelledby="brand-title">
     <div class="wrap intro-layout">
       <div class="intro-copy">
