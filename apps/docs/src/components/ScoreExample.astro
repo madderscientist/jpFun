@@ -81,19 +81,5 @@ if (offset < source.length) segments.push({ text: source.slice(offset) });
   .copy-code:hover + .copy-tooltip, .copy-code:focus-visible + .copy-tooltip, .copy-code:not([data-state="idle"]) + .copy-tooltip { opacity: 1; }
   .copy-code[data-state="error"] { color: var(--site-error); }
   .score-result { padding: .5rem 1rem; overflow: auto; background: #fff; color: #171717; }
-  .token-comment, .token-punctuation { color: #8a969a; }
-  .token-comment { font-style: italic; }
-  .token-function, .token-property { color: #88baf0; }
-  .token-function { font-weight: 600; }
-  .token-atom, .token-number, .token-length { color: #90ceb0; }
-  .token-string { color: #e5c489; }
-  .token-label { color: #e6a6a9; }
-  .token-operator, .token-boolean { color: #c6b2ee; }
-  :global([data-theme="light"]) .token-comment, :global([data-theme="light"]) .token-punctuation { color: #65766e; }
-  :global([data-theme="light"]) .token-function, :global([data-theme="light"]) .token-property { color: #225fa2; }
-  :global([data-theme="light"]) .token-atom, :global([data-theme="light"]) .token-number, :global([data-theme="light"]) .token-length { color: #246449; }
-  :global([data-theme="light"]) .token-string { color: #8d551b; }
-  :global([data-theme="light"]) .token-label { color: #a13952; }
-  :global([data-theme="light"]) .token-operator, :global([data-theme="light"]) .token-boolean { color: #7953a1; }
   @media (max-width: 30rem) { figcaption { padding-inline: .75rem; } .score-code { padding: 1rem; } .score-result { padding-inline: .5rem; } }
 </style>

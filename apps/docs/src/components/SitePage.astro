@@ -4,12 +4,28 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
 interface Props {
   title: string;
   description: string;
+  documentTitle?: string;
 }
-const { title, description } = Astro.props;
+type HeadEntry = {
+  tag: "meta" | "title";
+  attrs?: Record<string, string>;
+  content?: string;
+};
+
+const { title, description, documentTitle } = Astro.props;
 const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const head: HeadEntry[] = [
+  { tag: "meta", attrs: { property: "og:type", content: "website" } },
+  { tag: "meta", attrs: { name: "twitter:card", content: "summary" } },
+  { tag: "meta", attrs: { name: "twitter:title", content: documentTitle ?? title } },
+  { tag: "meta", attrs: { name: "twitter:description", content: description } },
+  { tag: "meta", attrs: { name: "application-name", content: "jpFun" } },
+  { tag: "meta", attrs: { name: "theme-color", content: "#202724" } },
+];
+if (documentTitle) head.push({ tag: "title", content: documentTitle });
 ---
 
-<StarlightPage frontmatter={{ title, description, template: "splash", pagefind: false }} lang="zh-CN">
+<StarlightPage frontmatter={{ title, description, head, template: "splash", pagefind: false }} lang="zh-CN">
   <div class="site-page not-content">
     <slot />
     <footer class="site-footer">

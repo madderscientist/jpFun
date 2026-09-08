@@ -5,6 +5,8 @@ import ScoreSvg from "../components/ScoreSvg.astro";
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, "");
 const withBase = (path: string) => `${base}/${path}`;
+const pageTitle = "jpFun：函数式简谱语言";
+const pageDescription = "jpFun 是新一代函数式简谱排版语言，自由的编辑体验，和精美的乐谱排版效果。支持播放、导出 PDF、SVG、PNG 和 MIDI、导入 MusicXML 和 MIDI。开源免费强大的纯前端简谱打谱引擎";
 const advantages = [
   { number: "01", title: "文本即乐谱", text: "用熟悉的数字记下旋律。复制、搜索、版本管理，都和处理一份文本一样自然。", detail: "纯文本 · 语法糖 · 函数调用" },
   { number: "02", title: "让排版处理细节", text: "间距、声部对齐和分页交给引擎。和弦、歌词与跨行关系，也能在同一份源码里表达。", detail: "自动排版 · 多声部 · 精确时值" },
@@ -41,7 +43,7 @@ N: { {Bb2/ ^ $accent} 0/ 0 0 0 | {Eb2/ ^ $accent} 0/ 0 0 0/ {Eb2/ ^ $accent} | {
 `;
 ---
 
-<SitePage title="jpFun · 函数式简谱语言" description="用简洁文本写简谱，自动排版、即时预览、播放与导出。">
+<SitePage title={pageTitle} documentTitle={pageTitle} description={pageDescription}>
   <section class="intro reveal" aria-labelledby="brand-title">
     <div class="wrap intro-layout">
       <div class="intro-copy">

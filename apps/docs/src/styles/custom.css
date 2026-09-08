@@ -28,12 +28,26 @@
 
 .site-title { font-family: var(--site-brand-font); font-weight: 800; }
 .sl-markdown-content { line-height: 1.85; }
+.token-comment, .token-punctuation { color: #8a969a; }
+.token-comment { font-style: italic; }
+.token-function, .token-property { color: #88baf0; }
+.token-function { font-weight: 600; }
+.token-atom, .token-number, .token-length { color: #90ceb0; }
+.token-string { color: #e5c489; }
+.token-label { color: #e6a6a9; }
+.token-operator, .token-boolean { color: #c6b2ee; }
+[data-theme="light"] :is(.token-comment, .token-punctuation) { color: #65766e; }
+[data-theme="light"] :is(.token-function, .token-property) { color: #225fa2; }
+[data-theme="light"] :is(.token-atom, .token-number, .token-length) { color: #246449; }
+[data-theme="light"] .token-string { color: #8d551b; }
+[data-theme="light"] .token-label { color: #a13952; }
+[data-theme="light"] :is(.token-operator, .token-boolean) { color: #7953a1; }
 .sl-markdown-content:not(:has(.site-page)) h2 { border-top: 1px solid var(--sl-color-hairline); padding-top: 1.5rem; }
 .sl-markdown-content :is(h1, h2, h3, h4) { letter-spacing: 0; }
 .sl-markdown-content blockquote {
   border-inline-start: 4px solid var(--sl-color-accent);
   background: color-mix(in srgb, var(--sl-color-accent) 10%, transparent);
-  line-height: 1;
+  line-height: 1.3;
   padding: 1.3rem;
 }
 .sl-markdown-content table { display: block; overflow-x: auto; font-size: .875rem; }

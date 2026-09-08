@@ -4,6 +4,7 @@ import starlight from "@astrojs/starlight";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { unified } from "@astrojs/markdown-remark";
+import { jpfunLanguage, jpfunSyntaxPlugin } from "./src/jpfun-language.mjs";
 
 export default defineConfig({
   site: "https://madderscientist.github.io",
@@ -15,6 +16,10 @@ export default defineConfig({
     sitemap(),
     starlight({
       title: "jpFun",
+      expressiveCode: {
+        shiki: { langs: [jpfunLanguage] },
+        plugins: [jpfunSyntaxPlugin()],
+      },
       defaultLocale: "root",
       locales: {
         root: {
