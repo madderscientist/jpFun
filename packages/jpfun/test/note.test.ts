@@ -31,6 +31,24 @@ function commandBounds(commands: readonly PathCommand[]) {
     return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
 }
 
+test("音名中的绝对八度完整传入显式和语法糖音符", () => {
+    const shorthand = compileScore(`C0`).layout.objects[0] as VisualTemporalNode & {
+        resolvedMidi: number | null;
+        ast: ASTFunctionNode & { octave: number };
+    };
+    const explicit = compileScore(`@note("C2")`).layout.objects[0] as VisualTemporalNode & {
+        resolvedMidi: number | null;
+        ast: ASTFunctionNode & { octave: number };
+    };
+
+    assert(shorthand.ast.octave === 0 && shorthand.resolvedMidi === 12,
+        "C0 语法糖必须保留绝对八度 0");
+    assert(explicit.ast.octave === 2 && explicit.resolvedMidi === 36,
+        "显式 @note 必须采用名称中的绝对八度");
+    expectCompileError(`@note("C2#")`, "E_WRONG_NOTE_NAME");
+    expectCompileError(`@note("#6#")`, "E_WRONG_NOTE_NAME");
+});
+
 test("升降号贴在数字左上角且不侵入数字单元", () => {
     const accidentalCommands = recordCommands(layoutOf(`#1`));
     const accidentalPath = accidentalCommands.find(command => command.kind === "path");
@@ -241,4 +259,52 @@ test("tempo 与 key 自己上谱，set 纯词法，不可见事件不分配布�
     assert(invisibleStateEvents.every(event => event.ports === undefined), "invisible state events must not allocate layout ports");
     assert(invisibleStateEvents.every(event => event.decorations === undefined), "invisible state events must not allocate decorations");
     assert(invisibleStateEvents.every(event => event.addon === undefined), "undecorated state events must not allocate addon");
+});
+
+test("JE 谱括号按局部作用域调整八度", () => {
+    const source = `(1 [2] 3) 4 [[5]] {(6} 7`;
+    const notes = compileScore(source).layout.objects as (VisualTemporalNode & {
+        octave: number;
+        resolvedMidi: number | null;
+    })[];
+
+    assert(notes.map(note => note.octave).join() === "-1,0,-1,0,2,-1,0",
+        "JE 括号必须支持嵌套，并在离开大括号作用域后恢复八度");
+    assert(notes.map(note => note.resolvedMidi).join() === "48,62,52,65,91,57,71",
+        "JE 括号必须让音高随每层括号改变 12 个半音");
+});
+
+test("JE 谱括号内的音符去糖不会重复应用八度", () => {
+    const source = `(@note(1))`;
+    const note = compileScore(source).layout.objects[0] as VisualTemporalNode & {
+        octave: number;
+        resolvedMidi: number | null;
+        ast: ASTFunctionNode;
+    };
+    const replacement = note.ast.toString(source);
+    const replacedSource = source.slice(0, note.ast.sourceSpan.start)
+        + replacement
+        + source.slice(note.ast.sourceSpan.end);
+    const replaced = compileScore(replacedSource).layout.objects[0] as VisualTemporalNode & {
+        octave: number;
+        resolvedMidi: number | null;
+    };
+
+    assert(note.octave === -1 && note.resolvedMidi === 48, "显式音符也必须读取 JE 八度作用域");
+    assert(replaced.octave === -1 && replaced.resolvedMidi === 48,
+        "替换为音符的去糖写法后，外层 JE 括号不能重复施加偏移");
+});
+
+test("数字音名后的升降号属于下一个音符", () => {
+    const notes = compileScore(`2#3`).layout.objects as (VisualTemporalNode & {
+        resolvedMidi: number | null;
+    })[];
+    const notesAfterOctave = compileScore(`2'#3`).layout.objects as (VisualTemporalNode & {
+        resolvedMidi: number | null;
+    })[];
+
+    assert(notes.map(note => note.resolvedMidi).join() === "62,65",
+        "2#3 必须解析为 2 和 #3，而不是 #2 和 3");
+    assert(notesAfterOctave.map(note => note.resolvedMidi).join() === "74,65",
+        "2'#3 必须解析为 2' 和 #3，而不是 #2' 和 3");
 });

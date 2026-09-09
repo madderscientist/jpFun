@@ -1,11 +1,13 @@
-import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { ASTNodeBase, ASTTextNode, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { Diagnostic, ErrorDiagnostic } from "../../diagnostic.js";
 import { parseNoteName } from "./noteNameFSM.js";
-import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
+import { GrammarCallNodeTyped, type GrammarNode, type GrammarSugarNode } from "../../parser/grammarType.js";
 import type { LayoutBox, LayoutDecoration, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
 import { JIANPU_NUMBER_FONT } from "../../render/text.js";
 import { paintAccidental, placeAccidentals, type PlacedAccidental } from "./accidentals.js";
+
+const JE_OCTAVE_OFFSET = "note.jeOctaveOffset";
 
 class NoteFunction extends ASTFunctionNode {
     static override def = {
@@ -18,13 +20,13 @@ class NoteFunction extends ASTFunctionNode {
 - acc: [可选]的额外升降号字符串，例如 "##" 表示再升两个半音，"b" 表示再降一个半音。
 - octave: [可选]八度，类型为数字。如果 name 是字母，则此项代表绝对八度；如果是数字，则此项代表相对八度。
 
-语法糖：[音名][升降号][八度] 音名和升降号可以交换
-例：A3# === @note(A3#) === @note(A, #, 3)
-也支持 A99##bn 的写法。可以设置 note.octave 改变默认的绝对八度
+语法糖：数字音名写作 [升降号][音名][相对八度]；字母音名写作 [音名][升降号][绝对八度]
+例：A#3 === @note(A#3) === @note(A, #, 3)
+也支持 A##bn99 的写法。可以设置 note.octave 改变默认的绝对八度
 
 支持 数字音名, 此时 octave 为相对八度
 支持使用数字音名时使用相对八度，如 "1,," 代表在当前基准音（由上下文属性"1=?"决定）的基础上降低两倍八度，"1'" 代表在当前基准音的基础上提高一个八度
-例：1#' === @note(1#') === @note(1, #, 1)。此时支持升降号写音名前面，如 #1'
+例：#1' === @note("#1'") === @note(1, #, 1)
 `,
         allowExtraArgs: false,
         args: [
@@ -52,11 +54,33 @@ class NoteFunction extends ASTFunctionNode {
     };
 
     static override deSugarAtom(source: string, start: number, end: number) {
+        // JE 谱兼容
+        let jeOffset = 0;
+        switch (source[start]) {
+            case "(":
+            case "]":
+                jeOffset = -1;
+                break;
+            case "[":
+            case ")":
+                jeOffset = 1;
+                break;
+        }
+        if (jeOffset) return {
+            next: start + 1,
+            node: {
+                kind: "sugar" as const,
+                data: { jeOffset },
+                span: { start, end: start + 1 },
+                syntaxKind: "punctuation" as const,
+            },
+        };
+        // 解析音符名
         const parseResult = parseNoteName(source, start, end);
         if (parseResult instanceof Diagnostic) return null;
         const argMap: FunctionArgs = new Map();
         argMap.set("name", parseResult.name);
-        if (parseResult.octave) argMap.set("octave", parseResult.octave);
+        if (parseResult.octave !== null) argMap.set("octave", parseResult.octave);
         if (parseResult.acc) argMap.set("acc", parseResult.acc);
         const node: GrammarCallNodeTyped = {
             kind: "call",
@@ -67,6 +91,16 @@ class NoteFunction extends ASTFunctionNode {
             syntaxKind: "atom",
         };
         return { next: parseResult.next, node };
+    }
+
+    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
+        const node = nodes[at] as GrammarSugarNode;
+        const jeOffset = node.data?.jeOffset;
+        if (typeof jeOffset !== "number") return null;
+        ctx.variables[JE_OCTAVE_OFFSET] = (ctx.variables[JE_OCTAVE_OFFSET] ?? 0) + jeOffset;
+        // JE 谱兼容：保留括号源码，并让关系语法糖像跳过普通文本一样跳过它。
+        ctx.nodes.push(new ASTTextNode(node.span));
+        return at + 1;
     }
 
     override labelable() { return this; }
@@ -81,6 +115,9 @@ class NoteFunction extends ASTFunctionNode {
     color: string;
     size: number;
 
+    // JE 八度偏移量
+    jeOctaveOffset: number;
+
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
         [this.name, this.acc, this.octave, this.color] = this.getArgValue(args, ctx) as [string, string, number, string];
@@ -92,6 +129,11 @@ class NoteFunction extends ASTFunctionNode {
             parseResult.span = sourceSpan;   // 定位到整个函数调用
             throw parseResult;
         }
+        if (parseResult.next !== this.name.length) throw new ErrorDiagnostic(
+            "E_WRONG_NOTE_NAME",
+            `函数 @note 的参数 [0]:"name" 格式错误: 无法解析尾部 "${this.name.slice(parseResult.next)}"`,
+            sourceSpan,
+        );
         this.name = parseResult.name === "X" ? "9" : parseResult.name === "Z" ? "0" : parseResult.name;
         // 校验octave
         const inputOctave = args.get("octave") ?? args.get(2);
@@ -102,9 +144,11 @@ class NoteFunction extends ASTFunctionNode {
                 sourceSpan
             );
         } else {
-            // 没有传入octave 此时this.octave是字母模式下的默认值 仅在数字模式下才需要被覆盖
-            if (!parseResult.absOctave) this.octave = parseResult.octave ?? 0;
+            // 没有单独传入 octave 时，优先采用音名中的八度；数字音名缺省为相对 0。
+            if (parseResult.octave !== null) this.octave = parseResult.octave;
+            else if (!parseResult.absOctave) this.octave = 0;
         }
+        this.jeOctaveOffset = ctx.variables[JE_OCTAVE_OFFSET] ?? 0;
         // 补充acc
         if (parseResult.acc !== null) this.acc = parseResult.acc + this.acc;
     }
@@ -158,7 +202,7 @@ class NoteTemporalNode extends TemporalNodeBase {
         this.mergeKey = DEFAULT_KEY;
         this.name = ast.name;
         this.acc = ast.acc;
-        this.octave = ast.octave;
+        this.octave = ast.octave + ast.jeOctaveOffset;
         this.numberStyle = {
             fontSize: ast.size,
             fontFamily: JIANPU_NUMBER_FONT,

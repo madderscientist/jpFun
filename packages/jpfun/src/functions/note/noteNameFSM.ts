@@ -1,7 +1,7 @@
 import { Diagnostic, ErrorDiagnostic } from "../../diagnostic.js";
 
-const LETTER_NOTE_START_RE = /^[A-G]/;
-const NUM_NOTE_START_RE = /^[0-9XZ]/;
+const LETTER_NOTE_START_RE = /^[A-GXZ]/;
+const NUM_NOTE_START_RE = /^[0-9]/;
 const SHARP_RE = /^[#bn]+/;
 const ABS_OCTAVE_RE = /^[+-]?\d+/;
 const RELATIVE_OCTAVE_RE = /^[,']+/;
@@ -33,34 +33,38 @@ export function parseNoteName(str: string, start: number = 0, end: number = str.
                 } else if (NUM_NOTE_START_RE.test(ch)) {
                     name = ch;
                     absOctave = false;
-                    state = 4;
+                    state = 3;
                 } else {
                     const match = str.slice(pos, end).match(SHARP_RE);
                     if (match) {
                         acc = match[0];
                         pos += acc.length - 1;
                         absOctave = false;
-                        state = 7;
+                        state = 2;
                     } else return new ErrorDiagnostic(
                         "E_WRONG_NOTE_NAME",
                         `函数 @note 的参数 [0]:"name" 格式错误: 首字符 "${ch}" 不合法，期望 A-G (a-g)、0-9、X 或 Z 开头，或在开头直接使用升降号(#/b/n)`,
                         { start: pos, end: pos + 1 }
                     );
                 } break;
-            case 1:
+            case 1: // [字母模式] 已获得音名
                 const subs = str.slice(pos, end);
                 match = subs.match(ABS_OCTAVE_RE);
                 if (match) {
                     octave = parseInt(match[0], 10);
-                    pos += match[0].length - 1;
-                    state = 2;
-                    break;
+                    return {
+                        name: name!,
+                        next: pos + match[0].length,
+                        acc: null,
+                        octave,
+                        absOctave,
+                    };
                 }
                 match = subs.match(SHARP_RE);
                 if (match) {
                     acc = match[0] as string;
                     pos += acc.length - 1;
-                    state = 3;
+                    state = 4;
                     break;
                 }
                 return {
@@ -70,25 +74,36 @@ export function parseNoteName(str: string, start: number = 0, end: number = str.
                     octave: null,
                     absOctave,
                 };
-            case 2:
-                match = str.slice(pos, end).match(SHARP_RE);
+            case 2: // [数字模式] 已获得升降号
+                if (NUM_NOTE_START_RE.test(ch)) {
+                    name = ch;
+                    state = 3;
+                    break;
+                } else return new ErrorDiagnostic(
+                    "E_WRONG_NOTE_NAME",
+                    `函数 @note 的参数 [0]:"name" 格式错误: 在升降号开头时，应该接数字音名，但发现字符 "${ch}"`,
+                    { start: pos, end: pos + 1 }
+                );
+            case 3: // [数字模式] 已获得音名和半音
+                match = str.slice(pos, end).match(RELATIVE_OCTAVE_RE);
                 if (match) {
-                    acc = match[0] as string;
+                    const octave_str = match[0];
+                    octave = relativeOctaveFromString(octave_str);
                     return {
                         name: name!,
-                        next: pos + acc.length,
+                        next: pos + octave_str.length,
                         acc,
-                        octave,
+                        octave: octave!,
                         absOctave,
                     };
                 } return {
                     name: name!,
                     next: pos,
-                    acc: null,
+                    acc,
                     octave: octave!,
                     absOctave,
                 };
-            case 3:
+            case 4: // [字母模式] 已获得音名和半音
                 match = str.slice(pos, end).match(ABS_OCTAVE_RE);
                 if (match) {
                     octave = parseInt(match[0], 10);
@@ -102,79 +117,10 @@ export function parseNoteName(str: string, start: number = 0, end: number = str.
                 } return {
                     name: name!,
                     next: pos,
-                    acc: acc!,
+                    acc: acc,
                     octave: null,
                     absOctave,
                 };
-            case 4:
-                match = str.slice(pos, end).match(RELATIVE_OCTAVE_RE);
-                if (match) {
-                    const octave_str = match[0];
-                    octave = relativeOctaveFromString(octave_str);
-                    pos += octave_str.length - 1;
-                    state = 5;
-                    break;
-                }
-                match = str.slice(pos, end).match(SHARP_RE);
-                if (match) {
-                    acc = match[0] as string;
-                    pos += acc.length - 1;
-                    state = 6;
-                    break;
-                } return {
-                    name: name!,
-                    next: pos,
-                    acc: null,
-                    octave: octave!,
-                    absOctave,
-                };
-            case 5:
-                match = str.slice(pos, end).match(SHARP_RE);
-                if (match) {
-                    acc = match[0] as string;
-                    return {
-                        name: name!,
-                        next: pos + acc.length,
-                        acc,
-                        octave: octave!,
-                        absOctave,
-                    };
-                } return {
-                    name: name!,
-                    next: pos,
-                    acc: null,
-                    octave: octave!,
-                    absOctave,
-                };
-            case 6:
-                match = str.slice(pos, end).match(RELATIVE_OCTAVE_RE);
-                if (match) {
-                    const octave_str = match[0];
-                    octave = relativeOctaveFromString(octave_str);
-                    return {
-                        name: name!,
-                        next: pos + octave_str.length,
-                        acc: acc!,
-                        octave: octave!,
-                        absOctave,
-                    };
-                } return {
-                    name: name!,
-                    next: pos,
-                    acc: acc!,
-                    octave: octave!,
-                    absOctave,
-                };
-            case 7:
-                if (NUM_NOTE_START_RE.test(ch)) {
-                    name = ch;
-                    state = 6;
-                    break;
-                } else return new ErrorDiagnostic(
-                    "E_WRONG_NOTE_NAME",
-                    `函数 @note 的参数 [0]:"name" 格式错误: 在升降号开头时，应该接数字音名，但发现字符 "${ch}"`,
-                    { start: pos, end: pos + 1 }
-                );
             default:
                 return Diagnostic.error.Bug(
                     "音符名称解析状态机进入了未定义的状态",
@@ -182,8 +128,13 @@ export function parseNoteName(str: string, start: number = 0, end: number = str.
                 );
         }
     }
+    if (name === null) return new ErrorDiagnostic(
+        "E_WRONG_NOTE_NAME",
+        `函数 @note 的参数 [0]:"name" 格式错误: 在升降号开头时，应该接数字音名，但输入已结束`,
+        { start, end },
+    );
     return {
-        name: name!,
+        name,
         next: end,
         acc,
         octave,
