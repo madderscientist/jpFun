@@ -40,6 +40,7 @@ const POSSIBLE_SCORE_MIME_TYPES = new Set([
 ]);
 
 const editorHost = requiredElement<HTMLElement>("#sourceEditor");
+const autoFormat = requiredElement<HTMLInputElement>("#autoFormat");
 const statusMessage = requiredElement<HTMLElement>("#statusMessage");
 const layoutStats = requiredElement<HTMLElement>("#layoutStats");
 const layoutTime = requiredElement<HTMLElement>("#layoutTime");
@@ -71,6 +72,7 @@ initializeTheme();
 const editor = createSourceEditor({
     parent: editorHost,
     doc: loadDraftSource(PLAYGROUND_EXAMPLE),
+    isAutoFormatEnabled: () => autoFormat.checked,
     onCompile: compileAndRender,
     onDocChanged() {
         documents.sourceChanged();

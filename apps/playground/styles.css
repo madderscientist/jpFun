@@ -237,6 +237,9 @@ button:focus-visible, [tabindex]:focus-visible {
 .pane-tab[data-severity="error"] .tab-badge { color: #ffffff; background: var(--error); }
 .pane-tab[data-severity="warning"] .tab-badge { color: #ffffff; background: var(--warning); }
 .pane-toolbar-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.auto-format { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-family: "Noto Sans SC", "Microsoft YaHei UI", sans-serif; font-size: 11px; line-height: 1; white-space: nowrap; cursor: pointer; }
+.auto-format input { margin: 0; accent-color: var(--accent); }
+.auto-format span { text-box: trim-both cap alphabetic; }
 .source-size { color: var(--muted); font-family: "Cascadia Mono", monospace; font-size: 10px; white-space: nowrap; }
 .docs-link {
     display: inline-flex;

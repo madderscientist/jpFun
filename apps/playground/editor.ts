@@ -20,7 +20,7 @@ import {
     ViewPlugin,
 } from "@codemirror/view";
 import { Diagnostic, ErrorDiagnostic } from "jpfun";
-import { jpFunLanguage, labelJumped } from "./jpfun-language.js";
+import { insertFormattedNewline, jpFunLanguage, labelJumped } from "./jpfun-language.js";
 
 export interface SourceRange {
     from: number;
@@ -30,6 +30,7 @@ export interface SourceRange {
 interface SourceEditorOptions {
     parent: HTMLElement;
     doc: string;
+    isAutoFormatEnabled: () => boolean;
     onCompile: () => void;
     onDocChanged: () => void;
     onCursorClick: (position: number) => void;
@@ -213,6 +214,7 @@ export function createSourceEditor(options: SourceEditorOptions): EditorView {
                 lineWrapping.of([]),
                 keymap.of([
                     { key: "Alt-z", run: toggleLineWrapping },
+                    { key: "Enter", run: view => options.isAutoFormatEnabled() && insertFormattedNewline(view) },
                     ...closeBracketsKeymap,
                     ...defaultKeymap,
                     ...historyKeymap,

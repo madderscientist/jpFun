@@ -1,5 +1,6 @@
 import { snippetCompletion, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
-import { EditorSelection, EditorState, RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
+import { insertNewlineAndIndent } from "@codemirror/commands";
+import { EditorSelection, EditorState, RangeSetBuilder, StateEffect, StateField, type ChangeSpec, type StateCommand } from "@codemirror/state";
 import { activateHover, closeHoverTooltips, Decoration, EditorView, hoverTooltip, keymap, ViewPlugin, type DecorationSet, type Tooltip } from "@codemirror/view";
 import { analyzeScoreSyntax, ASTFunctionNode, ASTLabelNode, ASTNodeBase, defaultFunctions, resolveArgType, type CallInfo, type FunctionDef, type SourceSpan, type SyntaxAnalysis, type SyntaxToken, type SyntaxTokenKind } from "jpfun";
 
@@ -30,6 +31,34 @@ const syntaxField = StateField.define({
     create: analyze,
     update: (value, transaction) => transaction.docChanged ? analyze(transaction.state) : value,
     provide: field => EditorView.decorations.from(field, value => value.decorations),
+});
+
+export const insertFormattedNewline: StateCommand = ({ state, dispatch }) => insertNewlineAndIndent({
+    state,
+    dispatch(transaction) {
+        const next = transaction.state;
+        const lines = new Set(next.selection.ranges.map(range => next.doc.lineAt(range.head).number - 1));
+        const { tokens } = next.field(syntaxField).analysis;
+        const changes: ChangeSpec[] = [];
+        for (let index = 0; index < tokens.length; index++) {
+            const right = tokens[index];
+            const line = next.doc.lineAt(right.span.start);
+            if (!lines.has(line.number) || right.span.end > line.to) continue;
+            if (right.kind === "punctuation" && next.sliceDoc(right.span.start, right.span.end) === ",") {
+                const position = right.span.end;
+                if (position < line.to && !/[\s)]/.test(next.sliceDoc(position, position + 1))) {
+                    changes.push({ from: position, insert: " " });
+                }
+                continue;
+            }
+            const left = tokens[index - 1];
+            if (!left || left.span.start < line.from || left.span.end !== right.span.start) continue;
+            if (![left.kind, right.kind].every(kind => kind === "atom" || kind === "operator")) continue;
+            if (/^[/.]+$/.test(next.sliceDoc(right.span.start, right.span.end))) continue;
+            changes.push({ from: right.span.start, insert: " " });
+        }
+        dispatch(changes.length ? state.update(transaction, { changes, sequential: true }) : transaction);
+    },
 });
 
 //====== 语义层（防抖产物） ======//

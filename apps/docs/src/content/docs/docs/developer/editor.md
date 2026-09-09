@@ -16,7 +16,7 @@ sidebar:
 | 触发 | 每次按键，同步 | 防抖（playground 是 180ms），与渲染共用 |
 | 产出 | `{ syntax, diagnostics }` | `{ lineStarts, maskedSource, diagnostics, ast, lowering, layout }` |
 | 出错 | 只记诊断，不抛 | 致命错误直接抛出，此时没有 AST |
-| 服务 | 高亮、补全、括号、函数名悬浮 | 预览渲染、去糖悬浮、诊断面板 |
+| 服务 | 高亮、补全、自动格式化、括号、函数名悬浮 | 预览渲染、去糖悬浮、诊断面板 |
 
 词法层随输入同步更新。语义层结果在文档修改后失效，直到下一次编译完成才可用。接入其他前端时，也应区分这两条路径：高亮、补全等功能使用当前词法结果，依赖 AST 的功能则在语义结果过期时暂停或使用词法信息作为替代。
 
@@ -28,6 +28,7 @@ sidebar:
 | 函数名补全 | `defaultFunctions` 的 `def` | `CompletionItemProvider`（触发字符 `@`） |
 | 参数名补全 | `syntax.calls` + `resolveArgType` | 同上 |
 | 标签补全 | `syntax.tokens` 里的 `label` | 同上 |
+| 回车自动格式化 | `syntax.tokens` | `OnTypeFormattingEditProvider`（触发字符 `\n`） |
 | 函数文档悬浮 | `syntax.calls` + `def` | `HoverProvider` |
 | 去糖写法悬浮 | `compileScore().ast` | 同上 |
 | 去糖替换 | `node.toString(source)` | `CodeActionProvider`（见下） |
@@ -86,6 +87,24 @@ playground 的补全由 [jpfun-language.ts](https://github.com/madderscientist/j
 3. **光标在 `label` 类型的参数值位置**：列出文档中已声明的标签。声明与引用通过 token 在源码中是否以 `@` 开头区分：`@x` 是声明，`@tie(x)` 中的 `x` 是引用。
 
 参数类型通过 `resolveArgType(def, name, index)` 查询，与 AST 解析使用相同的参数名到类型解析规则。光标位于 `content` 类型的参数中时，补全返回 `null`，避免在输入音符时反复弹出候选项。
+
+## 自动格式化
+
+编辑器顶部的「自动格式化」复选框默认开启，取消勾选后回车只执行普通换行。开启时，按 `Enter` 正常换行并保留缩进，然后只为刚离开的上一行补空格；行中回车不会格式化移到下一行的内容。粘贴、导入和保存不会触发此功能。
+
+格式化只补缺失的空格，不压缩已有空白、不改变行首缩进，也不修改字符串或注释内部：
+
+| 输入 | 回车后上一行 |
+| --- | --- |
+| `6#3` | `6 #3` |
+| `1^3` | `1 ^ 3` |
+| `1/2` | `1/ 2`（减时线与附点仍紧贴前面的音符） |
+| `1,,2` | `1,, 2`（低八度逗号属于音符，不拆开） |
+| `@up(1,3)` | `@up(1, 3)`（参数逗号只在后面补空格） |
+| `@div(6#3,1)` | `@div(6 #3, 1)`（内容参数内同样处理） |
+| `@tempo(120)` | 不变（函数名、括号保持紧凑） |
+
+实现位于 playground 的 `insertFormattedNewline`，复用 `syntaxField` 中已缓存的 `syntax.tokens`：按源码顺序扫描相邻的 `atom` / `operator` 边界及参数逗号 `punctuation`，不另写词法规则，也不依赖 AST 或修改 core。CodeMirror 的 `insertNewlineAndIndent` 负责换行、缩进和多光标；补空格与换行合并为一次 transaction，因此一次撤销即可还原。无需补空格时直接提交原换行 transaction，避免重复更新状态。
 
 ## 悬浮
 
