@@ -14,7 +14,7 @@ import type { LoweringContext } from "../../lowering/loweringContext.js";
 import { Fraction } from "../../fraction.js";
 import type { Track } from "../../lowering/track.js";
 import { prepareLayoutHost } from "../../layout/engine.js";
-import type { LayoutBox, LayoutPoint, LayoutPrepareContext } from "../../layout/types.js";
+import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";
 import type { PlaybackEmitter } from "../../playback/types.js";
 
@@ -294,8 +294,8 @@ class FoldTemporal extends TemporalNodeBase {
     /** members[0] 是宿主，`[1, aboveCount)` 向上叠，`[aboveCount, end)` 向下叠 */
     private readonly aboveCount: number;
 
-    /** 每个成员相对本盒左上角的局部偏移，onPlaced 时同步为绝对坐标 */
-    private readonly offsets: LayoutPoint[] = [];
+    /** 每个成员相对本盒顶部的纵向偏移，onPlaced 时同步为绝对坐标 */
+    private readonly verticalOffsets: number[] = [];
 
     constructor(ast: FoldFunction, members: readonly VisualTemporalNode[]) {
         super();
@@ -359,7 +359,6 @@ class FoldTemporal extends TemporalNodeBase {
      * 准备直接复用引擎的 prepareLayoutHost，保证成员的装饰、端口与顶层对象完全一致。
      */
     override prepareLayout(context: LayoutPrepareContext) {
-        this.offsets.length = 0;
         // lowering 期间修饰挂在折叠体上（augmenter 要看到整体节奏），渲染时交给宿主：
         // 减时线要落在它的数字与下八度点之间，而不是压在整个盒子下面
         if (this.addon && this.members[0]) {
@@ -379,21 +378,22 @@ class FoldTemporal extends TemporalNodeBase {
         // 让它们撑宽盒子会把右邻推开一大截；它们画在基线外侧，伸出盒外也不会碰撞
         const anchor = first.box.anchor;
         const gap = this.ast.size * 0.12;
-        for (const member of this.members) this.offsets.push({ x: anchor - member.box.anchor, y: 0 });
+        this.verticalOffsets.length = this.members.length;
+        this.verticalOffsets.fill(0);
 
         // 以宿主盒顶为 0，向上得到负坐标、向下得到正坐标，最后整体下移
         let top = 0;
         for (let i = 1; i < this.aboveCount; i++) {
             top -= gap + this.members[i].box.h;
-            this.offsets[i].y = top;
+            this.verticalOffsets[i] = top;
         }
         let bottom = first.box.h;
         for (let i = this.aboveCount; i < this.members.length; i++) {
             bottom += gap;
-            this.offsets[i].y = bottom;
+            this.verticalOffsets[i] = bottom;
             bottom += this.members[i].box.h;
         }
-        for (const offset of this.offsets) offset.y -= top;
+        for (let i = 0; i < this.verticalOffsets.length; i++) this.verticalOffsets[i] -= top;
 
         this.box.w = first.box.w;
         this.box.h = bottom - top;
@@ -401,12 +401,12 @@ class FoldTemporal extends TemporalNodeBase {
         // 宿主对齐轨道基线，两侧成员各自向外撑开行高
         this.box.visualAxis = first.box.visualAxis - top;
 
-        // 端口：宿主代表整个折叠体，把它发布的端口原样平移（它的 offset.x 恒为 0），
+        // 端口：宿主代表整个折叠体，把它发布的端口原样上提，
         // 减时线、歌词等端口于是与普通音符完全一致，关系函数不需要认识 up
-        const firstOffset = this.offsets[0];
+        const firstOffset = this.verticalOffsets[0];
         for (const name in first.ports) {
             const port = first.ports[name];
-            this.ports[name] = { x: port.x, y: firstOffset.y + port.y };
+            this.ports[name] = { x: port.x, y: firstOffset + port.y };
         }
 
         // 代表成员没声明核心范围时退回它的整个盒子
@@ -415,20 +415,19 @@ class FoldTemporal extends TemporalNodeBase {
 
         // 唯一的例外：连音线要接到最上面那个成员的顶部
         const topIndex = this.aboveCount - 1;
-        const topOffset = this.offsets[topIndex];
+        const topOffset = this.verticalOffsets[topIndex];
         this.ports["tie.top"] = {
             x: anchor,
-            y: topOffset.y + (this.members[topIndex].ports["tie.top"]?.y ?? 0),
+            y: topOffset + (this.members[topIndex].ports["tie.top"]?.y ?? 0),
         };
     }
 
-    /** 引擎每次改变本节点坐标后，按准备阶段保存的局部偏移重算成员绝对坐标 */
+    /** 引擎每次改变本节点坐标后，按当前 anchor 与准备阶段的纵向偏移重算成员绝对坐标 */
     override onPlaced() {
         for (let i = 0; i < this.members.length; i++) {
-            const offset = this.offsets[i];
             const member = this.members[i];
-            member.box.x = this.box.x + offset.x;
-            member.box.y = this.box.y + offset.y;
+            member.box.x = this.box.x + this.box.anchor - member.box.anchor;
+            member.box.y = this.box.y + this.verticalOffsets[i];
             member.onPlaced?.();
         }
     }

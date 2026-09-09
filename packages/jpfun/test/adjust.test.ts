@@ -2,7 +2,7 @@ import { test } from "node:test";
 
 import type { DocumentLayoutResult } from "../src/layout/engine.js";
 import type { PlacedAttachment, Rect } from "../src/layout/types.js";
-import { assert, attachmentCommands, commandsOfKind, expectLoweringError, layoutOf, lower, nearly } from "./helpers.js";
+import { assert, attachmentCommands, commandsOfKind, expectLoweringError, layoutOf, lower, nearly, recordCommands } from "./helpers.js";
 
 test("dx/dy 在排版之后平移，邻居完全不动", () => {
     const base = layoutOf(`1 2`);
@@ -63,6 +63,17 @@ test("折叠成员也能微调：@up 的上方标记与倚音", () => {
     const graceMoved = textCommands(`@adjust(2, dy=-3px)>1`);
     assert(nearly(findText(graceMoved, "2").y, findText(graceBase, "2").y - 3), "倚音成员必须能被微调");
     assert(nearly(findText(graceMoved, "1").y, findText(graceBase, "1").y), "宿主不受影响");
+});
+
+test("adjust 外包 fold 时成员跟随当前 anchor", () => {
+    const barOffset = (source: string) => {
+        const result = layoutOf(source);
+        const line = recordCommands(result).find(command => command.kind === "rect")!;
+        return line.x + line.w / 2 - result.objects[0].box.x - result.objects[0].box.anchor;
+    };
+
+    assert(nearly(barOffset(`@adjust(|, dw=20px)`), 0), "直接调整的小节线必须落在自己的 anchor 上");
+    assert(nearly(barOffset(`@adjust(|^"s", dw=20px)`), 0), "fold 内的小节线必须落在复合体当前 anchor 上");
 });
 
 test("连音线跟着被微调的端点走", () => {

@@ -86,7 +86,7 @@ class BarTemporalNode extends TemporalNodeBase {
     declare box: LayoutBox;
 
     private lines: { x: number; w: number }[] = [];
-    private repeatDots: { x: number; y: number }[] = [];
+    private repeatDots: { x: number; y: number; r: number }[] = [];
 
     constructor(ast: BarFunction) {
         super();
@@ -136,7 +136,7 @@ class BarTemporalNode extends TemporalNodeBase {
     override prepareLayout() {
         const { type, size } = this.ast;
         this.lines.length = 0;
-        this.repeatDots.length = 0;
+        const repeatDots: { x: number; y: number }[] = [];
 
         const h = size;
         const thin = Math.max(1, size * 0.065);
@@ -165,27 +165,30 @@ class BarTemporalNode extends TemporalNodeBase {
 
         if (hasLeftDots) {
             const dotX = dotRadius;
-            this.repeatDots.push({ x: dotX, y: h * 0.38 });
-            this.repeatDots.push({ x: dotX, y: h * 0.62 });
+            repeatDots.push({ x: dotX, y: h * 0.38 });
+            repeatDots.push({ x: dotX, y: h * 0.62 });
         }
 
         if (hasRightDots) {
             const dotX = x + dotGap;
-            this.repeatDots.push({ x: dotX, y: h * 0.38 });
-            this.repeatDots.push({ x: dotX, y: h * 0.62 });
+            repeatDots.push({ x: dotX, y: h * 0.38 });
+            repeatDots.push({ x: dotX, y: h * 0.62 });
             x = dotX + dotRadius;
         }
 
         this.box.w = x;
         this.box.h = h;
-        this.box.anchor = x / 2;
+        const anchorLine = type >= 2 ? this.lines[0] : undefined;
+        this.box.anchor = anchorLine ? anchorLine.x + anchorLine.w / 2 : x / 2;
         this.box.visualAxis = h / 2;
+        for (const line of this.lines) line.x -= this.box.anchor;
+        this.repeatDots = repeatDots.map(dot => ({ x: dot.x - this.box.anchor, y: dot.y, r: dotRadius }));
     }
 
     override paint(painter: Painter) {
         for (const line of this.lines) {
             painter.drawRect(
-                this.box.x + line.x,
+                this.box.x + this.box.anchor + line.x,
                 this.box.y,
                 line.w,
                 this.box.h,
@@ -193,12 +196,11 @@ class BarTemporalNode extends TemporalNodeBase {
             );
         }
 
-        const radius = Math.max(1, this.box.w * 0.06);
         for (const dot of this.repeatDots) {
             painter.drawCircle(
-                this.box.x + dot.x,
+                this.box.x + this.box.anchor + dot.x,
                 this.box.y + dot.y,
-                radius,
+                dot.r,
                 { fill: "#000" },
             );
         }

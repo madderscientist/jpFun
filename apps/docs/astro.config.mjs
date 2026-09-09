@@ -6,14 +6,19 @@ import rehypeKatex from "rehype-katex";
 import { unified } from "@astrojs/markdown-remark";
 import { jpfunLanguage, jpfunSyntaxPlugin } from "./src/jpfun-language.mjs";
 
+const site = "https://madderscientist.github.io";
+const base = process.env.BASE_PATH ?? "/";
+
 export default defineConfig({
-  site: "https://madderscientist.github.io",
-  base: process.env.BASE_PATH ?? "/",
+  site,
+  base,
   markdown: {
     processor: unified({ remarkPlugins: [remarkMath], rehypePlugins: [rehypeKatex] }),
   },
   integrations: [
-    sitemap(),
+    sitemap({
+      customPages: [new URL(`${base.replace(/\/$/, "")}/playground/`, site).href],
+    }),
     starlight({
       title: "jpFun",
       expressiveCode: {

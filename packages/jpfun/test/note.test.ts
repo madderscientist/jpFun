@@ -214,6 +214,49 @@ test("小节线几何中心与数字视觉中心对齐", () => {
     );
 });
 
+test("反复线落在指定线条的 anchor 上，adjust 扩位不移动墨迹", () => {
+    const geometry = (source: string) => {
+        const result = layoutOf(source);
+        const anchor = result.objects[0].box.x + result.objects[0].box.anchor;
+        const commands = recordCommands(result);
+        return {
+            anchor,
+            lines: commands.filter(command => command.kind === "rect"),
+            dots: commands.filter(command => command.kind === "circle"),
+        };
+    };
+
+    for (const type of [2, 3, 4]) {
+        const base = geometry(`@bar(${type})`);
+        const wider = geometry(`@adjust(@bar(${type}), dw=20px)`);
+        const anchorLine = base.lines.reduce((left, right) => type === 2
+            ? (left.w > right.w ? left : right)
+            : (left.w < right.w ? left : right));
+        assert(nearly(anchorLine.x + anchorLine.w / 2, base.anchor),
+            `bar type ${type} designated line must sit on its anchor`);
+        assert(base.lines.length === wider.lines.length && base.dots.length === wider.dots.length,
+            `bar type ${type} must preserve all ink when dw changes`);
+        for (let i = 0; i < base.lines.length; i++) {
+            assert(nearly(base.lines[i].x - base.anchor, wider.lines[i].x - wider.anchor)
+                && nearly(base.lines[i].w, wider.lines[i].w),
+            `bar type ${type} lines must stay fixed relative to the anchor`);
+        }
+        for (let i = 0; i < base.dots.length; i++) {
+            assert(nearly(base.dots[i].cx - base.anchor, wider.dots[i].cx - wider.anchor)
+                && nearly(base.dots[i].r, wider.dots[i].r),
+            `bar type ${type} dots must stay fixed relative to the anchor`);
+        }
+    }
+});
+
+test("三种反复线的圆点大小一致", () => {
+    const radiusOf = (type: number) => recordCommands(layoutOf(`@bar(${type})`))
+        .find(command => command.kind === "circle")?.r;
+    const radii = [2, 3, 4].map(radiusOf);
+    assert(radii.every(radius => radius !== undefined && nearly(radius, radii[0]!)),
+        `repeat bar dots must share one radius, got ${radii.join(", ")}`);
+});
+
 test("不规范的调性先按音高归一化，读不懂才退回 C4，严格模式一律报错", () => {
     /** 源码里数字 1 解析出的 MIDI，说明最终生效的到底是哪个调 */
     const tonicOf = (tonality: string) => {
