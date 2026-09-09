@@ -40,12 +40,23 @@ test("音名中的绝对八度完整传入显式和语法糖音符", () => {
         resolvedMidi: number | null;
         ast: ASTFunctionNode & { octave: number };
     };
+    const postfixAccidental = compileScore(`@note("C2#")`).layout.objects[0] as VisualTemporalNode & {
+        resolvedMidi: number | null;
+        ast: ASTFunctionNode & { acc: string; octave: number };
+    };
+    const shorthandPostfix = compileScore(`A3# A3#2`).layout.objects as (VisualTemporalNode & {
+        resolvedMidi: number | null;
+    })[];
 
     assert(shorthand.ast.octave === 0 && shorthand.resolvedMidi === 12,
         "C0 语法糖必须保留绝对八度 0");
     assert(explicit.ast.octave === 2 && explicit.resolvedMidi === 36,
         "显式 @note 必须采用名称中的绝对八度");
-    expectCompileError(`@note("C2#")`, "E_WRONG_NOTE_NAME");
+    assert(postfixAccidental.ast.acc === "#" && postfixAccidental.ast.octave === 2
+        && postfixAccidental.resolvedMidi === 37,
+        "显式 @note 必须兼容无歧义的后置升降号");
+    assert(shorthandPostfix.map(note => note.resolvedMidi).join() === "58,57,63",
+        "A3# 必须兼容为 A#3，而 A3#2 必须解析为 A3 和 #2");
     expectCompileError(`@note("#6#")`, "E_WRONG_NOTE_NAME");
 });
 
@@ -295,7 +306,7 @@ test("JE 谱括号内的音符去糖不会重复应用八度", () => {
         "替换为音符的去糖写法后，外层 JE 括号不能重复施加偏移");
 });
 
-test("数字音名后的升降号属于下一个音符", () => {
+test("数字音名只在无歧义时兼容后置升降号", () => {
     const notes = compileScore(`2#3`).layout.objects as (VisualTemporalNode & {
         resolvedMidi: number | null;
     })[];
@@ -307,4 +318,10 @@ test("数字音名后的升降号属于下一个音符", () => {
         "2#3 必须解析为 2 和 #3，而不是 #2 和 3");
     assert(notesAfterOctave.map(note => note.resolvedMidi).join() === "74,65",
         "2'#3 必须解析为 2' 和 #3，而不是 #2' 和 3");
+
+    const compatible = compileScore(`6#,, #6#`).layout.objects as (VisualTemporalNode & {
+        resolvedMidi: number | null;
+    })[];
+    assert(compatible.map(note => note.resolvedMidi).join() === "46,70",
+        "6#,, 必须兼容为 #6,,，而 #6# 不能合并成 ##6");
 });

@@ -52,19 +52,15 @@ export function parseNoteName(str: string, start: number = 0, end: number = str.
                 match = subs.match(ABS_OCTAVE_RE);
                 if (match) {
                     octave = parseInt(match[0], 10);
-                    return {
-                        name: name!,
-                        next: pos + match[0].length,
-                        acc: null,
-                        octave,
-                        absOctave,
-                    };
+                    pos += match[0].length - 1;
+                    state = 4;
+                    break;
                 }
                 match = subs.match(SHARP_RE);
                 if (match) {
                     acc = match[0] as string;
                     pos += acc.length - 1;
-                    state = 4;
+                    state = 5;
                     break;
                 }
                 return {
@@ -77,14 +73,14 @@ export function parseNoteName(str: string, start: number = 0, end: number = str.
             case 2: // [数字模式] 已获得升降号
                 if (NUM_NOTE_START_RE.test(ch)) {
                     name = ch;
-                    state = 3;
+                    state = 6;
                     break;
                 } else return new ErrorDiagnostic(
                     "E_WRONG_NOTE_NAME",
                     `函数 @note 的参数 [0]:"name" 格式错误: 在升降号开头时，应该接数字音名，但发现字符 "${ch}"`,
                     { start: pos, end: pos + 1 }
                 );
-            case 3: // [数字模式] 已获得音名和半音
+            case 3: // [数字模式] 已获得音名
                 match = str.slice(pos, end).match(RELATIVE_OCTAVE_RE);
                 if (match) {
                     const octave_str = match[0];
@@ -96,14 +92,43 @@ export function parseNoteName(str: string, start: number = 0, end: number = str.
                         octave: octave!,
                         absOctave,
                     };
-                } return {
+                }
+                match = str.slice(pos, end).match(SHARP_RE);
+                if (match && !NUM_NOTE_START_RE.test(str[pos + match[0].length] ?? "")) {
+                    const accidental = match[0];
+                    acc = accidental;
+                    pos += accidental.length - 1;
+                    state = 6;
+                    break;
+                }
+                return {
                     name: name!,
                     next: pos,
                     acc,
                     octave: octave!,
                     absOctave,
                 };
-            case 4: // [字母模式] 已获得音名和半音
+            case 4: // [字母模式] 已获得音名和八度
+                match = str.slice(pos, end).match(SHARP_RE);
+                if (match && !NUM_NOTE_START_RE.test(str[pos + match[0].length] ?? "")) {
+                    const accidental = match[0];
+                    acc = accidental;
+                    return {
+                        name: name!,
+                        next: pos + accidental.length,
+                        acc,
+                        octave,
+                        absOctave,
+                    };
+                }
+                return {
+                    name: name!,
+                    next: pos,
+                    acc: null,
+                    octave,
+                    absOctave,
+                };
+            case 5: // [字母模式] 已获得音名和半音
                 match = str.slice(pos, end).match(ABS_OCTAVE_RE);
                 if (match) {
                     octave = parseInt(match[0], 10);
@@ -119,6 +144,26 @@ export function parseNoteName(str: string, start: number = 0, end: number = str.
                     next: pos,
                     acc: acc,
                     octave: null,
+                    absOctave,
+                };
+            case 6: // [数字模式] 已获得升降号和音名
+                match = str.slice(pos, end).match(RELATIVE_OCTAVE_RE);
+                if (match) {
+                    const octave_str = match[0];
+                    octave = relativeOctaveFromString(octave_str);
+                    return {
+                        name: name!,
+                        next: pos + octave_str.length,
+                        acc,
+                        octave,
+                        absOctave,
+                    };
+                }
+                return {
+                    name: name!,
+                    next: pos,
+                    acc,
+                    octave,
                     absOctave,
                 };
             default:
