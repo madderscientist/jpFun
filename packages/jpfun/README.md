@@ -4,6 +4,8 @@ A functional numbered musical notation typesetting engine for TypeScript.
 
 jpFun compiles a compact numbered-notation DSL into a reusable document layout that can be rendered as SVG or Canvas.
 
+[Documentation](https://madderscientist.github.io/jpFun/)
+
 ## Features
 
 - Compact DSL with syntax sugar and function-based extensibility

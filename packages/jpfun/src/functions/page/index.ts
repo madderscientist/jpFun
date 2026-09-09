@@ -27,10 +27,11 @@ const px = (value: number): LengthValue => ({ value, unit: "px" });
 export const PAGE_NUMBER_FONT_SIZE = 16;
 const PAGE_NUMBER_STYLE: TextStyle = { fontSize: PAGE_NUMBER_FONT_SIZE, textAlign: "center", fill: "#606060" };
 
-/** 模式串里的 1 是计数符号，最后一个取总页数，其余取当前页 */
+/** 单个 1 取当前页；多个 1 中最后一个取总页数，其余取当前页 */
 function formatPageNumber(pattern: string, current: number, total: number): string {
     const last = pattern.lastIndexOf("1");
-    return pattern.replace(/1/g, (_, index: number) => String(index === last ? total : current));
+    const hasTotal = pattern.indexOf("1") !== last;
+    return pattern.replace(/1/g, (_, index: number) => String(hasTotal && index === last ? total : current));
 }
 
 /** 浮在每页下边距带里的页码，不属于任何谱面行，因此不申报 Track 占用 */
@@ -73,7 +74,7 @@ export class PageFunction extends ASTFunctionNode {
             { name: "left", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.marginLeft) },
             { name: "right", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.marginRight) },
             { name: "gap", type: "length" as const, default: { value: 1, unit: "em" as const } },
-            // 模式串里的 1 是计数符号，最后一个取总页数
+            // 单个 1 取当前页；多个 1 中最后一个取总页数
             { name: "numbering", type: "string" as const, default: "" },
         ],
     };

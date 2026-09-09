@@ -34,7 +34,7 @@ if (offset < source.length) segments.push({ text: source.slice(offset) });
       <span class="copy-tooltip" role="status">复制代码</span>
     </div>
   </div>
-  <div class="score-result" tabindex="0" role="region" aria-label={`${title}的谱面`}>
+  <div class="score-result" data-fit={fit} tabindex="0" role="region" aria-label={`${title}的谱面`}>
     <ScoreSvg source={source} label={title} fit={fit} />
   </div>
 </figure>
@@ -81,5 +81,7 @@ if (offset < source.length) segments.push({ text: source.slice(offset) });
   .copy-code:hover + .copy-tooltip, .copy-code:focus-visible + .copy-tooltip, .copy-code:not([data-state="idle"]) + .copy-tooltip { opacity: 1; }
   .copy-code[data-state="error"] { color: var(--site-error); }
   .score-result { padding: .5rem 1rem; overflow: auto; background: #fff; color: #171717; }
+  .score-result[data-fit="natural"] { background: #e5e7eb; }
+  .score-result[data-fit="natural"] :global(.score-page svg) { background: #fff; }
   @media (max-width: 30rem) { figcaption { padding-inline: .75rem; } .score-code { padding: 1rem; } .score-result { padding-inline: .5rem; } }
 </style>

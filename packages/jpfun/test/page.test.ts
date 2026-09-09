@@ -173,6 +173,30 @@ test("放不下的内容和无效的版心各自报错", () => {
     );
 });
 
+test("页码单个占位符显示当前页，多个占位符的末尾显示总页数", () => {
+    for (const [pattern, expected] of [
+        ["1", ["1", "2", "3"]],
+        ["-- 1 --", ["-- 1 --", "-- 2 --", "-- 3 --"]],
+        ["第1页", ["第1页", "第2页", "第3页"]],
+        ["1 / 1", ["1 / 3", "2 / 3", "3 / 3"]],
+        ["1-1-1", ["1-1-3", "2-2-3", "3-3-3"]],
+        ["固定文字", ["固定文字", "固定文字", "固定文字"]],
+    ] as const) {
+        const result = compileScore(`
+@page(width=200px, height=100px, top=10px, bottom=20px,
+    left=20px, right=20px, gap=5px, numbering="${pattern}")
+1 @br() 2 @br() 3 @br() 4 @br() 5 @br() 6
+`);
+        assert(result.diagnostics.length === 0, `${pattern} must compile without diagnostics`);
+        assert(result.layout.pages.length === 3, "the sample must contain three pages");
+        const texts = attachmentCommands(result.layout.attachments[0])
+            .filter(command => command.kind === "text")
+            .map(command => command.text);
+        assert(JSON.stringify(texts) === JSON.stringify(expected),
+            `${pattern}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(texts)}`);
+    }
+});
+
 test("页码是 @page 自己注册的 attachment，逐页浮在下边距带内", () => {
     const paged = layoutOf(`
 @page(width=200px, height=100px, top=10px, bottom=20px, left=20px, right=20px, gap=5px, numbering="1 / 1")
