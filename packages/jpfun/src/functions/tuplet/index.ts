@@ -18,7 +18,6 @@ import {
     type ParserContext,
     type SourceSpan,
 } from "../ASTtypes.js";
-import { JIANPU_NUMBER_FONT } from "../../render/text.js";
 
 /**
  * tuplet 的比例要等内容全部展开后才能推导，因此 enter 阶段只收集事件引用，
@@ -60,6 +59,7 @@ class TupletFunction extends ASTFunctionNode {
 
     readonly content: ASTNodeBase;
     readonly normal: number;
+    readonly font: string;
 
     override get children() { return [this.content]; }
 
@@ -150,7 +150,7 @@ class TupletFunction extends ASTFunctionNode {
         // 括线只依附可见主体；时值缩放本身仍覆盖所有收集到的事件。
         const visible = positive.filter(isVisualTemporalNode);
         if (visible.length >= 2) {
-            ctx.addAttachment(new TupletLayoutAttachment(visible, actual, this.sourceSpan));
+            ctx.addAttachment(new TupletLayoutAttachment(visible, actual, this.sourceSpan, this.font));
         }
         return [];
     }
@@ -158,6 +158,7 @@ class TupletFunction extends ASTFunctionNode {
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
         const [content, normal] = this.getArgValue(args, ctx) as [ASTNodeBase, number];
+        this.font = ctx.variables.numberfont;
         // normal 是目标包含的“最短时值单位数”，不是 QN 数，也不是显示的 actual。
         if (!Number.isSafeInteger(normal) || normal <= 0) {
             throw new ErrorDiagnostic(
@@ -194,14 +195,14 @@ class TupletLayoutAttachment implements LayoutAttachment {
     private readonly style: TextStyle;
     private readonly size: number;
 
-    constructor(endPoints: readonly VisualTemporalNode[], actual: number, sourceSpan: SourceSpan) {
+    constructor(endPoints: readonly VisualTemporalNode[], actual: number, sourceSpan: SourceSpan, font: string) {
         this.endPoints = endPoints;
         this.actual = actual;
         this.sourceSpan = sourceSpan;
         this.size = endPoints.reduce((size, endpoint) => Math.max(size, endpoint.ast.size), 0);
         this.style = {
             fontSize: this.size * 0.72,
-            fontFamily: JIANPU_NUMBER_FONT,
+            fontFamily: font,
             textAlign: "center",
             fill: "#000",
         };

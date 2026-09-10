@@ -4,7 +4,6 @@ import { parseNoteName } from "./noteNameFSM.js";
 import { GrammarCallNodeTyped, type GrammarNode, type GrammarSugarNode } from "../../parser/grammarType.js";
 import type { LayoutBox, LayoutDecoration, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
-import { JIANPU_NUMBER_FONT } from "../../render/text.js";
 import { paintAccidental, placeAccidentals, type PlacedAccidental } from "./accidentals.js";
 
 const JE_OCTAVE_OFFSET = "note.jeOctaveOffset";
@@ -117,6 +116,7 @@ class NoteFunction extends ASTFunctionNode {
     acc: string;
     color: string;
     size: number;
+    readonly font: string;
 
     // JE 八度偏移量
     jeOctaveOffset: number;
@@ -124,7 +124,8 @@ class NoteFunction extends ASTFunctionNode {
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
         [this.name, this.acc, this.octave, this.color] = this.getArgValue(args, ctx) as [string, string, number, string];
-        this.size = ctx.fontSize;
+        this.font = ctx.variables.numberfont;
+        this.size = ctx.variables.fontsize;
         // 创建时就固化参数值
         // 校验 note name
         const parseResult = parseNoteName(this.name);
@@ -208,7 +209,7 @@ class NoteTemporalNode extends TemporalNodeBase {
         this.octave = ast.octave + ast.jeOctaveOffset;
         this.numberStyle = {
             fontSize: ast.size,
-            fontFamily: JIANPU_NUMBER_FONT,
+            fontFamily: ast.font,
             fontWeight: 400,
             textAlign: "center",
             fill: ast.color,

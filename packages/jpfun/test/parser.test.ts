@@ -136,12 +136,12 @@ test("参数不足的调用在严格与宽容模式下各自处理", () => {
     expectDiagnostic(() => createParser("@tie()").parse(), "E_NOT_ENOUGH_ARGS");
 
     const strictParser = createParser("@tie()");
-    strictParser.strict = true;
+    strictParser.setVariable("strict", true);
     expectDiagnostic(() => strictParser.parseArgWithType({ start: 0, end: 6 }, "content"), "E_NOT_ENOUGH_ARGS");
     assert(strictParser.diagnostics.length === 0, "strict content parsing must not record a recovered diagnostic");
 
     const lenientParser = createParser("@tie()");
-    lenientParser.strict = false;
+    lenientParser.setVariable("strict", false);
     assert(lenientParser.parseArgWithType({ start: 0, end: 6 }, "content") === null,
         "non-strict content parsing must recover with null");
     assert(lenientParser.diagnostics.some(item => item.code === "E_NOT_ENOUGH_ARGS"),
@@ -164,7 +164,7 @@ test("content recovery restores the original tail label after nested success", (
         for (const label of ["absent", "undefined", "original"] as const) {
             const source = "1 @div({@x 2^3^4}) @tie(missing)";
             const parser = createParser(source);
-            parser.strict = strict;
+            parser.setVariable("strict", strict);
             parser.parse(0, 1);
             const candidates = parser.labelableNodes;
             const target = candidates[0]!;

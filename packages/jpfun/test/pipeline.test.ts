@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { deepStrictEqual } from "node:assert/strict";
 
 import { ASTBraceNode } from "../src/functions/ASTtypes.js";
 import { preprocessSource } from "../src/parser/preprocess.js";
@@ -36,6 +37,15 @@ try {
     parseError = error;
 }
 const document = new ASTBraceNode({ start: 0, end: SAMPLE_SCORE.length }, parser.nodes);
+
+test("compileScore forwards root variables without mutating the input", () => {
+    const variables = { fontsize: 30, font: "Ordinary", numberfont: "Digits", strict: false, custom: "kept" };
+    const result = compileScore('@text("hello") 1 @set(font="Changed", custom="updated")', { variables });
+    const texts = recordCommands(result.layout).filter(command => command.kind === "text");
+    assert(texts.some(command => command.style.fontFamily === "Ordinary"), "ordinary font must be forwarded");
+    assert(texts.some(command => command.style.fontFamily === "Digits" && command.style.fontSize === 30), "numeric font and px size must be forwarded");
+    deepStrictEqual(variables, { fontsize: 30, font: "Ordinary", numberfont: "Digits", strict: false, custom: "kept" });
+});
 
 test("综合示例乐谱可以完整解析", () => {
     assert(parseError === null, `示例乐谱必须能解析完成，实际抛出 ${parseError}`);

@@ -4,7 +4,6 @@ import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic
 import { parseNoteName } from "../note/noteNameFSM.js";
 import { acc2Offset, NoteNameMap, tonality2Midi } from "../../parser/parse-utils/note-utils.js";
 import { paintAccidental, placeAccidentals, type PlacedAccidental } from "../note/accidentals.js";
-import { JIANPU_NUMBER_FONT } from "../../render/text.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
 
@@ -61,6 +60,7 @@ class KeyFunction extends ASTFunctionNode {
 
     tonality: string;
     size: number;
+    readonly font: string;
     /** 只用于绘制：音名与升降号，八度不上谱 */
     readonly displayName: string;
     readonly displayAcc: string;
@@ -68,12 +68,13 @@ class KeyFunction extends ASTFunctionNode {
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
         const [tonality, size] = this.getArgValue(args, ctx) as [string, LengthValue];
+        this.font = ctx.variables.numberfont;
         this.tonality = tonality;
         this.size = ctx.length2px(size);
 
         const normalized = normalizeTonality(tonality);
         if (normalized !== tonality) {
-            if (ctx.strict) throw new ErrorDiagnostic(
+            if (ctx.variables.strict) throw new ErrorDiagnostic(
                 "E_KEY_TONALITY",
                 `@key 无法解析调性 "${tonality}"`,
                 sourceSpan
@@ -119,7 +120,7 @@ class KeyTemporalNode extends TemporalNodeBase {
         this.ast = ast;
         this.style = {
             fontSize: ast.size,
-            fontFamily: JIANPU_NUMBER_FONT,
+            fontFamily: ast.font,
             fill: "#000",
         };
         this.initLayoutBox();

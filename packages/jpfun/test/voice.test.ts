@@ -1,11 +1,64 @@
 import { test } from "node:test";
+import { deepStrictEqual, strictEqual } from "node:assert";
 
 import { compileScore } from "../src/pipeline.js";
-import { assert, attachmentCommands, commandsOfKind, expectSnapshot, layoutContext, layoutOf, nearly } from "./helpers.js";
+import { ASTNodeBase } from "../src/functions/ASTtypes.js";
+import { quote, removeQuote } from "../src/parser/parse-utils/string-utils.js";
+import { assert, attachmentCommands, commandsOfKind, expectSnapshot, layoutContext, layoutOf, nearly, parse, recordCommands } from "./helpers.js";
 
 const axisOf = (object: { box: { y: number; visualAxis: number } }) => object.box.y + object.box.visualAxis;
 /** 无名声部的名称占位盒只为括线预留横向空间，高度为 0；纵向断言只关心真正可见的对象 */
 const drawn = (source: string) => layoutOf(source).objects.filter(object => object.box.h > 0);
+
+test("voice serialization roundtrips names, lyric slots and nested LF/tab", () => {
+    const lyric = String.raw`{你好} {hello world} @ \@ {你\}好} {\{brace\}} {back\\slash} {hel\-lo} {"quoted",word} @`;
+    const multiline = "{line\n\tbreak} {tab\tinside} {back\\\\slash\nline} @";
+    const tokens = ["line\n\tbreak", "tab\tinside", "back\\slash\nline", ""];
+    const cases: [string, string, { name: string; tokens: string[] }[]][] = [
+        ["", "", []],
+        ['Lead "quoted", \\', "", []],
+        ['Lead "quoted", {name} \\ @ -', `, ${quote(lyric)}, "", row="{named row}", other="@"`, [
+            { name: "", tokens: ["你好", "hello world", "", "@", "你}好", "{brace}", "back\\slash", "hel-lo", '"quoted",word', ""] },
+            { name: "", tokens: [] },
+            { name: "row", tokens: ["named row"] },
+            { name: "other", tokens: [""] },
+        ]],
+        ['Lead\\name\n\t"quoted"\n', `, ${quote(multiline)}, row=${quote(multiline)}`, [
+            { name: "", tokens }, { name: "row", tokens },
+        ]],
+    ];
+    for (const [name, args, lyrics] of cases) {
+        strictEqual(removeQuote(quote(name)), name);
+        const voice = `@voice({1 2}, ${quote(name)}${args})`;
+        const check = (node: ASTNodeBase): number => {
+            if ("name" in node && node.name === name && "lyrics" in node) {
+                deepStrictEqual(node.lyrics, lyrics);
+                return 1;
+            }
+            return (node.children ?? []).reduce((count, child) => count + check(child), 0);
+        };
+        const sources = name.includes("\n")
+            ? [voice, `@voices(${voice})`, `@voices(@voice({@voices(${voice})}))`] : [voice];
+        for (const source of sources) {
+            const original = parse(source).content[0];
+            const serialized = original.toString(source);
+            const restored = parse(serialized).content[0];
+            strictEqual(check(original), 1);
+            strictEqual(check(restored), 1);
+            strictEqual(restored.toString(serialized), serialized);
+        }
+    }
+});
+
+test("voice font preserves positional lyrics and reaches row labels", () => {
+    const result = layoutOf('@set(font="Voice Font") @voice({1 2}, Lead, "hello world", "one two", Row="la la", font="three four")');
+    const texts = recordCommands(result)
+        .filter(command => command.kind === "text").filter(command =>
+        ["Lead", "row", "hello", "world", "la", "one", "two", "font", "three", "four"].includes(command.text));
+    assert(texts.some(command => command.text === "hello"), "first positional lyric must remain a lyric");
+    assert(texts.length === 11, "all four lyric rows and their names must be preserved");
+    assert(texts.every(command => command.style.fontFamily === "Voice Font"), "all voice text must use its frozen font");
+});
 
 test("歌词标点附着正文，不单独消耗音符槽", () => {
     const cases: [string, string[]][] = [

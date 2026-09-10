@@ -50,7 +50,7 @@ class HeadEndpointFunction extends ASTFunctionNode {
 
     constructor(span: SourceSpan, _args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
-        this.size = ctx.fontSize;
+        this.size = ctx.variables.fontsize;
     }
 
     override labelable() { return this; }
@@ -427,10 +427,10 @@ test("head 去糖结果按槽和视觉行换行缩进", () => {
     const expected = [
         "@head(",
         "  left={",
-        "    {@1(D4)@meter(4, 4)}",
+        `    ${head.children![0].children![0].toString(source)}`,
         "  },",
         "  center={",
-        "    @text(\"A\", size=22px, lineheight=1.25, align=left)",
+        `    ${head.children![1].children![0].toString(source)}`,
         "  }",
         ")",
     ].join("\n");

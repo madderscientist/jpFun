@@ -95,7 +95,7 @@ test("增时线与附点之间保留细小间隙", () => {
     assert(gap > 0 && gap < 22 * 0.2, `增时线与附点应留一丁点间隙，实际为 ${gap}px`);
 });
 
-test("非末行超过半页时横向撑满，短行与末行保持自然宽度", () => {
+test("所有行超过半页时横向撑满，短行保持自然宽度", () => {
     const page = "@page(width=200px,left=10px,right=10px) ";
     const filled = layoutOf(`${page}1 2 3 4 @br() 5`);
     const filledLine = filled.objects.filter(object => object.layoutLine === 0);
@@ -114,8 +114,13 @@ test("非末行超过半页时横向撑满，短行与末行保持自然宽度",
         "a line shorter than half the content area must keep its natural spacing");
 
     const final = layoutOf(`${page}1 2 3 4`).objects;
-    assert(final.at(-1)!.box.x + final.at(-1)!.box.w < 190,
-        "the final line must keep its natural spacing");
+    assert(nearly(final[0].box.x, 10), "a filled final line must start at the left content edge");
+    assert(nearly(final.at(-1)!.box.x + final.at(-1)!.box.w, 190),
+        "a final line wider than half the content area must reach the right edge");
+
+    const shortFinal = layoutOf(`${page}1 2`).objects;
+    assert(shortFinal.at(-1)!.box.x + shortFinal.at(-1)!.box.w < 100,
+        "a short final line must keep its natural spacing");
 });
 
 test("完全被宿主包含的附件不触发重排", () => {
@@ -202,11 +207,11 @@ test("可见附件保留最终区域与源码范围", () => {
 });
 
 test("字号选项与解析期字号驱动所有几何缩放", () => {
-    const optionFontSizeResult = compileScore(`1`, { fontSize: 18 });
+    const optionFontSizeResult = compileScore(`1`, { variables: { fontsize: 18 } });
     assert(optionFontSizeResult.layout.objects[0].ast.size === 18, "compileScore fontSize must initialize the root parse scope");
 
-    const [smallDecoratedNote, smallBar] = compileScore(`1.// |`, { fontSize: 20 }).layout.objects;
-    const [largeDecoratedNote, largeBar] = compileScore(`2.// |`, { fontSize: 40 }).layout.objects;
+    const [smallDecoratedNote, smallBar] = compileScore(`1.// |`, { variables: { fontsize: 20 } }).layout.objects;
+    const [largeDecoratedNote, largeBar] = compileScore(`2.// |`, { variables: { fontsize: 40 } }).layout.objects;
     assert(nearly(largeDecoratedNote.box.w, smallDecoratedNote.box.w * 2), "dot width must scale with its host font size");
     assert(nearly(largeDecoratedNote.box.h, smallDecoratedNote.box.h * 2), "div height must scale with its host font size");
     assert(nearly(largeBar.box.w, smallBar.box.w * 2), "bar geometry must use its parse-time font size");

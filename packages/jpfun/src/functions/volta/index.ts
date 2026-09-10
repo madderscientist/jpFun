@@ -63,6 +63,7 @@ pass 是遍数：整段谱面演奏到第几遍时才播这里，必填正整数
     readonly passes: readonly number[];
     /** 区间没有可见宿主时括线的尺寸基准 */
     readonly size: number;
+    readonly font: string;
 
     /** volta 不推进时间，只把 AST 端点解析成稳定的 temporal 引用 */
     override loweringEnter(ctx: LoweringContext) {
@@ -81,13 +82,14 @@ pass 是遍数：整段谱面演奏到第几遍时才播这里，必填正整数
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
         const [from, to, pass] = this.getArgValue(args, ctx) as [ASTNodeBase, ASTNodeBase, number];
+        this.font = ctx.variables.numberfont;
         // 第一个遍数走 def.args，其余的落在 extraArgType 里，按位置索引取
         const passes = new Set([pass]);
         for (let i = 3; args.has(i); i++) passes.add(args.get(i) as number);
         this.from = from;
         this.to = to;
         this.passes = [...passes].sort((a, b) => a - b);
-        this.size = ctx.fontSize;
+        this.size = ctx.variables.fontsize;
         if (this.passes.some(value => !Number.isSafeInteger(value) || value <= 0)) {
             throw new ErrorDiagnostic(
                 "E_VOLTA_INVALID_PASS",
@@ -176,6 +178,7 @@ class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
         const size = span || this.ast.size;
         const style: TextStyle = {
             fontSize: size * 0.6,
+            fontFamily: this.ast.font,
             textAlign: "left",
             fill: "#000",
         };

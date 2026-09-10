@@ -16,7 +16,7 @@ import type { TextMeasurer } from "./render/types.js";
 export interface CompileScoreOptions extends DocumentLayoutOptions {
     functions?: ASTFunctionClass[];    // 替换默认函数注册表
     textMeasurer?: TextMeasurer;       // 替换默认文本测量来源
-    fontSize?: number;                 // 根 parse 作用域的默认字号，单位 px
+    variables?: Record<string, any>;
 }
 
 export interface CompileScoreResult {
@@ -43,12 +43,11 @@ export function compileScore(
     const {
         functions = defaultFunctions,
         textMeasurer,
-        fontSize,
+        variables,
         ...layoutOptions
     } = options;
     const { maskedSource, lineStarts } = preprocessSource(source);
-    const parser = new ParserContext({ source: maskedSource });
-    if (fontSize) parser.fontSize = fontSize;
+    const parser = new ParserContext({ source: maskedSource, variables });
     parser.registerFunctions(functions);
     const ast = new ASTBraceNode(
         { start: 0, end: source.length },

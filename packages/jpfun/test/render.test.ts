@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { strictEqual } from "node:assert";
 
 import type { DocumentLayoutResult } from "../src/layout/engine.js";
 import { renderLayoutPagesToCanvas } from "../src/render/canvas.js";
@@ -149,10 +150,11 @@ test("综合样例的绘制规模基线", () => {
 
 test("CanvasTextMeasurer 用绘制时的同一份字体串测量", () => {
     const seen: string[] = [];
+    let width = 40;
     const context = {
         set font(value: string) { seen.push(value); },
         get font() { return seen.at(-1) ?? ""; },
-        measureText: () => ({ width: 40 }),
+        measureText: () => ({ width }),
     } as unknown as CanvasRenderingContext2D;
     const measurer = new CanvasTextMeasurer(context);
     const style: TextStyle = { fontSize: 20, fontFamily: "Cascadia Mono", fontWeight: "bold" };
@@ -169,4 +171,22 @@ test("CanvasTextMeasurer 用绘制时的同一份字体串测量", () => {
     const largerStyle: TextStyle = { ...style, fontSize: 30 };
     measurer.measureText("abc", largerStyle);
     assert(seen.at(-1) === canvasFont(largerStyle), "a different style must not reuse the cached width");
+    const samples = [["abc", style], ["def", style], ["abc", largerStyle],
+        ["abc", { ...style, fontFamily: "serif" }], ["abc", { ...style, fontWeight: "normal" }]] as const;
+    for (const [text, sampleStyle] of samples) measurer.measureText(text, sampleStyle);
+    strictEqual(seen.length, samples.length, "text, size, family and weight must have separate cache entries");
+    width = 60;
+    for (const [text, sampleStyle] of samples) {
+        assert(measurer.measureText(text, sampleStyle).w === 40, "cached widths remain until invalidated");
+    }
+    measurer.clearCache();
+    for (const [text, sampleStyle] of samples) {
+        const refreshed = measurer.measureText(text, sampleStyle);
+        assert(refreshed.w === 60 && refreshed.h === sampleStyle.fontSize
+            && nearly(refreshed.baseline, sampleStyle.fontSize * 0.8), "clear must refresh all widths and preserve em metrics");
+    }
+    strictEqual(seen.length, samples.length * 2, "clearing must invalidate every entry");
+    width = 0;
+    measurer.clearCache();
+    assert(measurer.measureText("abc", style).w === 5, "refreshed widths retain the minimum width clamp");
 });

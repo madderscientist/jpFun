@@ -225,7 +225,7 @@ class GraceFunction extends ASTFunctionNode {
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null, scale: number = GRACE_SCALE) {
         super(span, parent);
-        this.size = ctx.fontSize;
+        this.size = ctx.variables.fontsize;
 
         [this.host, this.grace, this.side] = this.getArgValue(args, ctx) as [ASTNodeBase, ASTNodeBase, GraceSide];
         if (this.side !== "pre" && this.side !== "post") {
@@ -237,7 +237,6 @@ class GraceFunction extends ASTFunctionNode {
         }
         this.adopt(this.host);
         this.setGrace(this.grace, scale);
-        this.size = ctx.fontSize;
     }
 
     setGrace(node: ASTNodeBase, factor: number = GRACE_SCALE) {

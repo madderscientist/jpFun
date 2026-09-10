@@ -1,7 +1,7 @@
 import { ASTNodeBase, ASTBraceNode, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../ASTtypes.js";
 import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { findRightParen } from "../../parser/parse-utils/call-utils.js";
-import { findClosingQuote, removeQuote } from "../../parser/parse-utils/string-utils.js";
+import { findClosingQuote, quote, removeQuote } from "../../parser/parse-utils/string-utils.js";
 import { GrammarNode, GrammarSugarNode, type CallArgumentInfo } from "../../parser/grammarType.js";
 import { ParserContext, skipSpaces } from "../../parser/parserContext.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
@@ -163,7 +163,7 @@ L: ...
             for (; voiceNodeAt >= 0; voiceNodeAt--) {
                 const n = ctx.nodes[voiceNodeAt];
                 if (n instanceof ASTTextNode) {
-                    if (!ctx.strict) continue;   // 非严格模式下允许文本节点夹在N和L之间
+                    if (!ctx.variables.strict) continue;   // 非严格模式下允许文本节点夹在N和L之间
                     // ParserContext.parseGrammar 处理后不会有空白字符
                     throw new ErrorDiagnostic(
                         "E_LYRICS_WITHOUT_VOICE_NOTES",
@@ -224,7 +224,7 @@ L: ...
         ifCombine: for (; voicesNodeAt >= 0; voicesNodeAt--) {
             const n = ctx.nodes[voicesNodeAt];
             if (n instanceof ASTTextNode) {
-                if (ctx.strict) break;
+                if (ctx.variables.strict) break;
                 // 如果中间有换行符，直接说明是两个独立的 voice 组件，不能合并
                 for (let i = n.sourceSpan.start; i < n.sourceSpan.end; i++) {
                     if (ctx.source[i] === '\n') break ifCombine;
@@ -263,6 +263,7 @@ L: ...
     content: ASTBraceNode;   // 声部内容
     name: string;   // 声部名称
     size: number;   // 声部的字体大小
+    readonly font: string;
     lyrics: {
         name: string,
         tokens: string[]   // 分词后的歌词内容
@@ -308,9 +309,10 @@ L: ...
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
-        this.size = ctx.fontSize;
+        this.size = ctx.variables.fontsize;
         [this.content, this.name] = this.getArgValue(args, ctx) as [ASTBraceNode, string];
         this.content.parent = this;
+        this.font = ctx.variables.font;
         args.delete(0);
         args.delete("name");
         args.delete(1);
@@ -423,13 +425,13 @@ L: ...
     }
 
     override toString(source: string) {
-        const notes = this.content.toString(source);
-        const lyricStrs = this.lyrics.map(lyric => {
-            let lyricstr = lyric.tokens.map(token => token.length === 0 ? "@" : token).join(" ");
-            if (lyricstr.includes(",") || lyricstr.includes("\n")) lyricstr = `"${lyricstr.replace(/"/g, '\\"')}"`;
-            return `${lyric.name ? `${lyric.name}=${lyricstr}` : lyricstr}`;
-        });
-        return `@voice(\n\t${notes},${this.name},\n\t${lyricStrs.join(",\n\t")}\n)`;
+        const parameters = [`${this.content.toString(source)},${quote(this.name)}`];
+        for (const lyric of this.lyrics) {
+            const text = quote(lyric.tokens.map(token => token.length === 0
+                ? "@" : `{${token.replace(/[\\{}@-]/g, "\\$&")}}`).join(" "));
+            parameters.push(lyric.name ? `${lyric.name}=${text}` : text);
+        }
+        return `@voice(\n\t${parameters.join(",\n\t")}\n)`;
     }
 }
 
@@ -493,9 +495,9 @@ L: la la la
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
         this.voices = [];
-        this.size = ctx.fontSize;
-        this.braceSpace = ctx.fontSize;
-        this.measure = makeVoicesMeasure(ctx.fontSize);
+        this.size = ctx.variables.fontsize;
+        this.braceSpace = ctx.variables.fontsize;
+        this.measure = makeVoicesMeasure(ctx.variables.fontsize);
         for (const [, value] of args) {
             if (value instanceof ASTNodeBase) {
                 if (value instanceof VoiceFunction) this.addVoice(value);
@@ -537,7 +539,7 @@ L: la la la
     toString(source: string) {
         const voicelines = Array<string>(this.voices.length);
         for (let i = 0; i < this.voices.length; i++) {
-            const part = this.voices[i].toString(source).replace(/^/gm, "\t");
+            const part = `\t${this.voices[i].toString(source)}`;
             voicelines[i] = part;
         }
         return `@voices(\n${voicelines.join(",\n")}\n)`;
@@ -554,8 +556,9 @@ const LYRIC_SIZE_RATIO = 0.82;
 const NAME_GAP_RATIO = 0.6;
 
 /** 歌词行名称的宽度决定标签列宽度，因此声部名事件和歌词附件必须用同一个样式测量 */
-function lyricNameStyle(size: number): TextStyle {
+function lyricNameStyle(size: number, fontFamily: string): TextStyle {
     return {
+        fontFamily,
         fontSize: size * LYRIC_SIZE_RATIO,
         fill: "#000",
         fontWeight: 600,
@@ -588,7 +591,7 @@ class VoiceNameTemporal extends TemporalNodeBase {
         let labelWidth = metrics.w;
         for (const lyric of this.ast.lyrics) {
             if (!lyric.name) continue;
-            const lyricMetrics = context.textMeasurer.measureText(lyric.name, lyricNameStyle(this.ast.size));
+            const lyricMetrics = context.textMeasurer.measureText(lyric.name, lyricNameStyle(this.ast.size, this.ast.font));
             labelWidth = Math.max(labelWidth, lyricMetrics.w);
         }
 
@@ -611,6 +614,7 @@ class VoiceNameTemporal extends TemporalNodeBase {
     private get style(): TextStyle {
         return {
             fontSize: this.ast.size * 0.85,
+            fontFamily: this.ast.font,
             fill: "#000",
             fontWeight: 600,
             textAlign: "right",
@@ -748,7 +752,7 @@ class VoiceLyricsAttachment implements LayoutAttachment {
         const { lyrics, size } = this.nameHost.ast;
         if (targets.length === 0 || lyrics.length === 0) return;
 
-        const style: TextStyle = { fontSize: size * LYRIC_SIZE_RATIO, fill: "#000" };
+        const style: TextStyle = { fontSize: size * LYRIC_SIZE_RATIO, fontFamily: this.nameHost.ast.font, fill: "#000" };
         for (let i = 0; i < targets.length; i++) {
             const target = targets[i];
             let halfWidth = 0;
@@ -806,8 +810,8 @@ class VoiceLyricsAttachment implements LayoutAttachment {
         const fontSize = size * LYRIC_SIZE_RATIO;
         const rowGap = size * 0.24;
         const firstRowGap = size * 0.32;
-        const lyricStyle: TextStyle = { fontSize, fill: "#000" };
-        const nameStyle = lyricNameStyle(size);
+        const lyricStyle: TextStyle = { fontSize, fontFamily: this.nameHost.ast.font, fill: "#000" };
+        const nameStyle = lyricNameStyle(size, this.nameHost.ast.font);
         const baselineOffset = context.textMeasurer.measureText("M", lyricStyle).baseline + firstRowGap;
         const baselineOf = (bottom: number, row: number) => bottom + baselineOffset + row * (fontSize + rowGap);
 

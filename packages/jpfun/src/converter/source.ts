@@ -1,4 +1,7 @@
 /** MIDI 与 MusicXML 共享的 jpFun 源码片段生成工具 */
+import { quote } from "../parser/parse-utils/string-utils.js";
+export { quote } from "../parser/parse-utils/string-utils.js";
+
 type HeadTextField = "title" | "subtitle" | "author";
 export type PitchMode = "relative" | "absolute";
 
@@ -22,10 +25,6 @@ const HEAD_TEXT_PRESET = {
     subtitle: "size=0.85em, align=center",
     author: "size=0.8em, align=right",
 } as const satisfies Record<HeadTextField, string>;
-
-export function quote(value: string) {
-    return `"${value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
-}
 
 /** 按书写顺序把多个零时长标记叠到主体上方。 */
 export function attachAbove(source: string, additions: readonly string[]) {

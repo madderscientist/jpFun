@@ -1,6 +1,6 @@
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, ParserContext, SourceSpan, LengthValue } from "../ASTtypes.js";
 import { ErrorDiagnostic } from "../../diagnostic.js";
-import { findClosingQuote, removeQuote } from "../../parser/parse-utils/string-utils.js";
+import { findClosingQuote, quote, removeQuote } from "../../parser/parse-utils/string-utils.js";
 import type { GrammarCallNodeTyped } from "../../parser/grammarType.js";
 import { DEFAULT_KEY, TemporalNodeBase } from "../temporal.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
@@ -37,7 +37,12 @@ class TextFunction extends ASTFunctionNode {
                 name: "align",
                 type: "string" as const,
                 default: "left",
-            }
+            },
+            {
+                name: "font",
+                type: "string" as const,
+                default: ""
+            },
         ],
     };
 
@@ -60,9 +65,11 @@ class TextFunction extends ASTFunctionNode {
     size: number;
     lineAdvance: number;
     align: TextAlign;
+    readonly font: string;
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
-        const [text, size, lineHeight, align] = this.getArgValue(args, ctx) as [string, LengthValue, number, TextAlign];
+        const [text, size, lineHeight, align, font] = this.getArgValue(args, ctx) as [string, LengthValue, number, TextAlign, string | null];
+        this.font = font || ctx.variables.font;
         if (align !== "left" && align !== "center" && align !== "right") {
             throw new ErrorDiagnostic(
                 "E_TEXT_INVALID_ALIGN",
@@ -80,7 +87,7 @@ class TextFunction extends ASTFunctionNode {
 
     override toString() {
         const lineHeight = this.size === 0 ? 1.25 : this.lineAdvance / this.size;
-        return `@text(${JSON.stringify(this.lines.join("\n"))}, size=${this.size}px, lineheight=${lineHeight}, align=${this.align})`;
+        return `@text(${quote(this.lines.join("\n"))}, size=${this.size}px, lineheight=${lineHeight}, align=${this.align}, font=${quote(this.font)})`;
     }
 }
 
@@ -97,7 +104,7 @@ class TextTemporalNode extends TemporalNodeBase {
         super();
         this.ast = ast;
         this.mergeKey = DEFAULT_KEY;
-        this.style = { fontSize: ast.size, fill: "#000", textAlign: ast.align };
+        this.style = { fontSize: ast.size, fontFamily: ast.font, fill: "#000", textAlign: ast.align };
         this.initLayoutBox();
     }
 

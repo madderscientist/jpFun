@@ -14,7 +14,6 @@ import {
     type ParserContext,
     type SourceSpan,
 } from "../ASTtypes.js";
-import { JIANPU_NUMBER_FONT } from "../../render/text.js";
 
 class MeterFunction extends ASTFunctionNode {
     static override def = {
@@ -46,14 +45,16 @@ class MeterFunction extends ASTFunctionNode {
     readonly measureDuration: Fraction;
     readonly size: number;
     readonly strict: boolean;
+    readonly font: string;
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
         let [num, den, size] = this.getArgValue(args, ctx) as [number, number, LengthValue];
+        this.font = ctx.variables.numberfont;
         if (!Number.isSafeInteger(num) || !Number.isSafeInteger(num * 4) || num <= 0
             || !Number.isSafeInteger(den) || den <= 0) {
             const message = `@meter 的分子和分母必须是正整数`;
-            if (ctx.strict) throw new ErrorDiagnostic("E_METER_INVALID", message, span);
+            if (ctx.variables.strict) throw new ErrorDiagnostic("E_METER_INVALID", message, span);
             ctx.diagnostics.push(new WarningDiagnostic(
                 "W_METER_INVALID",
                 `${message}，已回落为 4/4`,
@@ -66,7 +67,7 @@ class MeterFunction extends ASTFunctionNode {
         // QN 以四分音符为 1；拍号不修改音符自身时值
         this.measureDuration = new Fraction(num * 4, den);
         this.size = ctx.length2px(size);
-        this.strict = ctx.strict;
+        this.strict = ctx.variables.strict;
     }
 
     override loweringEnter() {
@@ -144,7 +145,7 @@ class MeterTemporal extends TemporalNodeBase {
         this.ast = ast;
         this.style = {
             fontSize: ast.size,
-            fontFamily: JIANPU_NUMBER_FONT,
+            fontFamily: ast.font,
             textAlign: "center",
             fill: "#000",
         };

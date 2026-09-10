@@ -29,19 +29,21 @@ class TempoFunction extends ASTFunctionNode {
 
     bpm: number;
     size: number;
+    readonly font: string;
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
         const [bpm, size] = this.getArgValue(args, ctx) as [number, LengthValue];
         this.bpm = bpm;
         this.size = ctx.length2px(size);
+        this.font = ctx.variables.font;
     }
 
     override loweringEnter() {
         return [new TempoTemporalNode(this)];
     }
 
-    override toString() { return `@tempo(${this.bpm})`; }
+    override toString() { return `@tempo(${this.bpm}, size=${this.size}px)`; }
 }
 
 export const TempoNode: ASTFunctionClass = TempoFunction;
@@ -64,7 +66,7 @@ class TempoTemporalNode extends TemporalNodeBase {
         this.ast = ast;
         this.glyph = prepareQuarterNote(ast.size);
         this.text = `= ${ast.bpm}`;
-        this.style = { fontSize: ast.size, fill: "#000" };
+        this.style = { fontSize: ast.size, fontFamily: ast.font, fill: "#000" };
         // 非法值不入时间状态，也不告知播放系统，效果是保持上一个速度
         if (Number.isFinite(ast.bpm) && ast.bpm > 0) this.playbackState = { bpm: ast.bpm };
         this.initLayoutBox();

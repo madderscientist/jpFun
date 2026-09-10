@@ -1,6 +1,7 @@
-import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass, paramType, primaryName, resolveArgType } from "../ASTtypes.js";
+import { ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, paramType, primaryName, resolveArgType } from "../ASTtypes.js";
 import { WarningDiagnostic } from "../../diagnostic.js";
-import { SYSTEM_VARIABLE_TYPES } from "../../parser/parserContext.js";
+import { quote } from "../../parser/parse-utils/string-utils.js";
+import { ParserContext } from "../../parser/parserContext.js";
 import type { CallArgumentInfo } from "../../parser/grammarType.js";
 
 class SetFunction extends ASTFunctionNode {
@@ -22,7 +23,7 @@ class SetFunction extends ASTFunctionNode {
     /** 值的类型由目标参数决定：`函数名.参数名` 查该函数的声明，无点号的是内置变量 */
     private static resolveTarget(ctx: ParserContext, key: string, nameSpan: SourceSpan): [string, paramType] | null {
         const dot = key.lastIndexOf(".");
-        if (dot < 0) return [key, SYSTEM_VARIABLE_TYPES[key] ?? "string"];
+        if (dot < 0) return [key, Object.hasOwn(ParserContext.systemVariables, key) ? ParserContext.systemVariables[key].type : "string"];
 
         const argName = key.slice(dot + 1);
         const def = ctx.functions.get(key.slice(0, dot))?.prototype.def;
@@ -76,7 +77,7 @@ class SetFunction extends ASTFunctionNode {
     }
 
     override toString() {
-        return `@set(${Array.from(this.args.entries()).map(([k, v]) => `${k}=${v}`).join(", ")})`;
+        return `@set(${Array.from(this.args, ([key, value]) => `${key}=${typeof value === "string" ? quote(value) : value}`).join(", ")})`;
     }
 }
 

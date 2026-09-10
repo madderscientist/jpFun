@@ -158,7 +158,7 @@ dv 为正时渐强，为负时渐弱；变化量叠加在每个音符原有力�
         this.from = from;
         this.to = to;
         this.dv = dv;
-        this.size = ctx.fontSize;
+        this.size = ctx.variables.fontsize;
     }
 
     override toString(source: string) {

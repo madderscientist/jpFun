@@ -2,6 +2,7 @@ import { test } from "node:test";
 
 import { ASTFunctionNode } from "../src/functions/ASTtypes.js";
 import { analyzeScoreSyntax } from "../src/pipeline.js";
+import { quote } from "../src/parser/parse-utils/string-utils.js";
 import { assert, commandsOfKind, expectCompileError, layoutOf, nearly, parse, recordCommands } from "./helpers.js";
 
 /** 只写一个 @text 时它就是唯一的可见对象 */
@@ -102,6 +103,28 @@ test("字符串把 \\X 反转义成 X", () => {
     const explicit = commandsOfKind(`@text("说\\"你好\\"")`, "text");
     assert(sugar[0].text === `说"你好"`, `escaped quote must survive, got ${sugar[0].text}`);
     assert(explicit[0].text === sugar[0].text, "both paths must share one unescape rule");
+});
+
+test("文本源码往返保留换行、制表符和字体字符串", () => {
+    for (const value of ["上行\n下行", "a\tb", '"Font Name", sans-serif', 'a\\b/"c"']) {
+        const source = `@text(${quote(value)}, font=${quote(value)})`;
+        const restored = parse(source).content[0].toString(source);
+        const commands = commandsOfKind(restored, "text");
+        assert(commands.map(command => command.text).join("\n") === value, "text must survive serialization");
+        assert(commands.every(command => command.style.fontFamily === value), "font must survive serialization");
+        for (const call of [`@page(numbering=${quote(value)})`, "@tempo(96)", "@set()"]) {
+            const input = `${call.slice(0, -1)}${call === "@set()" ? "" : ", "}font=${quote(value)})`;
+            const serialized = parse(input).content[0].toString(input);
+            const node = parse(serialized).content[0];
+            if (call === "@set()") {
+                assert(commandsOfKind(`${serialized} @text(Label)`, "text")[0].style.fontFamily === value,
+                    "set must preserve the font string");
+            } else {
+                assert("font" in node && node.font === value, `${call} must preserve the font string`);
+                if ("numbering" in node) assert(node.numbering === value, "page must preserve its numbering string");
+            }
+        }
+    }
 });
 
 test("引号未配对时不去糖也不抛出", () => {

@@ -74,7 +74,7 @@ class ArpeggioFunction extends ASTFunctionNode {
         } else normalized = direction;
         this.content = content;
         this.direction = normalized;
-        this.size = ctx.fontSize;
+        this.size = ctx.variables.fontsize;
         content.parent = this;
     }
 

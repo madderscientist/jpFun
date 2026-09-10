@@ -50,7 +50,7 @@ class FoldFunction extends ASTFunctionNode {
 
     contents: ASTNodeBase[] = [];
     belows: ASTNodeBase[] = [];
-    size: number;
+    size: number;   // 用于计算 gap
 
     /** 静态而不是实例字段：子类的字段初始化器晚于基类构造器，构造期读不到 */
     private get side(): FoldSide { return (this.constructor as typeof FoldFunction).side; }
@@ -61,7 +61,7 @@ class FoldFunction extends ASTFunctionNode {
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
-        this.size = ctx.fontSize;
+        this.size = ctx.variables.fontsize;
         for (const [, value] of args) {
             if (value instanceof ASTNodeBase) {
                 this.addContent(value, this.side, ctx);

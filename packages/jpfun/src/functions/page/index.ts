@@ -11,6 +11,7 @@ import type {
 } from "../../layout/types.js";
 import type { TextStyle } from "../../render/types.js";
 import { Diagnostic, WarningDiagnostic } from "../../diagnostic.js";
+import { quote } from "../../parser/parse-utils/string-utils.js";
 import {
     ASTFunctionNode,
     type ASTFunctionClass,
@@ -42,19 +43,21 @@ class PageNumberAttachment implements LayoutAttachment {
         readonly sourceSpan: SourceSpan,
         private readonly pattern: string,
         private readonly marginBottom: number,
+        private readonly style: TextStyle,
     ) {}
 
     createGeometry(context: AttachmentLayoutContext): AttachmentGeometry {
+        const style = this.style;
         const marks = context.pages.map((page, index) => {
             const text = formatPageNumber(this.pattern, index + 1, context.pages.length);
-            const { w, h, baseline } = context.textMeasurer.measureText(text, PAGE_NUMBER_STYLE);
+            const { w, h, baseline } = context.textMeasurer.measureText(text, style);
             const center = page.y + page.h - this.marginBottom / 2;
             return { text, x: page.x + page.w / 2, y: center - h / 2 + baseline, w, h, baseline };
         });
         return {
             regions: marks.map(({ x, y, w, h, baseline }) => ({ x: x - w / 2, y: y - baseline, w, h })),
             paint(painter) {
-                for (const mark of marks) painter.drawText(mark.text, mark.x, mark.y, PAGE_NUMBER_STYLE);
+                for (const mark of marks) painter.drawText(mark.text, mark.x, mark.y, style);
             },
         };
     }
@@ -76,11 +79,13 @@ export class PageFunction extends ASTFunctionNode {
             { name: "gap", type: "length" as const, default: { value: 1, unit: "em" as const } },
             // 单个 1 取当前页；多个 1 中最后一个取总页数
             { name: "numbering", type: "string" as const, default: "" },
+            { name: "font", type: "string" as const, default: "" },
         ],
     };
 
     readonly config: PageConfig | null;
     private readonly numbering: string = "";
+    readonly font: string;
 
     constructor(
         sourceSpan: SourceSpan,
@@ -89,6 +94,7 @@ export class PageFunction extends ASTFunctionNode {
         parent: ASTNodeBase | null = null,
     ) {
         super(sourceSpan, parent);
+        this.font = ctx.variables.font;
 
         if (ctx.scopeDepth !== 0) {
             ctx.diagnostics.push(new WarningDiagnostic(
@@ -112,6 +118,7 @@ export class PageFunction extends ASTFunctionNode {
         ctx.documentDeclarations["page"] = true;
 
         const values = this.getArgValue(args, ctx);
+        this.font = (values.pop() as string) || ctx.variables.font;
         const numbering = values.pop() as string;
         const [width, height, top, bottom, left, right, gap] =
             (values as LengthValue[]).map(value => ctx.length2px(value));
@@ -148,10 +155,19 @@ export class PageFunction extends ASTFunctionNode {
         ctx.setPageConfig(this.config);
         if (this.numbering) {
             ctx.addAttachment(
-                new PageNumberAttachment(this.sourceSpan, this.numbering, this.config.marginBottom),
+                new PageNumberAttachment(
+                    this.sourceSpan, this.numbering, this.config.marginBottom,
+                    { ...PAGE_NUMBER_STYLE, fontFamily: this.font }
+                ),
             );
         }
         return [];
+    }
+
+    override toString() {
+        if (!this.config) return "@page()";
+        const { width, height, marginTop, marginBottom, marginLeft, marginRight, lineGap } = this.config;
+        return `@page(width=${width}px, height=${Number.isFinite(height) ? height : 0}px, top=${marginTop}px, bottom=${marginBottom}px, left=${marginLeft}px, right=${marginRight}px, gap=${lineGap}px, numbering=${quote(this.numbering)}, font=${quote(this.font)})`;
     }
 }
 

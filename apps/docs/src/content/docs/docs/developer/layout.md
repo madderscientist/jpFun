@@ -76,7 +76,7 @@ place(root, -ext.top)
 
 ### 页码与错误
 
-`@page(numbering=...)` 自己注册一个 foreground attachment 来绘制页码。它读取 `AttachmentLayoutContext.pages`，在每页下边距内垂直居中，使用固定的字体、字号和颜色。页码的 regions 不带 `line + track`，因此只计入画布边界，不占行高。
+`@page(numbering=...)` 自己注册一个 foreground attachment 来绘制页码。它读取 `AttachmentLayoutContext.pages`，在每页下边距内垂直居中，使用固定的字号和颜色；字体按显式 font、page.font、font、sans-serif 的顺序选择，并在解析期固化。页码的 regions 不带 `line + track`，因此只计入画布边界，不占行高。
 
 页码模式串中的 `1` 是计数符号：最后一个表示总页数，其余表示当前页。例如，第 2 页、共 5 页时，`"1 / 1"` 显示为 `2 / 5`。
 

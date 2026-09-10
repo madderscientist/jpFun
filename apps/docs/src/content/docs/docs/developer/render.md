@@ -18,7 +18,7 @@ const compiled = compileScore(`
 @page(width=794px, height=1123px, gap=1em)
 1 2 3 | 4
 `, {
-    fontSize: 16,
+    variables: { fontsize: 16 },
 });
 
 const pages = renderLayoutPagesToSvg(compiled.layout, {
@@ -66,6 +66,18 @@ interface Painter {
 文本和固定图形分别处理。数字音符、休止符、歌词、声部名以及 `@text` 都通过 `drawText` 绘制，其中数字音符和休止符使用等宽字体居中显示。
 
 文本尺寸由 `TextMeasurer` 提供，包括宽、高和 baseline。默认实现的结果是确定的，不依赖运行环境中的字体测量。
+
+需要匹配宿主字体的真实宽度时，传入 `CanvasTextMeasurer`。具体函数在解析期固化 font/fontSize，在测量和绘制中使用相同 TextStyle；Canvas 测量和绘制共用字体字符串生成规则。默认数字字体可由 numberfont 或函数 font 参数覆盖，普通文字使用 font 类别设置。
+
+Web 字体由宿主通过 CSS/FontFace 加载，不由 jpFun 下载。下面假设宿主已经声明了 ScoreText 字体，并复用同一个测量器：
+
+```ts
+await document.fonts.load('16px "ScoreText"');
+textMeasurer.clearCache();
+const compiled = compileScore(source, { textMeasurer });
+```
+
+等待实际使用的字体和字重全部可用后清缓存，再绘制 `compiled.layout`。清缓存使旧的回退字体宽度失效；仅重绘旧 layout 不会重测。SVG 显示端也必须能访问相同字体。测量器仍保留 em 高度与 baseline 约定，不改用平台墨迹包围盒。
 
 升降号等固定图形则由所属函数保存尺寸和局部 `PathCommand`，再通过 `drawPath` 绘制。例如，note 的升降号定义在 `packages/jpfun/src/functions/note/accidentals.ts`。
 

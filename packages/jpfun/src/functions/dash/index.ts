@@ -34,7 +34,7 @@ class DashFunction extends ASTFunctionNode {
 
     constructor(span: SourceSpan, _args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
-        this.size = ctx.fontSize;
+        this.size = ctx.variables.fontsize;
     }
 
     override loweringEnter() {

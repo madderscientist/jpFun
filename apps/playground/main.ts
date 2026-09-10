@@ -303,7 +303,7 @@ function compileAndRender(): boolean {
     const sourceText = source();
     try {
         const compiled = compileScore(sourceText, {
-            fontSize: DEFAULT_FONT_SIZE,
+            variables: { fontsize: DEFAULT_FONT_SIZE },
             rowGap: 18,
             textMeasurer,
         });

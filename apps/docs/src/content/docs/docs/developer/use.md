@@ -57,12 +57,14 @@ compileScore(source, options?): CompileScoreResult
 
 ```ts
 const compiled = compileScore(source, {
-  fontSize: 16,
+  variables: { fontsize: 16, font: "sans-serif" },
   rowGap: 18,
   textMeasurer,
   functions,
 });
 ```
+
+`variables` 直接传给根 `ParserContext`，覆盖系统默认值；`fontsize` 使用 px 数值，也可以传入自定义变量。
 
 - `fontSize` 设置根解析作用域的默认字号，单位为 CSS 像素。
 - `rowGap` 强制设置每行轨道之间的间距；缺省时按该行最大字号推导。

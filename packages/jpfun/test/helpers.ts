@@ -85,7 +85,7 @@ export function playedNotes(plan: PlaybackPlan) {
 export const layoutContext = createLayoutPrepareContext(defaultFunctions);
 
 export function layoutOf(source: string, fontSize?: number) {
-    return compileScore(source, { fontSize }).layout;
+    return compileScore(source, { variables: fontSize === undefined ? undefined : { fontsize: fontSize } }).layout;
 }
 
 // ---- 绘制记录 ----

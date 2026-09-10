@@ -163,7 +163,8 @@ test("X 与数字 9 使用相同的节拍记号语义", () => {
 
     assert(glyphs.join("") === "XXX", "X 和 9 都必须绘制为 X");
     assert(notes.every(note => note.resolvedMidi === null), "X 和 9 都不具有旋律音高，打击键由播放事件指定");
-    assert(notes[0].ast.toString(source).startsWith("@n(X,"), "X 的去糖写法必须保留 X");
+    assert(notes.every(note => note.ast.toString(source).startsWith("@n(9,")),
+        "X、@note(X) 和 9 的去糖写法必须归一为 9");
     assert(nearly(notes[0].box.w, notes[2].box.w) && nearly(notes[0].box.h, notes[2].box.h),
         "X 和 9 必须使用相同的记谱盒");
 });
@@ -178,7 +179,8 @@ test("Z 与数字 0 使用相同的休止符语义", () => {
 
     assert(glyphs.join("") === "000", "Z 和 0 都必须绘制为休止符 0");
     assert(notes.every(note => note.resolvedMidi === null), "Z 和 0 都必须推进节拍而不发音");
-    assert(notes[0].ast.toString(source).startsWith("@n(Z,"), "Z 的去糖写法必须保留 Z");
+    assert(notes.every(note => note.ast.toString(source).startsWith("@n(0,")),
+        "Z、@note(Z) 和 0 的去糖写法必须归一为 0");
     assert(nearly(notes[0].box.w, notes[2].box.w) && nearly(notes[0].box.h, notes[2].box.h),
         "Z 和 0 必须使用相同的记谱盒");
 });

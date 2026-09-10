@@ -1,5 +1,6 @@
 import { deSugarAtomFunction, deSugarRelationFunction, LengthValue, SourceSpan } from "./types.js";
 import { Diagnostic } from "../diagnostic.js";
+import { DEFAULT_TEXT_FONT, JIANPU_NUMBER_FONT } from "../render/text.js";
 import { GrammarBraceNode, GrammarCallNode, GrammarCallNodeRaw, GrammarLabelNode, GrammarNode, type CallArgumentInfo, type SyntaxAnalysis, type SyntaxTokenKind } from "./grammarType.js";
 import { readCall, trimRange } from "./parse-utils/call-utils.js";
 import { removeQuote } from "./parse-utils/string-utils.js";
@@ -22,17 +23,18 @@ function classifySyntaxValue(type: paramType | undefined, text: string): SyntaxT
 }
 
 export const DEFAULT_FONT_SIZE = 22;
-const DEFAULT_STRICT_MODE = false;
 export const DEFAULT_OCTAVE = 4;
-
-/** 系统变量，供 `@set` 读取 */
-export const SYSTEM_VARIABLE_TYPES: Record<string, paramType> = {
-    fontsize: "length",
-    strict: "boolean",
-};
 
 // 解析上下文
 export class ParserContext {
+    /** 系统变量，供 `@set` 读取 */
+    static systemVariables: Record<string, { type: paramType; default: paramValue }> = {
+        fontsize: { type: "length", default: DEFAULT_FONT_SIZE },
+        font: { type: "string", default: DEFAULT_TEXT_FONT },
+        numberfont: { type: "string", default: JIANPU_NUMBER_FONT },
+        strict: { type: "boolean", default: false },
+    };
+
     /** 根解析器为 0，内容参数和大括号子解析器依次加一 */
     readonly scopeDepth: number;
 
@@ -62,7 +64,7 @@ export class ParserContext {
     constructor(ctx: ParserContext | {
         source: string;
         diagnostics?: Diagnostic[];
-        variables?: Map<string, any>;
+        variables?: Record<string, any>;
         functions?: Map<string, ASTFunctionClass>;
         labelableNodes?: (ASTFunctionNode | null)[];
         toConsume?: ASTNodeBase[];
@@ -90,7 +92,8 @@ export class ParserContext {
                 tokens: (ctx.commentSpans ?? []).map(span => ({ kind: "comment", span })),
                 calls: [],
             };
-            this.variables = ctx.variables ?? {};
+            this.variables = Object.fromEntries(Object.entries(ParserContext.systemVariables).map(([name, definition]) => [name, definition.default]));
+            Object.assign(this.variables, ctx.variables);
             this.functions = ctx.functions ?? new Map();
             this.labelableNodes = ctx.labelableNodes ?? [];
             this.nodes = ctx.toConsume ?? [];
@@ -121,24 +124,13 @@ export class ParserContext {
         if (target !== undefined) this.labelableNodes.push(target);
     }
 
-    get fontSize(): number {
-        return this.variables["fontsize"] ?? DEFAULT_FONT_SIZE;
-    }
-    set fontSize(size: number) {
-        this.variables["fontsize"] = size;
-    }
-
-    get strict(): boolean {
-        return this.variables["strict"] ?? DEFAULT_STRICT_MODE;
-    }
-    set strict(value: boolean) {
-        this.variables["strict"] = value;
-    }
-
-    setVariable(name: string, value: paramValue) {
-        if (name === "fontsize") this.fontSize = this.length2px(value as LengthValue);
-        else if (name === "strict") this.strict = value as boolean;
-        else this.variables[name] = value;
+    // 统一管理系统变量和函数私有变量
+    setVariable(name: string, value: paramValue | undefined) {
+        if (Object.hasOwn(ParserContext.systemVariables, name)) {
+            if (name === "fontsize" && value) value = this.length2px(value as LengthValue);
+            if (value === undefined || value === "" || value === 0) value = ParserContext.systemVariables[name].default;
+        }
+        this.variables[name] = value;
     }
 
     registerFunctions(functionClasses: ASTFunctionClass[]) {
@@ -395,7 +387,7 @@ export class ParserContext {
         const callFNClass = this.functions.get(callNode.name.toLowerCase());
         const def = callFNClass?.def;
         if (!callFNClass || !def) {
-            if (this.strict) {
+            if (this.variables.strict) {
                 throw Diagnostic.error.UnknownFunction(callNode.name, callNode.span);
             } else {
                 this.diagnostics.push(
@@ -483,7 +475,7 @@ export class ParserContext {
                         if (hadLabel) target.label = label;
                         else delete target.label;
                     }
-                    if (this.strict || !(e instanceof Diagnostic)) throw e;
+                    if (this.variables.strict || !(e instanceof Diagnostic)) throw e;
                     // 当前参数会被跳过，因此在恢复点记录被吞掉的具体错误
                     this.diagnostics.push(e, Diagnostic.warning.InvalidContent(r));
                     return null;
@@ -519,7 +511,7 @@ export class ParserContext {
 
     length2px(length: LengthValue): number {
         // 不进行错误判断了: 来自 parseArgWithType 的不会出问题
-        if (length.unit === "em") return length.value * this.fontSize;
+        if (length.unit === "em") return length.value * this.variables.fontsize;
         else return length.value;
     }
 }

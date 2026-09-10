@@ -45,7 +45,7 @@ class TieFunction extends ASTFunctionNode {
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
-        let height = ctx.fontSize * 0.5;
+        let height = ctx.variables.fontsize * 0.5;
         for (const [key, value] of args) {
             if (key === "height") {
                 const length = ctx.parseArgWithType(

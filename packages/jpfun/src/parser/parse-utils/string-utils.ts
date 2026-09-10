@@ -16,3 +16,8 @@ export function removeQuote(source: string): string {
     if (source.length < 2 || !source.startsWith('"') || !source.endsWith('"')) return source;
     return source.slice(1, -1).replace(/\\(.)/gs, "$1");
 }
+
+/** 生成双引号包裹的 jpFun 源码，仅转义反斜杠和双引号；与 JSON.stringify 不同，保留真实换行和制表符 */
+export function quote(value: string) {
+    return `"${value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
+}

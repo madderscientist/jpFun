@@ -111,7 +111,7 @@ class SymbolFunction extends ASTFunctionNode {
         const definition = symbolTable.get(name.toLowerCase());
         if (!definition) {
             const message = `@symbol: 未知符号: $${name}`;
-            if (ctx.strict) throw new ErrorDiagnostic("E_UNKNOWN_SYMBOL", message, sourceSpan);
+            if (ctx.variables.strict) throw new ErrorDiagnostic("E_UNKNOWN_SYMBOL", message, sourceSpan);
             ctx.diagnostics.push(new WarningDiagnostic("W_UNKNOWN_SYMBOL", message, sourceSpan));
             return;
         }

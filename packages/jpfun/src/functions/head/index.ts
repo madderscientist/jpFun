@@ -493,7 +493,7 @@ H.left: / H.center: / H.right: 接受对应槽的任意零时长 DSL 内容
         parent: ASTNodeBase | null = null,
     ) {
         super(span, parent);
-        this.size = ctx.fontSize;
+        this.size = ctx.variables.fontsize;
         this.gap = ctx.length2px(this.getArgValue(args, ctx)[3] as LengthValue);
         const rows = (name: SlotName, index: number) => {
             const value = args.get(name) ?? args.get(index);
