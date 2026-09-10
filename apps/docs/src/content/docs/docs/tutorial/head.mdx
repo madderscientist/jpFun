@@ -1,0 +1,94 @@
+---
+title: 曲谱头
+description: 曲谱头的使用与设置
+sidebar:
+  order: 8
+---
+
+import ScoreExample from "../../../../components/ScoreExample.astro";
+
+完成本章的学习后，你就已经可以制作大部分曲谱了！
+
+## 曲谱头的简写
+还记得[《数鸭子》](../)开头的 `H.title:`、`H.author:` 吗？这些 `H.` 开头的行组成曲谱头，用来安排标题、作者、调号、拍号和速度等信息与设置：
+
+export const headSugarExample = `H.title: 数鸭子
+H.subtitle: 简单儿歌
+H.author: 王嘉桢 作词
+H.author: 胡小环 作曲
+H.signature: 1=C 4/4
+H.tempo: 100`;
+
+<ScoreExample title="常用的曲谱头" source={headSugarExample} />
+
+`title`、`subtitle` 放在中间，`author` 放在右侧，`signature`、`tempo` 放在左侧。每条声明在对应区域增加一行，所以两个 `H.author:` 就是两行作者信息。
+
+它们其实也是函数简写，背后调用的是 `@head`。把上面的例子展开，就是：
+
+export const headFunctionExample = `@head(
+    left={
+        {@key(C) @meter(4,4)}
+        @tempo(100)
+    },
+    center={
+        @text("数鸭子", size=2em, align=center)
+        @text("简单儿歌", size=0.85em, align=center)
+    },
+    right={
+        @text("王嘉桢 作词", size=0.8em, align=right)
+        @text("胡小环 作曲", size=0.8em, align=right)
+    }
+)`;
+
+<ScoreExample title="展开成完整的 head 调用" source={headFunctionExample} />
+
+可以看到，`head` 本身并不知道什么是“标题”或“作者”，**它只负责左、中、右三块内容的布局**。标题的大字号、副标题和作者的小字号，都是语法糖替我们设置的 `@text` 参数；`H.signature:` 则替我们把 `@key` 和 `@meter` 放在同一行。内容的绘制由具体的函数完成，而 `head` 只负责位置。
+
+## 函数定义
+```jpfun
+@head(left={}, center={}, right={}, gap=5px)
+```
+
+| 参数 | 含义 | 默认值 |
+| --- | --- | --- |
+| `left` | 左侧内容，各行左对齐 | 空内容 |
+| `center` | 中间内容，各行居中 | 空内容 |
+| `right` | 右侧内容，各行右对齐 | 空内容 |
+| `gap` | 每块内容内部，相邻两行之间的距离 | `5px` |
+
+三个内容参数都可以省略。例如只写 `center={@text("练习曲", size=2em)}`，就只排一个居中的标题。需要修改行距时，可以传入 `gap=10px` 等长度值。
+
+### 一个元素一行
+`left`、`center`、`right` 的内容块中，**顶层每个直接子元素各占一行**，按书写顺序从上往下排列。这里的“行”由元素决定，不是由源码里的回车决定：
+
+export const headSeparateRowsExample = `@head(left={@key(C) @meter(4,4)}, center={@text("分成两行")})`;
+
+<ScoreExample title="源码同一行，谱面分两行" source={headSeparateRowsExample} />
+
+虽然 `@key(C)` 和 `@meter(4,4)` 写在同一源码行里，但它们是两个直接子元素，所以调号与拍号会分别占一行。想让它们留在同一行，就再包一层花括号：
+
+export const headGroupedRowExample = `@head(left={{@key(C) @meter(4,4)}}, center={@text("合在同一行")})`;
+
+<ScoreExample title="内层花括号把多个元素合成一行" source={headGroupedRowExample} />
+
+外层 `{...}` 是左侧的所有行，内层 `{@key(C) @meter(4,4)}` 是其中的一行。前面完整调用中的调号和拍号用的就是这个写法。
+
+### 简写也能放自定义内容
+除了常用字段，还可以用 `H.left:`、`H.center:`、`H.right:` 直接指定区域。冒号后以 `@` 或 `{` 开头时，会按 jpFun 内容解析；同一条声明里的多个元素自动收在同一行：
+
+export const headCustomContentExample = `\
+H.right: @key(C) @meter(4,4)
+H.right: 轻快地`
+
+<ScoreExample title="自定义内容示例" source={headCustomContentExample} />
+
+这就对应 `right={{@key(C) @meter(4,4)} @text(轻快地)}`。同样，也可以写 `H.title: @text("练习曲", size=1.5em)` 自己设置标题样式；显式传入内容时，不会再自动套用标题的文字预设。
+
+## 本质：音轨布局
+虽然叫作“曲谱头”，`head` 并不是贴在谱面上方的一块独立空间——它只是一个布局函数。在其他简谱排版软件中，曲谱头有且仅能有最前面的一个；但 jpFun 的“插件式架构”意味着，引擎对所有的函数一视同仁；`@head` 和其他函数一样，都只是整份曲谱时间流上的一部分、用同一个规则进行排版。因此，你可以把它放在曲子的任意位置、出现任意次。所以后面往往跟着一个空行才开始写旋律，这是 `@br` 的语法糖，目的是让 `head` 单独成行，而不是和曲谱旋律挤在一起。
+
+`@head` 的底层原理是 `@stack` 这样的多音轨布局，可以理解为用多音轨硬生生凑出一个看起来像独立曲谱头的布局。三个区域各自开辟多音轨（类似 `@voices`），然后放上元素、和曲谱内容一起进入布局引擎，最后每块各自平移，得到紧凑的布局。所以，`@head` 看起来特殊，完全是因为它自己事后篡改了系统的布局结果，但依然在整个布局框架内，并没有引擎开的后门。
+
+为了保持时间流的清晰，`head` 限制内部不能放入有时长的元素，比如音符。不过 `head` 依旧在时间流中，里面的调号、拍号和速度等仍是曲谱中的真实设置，会作用于后续正文。
+
+关于 jpFun 排版原理与系统架构，请参看开发者文档。
