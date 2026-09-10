@@ -6,8 +6,7 @@ export const JUMP_MARK = "repeat.jump";
 export const dcSymbol: SymbolDefinition = {
     name: "dc",
     description: "从头反复：跳回曲首再演一遍",
-    // 让字母与同字号数字齐平：数字墨迹高 0.7em，再除去字形上下两端 C 的 overshoot
-    weight: 0.74,
+    weight: 0.9,
     shapes: [
         {
             path: [

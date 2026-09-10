@@ -1,6 +1,6 @@
 import { LengthValue, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
-import { ANCHOR_KEY, TemporalNodeBase } from "../temporal.js";
+import { ANCHOR_KEY, isVisualTemporalNode, TemporalNodeBase } from "../temporal.js";
 import type { PlaybackColumnOf, PlaybackCursor, PlaybackFlow, PlaybackFlowHook } from "../../playback/types.js";
 import type { HorizontalLineView, LayoutBox, LayoutHost } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";
@@ -104,12 +104,15 @@ class BarTemporalNode extends TemporalNodeBase {
      * 给 bar 两侧的相邻元素增加 mu，避免被压缩到一起
      */
     override prepareHorizontal(line: HorizontalLineView) {
-        const run = line.trackRuns.get(this.track);
-        const index = run?.indexOf(this) ?? -1;
+        let host: TemporalNodeBase = this;
+        while (host.foldedInto) host = host.foldedInto;
+        if (!isVisualTemporalNode(host)) return;
+        const run = line.trackRuns.get(host.track);
+        const index = run?.indexOf(host) ?? -1;
         if (!run || index < 0) return;
 
-        line.registerHorizontalLayoutHook(this, this, ({ columns, start }) => {
-            const current = columns[start].find(element => element.time === this);
+        line.registerHorizontalLayoutHook(host, host, ({ columns, start }) => {
+            const current = columns[start].find(element => element.time === host);
             if (!current) return;
 
             const elementOf = (node: LayoutHost) => {
@@ -126,7 +129,7 @@ class BarTemporalNode extends TemporalNodeBase {
             const rightNode = run[index + 1];
             const right = rightNode ? elementOf(rightNode) : undefined;
             // 相邻两个 bar 的中间 gap 由右侧 bar 处理，避免重复增强
-            if (right && !(rightNode instanceof BarTemporalNode)) {
+            if (right && rightNode.mergeKey !== ANCHOR_KEY) {
                 current.config.mu_R *= 4;
                 right.config.mu_L *= 4;
             }

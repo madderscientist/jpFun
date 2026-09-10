@@ -14,7 +14,7 @@ import type { LoweringContext } from "../../lowering/loweringContext.js";
 import { Fraction } from "../../fraction.js";
 import type { Track } from "../../lowering/track.js";
 import { prepareLayoutHost } from "../../layout/engine.js";
-import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
+import type { HorizontalLineView, LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";
 import type { PlaybackEmitter } from "../../playback/types.js";
 
@@ -352,6 +352,10 @@ class FoldTemporal extends TemporalNodeBase {
         for (let i = this.members.length - 1; i >= 0; i--) emitter.play(this.members[i]);
     }
 
+    override prepareHorizontal(line: HorizontalLineView) {
+        this.members[0]?.prepareHorizontal?.(line);
+    }
+
     /**
      * 宿主留在轨道基线上，其余成员按书写顺序向上或向下叠放
      *
@@ -373,6 +377,8 @@ class FoldTemporal extends TemporalNodeBase {
             this.box.anchor = this.box.visualAxis = 0;
             return;
         }
+
+        this.springConfig = { ...first.springConfig, ...this.springConfig };
 
         // 横向完全等于宿主：上下的标记（变速、注释、力度）常常比音符宽得多，
         // 让它们撑宽盒子会把右邻推开一大截；它们画在基线外侧，伸出盒外也不会碰撞

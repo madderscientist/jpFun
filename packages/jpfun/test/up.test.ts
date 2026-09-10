@@ -35,6 +35,41 @@ test("up 继承成员的锚点合并组，并拒绝非法子节点", () => {
     expectLoweringError(`@up({@tempo(90) 1}, 3)`, "E_UP_INVALID_CHILD");
 });
 
+test("折叠小节线保留宿主的横向间距和防压缩规则", () => {
+    const wrappers = [
+        (bar: string) => `${bar}_$DC`,
+        (bar: string) => `${bar}^$DC`,
+        (bar: string) => `${bar}_"A"`,
+        (bar: string) => `@down({@up(${bar}, "A")}, $DC)`,
+    ];
+    for (const page of ["", "@page(width=200px) "]) {
+        for (const wrap of wrappers) {
+            const pairs = [
+                ["1 2 | 3 4 ||", `1 2 | 3 4 ${wrap("||")}`],
+                ["1 2 || | 3 4 ||", `1 2 ${wrap("||")} | 3 4 ||`],
+                ["1 2 || | 3 4 ||", `1 2 || ${wrap("|")} 3 4 ||`],
+                ["1 2 || | 3 4 ||", `1 2 ${wrap("||")} ${wrap("|")} 3 4 ||`],
+            ];
+            for (const [plain, folded] of pairs) {
+                const expected = layoutOf(page + plain);
+                const actual = layoutOf(page + folded);
+                assert(actual.objects.length === expected.objects.length, "folding must preserve global columns");
+                for (let index = 0; index < expected.objects.length; index++) {
+                    const before = expected.objects[index].box;
+                    const after = actual.objects[index].box;
+                    assert(nearly(after.x, before.x) && nearly(after.w, before.w) && nearly(after.anchor, before.anchor),
+                        `${page}${folded}: horizontal geometry differs at object ${index}: ${after.x} vs ${before.x}`);
+                }
+                const beforeBars = recordCommands(expected).filter(command => command.kind === "rect");
+                const afterBars = recordCommands(actual).filter(command => command.kind === "rect");
+                assert(afterBars.length === beforeBars.length, "folding must preserve painted bar lines");
+                assert(afterBars.every((bar, index) => nearly(bar.x, beforeBars[index].x)),
+                    `${page}${folded}: painted bar positions must match`);
+            }
+        }
+    }
+});
+
 test("up 成员标签与整体标签保持各自的 AST 承载者", () => {
     const labeledFunction = (source: string, label: string) => {
         let found: ASTFunctionNode | undefined;

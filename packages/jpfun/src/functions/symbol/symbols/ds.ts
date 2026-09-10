@@ -5,8 +5,7 @@ import { SEGNO_MARK } from "./segno.js";
 export const dsSymbol: SymbolDefinition = {
     name: "ds",
     description: "从记号处反复：跳回最近的 $segno",
-    // 与 $dc 同族，但两张字形的尺度差 3%，所以 weight 不能照抄：同样是字母高度 = 同字号数字的墨迹高 0.7em
-    weight: 0.72,
+    weight: 0.9,
     shapes: [
         {
             path: [
