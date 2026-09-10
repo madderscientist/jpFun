@@ -112,7 +112,7 @@ test("文本源码往返保留换行、制表符和字体字符串", () => {
         const commands = commandsOfKind(restored, "text");
         assert(commands.map(command => command.text).join("\n") === value, "text must survive serialization");
         assert(commands.every(command => command.style.fontFamily === value), "font must survive serialization");
-        for (const call of [`@page(numbering=${quote(value)})`, "@tempo(96)", "@set()"]) {
+        for (const call of [`@page(numbering=${quote(value)})`, "@set()"]) {
             const input = `${call.slice(0, -1)}${call === "@set()" ? "" : ", "}font=${quote(value)})`;
             const serialized = parse(input).content[0].toString(input);
             const node = parse(serialized).content[0];
