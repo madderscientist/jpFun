@@ -1,0 +1,103 @@
+---
+title: 反复与播放
+description: 反复的使用方法和播放控制
+sidebar:
+  order: 9
+---
+
+import ScoreExample from "../../../../components/ScoreExample.astro";
+
+播放默认从前往后进行。反复小节线让播放**回跳**，跳房子按遍数**选择片段**，D.C.、D.S. 和 Fine 则指定**回到哪里、在哪里结束**。
+
+## 小节线反复
+第一次遇到 `:|`，回到前面最近的 `|:`；再次遇到同一条 `:|`，继续向后。没有 `|:` 时，回到曲首。
+
+| 简写 | 函数调用 | 播放规则 |
+| --- | --- | --- |
+| `\|:` | `@bar(2)` | 标记反复起点 |
+| `:\|` | `@bar(3)` | 回跳一次 |
+| `:\|:` | `@bar(4)` | 结束前一反复段，同时作为后一段的起点 |
+
+export const repeatBasicExample = `1 2 |: 3 4 | 5 6 :| 7 1' ||`;
+
+<ScoreExample title="只重复中间的乐段" source={repeatBasicExample} />
+
+播放顺序：`1 2 → 3 4 → 5 6 → 3 4 → 5 6 → 7 1'`。
+
+相邻的两个反复段可以用 `:|:` 共用边界：
+
+<ScoreExample title="两个相邻的反复段" source="|: 1 2 :|: 3 4 :| 5 6 ||" />
+
+播放顺序：`1 2 → 1 2 → 3 4 → 3 4 → 5 6`。
+
+普通小节线 `|` 和终止线 `||` 只影响谱面，不改变播放顺序，也不会提前停止播放。
+
+## 跳房子
+`@volta` 指定一段内容在哪几遍播放，其他遍数直接跳过，常用来给反复段安排不同结尾。
+
+```jpfun
+@volta(from, to, pass, ...)
+```
+
+- `from`、`to` 是片段首末元素的标签，范围包含两端；允许跨行
+- `pass` 是允许播放的遍数，必须为正整数
+- 后面可以跟多个遍数，表示这些遍数共用一个房子，例如 `@volta(from, to, 1, 2, 3)`。
+
+export const voltaExample = `\
+|: 1 2 | 3@firstStart 4@firstEnd :| 5@secondStart 6@secondEnd | 7 1' ||
+@volta(firstStart, firstEnd, 1)
+@volta(secondStart, secondEnd, 2, 3)`;
+
+<ScoreExample title="一房与二房" source={voltaExample} />
+
+第1遍演奏 `3 4` 后回跳；第2遍跳过 `3 4`，改奏 `5 6`。
+
+播放顺序：`1 2 → 3 4 → 1 2 → 5 6 → 7 1'`。
+
+**房子不负责回跳，也不增加反复次数。** 虽然上面写了第3遍，但只表示第3遍才播放，不会自动演奏3遍。
+
+虽然标签打在了音符上，但是为了美观，`volta` 会自动将房子的括线延伸到紧邻的小节线（如果不是小节开头/结尾，那就不会自动吸附了）；播放范围仍由标签决定。
+
+### 跳房子与连音线等重叠问题
+跳房子与连音线可能存在重叠现象。连音线 `@tie` 的设计用途非常灵活，是允许重叠的；而 `@volta` 会避让范围里的元素。因此，如果先写 `@volta` 再写 `@tie`，`volta` 就看不到 `tie` 的存在，而 `tie` 在布局的时候什么都不管，就会导致重叠；如果先写 `@tie` 再写 `@volta`，房子就会看到范围里有一个 `tie`，从而进行避让，即抬高房子。
+
+export const voltaTieExample = `\
+| 1@x 2@y @volta(x,y,1) @tie(x,y,height=1.1em) ||
+| 1@x 2@y @tie(x,y,height=1.1em) @volta(x,y,1) ||
+`;
+
+<ScoreExample title="跳房子与连音线重叠" source={voltaTieExample} />
+
+不过 `volta` 的避让非常保守，不会充分利用下方的空洞空间。上面的例子中为了展示重叠现象，特意将连音线的高度设置得较大。实际上默认高度下，第一行的写法才是最美观的。
+
+此外，`@volta` 和 `@tie` 都可以被 `@adjust` 函数微调，不过只有 `dx` 和 `dy` 有效。
+
+## D.C.、D.S. 与 Fine
+这些符号用 `$名称` 创建。`$` 是函数 `@symbol` 的简写，例如 `$dc` 等价于 `@symbol("dc")`。
+
+| 符号 | 播放规则 |
+| --- | --- |
+| `$dc` | 第一次遇到时回到曲首，之后直接通过 |
+| `$ds` | 第一次遇到时回到前面最近的 Segno，之后直接通过 |
+| `$segno` | 标记 D.S. 的回跳目标，本身不跳转 |
+| `$fine` | 首次顺序演奏时通过；经后面的 D.C. 或 D.S. 回跳后，到这里停止 |
+
+这些符号通常用 `@up`（`^`）放在音符上方，或用 `@down`（`_`）放在小节线下方。
+
+### 从头反复，在 Fine 结束
+export const dcFineExample = `1 2 |_$fine 3 4 ||_$dc`;
+
+<ScoreExample title="D.C. al Fine" source={dcFineExample} />
+
+播放顺序：`1 2 → 3 4 → 1 2`。先经过 Fine，到 D.C. 回到曲首，再到 Fine 结束。去掉 `$fine`，则完整演奏两遍。
+
+### 从 Segno 反复，在 Fine 结束
+export const dsFineExample = `1 2 | 3^$segno 4 |_$fine 5 6 ||_$ds`;
+
+<ScoreExample title="D.S. al Fine" source={dsFineExample} />
+
+播放顺序：`1 2 → 3 4 → 5 6 → 3 4`。到 D.S. 后回到带 Segno 的 `3`，再到 Fine 结束。没有 Segno 时，D.S. 会退回曲首。
+
+组合使用时注意：普通反复线的回跳不会触发 Fine；D.C.、D.S. 回跳也不会重置反复线的访问次数，已经回跳过的反复线会直接通过。
+
+Coda（尾声）与 To Coda（跳至尾声）目前尚未支持；需要时请按实际播放顺序展开乐段，或使用文字标注。

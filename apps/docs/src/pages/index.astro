@@ -91,10 +91,10 @@ N: { {Bb2/ ^ $accent} 0/ 0 0 0 | {Eb2/ ^ $accent} 0/ 0 0 0/ {Eb2/ ^ $accent} | {
   .intro-layout { position: relative; isolation: isolate; }
   .intro-copy { position: relative; z-index: 1; width: 100%; max-width: 36rem; text-shadow: 0 0 .4rem var(--sl-color-bg); }
   .intro-score { position: absolute; z-index: 0; top: 0; right: -2rem; bottom: -2rem; width: max(65%, 26rem); overflow: hidden; pointer-events: none; mask-image: linear-gradient(to right, transparent, #000 30%, #000 94%, transparent), linear-gradient(to bottom, #000 75%, transparent 100%); mask-composite: intersect; }
-  .intro .button { text-shadow: none; }
+  .intro .button { font-size: 1.125rem; text-shadow: none; }
   .intro .button:not(.primary) { background: var(--sl-color-bg); }
   :global([data-theme="dark"]) .intro-score { filter: grayscale(1) invert(1); opacity: .75; }
-  h1 { margin: 0; font: 800 7rem/1 var(--site-brand-font); }
+  h1 { margin: 0; font: 1000 7rem/1 var(--site-brand-font); }
   h1 > span:first-child { color: var(--sl-color-accent-high); }
   h1 .brand-dot { color: var(--site-coral); }
   .tagline { font: 600 1.9rem/1.5 "Noto Serif SC", "Songti SC", Georgia, serif; margin: 1.4rem 0 .5rem; }
@@ -125,7 +125,7 @@ N: { {Bb2/ ^ $accent} 0/ 0 0 0 | {Eb2/ ^ $accent} 0/ 0 0 0/ {Eb2/ ^ $accent} | {
     h1 { font-size: 4rem; white-space: nowrap; }
     .tagline { font-size: 1.4rem; }
     .lead { font-size: .925rem; }
-    .intro .button { padding-inline: .65rem; font-size: .875rem; }
+    .intro .button { padding-inline: .65rem; font-size: 1rem; }
     h2 { font-size: 1.5rem; }
     .advantage-grid, .guide-grid { grid-template-columns: 1fr; gap: 1.5rem; }
     .advantages, .learn { padding-block: 2.5rem; }

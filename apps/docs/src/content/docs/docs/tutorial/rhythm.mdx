@@ -1,6 +1,6 @@
 ---
 title: 节奏与时值
-description: jpFun 节奏写法，从基本时值函数和简写、拍号与小节线、连音线与延音，到减时线的分组、自动连接与手工连接
+description: jpFun 节奏写法：基本时值函数和简写、拍号与小节线、连音线与延音、减时线的分组、自动连接与手工连接、多连音/三连音
 sidebar:
   order: 3
 ---
@@ -141,6 +141,32 @@ export const tieHeightExample = `\
 
 <ScoreExample title="用 height 区分两条连音线的弧高" source={tieHeightExample} />
 
+
+## 多连音
+`@tuplet` 按比例改变一组音符的实际时值，并在上方绘制连音数与括线：
+
+```jpfun
+@tuplet({content}, normal)
+```
+
+以 `content` 中最短的正时值为一个单位，`normal`（正整数） 指定整组最终占几个单位；**它不是连音数，也不是拍数。** 例如三个八分音符占两个八分音符的时长：
+
+export const tripletExample = `\
+@meter(2, 4) @tuplet({1/ 2/ 3/}, 2) 4 | 5 - ||`;
+
+<ScoreExample title="三个八分音符占一拍" source={tripletExample} />
+
+括线上显示 `3`，每个音占 `1/3` 拍，整组共一拍。**连音数按时值单位计算，不一定等于音符个数**，也可以写不等长的多连音：
+
+export const mixedTupletExample = `\
+@meter(2, 4) @tuplet({1/ 2 3}, 4) | 5 - ||`;
+
+<ScoreExample title="三个音符组成五连音" source={mixedTupletExample} />
+
+三个音分别占 `1、2、2` 个八分音符单位，共五个；放进四个单位的时长里，括线上显示 `5`，整组共两拍，各音实际占 `2/5、4/5、4/5` 拍。
+
+和 `@tie` 不同，`@tuplet` 故意设计为不允许跨谱面行，因为跨行的多连音不好看也不常见，用函数包裹更加精炼简短。关于和 `@tie` 的避让问题，请参考 [反复与播放:跳房子与连音线等重叠问题](../repeat/#跳房子与连音线等重叠问题)。
+
 ## 自动连接减时线
 `@div` 的 `autobeam` 参数默认为 `true`，意味着不同的 `@div` 之间会尝试自动连接。jpFun 会把同一音轨、相邻连续且处于同一四分音符拍内的减时音符连成一组：
 
@@ -197,6 +223,7 @@ export const explicitBeamExample = `\
 - `@meter` 设置拍号并检查小节时长，不改变音符自身时值，也不自动插入小节线或改变减时线分组。
 - `@bar` 创建小节线；`|` 分隔小节，`||` 表示终止，`|:` 与 `:|` 标出反复段，小节线本身不占时值。
 - `@tie` 连接音符，同轨同音且时间连续时合并延音；`height` 只控制连音线的弧高，默认是 `0.5em`。
+- `@tuplet({content}, normal)` 多连音，按最短时值单位缩放整组节奏，自动推导并显示连音数，同时改变实际播放时长。
 - 同一个 `@div({...})` 中的减时线始终连接；独立的 `div` 默认按四分音符拍自动分组。
 - `autobeam=false` 关闭不同 `div` 之间的自动连接，`@beam` 则用标签手工指定连接关系。
 

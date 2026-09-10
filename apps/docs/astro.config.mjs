@@ -21,6 +21,7 @@ export default defineConfig({
     }),
     starlight({
       title: "jpFun",
+      favicon: "/favicon.svg",
       expressiveCode: {
         shiki: { langs: [jpfunLanguage] },
         plugins: [jpfunSyntaxPlugin()],

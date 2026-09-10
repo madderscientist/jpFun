@@ -83,5 +83,8 @@ if (offset < source.length) segments.push({ text: source.slice(offset) });
   .score-result { padding: .5rem 1rem; overflow: auto; background: #fff; color: #171717; }
   .score-result[data-fit="natural"] { background: #e5e7eb; }
   .score-result[data-fit="natural"] :global(.score-page svg) { background: #fff; }
+  @media screen {
+    :global([data-theme="dark"]) .score-result { filter: invert(.9) hue-rotate(180deg); }
+  }
   @media (max-width: 30rem) { figcaption { padding-inline: .75rem; } .score-code { padding: 1rem; } .score-result { padding-inline: .5rem; } }
 </style>

@@ -1,4 +1,9 @@
-# jpFun 语法规范
+---
+title: jpFun 语法规范
+description: jpFun 语言的完整语法、类型与内置函数规范
+sidebar:
+    order: 1
+---
 
 ## 1. 核心思想
 完全函数式，但提供语法糖供快捷调用。

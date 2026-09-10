@@ -1,3 +1,5 @@
+<p><img src="apps/docs/public/logo.svg" alt="jpFun" width="280" /></p>
+
 # jpFun —— 函数式简谱脚本
 `jpFun` 是一个使用 TypeScript 编写的简谱 DSL 编译器与排版引擎。
 
@@ -5,7 +7,7 @@
 
 > 框架实现机制，函数定义行为；函数之间解耦，注册到框架中被调用。
 
-[在线编辑器](https://madderscientist.github.io/jpFun/playground)
+[在线编辑器](https://madderscientist.github.io/jpFun/playground) [文档](https://madderscientist.github.io/jpFun/docs/)
 
 ## 起因
 乐谱排版 DSL 并不是一个新鲜玩意。早在 1996 年，LilyPond 就已经实现了一个功能完备的五线谱排版系统（简直是乐谱界的 Latex）。同一时期还有 ABC 记谱法等 DSL 方案。
@@ -85,4 +87,3 @@ pnpm run test:update       # 重写测试快照基线
 
 ## todo
 - [ ] VSCode 插件
-- [ ] 教程网站，wiki

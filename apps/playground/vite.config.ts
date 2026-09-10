@@ -3,6 +3,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
     base: "./",
+    publicDir: "../docs/public",
     resolve: {
         alias: [
             { find: /^jpfun$/, replacement: fileURLToPath(new URL("../../packages/jpfun/src/index.ts", import.meta.url)) },

@@ -1,0 +1,77 @@
+---
+title: 系统设置
+description: 使用 set 管理字号、普通字体、数字字体和严格模式
+sidebar:
+  order: 12
+---
+
+`@set` 不仅能修改函数参数的默认值（见[函数与基本语法](../grammar/)），也能设置影响当前作用域的系统变量。系统变量名不带函数名前缀，目前有四个：
+
+```jpfun
+@set(
+    fontsize=22px,
+    font="sans-serif",
+    numberfont="'Cascadia Mono', Consolas, 'Liberation Mono', 'Noto Sans Mono', monospace",
+    strict=false
+)
+```
+
+| 变量 | 类型 | 默认值 | 作用 |
+| --- | --- | --- | --- |
+| `fontsize` | 长度 | `22px` | 基准字号，也是 `em` 长度的换算基准 |
+| `font` | 字符串 | `sans-serif` | 普通文字字体 |
+| `numberfont` | 字符串 | 下方的等宽字体栈 | 音符及同类谱面数字字体 |
+| `strict` | 布尔值 | `false` | 开启严格的语法检查 |
+
+系统变量与函数预设不同：`fontsize` 改变基准字号，`text.size` 只改变 text 的默认参数。
+
+## 基准字号
+`fontsize` 接受长度，`px` 是绝对值，`em` 按修改前的基准字号换算：
+```jpfun
+@set(fontsize=20px)
+1 2
+{ @set(fontsize=1.5em) 3 4 }
+5 6
+```
+
+局部字号为 `30px`，离开内容块后恢复 `20px`。各函数可使用基准字号的不同倍数，因此文字、拍号等不一定与音符等高。函数自身的 `size` 参数仍可单独控制大小。
+
+## 字体设置
+jpFun 有两类字体，互不覆盖，影响函数有：
+- `font`：text、voice 的声部名和歌词（含歌词行名）、tempo 文字、page 页码、H 裸文本。
+- `numberfont`：note（音符）、key（调号）、meter（拍号的数字）、tuplet（多连音上面的数字）、volta（跳房子中的数字）。
+
+```jpfun
+@set(font="'Noto Sans SC', sans-serif", numberfont="Consolas, monospace")
+@text("轻快地")
+1 2 3 4
+```
+
+字体列表含逗号时，整个值必须用 DSL 双引号包裹。列表里的字体名可用 CSS 单引号；若使用双引号，需写成 `\"`。
+
+### 文字的局部覆盖
+text、page 接受 `font` 参数，也支持 `@set(函数名.font="...")`；函数别名同样有效。优先级为：显式参数 > 函数预设 > 系统 `font`。
+```jpfun
+@set(font="sans-serif", text.font="serif")
+@text("使用 serif")
+@text("使用 monospace", font="monospace")
+@text("使用系统字体", font="")
+```
+
+
+不过并不是所有有文字的函数都支持设置字体，比如 note、key、meter、tuplet、voice、volta 都没有字体参数，请用内容块中的系统设置实现局部变化；强行使用 `@set(note.font=...)` 会报错，因为查无此项。之所以这么设计，主要是没必要：这些函数的文字通常与音符、拍号等紧密排版，统一使用系统字体可以保证布局一致性；此外还有函数定义的限制：比如 `voice` 支持传入的额外命名参数，因此 `font=...` 只是名为 font 的歌词行。
+
+## 严格模式
+```jpfun
+@set(strict=true)
+1 2 3 4
+```
+
+`strict=false` 时，一些问题会记录为诊断并继续处理，例如未知函数；`strict=true` 会让支持严格检查的这些问题抛出错误。
+
+## 恢复默认值
+```jpfun
+@set(font="", numberfont="", fontsize=0px, strict=false)
+```
+
+空字体字符串恢复对应系统默认字体，零字号恢复 `22px`，`strict=false` 关闭严格模式。这是恢复系统默认值，不是恢复外层值；要自动恢复外层设置，请使用局部内容块。
