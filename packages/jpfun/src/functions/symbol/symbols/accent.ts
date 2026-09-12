@@ -17,11 +17,11 @@ export const accentSymbol: SymbolDefinition = {
             style: { stroke: "#000", strokeWidth: 1 },
         },
     ],
-    emitPlayback: emitter => emitter.affectFollowing((_context, events) => {
-        for (const event of events) {
-            if (event.kind === "note-on") {
-                event.velocity = Math.min(MAX_VELOCITY, event.velocity + ACCENT_BOOST);
-            }
+    /** 将重音登记为声音变换，保留音段的结构边界和系统速度 */
+    emitPlayback: emitter => emitter.affectFollowing((_context, notes) => {
+        // 前序装饰可能已拆出多个子音，逐个增加原有力度并限制到 MIDI 最大力度。
+        for (const note of notes) {
+            note.velocity = Math.min(MAX_VELOCITY, note.velocity + ACCENT_BOOST);
         }
     }),
 };

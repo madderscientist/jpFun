@@ -147,8 +147,148 @@ test("fermata 通过速度控制影响所有重叠声部", () => {
 
     const doubled = compilePlayback(lower(`1 ^ $fermata ^ $fermata`));
     const doubledTempos = doubled.events.filter(event => event.kind === "tempo");
-    assert(doubledTempos.map(event => `${event.at}:${event.bpm}`).join(" ") === "0:30 1:120",
-        "重叠的控制事件应按系统状态修改自然组合");
+    assert(doubledTempos.map(event => `${event.at}:${event.bpm}`).join(" ") === "0:60 1:120",
+        "同一区间的延长记号应只让系统速度减半一次");
+
+    const parallel = compilePlayback(lower(`@stack({1 ^ $fermata}, {3 ^ $fermata}, {5 ^ $fermata}, {7 ^ $fermata})`));
+    const parallelTempos = parallel.events.filter(event => event.kind === "tempo");
+    assert(parallelTempos.map(event => `${event.at}:${event.bpm}`).join(" ") === "0:60 1:120"
+        && nearly(parallel.durationSeconds, 1),
+    "多声部同刻的延长记号应作为同一个全局延长区间");
+
+    const sustained = compilePlayback(lower(`1 1@tie ^ $fermata -`));
+    const sustainedTempos = sustained.events.filter(event => event.kind === "tempo");
+    assert(sustainedTempos.map(event => `${event.at}:${event.bpm}`).join(" ") === "0:120 1:60 3:120"
+        && nearly(sustained.durationSeconds, 2.5),
+    "延长记号应覆盖目标音经 dash 延续后的完整发声区间");
+
+    const middleTie = compilePlayback(lower(`1@a 1@b ^ $fermata 1@c @tie(a,b,c)`));
+    assert(middleTie.events.filter(event => event.kind === "tempo")
+        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:120 1:60 3:120",
+    "tie 中间端点的延长记号应延伸到链尾，但不能向前覆盖链首");
+    const finalTie = compilePlayback(lower(`1@a 1@b 1@c ^ $fermata @tie(a,b,c)`));
+    assert(finalTie.events.filter(event => event.kind === "tempo")
+        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:120 2:60 3:120",
+    "tie 末端的延长记号应保持自身起点");
+
+    const adjacent = compilePlayback(lower(`1 ^ $fermata 2 ^ $fermata`));
+    assert(adjacent.events.filter(event => event.kind === "tempo")
+        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:60 2:120",
+    "相邻的同类速度区间应连续合并");
+    const repeated = compilePlayback(lower(`|: 1 ^ $fermata 2 :|`));
+    assert(repeated.events.filter(event => event.kind === "tempo")
+        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:60 1:120 2:60 3:120",
+    "反复中的每次延长记号访问应落在各自的演奏区间");
+});
+
+test("休止符上的 fermata 保留无声区间，并影响重叠声部", () => {
+    for (const [source, noteCount] of [
+        [`0 ^ $fermata`, 0],
+        [`Z ^ $fermata`, 0],
+        [`8 ^ $fermata`, 0],
+        [`@stack({0 ^ $fermata}, {1})`, 1],
+        [`@stack({0 ^ $fermata}, {1 ^ $fermata})`, 1],
+    ] as const) {
+        const plan = compilePlayback(lower(source));
+        assert(plan.events.filter(event => event.kind === "tempo")
+            .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:60 1:120",
+        "无声目标也应生成完整减速区间，与有声目标重叠时同 key 只生效一次");
+        assert(nearly(plan.durationSeconds, 1) && plan.performanceDuration.equals(1),
+            "休止符延长应只改变秒数，保持 QN 边界");
+        assert(playedNotes(plan).length === noteCount && plan.tracks.length === noteCount,
+            "无声目标不能产生音符事件或占用发声音轨");
+    }
+    const repeated = compilePlayback(lower(`|: 0 ^ $fermata 1 :|`));
+    assert(repeated.events.filter(event => event.kind === "tempo")
+        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:60 1:120 2:60 3:120",
+    "反复访问的无声效果区间应保持独立");
+});
+
+test("无声 fermata 的结构边界参与延音、琶音和跨声部颤音", () => {
+    const sustained = compilePlayback(lower(`0 ^ $fermata - 1`));
+    assert(sustained.events.filter(event => event.kind === "tempo")
+        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:60 2:120"
+        && nearly(sustained.durationSeconds, 2.5), "无声效果应覆盖增时线扩展后的完整两拍");
+    assert(sustained.diagnostics.length === 0 && playedNotes(sustained)[0].start.equals(2),
+        "休止符延音不能警告缺少目标，也不能产生或移动后继音");
+
+    const arpeggiated = compilePlayback(lower(`@arp({1 ^ {0 ^ $fermata}})`));
+    assert(arpeggiated.events.filter(event => event.kind === "tempo")
+        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:120 1/8:60 1:120"
+        && nearly(arpeggiated.durationSeconds, 15 / 16), "无声目标的效果边界应与琶音成员同步错开和缩放");
+
+    const trill = playedNotes(compilePlayback(lower(`@tempo(30) @stack({0 ^ $fermata}, {1 ^ $tr})`)));
+    assert(trill.length === 32 && trill.every(note => note.duration.equals(1, 32)),
+        "另一声部应根据无声目标产生的最终 15 BPM 展开颤音");
+});
+
+test("增时线上的 fermata 保留自身起点，并覆盖后续完整延音", () => {
+    for (const [source, tempos, seconds, firstEnd] of [
+        [`1 - ^ $fermata 2`, "0:120 1:60 2:120", 2, 2],
+        [`1 - ^ $fermata - 2`, "0:120 1:60 3:120", 3, 3],
+        [`1 - - ^ $fermata 2`, "0:120 2:60 3:120", 2.5, 3],
+        [`1 ^ $fermata - ^ $fermata - 2`, "0:60 3:120", 3.5, 3],
+        [`1^3 - ^ $fermata - 2`, "0:120 1:60 3:120", 3, 3],
+        [`1@a - ^ $fermata 1@b @tie(a,b) 2`, "0:120 1:60 3:120", 3, 3],
+    ] as const) {
+        const plan = compilePlayback(lower(source));
+        assert(plan.events.filter(event => event.kind === "tempo")
+            .map(event => `${event.at}:${event.bpm}`).join(" ") === tempos,
+        `${source} 应从标记所在增时线开始减速，并在完整逻辑延音末端恢复`);
+        assert(nearly(plan.durationSeconds, seconds) && playedNotes(plan)[0].end.equals(firstEnd),
+            "效果区间不能中断原音段的连续延音或重复起音");
+        assert(plan.diagnostics.length === 0, "合法延音组合不应产生播放诊断");
+    }
+    const silent = compilePlayback(lower(`0 - ^ $fermata - 1`));
+    assert(silent.events.filter(event => event.kind === "tempo")
+        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:120 1:60 3:120"
+        && nearly(silent.durationSeconds, 3) && playedNotes(silent).length === 1,
+    "休止符的增时线应保留效果区间并继续保持无声");
+
+    const repeated = compilePlayback(lower(`|: 1 - ^ $fermata :|`));
+    assert(repeated.events.filter(event => event.kind === "tempo")
+        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:120 1:60 2:120 3:60 4:120",
+    "反复中的增时线效果应保留各次访问自己的起点");
+
+    const parallel = compilePlayback(lower(`@tempo(30) @stack({1 - ^ $fermata}, {0 3 ^ $tr})`));
+    const lowerVoice = playedNotes(parallel).filter(note => note.track === 1);
+    assert(lowerVoice.length === 32 && lowerVoice.every(note => note.duration.equals(1, 32)),
+        "另一声部应根据增时线声明的最终 15 BPM 展开颤音");
+    for (const [content, onset] of [
+        [`1 - ^ $fermata`, "29/64"],
+        [`0 - ^ $fermata`, "29/64"],
+        [`1 - ^ $fermata -`, "11/32"],
+    ]) {
+        const arpeggiated = compilePlayback(lower(`@arp({3 ^ {{${content}}>2}})`));
+        assert(arpeggiated.events.filter(event => event.kind === "tempo")
+            .map(event => `${event.at}:${event.bpm}`).join(" ") === `0:120 ${onset}:60 25/32:120`,
+        "新增部分的效果起点应在连续延长时保持原位，随所属音段整体缩放");
+    }
+});
+
+test("fermata 的最终速度参与装饰音密度计算", () => {
+    const slow = playedNotes(compilePlayback(lower(`@tempo(20) 1 ^ $fermata ^ $tr`)));
+    const fast = playedNotes(compilePlayback(lower(`@tempo(600) 1 ^ $fermata ^ $tr`)));
+    assert(slow.length === 48, `20 BPM 再减半时应展开 48 个子音，实际 ${slow.length}`);
+    assert(fast.length === 8, `600 BPM 减半后应回到名义密度，实际 ${fast.length}`);
+});
+
+test("fermata 沿逻辑连接延续后再决定所有声部的颤音密度", () => {
+    const parallel = compilePlayback(lower(`@tempo(30) @stack({1@a ^ $fermata 1@b @tie(a,b)}, {0 3 ^ $tr})`));
+    assert(parallel.events.filter(event => event.kind === "tempo")
+        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:15 2:30",
+    "连音延续应在展开颤音前确定完整减速区间");
+    const lowerVoice = playedNotes(parallel).filter(note => note.track === 1);
+    assert(lowerVoice.length === 32 && lowerVoice.every(note => note.duration.equals(1, 32)),
+        "第二声部第二拍应按最终 15 BPM 展开为 32 个子音");
+
+    const intoTrill = compilePlayback(lower(`@tempo(30) 1@a ^ $fermata 1@b ^ $tr @tie(a,b)`));
+    assert(intoTrill.events.filter(event => event.kind === "tempo")
+        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:15 2:30",
+    "效果范围应到连接音段末端，与首个颤音子音的长度无关");
+    const notes = playedNotes(intoTrill);
+    assert(notes.length === 32 && notes[0].start.equals(0) && notes[0].end.equals(33, 32),
+        "普通音仅与颤音首个同音子音合并，其余子音保留最终速度下的密度");
 });
 
 test("颤音密度按发声速度而不是固定记谱时值", () => {

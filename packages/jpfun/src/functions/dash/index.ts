@@ -14,7 +14,7 @@ class DashFunction extends ASTFunctionNode {
 ~~~jpfun
 1 @dash()
 ~~~
-无参数。添加一根增时线，延续前方音符的发声；也可简写为 \`1 -\`。每根线的基础时值为一个四分音符，可用减时线或附点调整。`,
+无参数。添加一根增时线，扩展前方音符或休止符的完整时值；也可简写为 \`1 -\`。每根线的基础时值为一个四分音符，可用减时线或附点调整。装饰音覆盖延长后的完整音符，例如 \`1 ^ $tr -\` 在两拍内持续颤音。`,
         allowExtraArgs: false,
         args: []
     };
@@ -65,6 +65,7 @@ class DashTemporalNode extends TemporalNodeBase {
         this.initLayoutBox();
     }
 
+    /** 固化记谱位置的速度，控制流直接跳到增时线时也能恢复正确状态 */
     override onTimeState(state: TimeState) {
         this.playbackState = { bpm: state.bpm };
     }
@@ -82,30 +83,37 @@ class DashTemporalNode extends TemporalNodeBase {
         this.box.visualAxis = this.lineY;
     }
 
+    /**
+     * 在结构阶段延长前方同轨、时间相接的一组区间
+     * 有声与无声目标都保留原对象，后续声音变换才能使用延长后的完整时值
+     */
     override emitPlayback(emitter: PlaybackEmitter) {
         const start = emitter.start.clone();
-        const end = emitter.end.clone();
         const track = emitter.track;
         const sourceSpan = this.ast.sourceSpan;
+        // 这里只查询已发布的结构前缀；装饰音尚未展开，不需要逐个修改子音。
         emitter.defer(context => {
             let rootOrigin: PlaybackOrigin | undefined;
-            for (let i = context.events.length - 1; i >= 0; i--) {
-                const event = context.events[i];
-                if (event.kind !== "note-off" || event.origins.at(-1)!.node.track !== track) continue;
+            // 从最近发布的区间向前找，锁定与当前起点相接的那次顶层访问。
+            // 来源身份限定了整组目标，防止延长更早的音符或另一遍反复中的同一节点。
+            for (let index = context.spans.length - 1; index >= 0; index--) {
+                const span = context.spans[index];
+                if (span.track !== track) continue;
                 if (rootOrigin === undefined) {
-                    if (!event.at.equals(start)) continue;
-                    rootOrigin = event.origins[0];
-                } else if (event.origins[0] !== rootOrigin) {
+                    if (!span.end.equals(start)) continue;
+                    rootOrigin = span.origins[0];
+                } else if (span.origins[0] !== rootOrigin) {
                     break;
                 }
-                if (event.at.equals(start)) {
-                    event.at.copyFrom(end);
+                // 一组目标可以含多个成员；extend 同时承接当前访问在新增部分上的速度效果。
+                if (span.end.equals(start)) {
+                    emitter.extend(span);
                 }
             }
             if (rootOrigin === undefined) {
                 context.diagnostics.push(new WarningDiagnostic(
                     "W_PLAYBACK_SUSTAIN_WITHOUT_TARGET",
-                    "增时线前没有可延续的发声音符",
+                    "增时线前没有可延续的音段",
                     sourceSpan,
                 ));
             }

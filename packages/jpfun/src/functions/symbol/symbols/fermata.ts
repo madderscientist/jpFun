@@ -1,5 +1,8 @@
 import type { SymbolDefinition } from "../index.js";
 
+// 多声部常在同一时段各写一个延长记号；按区间并集减速一次，避免速度随记号数指数下降
+const FERMATA_BPM_SCALE = {};
+
 export const fermataSymbol: SymbolDefinition = {
     name: "fermata",
     description: "延长记号：覆盖区间速度减半，目标音实际时长翻倍",
@@ -19,8 +22,6 @@ export const fermataSymbol: SymbolDefinition = {
             style: { fill: "#000" },
         },
     ],
-    emitPlayback: emitter => {
-        emitter.control(emitter.start, state => state.bpmScale.div(2));
-        emitter.control(emitter.end, state => state.bpmScale.mul(2));
-    },
+    /** 声明同 key 的减速区间，沿逻辑连接延续终点；范围不依赖实际子音的拆分结果 */
+    emitPlayback: emitter => emitter.scaleFollowingBpm(FERMATA_BPM_SCALE, 1, 2, { followConnections: true }),
 };

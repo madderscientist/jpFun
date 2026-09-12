@@ -15,12 +15,8 @@ import type {
 } from "../../layout/types.js";
 import type { Painter, PathCommand } from "../../render/types.js";
 import type {
-    PlaybackDraftNoteOffEvent,
-    PlaybackDraftNoteOnEvent,
-} from "../../playback/event.js";
-import type {
-    PlaybackHookContext,
     PlaybackRelation,
+    PlaybackRelationContext,
 } from "../../playback/types.js";
 import type { Track } from "../../lowering/track.js";
 
@@ -40,7 +36,7 @@ class TieFunction extends ASTFunctionNode {
 - **位置参数**：端点标签，可传多个，按顺序连接；省略时查找最近的可标记对象，包括增时线
 - **height**：弧线高度，默认 \`0.5em\`
 
-同行端点用一条弧线连接，跨行时自动拆成多段。涉及增时线的连接仅绘制，不合并播放音符。`,
+同行端点用一条弧线连接，跨行时自动拆成多段。同轨同音且时间连续的音段建立播放连接，各段保留自己的装饰，例如 \`1 ^ $tr 1 @tie()\` 的后一音段不继承颤音。涉及增时线的连接仅绘制，不合并播放音符。`,
         allowExtraArgs: true,
         extraArgType: "label" as const,
         args: []
@@ -131,38 +127,26 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
     }
 
     /**
-    * 只有同轨、同音、演奏时间连续的事件对才合并，其余 tie 纯视觉
-     *
-    * 反复会让同一个端点产生多个事件对，所以按首端点的每一个 NoteOn 各串一条链。
+     * 为同轨、同音且时间相接的逻辑音段建立连接，各次反复及各段装饰保持独立
+     * 此时只匹配来源和逻辑音高，实际子音是否能合并由声音展开后的核心处理
      */
-    applyPlayback(context: PlaybackHookContext) {
-        const noteOns = () => context.events
-            .filter((event): event is PlaybackDraftNoteOnEvent => event.kind === "note-on");
-        const noteOff = (noteId: number) => context.events
-            .find((event): event is PlaybackDraftNoteOffEvent =>
-                event.kind === "note-off" && event.noteId === noteId);
-        for (const head of noteOns().filter(note =>
+    applyPlayback(context: PlaybackRelationContext) {
+        // 整体端点可能包含和弦多个成员或多遍访问，每个首段分别寻找自己的连接链。
+        for (const head of context.notes.filter(note =>
             note.origins.some(origin => origin.node === this.endPoints[0]))) {
-            for (let i = 1; i < this.endPoints.length; i++) {
-                const end = noteOff(head.noteId);
-                if (!end) break;
-                const next = noteOns().find(note => note.noteId !== head.noteId
-                    && note.origins.some(origin => origin.node === this.endPoints[i])
-                    && note.track === head.track
-                    && note.midi === head.midi
-                    && note.percussion === head.percussion
-                    && end.at.equals(note.at));
+            let previous = head;
+            // 按显式端点顺序延续；某一端点没有相接音段就停止，不能跨过缺口连接。
+            for (let index = 1; index < this.endPoints.length; index++) {
+                // connect 同时认领候选：配对冲突时继续找其他成员，重复声明可复用原配对。
+                const next = context.notes.find(note => note !== previous
+                    && note.origins.some(origin => origin.node === this.endPoints[index])
+                    && note.track === previous.track
+                    && note.midi === previous.midi
+                    && note.percussion === previous.percussion
+                    && previous.end.equals(note.start)
+                    && context.connect(previous, note));
                 if (!next) break;
-                const nextOff = noteOff(next.noteId);
-                if (!nextOff) break;
-                head.sourceSpans.push(...next.sourceSpans);
-                for (const origin of next.origins) {
-                    if (!head.origins.includes(origin)) head.origins.push(origin);
-                }
-                nextOff.noteId = head.noteId;
-                nextOff.origins = [...head.origins];
-                context.events.splice(0, context.events.length,
-                    ...context.events.filter(event => event !== end && event !== next));
+                previous = next;
             }
         }
     }

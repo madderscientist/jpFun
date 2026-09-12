@@ -183,7 +183,13 @@ console.log(plan.events);
 console.log(plan.durationSeconds);
 ```
 
-`PlaybackPlan` 包含按演奏时间排序的速度、拍号、音色、NoteOn 和 NoteOff 事件，但不会自行发声。应用需要使用 Web Audio、Web MIDI 或其他音频后端调度这些事件；导出 MIDI 文件也需要由应用编码为 MIDI 字节。异常庞大的反复结构可以通过 `{ maxFlowSteps }` 显式提高默认的 65,536 列访问预算；超过预算会抛出错误，而不会返回截断的计划。时间映射、反复展开和事件结构见[播放](../playback/)。
+`PlaybackPlan` 包含按演奏时间排序的速度、拍号、音色、NoteOn 和 NoteOff 事件。编译器已经完成反复展开、完整延音、速度效果合并和装饰音展开；应用按这些最终事件调度声音，并通过 `scoreMap` 将播放位置映射回原谱。
+
+`performanceDuration` 是总演奏时值，单位 QN；`durationSeconds` 是沿 Tempo 积分得到的秒数。休止符参与时值和速度效果计算，`tracks` 仅包含最终实际发声的轨道。编译期区间与音段留在核心内部，Web Audio、Web MIDI 和 MIDI 文件适配器共同消费 `events`。
+
+应用负责音频设备、实时调度和 MIDI 字节编码。可恢复问题保存在 `plan.diagnostics` 中；阻止编译的问题会抛出带源码位置的诊断，应用应分别处理这两种结果。
+
+异常庞大的反复结构可以通过 `{ maxFlowSteps }` 显式提高默认的 65,536 列访问预算；超过预算会抛出错误，而不会返回截断的计划。时间映射、区间协议与事件结构见[播放](../playback/)，浏览器中的计划缓存和设备适配见[编辑器集成](../editor/)。
 
 ## 导入 MIDI
 

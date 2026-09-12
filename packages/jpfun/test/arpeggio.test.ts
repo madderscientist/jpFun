@@ -141,6 +141,18 @@ test("复合成员的内部事件整体后移且不越过共同终点", () => {
     assert(notes.every(note => note.end.compare(1) <= 0), "nested member events must not pass the chord end");
 });
 
+test("琶音中的颤音与多倚音在剩余窗口内保持正时值", () => {
+    for (const source of [
+        `@arp({1 ^ {3 ^ $tr}})`,
+        `@arp({1 ^ 3 ^ 5 ^ {{3 2}>1}})`,
+    ]) {
+        const notes = playedNotes(compilePlayback(lower(source)));
+        assert(notes.length > 4 && notes.every(note => note.duration.compare(0) > 0
+            && note.start.compare(0) >= 0 && note.end.compare(1) <= 0),
+        "琶音应保留全部内部音符并将其排入剩余时值");
+    }
+});
+
 test("arp 是主名且附点和弦具有可辨识的播放间隔", () => {
     const notes = playedNotes(compilePlayback(lower(`@arp({G3. ^ A3 ^ C4})`)));
     assert(notes.map(note => note.start.toString()).join(",") === "0,1/8,1/4",

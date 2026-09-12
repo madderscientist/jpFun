@@ -319,6 +319,7 @@ class NoteTemporalNode extends TemporalNodeBase {
         }
     }
 
+    /** 固化记谱位置的音高、力度和音色，并保留基于该调性的相对移调能力 */
     override onTimeState(state: TimeState) {
         const keySignature = state.keySignature;
         this.playbackState = { bpm: state.bpm, velocity: state.velocity, program: state.program };
@@ -341,19 +342,23 @@ class NoteTemporalNode extends TemporalNodeBase {
         }
     }
 
+    /** 发布完整音段或无声区间，实际 NoteOn/NoteOff 留到声音展开完成后生成 */
     override emitPlayback(emitter: PlaybackEmitter) {
         const percussion = this.ast.name === "9";
         const midi = percussion ? 37 : this.resolvedMidi;
-        if (midi === null || emitter.end.compare(emitter.start) <= 0) return;
-        const noteId = emitter.nextNoteId();
-        emitter.emit({
-            kind: "note-on",
-            at: emitter.start,
-            noteId,
+        if (emitter.end.compare(emitter.start) <= 0) return;
+        // 休止符和占位符也要保留结构边界，速度效果与后续延长才能覆盖这段时间。
+        if (midi === null) {
+            emitter.span({ start: emitter.start, end: emitter.end });
+            return;
+        }
+        // 这里只提供发声属性；轨道、来源和最终音符身份由核心统一补齐。
+        emitter.note({
+            start: emitter.start,
+            end: emitter.end,
             midi,
             velocity: this.playbackState?.velocity ?? DEFAULT_VELOCITY,
             ...(percussion ? { percussion: true as const } : { transpose: this.transposeDiatonic }),
         });
-        emitter.emit({ kind: "note-off", at: emitter.end, noteId });
     }
 }

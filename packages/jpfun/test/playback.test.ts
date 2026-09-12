@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { ErrorDiagnostic } from "../src/diagnostic.js";
 import type { LoweringAttachment } from "../src/lowering/types.js";
 import { compilePlayback } from "../src/playback/compile.js";
-import type { PlaybackEmitter, PlaybackFlow } from "../src/playback/types.js";
+import type { PlaybackEmitter, PlaybackFlow, PlaybackRelation, PlaybackSpan, PlaybackTransform } from "../src/playback/types.js";
 import {
     performanceTimeToSeconds,
     scoreTimeToSeconds,
@@ -18,6 +18,15 @@ function expectPlaybackError(run: () => unknown, code: string) {
     assert(thrown instanceof ErrorDiagnostic, `Expected ${code}, got ${String(thrown)}`);
     assert(thrown.code === code, `Expected ${code}, got ${thrown.code}`);
     return thrown;
+}
+
+function lowerWithModifier(source: string, emitPlayback: (emitter: PlaybackEmitter) => void, column = 0) {
+    const lowering = lower(source);
+    const chord = lowering.columns[column][0] as typeof lowering.columns[0][0] & {
+        members: { emitPlayback?: (emitter: PlaybackEmitter) => void }[];
+    };
+    chord.members[1].emitPlayback = emitPlayback;
+    return lowering;
 }
 
 test("playback 从已固化 lowering 生成音符与速度计划", () => {
@@ -215,11 +224,10 @@ test("增时线延长同轨上一组发声音符", () => {
     assert(top !== undefined && top.duration.equals(2),
         "和弦顶部应与宿主一起被延长，不能被中间的倪音顶掉");
 
-    // 装饰音展开出的中间子音不在事件末尾结束，不得整批延长
     const trill = playedNotes(compilePlayback(lower(`1^$tr -`)));
-    const longer = trill.filter(note => !note.duration.equals(1, 8));
-    assert(longer.length === 1 && longer[0].duration.equals(9, 8),
-        `只有颤音的最后一个子音应被延长，实际有 ${longer.length} 个`);
+    assert(trill.length === 16 && trill.every(note => note.duration.equals(1, 8))
+        && trill[15].end.equals(2),
+        "增时线应扩展同一个音符的完整时值，颤音必须连续填满两拍");
 
     const missing = compilePlayback(lower(`- 1`));
     assert(missing.diagnostics.some(item => item.code === "W_PLAYBACK_SUSTAIN_WITHOUT_TARGET"),
@@ -274,6 +282,76 @@ test("tie 只合并同轨同音且连续的单音", () => {
         `交叉声明的 tie 链也应合并成一个四拍 gesture，实际 ${crossed.length} 个音`);
 });
 
+test("tie 保留各音段的装饰，仅合并连接处的实际同音", () => {
+    const trill = playedNotes(compilePlayback(lower(`1 ^ $tr 1 @tie()`)));
+    assert(trill.length === 9 && trill.slice(0, 8).every(note => note.duration.equals(1, 8)),
+        "第一音段应保持一拍颤音");
+    assert(trill[8].midi === 60 && trill[8].start.equals(1) && trill[8].end.equals(2),
+        "第二音段应是普通持续音，不继承颤音");
+
+    const prall = playedNotes(compilePlayback(lower(`1 ^ $prall 1 @tie()`)));
+    assert(prall.length === 3 && prall[2].start.equals(2, 3) && prall[2].end.equals(2),
+        "波音的最后子音与后一音段同音时，应自然合并释放边界");
+});
+
+test("tie 对同音和弦成员一对一连接", () => {
+    for (const suffix of ["", " @tie(a,b)"]) {
+        const notes = playedNotes(compilePlayback(lower(`{1 ^ 1}@a {1 ^ 1}@b @tie(a,b)${suffix}`)));
+        assert(notes.length === 2 && notes.every(note => note.duration.equals(2)
+            && note.sourceSpans.length === 2), "每个同音成员应连接独立后继，重复声明不重复合并来源");
+    }
+});
+
+test("重叠 tie 声明复用既有配对，并独立连接剩余和弦成员", () => {
+    const body = `{1@a ^ 1@b}@x {1@c ^ 1@d}@y`;
+    for (const suffix of [
+        `@tie(a,d) @tie(x,y)`,
+        `@tie(x,y) @tie(a,d)`,
+        `@tie(a,d) @tie(x,y) @tie(a,d) @tie(x,y)`,
+    ]) {
+        for (const repeated of [false, true]) {
+            const plan = compilePlayback(lower(`${repeated ? `|: ${body} :|` : body} ${suffix}`));
+            const notes = playedNotes(plan);
+            assert(notes.length === (repeated ? 4 : 2) && notes.every(note => note.duration.equals(2)
+                && note.sourceSpans.length === 2), "重叠声明应保留一对一连接，不能报错、丢音或重复合并来源");
+            assert(plan.diagnostics.length === 0, "合法重叠连线不应产生播放诊断");
+        }
+    }
+});
+
+test("通用连接保留既有配对，同时拒绝外来或不相接的音段", () => {
+    const lowering = lower(`{1 ^ 1} {1 ^ 1}`);
+    const relation: PlaybackRelation = {
+        sourceSpan: { start: 0, end: 1 },
+        applyPlayback(context) {
+            const heads = context.notes.filter(note => note.start.equals(0));
+            const tails = context.notes.filter(note => note.start.equals(1));
+            assert(context.connect(heads[0], tails[1]), "首次连接应成功");
+            assert(context.connect(heads[0], tails[1]), "相同连接重复声明应成功");
+            assert(!context.connect(heads[0], tails[0]) && !context.connect(heads[1], tails[1]),
+                "占用前驱或后继的候选应返回 false，不修改既有配对");
+            assert(context.connect(heads[1], tails[0]), "剩余成员仍应可以连接");
+            expectPlaybackError(() => context.connect({ ...heads[0] }, tails[1]), "E_PLAYBACK_CONNECTION");
+            expectPlaybackError(() => context.connect(heads[0], heads[1]), "E_PLAYBACK_CONNECTION");
+        },
+    };
+    lowering.attachments.push(relation);
+    const notes = playedNotes(compilePlayback(lowering));
+    assert(notes.length === 2 && notes.every(note => note.duration.equals(2)),
+        "拒绝冲突或无效候选不应破坏已建立的连接");
+});
+
+test("长连接链一次性保留全部来源且不改变来源次序", () => {
+    const count = 256;
+    const labels = Array.from({ length: count }, (_, index) => `note${index}`);
+    const source = `${labels.map(label => `1@${label}`).join(" ")} @tie(${labels.join(",")})`;
+    const notes = playedNotes(compilePlayback(lower(source)));
+    assert(notes.length === 1 && notes[0].duration.equals(count)
+        && notes[0].sourceSpans.length === count, "长连接链应收敛为一个音符并保留全部原音段");
+    assert(notes[0].sourceSpans.every((span, index, spans) => index === 0 || span.start > spans[index - 1].start),
+        "来源顺序应保持原演奏顺序");
+});
+
 test("控制事件修改系统状态并自动产生 tempo", () => {
     const lowering = lower(`1 2`);
     const first = lowering.columns[0][0];
@@ -293,6 +371,178 @@ test("控制事件修改系统状态并自动产生 tempo", () => {
     assert(nearly(secondsToScoreTime(plan, 0.75), 0.75), "速度变化不应冻结谱面进度");
 });
 
+test("通用速度效果按 key 合并，并显式决定是否沿连接延续", () => {
+    const key = {};
+    for (const source of [`1 ^ $accent`, `0 ^ $accent`]) {
+        for (const shared of [true, false]) {
+            const lowering = lowerWithModifier(source, emitter => {
+                emitter.scaleFollowingBpm(key, 1, 2);
+                emitter.scaleFollowingBpm(shared ? key : {}, 1, 2);
+            });
+            const tempos = compilePlayback(lowering).events.filter(event => event.kind === "tempo");
+            assert(tempos.map(event => `${event.at}:${event.bpm}`).join(" ") === `0:${shared ? 60 : 30} 1:120`,
+                "有声与无声目标均应对同 key 去重，并将不同 key 的比例相乘");
+        }
+    }
+    for (const followConnections of [false, true]) {
+        const lowering = lowerWithModifier(`1 ^ $accent 1 @tie()`, emitter => {
+            emitter.scaleFollowingBpm(key, 1, 2, { followConnections });
+        });
+        const tempos = compilePlayback(lowering).events.filter(event => event.kind === "tempo");
+        assert(tempos.map(event => `${event.at}:${event.bpm}`).join(" ")
+            === `0:60 ${followConnections ? 2 : 1}:120`, "效果范围由声明者选择，连接不隐式传播效果");
+    }
+});
+
+test("通用区间扩展保持对象身份，并从新增部分继承效果", () => {
+    for (const followConnections of [false, true]) {
+        const lowering = lowerWithModifier(`1@a - ^ $accent - 1@b @tie(a,b)`, emitter => {
+            emitter.scaleFollowingBpm({}, 1, 2, { followConnections });
+        }, 1);
+        const plan = compilePlayback(lowering);
+        assert(plan.events.filter(event => event.kind === "tempo")
+            .map(event => `${event.at}:${event.bpm}`).join(" ") === `0:120 1:60 ${followConnections ? 4 : 3}:120`,
+        "新增部分的效果保持自身起点，并按声明决定是否沿连接延续");
+        assert(playedNotes(plan).length === 1 && playedNotes(plan)[0].end.equals(4),
+            "区间扩展不能拆分原音段或阻断后续逻辑连接");
+    }
+    for (const source of [`1 -`, `0 -`]) {
+        const lowering = lower(source);
+        lowering.columns[1][0].emitPlayback = emitter => emitter.defer(context => {
+            const target = context.spans[0];
+            expectPlaybackError(() => emitter.extend({ ...target }), "E_PLAYBACK_EXTEND_RANGE");
+            emitter.extend(target);
+            expectPlaybackError(() => emitter.extend(target), "E_PLAYBACK_EXTEND_RANGE");
+            assert(context.spans.length === 1 && context.spans[0] === target && target.end.equals(2),
+                "扩展只修改原对象，不创建新的结构目标；重复扩展同一访问应被拒绝");
+        });
+        assert(JSON.stringify(compilePlayback(lowering).events) === JSON.stringify(compilePlayback(lowering).events),
+            "扩展处理的状态不能泄漏到下一次编译");
+    }
+});
+
+test("通用速度效果拒绝无效比例与同 key 冲突，并保留源码位置", () => {
+    const source = `1 ^ $accent`;
+    for (const [numerator, denominator] of [[0, 1], [1, 0], [1.5, 2], [Infinity, 1]]) {
+        const lowering = lowerWithModifier(source, emitter => emitter.scaleFollowingBpm({}, numerator, denominator));
+        const error = expectPlaybackError(() => compilePlayback(lowering), "E_PLAYBACK_BPM_SCALE");
+        assert(error.span.start === source.indexOf("$accent"), "非法比例应定位到效果声明");
+    }
+    const key = {};
+    const conflicting = lowerWithModifier(source, emitter => {
+        emitter.scaleFollowingBpm(key, 1, 2);
+        emitter.scaleFollowingBpm(key, 1, 3);
+    });
+    expectPlaybackError(() => compilePlayback(conflicting), "E_PLAYBACK_BPM_SCALE");
+});
+
+test("结构阶段缩短音段后，速度范围采用实际终点", () => {
+    const lowering = lower(`1 ^ $fermata 2`);
+    const first = lowering.columns[0][0];
+    const emit = first.emitPlayback!.bind(first);
+    first.emitPlayback = emitter => {
+        emit(emitter);
+        emitter.defer(context => context.notes[0].end.set(1, 2));
+    };
+    const plan = compilePlayback(lowering);
+    assert(playedNotes(plan)[0].end.equals(1, 2), "结构 hook 应能缩短音段");
+    assert(plan.events.filter(event => event.kind === "tempo")
+        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:60 1/2:120",
+    "效果应在缩短后的终点结束");
+});
+
+test("无声区间支持结构修改及重复编译，但不执行声音展开", () => {
+    for (const [numerator, denominator] of [[1, 2], [2, 1]]) {
+        let soundCalls = 0;
+        const captured: PlaybackSpan[] = [];
+        const lowering = lowerWithModifier(`0 ^ $accent`, emitter => {
+            emitter.scaleFollowingBpm({}, 1, 2);
+            emitter.affectFollowing(() => { soundCalls++; });
+        });
+        const first = lowering.columns[0][0];
+        const emit = first.emitPlayback!.bind(first);
+        first.emitPlayback = emitter => {
+            emit(emitter);
+            emitter.defer(context => {
+                assert(context.notes.length === 0 && context.spans.length === 1,
+                    "无声目标应只有区间，没有有声音段");
+                context.spans[0].end.set(numerator, denominator);
+                captured.push(context.spans[0]);
+            });
+        };
+        for (const plan of [compilePlayback(lowering), compilePlayback(lowering)]) {
+            assert(plan.events.filter(event => event.kind === "tempo")
+                .map(event => `${event.at}:${event.bpm}`).join(" ") === `0:60 ${numerator === 1 ? "1/2" : "2"}:120`,
+            "无声效果应采用修改后的终点，重复编译结果相同");
+            assert(plan.performanceDuration.equals(numerator === 1 ? 1 : 2)
+                && nearly(plan.durationSeconds, numerator === 1 ? 0.75 : 2),
+            "延长无声区间也应扩展总时值，缩短则保留乐谱原有总时值");
+            assert(playedNotes(plan).length === 0 && plan.tracks.length === 0,
+                "无声区间不能生成音符或发声音轨");
+        }
+        assert(soundCalls === 0 && captured[0] !== captured[1], "无声区间不执行声音展开，编译间不共享区间身份");
+        assert(captured.every(span => Object.isFrozen(span) && Object.isFrozen(span.end)
+            && Object.isFrozen(span.sourceSpans[0])), "无声区间同样应在结构完成后冻结边界和来源");
+    }
+});
+
+test("结构、控制与声音回调每次编译只执行一次，最终状态和来源隔离", () => {
+    const calls = { structure: 0, control: 0, sound: 0 };
+    const lowering = lowerWithModifier(`1 ^ $accent - 2`, emitter => {
+        emitter.control(emitter.start, state => {
+            calls.control++;
+            state.bpmScale.div(2);
+        });
+        emitter.defer(context => {
+            calls.structure++;
+            assert(!("stateAt" in context), "结构阶段不应暴露最终状态查询");
+        });
+        emitter.affectFollowing((context, notes) => {
+            calls.sound++;
+            const snapshot = context.stateAt(notes[0].start);
+            assert(snapshot.effectiveBpm === 60 && notes[0].end.equals(2),
+                "声音展开应看到完整时值及最终速度");
+            snapshot.bpmScale.mul(10);
+            assert(context.stateAt(notes[0].start).bpmScale.equals(1, 2),
+                "修改返回的 Fraction 不得影响内部状态时间线");
+            assert(Object.isFrozen(notes[0].sourceSpans[0]) && Object.isFrozen(notes[0].origins),
+                "声音展开共享的来源元数据必须冻结");
+            Object.defineProperty(notes[0], "transpose", {
+                enumerable: true,
+                get() { throw new Error("声音展开结束后不应读取 transpose"); },
+            });
+        });
+    });
+    const first = compilePlayback(lowering);
+    const second = compilePlayback(lowering);
+    assert(calls.structure === 2 && calls.control === 2 && calls.sound === 2,
+        "重编译只能各执行一次声明，不能重放控制或声音回调");
+    assert(JSON.stringify(first.events) === JSON.stringify(second.events), "重复编译应得到相同事件");
+});
+
+test("点事件保留音符来源校验", () => {
+    const lowering = lowerWithModifier(`1 ^ $accent`, emitter => {
+        emitter.affectFollowing((_context, notes) => notes.map(note => ({ ...note, origins: [] })));
+    });
+    let thrown: unknown;
+    try { compilePlayback(lowering); } catch (error) { thrown = error; }
+    assert(thrown instanceof Error && /^Note \d+ has no origin$/.test(thrown.message),
+        `缺少来源的音符必须被拒绝，实际为 ${String(thrown)}`);
+});
+
+test("声音展开拒绝越界、缩短、移动外边界与空结果", () => {
+    const transforms: PlaybackTransform[] = [
+        (_context, notes) => { notes[0].end.add(1); },
+        (_context, notes) => { notes[0].end.div(2); },
+        (_context, notes) => { notes[0].start.add(1, 4); },
+        () => [],
+    ];
+    for (const transform of transforms) {
+        const lowering = lowerWithModifier(`1 ^ $accent`, emitter => emitter.affectFollowing(transform));
+        expectPlaybackError(() => compilePlayback(lowering), "E_PLAYBACK_TRANSFORM_RANGE");
+    }
+});
+
 test("秒数反查谱面位置时钳制到演奏计划边界", () => {
     const plan = compilePlayback(lower(`1 2`));
     assert(nearly(secondsToScoreTime(plan, -1), 0), "负秒数应钳制到谱面开头");
@@ -301,20 +551,20 @@ test("秒数反查谱面位置时钳制到演奏计划边界", () => {
         "计划结束后的秒数不能继续外推谱面位置");
 });
 
-test("defer 只能看到当前位置此前发布的事件", () => {
+test("defer 只能看到当前位置此前发布的音段", () => {
     const lowering = lower(`1 2`);
     const node = lowering.columns[0][0];
     const emit = node.emitPlayback!.bind(node);
-    let visibleNoteOns = 0;
+    let visibleNotes = 0;
     node.emitPlayback = emitter => {
         emit(emitter);
         emitter.defer(context => {
-            visibleNoteOns = context.events.filter(event => event.kind === "note-on").length;
+            visibleNotes = context.notes.length;
         });
     };
 
     compilePlayback(lowering);
-    assert(visibleNoteOns === 1, "defer 只能观察当前位置此前发布的音符，不能看见未来事件");
+    assert(visibleNotes === 1, "defer 只能观察当前位置此前发布的音段，不能看见未来音段");
 });
 
 test("局部事件变换不能跨顶层 play frame 泄漏", () => {
@@ -323,9 +573,9 @@ test("局部事件变换不能跨顶层 play frame 泄漏", () => {
     const emit = first.emitPlayback!.bind(first);
     first.emitPlayback = emitter => {
         emit(emitter);
-        emitter.affectFollowing((_context, events) => {
-            for (const event of events) {
-                if (event.kind === "note-on") event.velocity = 10;
+        emitter.affectFollowing((_context, notes) => {
+            for (const note of notes) {
+                note.velocity = 10;
             }
         });
     };
@@ -334,20 +584,16 @@ test("局部事件变换不能跨顶层 play frame 泄漏", () => {
         "顶层事件各自开始一个新的 play 序列，effect 不能跨列泄漏");
 });
 
-test("局部事件变换按调用前的尾段长度替换", () => {
-    const lowering = lower(`1 ^ $accent`);
-    const chord = lowering.columns[0][0] as typeof lowering.columns[0][0] & {
-        members: { emitPlayback?: (emitter: PlaybackEmitter) => void }[];
-    };
-    chord.members[1].emitPlayback = emitter => emitter.affectFollowing((_context, events) => {
-        const replacement = [...events];
-        events.length = 0;
+test("声音变换替换自己的音段列表", () => {
+    const lowering = lowerWithModifier(`1 ^ $accent`, emitter => emitter.affectFollowing((_context, notes) => {
+        const replacement = [...notes];
+        notes.length = 0;
         return replacement;
-    });
+    }));
 
     const notes = playedNotes(compilePlayback(lowering));
     assert(notes.length === 1 && notes[0].midi === 60,
-        "transform 改变输入数组长度后仍只能替换目标访问产生的事件");
+        "transform 改变输入数组长度后仍只能替换目标音段");
 });
 
 test("速度由记谱位置决定，而不是上一次实际演到的速度", () => {

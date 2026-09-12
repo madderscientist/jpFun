@@ -41,7 +41,7 @@ class ArpeggioFunction extends ASTFunctionNode {
 ~~~jpfun
 @arp({1 ^ 3 ^ 5}, direction=up)
 ~~~
-给和弦绘制一个从低到高的琶音`,
+给和弦绘制琶音记号，播放时按方向错开成员起点并保持共同终点。复合成员的内部音符按比例压缩到剩余时值，装饰音在确定后的区间内展开。`,
         allowExtraArgs: false,
         args: [
             {
@@ -181,35 +181,43 @@ class ArpeggioTemporal extends TemporalNodeBase {
         this.host.onPlaced?.();
     }
 
+    /**
+     * 先发布宿主，再将各成员的内部区间缩放到延迟后的剩余窗口
+     * 这里只调整结构区间，系统控制事件仍保留原来的声明时刻
+     */
     override emitPlayback(emitter: PlaybackEmitter) {
         emitter.play(this.host);
         const total = emitter.end.clone().sub(emitter.start);
         const step = new Fraction(1, 8)
+        // 短音段限制总延迟，让最后一个成员仍保留至少一半的宿主窗口。
         const maxStep = total.clone().div(2).div(this.playbackMembers.length - 1);
         if (step.compare(maxStep) > 0) step.copyFrom(maxStep);
+        // 槽位取自成员顺序；无声成员也占槽，不能按实际发声音符重新编号。
         const slots = new Map<TemporalNodeBase, number>(
             this.playbackMembers.map((member, index) => [member, index]),
         );
         const owner = this;
         emitter.defer(context => {
             let rootOrigin: PlaybackOrigin | undefined;
-            for (let index = context.events.length - 1; index >= 0; index--) {
-                const event = context.events[index];
-                if (!event.origins.some(origin => origin.node === owner)) continue;
-                rootOrigin = event.origins[0];
+            // 反向锁定最近一次宿主访问的来源身份，避免修改前一遍反复留下的区间。
+            for (let index = context.spans.length - 1; index >= 0; index--) {
+                const note = context.spans[index];
+                if (!note.origins.some(origin => origin.node === owner)) continue;
+                rootOrigin = note.origins[0];
                 break;
             }
             if (!rootOrigin) return;
-            for (const event of context.events) {
-                if ((event.kind !== "note-on" && event.kind !== "note-off")
-                    || event.origins[0] !== rootOrigin) continue;
-                const member = event.origins.find(origin => slots.has(origin.node))?.node;
+            // 先限制到同一次顶层访问，再由成员来源筛出本宿主的全部有声、无声子区间。
+            for (const note of context.spans) {
+                if (note.origins[0] !== rootOrigin) continue;
+                const member = note.origins.find(origin => slots.has(origin.node))?.node;
                 const slot = member ? slots.get(member) : undefined;
                 if (!slot) continue;
-                event.at.add(step.clone().mul(slot));
-                if (event.kind === "note-off" && event.at.compare(emitter.end) > 0) {
-                    event.at.copyFrom(emitter.end);
-                }
+                // 起止一起缩放再平移，保留宿主终点及成员内部节奏，避免只钳制尾部造成负时值。
+                const delay = step.clone().mul(slot);
+                const scale = total.clone().sub(delay).div(total);
+                note.start.sub(emitter.start).mul(scale).add(emitter.start).add(delay);
+                note.end.sub(emitter.start).mul(scale).add(emitter.start).add(delay);
             }
         });
     }

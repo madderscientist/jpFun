@@ -3,11 +3,10 @@ import type { Fraction } from "../fraction.js";
 import type { LoweringAttachment } from "../lowering/types.js";
 import type { TemporalNodeBase } from "../functions/temporal.js";
 import type { Track } from "../lowering/track.js";
+import type { SourceSpan } from "../parser/types.js";
 import type {
-    PlaybackDraftEvent,
     PlaybackEvent,
     PlaybackEventInput,
-    PlaybackNoteId,
     PlaybackOrigin,
 } from "./event.js";
 
@@ -76,24 +75,71 @@ export interface PlaybackSystemSnapshot {
 
 /** 在指定演奏时刻修改系统状态；所有同刻控制执行完后，core 据最终状态生成 Tempo 等事件 */
 export type PlaybackControl = (state: PlaybackSystemState) => void;
-/** 当前节点的局部变换完成后，检查或改写此前已发布的事件，例如 dash 延后前音的 NoteOff */
-export type PlaybackHook = (context: PlaybackHookContext) => void;
-/** 修饰同一 play frame 中排在声明者之后的一次具体访问，例如 accent、tr 和波音 */
-export type PlaybackTransform = (
-    context: PlaybackHookContext,
-    events: PlaybackDraftEvent[],
-) => PlaybackDraftEvent[] | void;
 
+/** 一个完整时间区间；时间位于演奏 QN 轴 */
+export interface PlaybackSpanInput {
+    start: Fraction;
+    end: Fraction;
+}
+
+/**
+ * 编译期区间；有声与无声目标共享结构边界及来源
+ * 结构阶段允许修改 start/end，完成后核心会冻结区间、时间对象和来源元数据
+ */
+export interface PlaybackSpan extends PlaybackSpanInput {
+    readonly track: Track;
+    readonly origins: readonly PlaybackOrigin[];
+    readonly sourceSpans: readonly Readonly<SourceSpan>[];
+}
+
+/** 一个完整音段的发声声明 */
+export interface PlaybackNoteInput extends PlaybackSpanInput {
+    midi: number;
+    velocity: number;
+    percussion?: true;
+    transpose?: (steps: number) => number;
+}
+
+/** 编译期音段；对象身份与来源在连接及声音展开期间保持独立 */
+export interface PlaybackNote extends PlaybackNoteInput, PlaybackSpan {}
+
+/** 当前节点发布完成后，修改此前音段的结构；此时尚未生成系统状态 */
+export type PlaybackHook = (context: PlaybackHookContext) => void;
+/** 在最终状态下展开一个音段；结果须保持原音段的起止边界 */
+export type PlaybackTransform = (
+    context: PlaybackTransformContext,
+    notes: PlaybackNote[],
+) => PlaybackNote[] | void;
+
+/** 结构阶段的已发布前缀；集合只读，其中区间的边界仍可调整 */
 export interface PlaybackHookContext {
-    /** 完整 Tempo 表，以及当前位置此前已经发布的音符事件；relation 阶段包含完整计划 */
-    readonly events: PlaybackDraftEvent[];
+    /** 此前发布的全部时间区间；包括无声目标，有声音段与 notes 共享对象 */
+    readonly spans: readonly PlaybackSpan[];
+    /** 按发布顺序排列，仅包含当前位置此前已发布的有声音段 */
+    readonly notes: readonly PlaybackNote[];
     readonly diagnostics: Diagnostic[];
-    nextNoteId(): PlaybackNoteId;
+}
+
+/** 声音阶段只查询最终状态，接口不提供全局区间的写入口 */
+export interface PlaybackTransformContext {
+    readonly diagnostics: Diagnostic[];
+    /** 查询最终系统状态；返回值与内部时间线隔离 */
     stateAt(time: Fraction): PlaybackSystemSnapshot;
 }
 
+/** 连接阶段使用冻结后的完整音段集合，匹配规则由关系声明者负责 */
+export interface PlaybackRelationContext {
+    /** 全部结构已确定的音段；连接保留各音段的区间和修饰 */
+    readonly notes: readonly Readonly<PlaybackNote>[];
+    readonly diagnostics: Diagnostic[];
+    /**
+     * 尝试连接当前计划内的相接音段；外来对象或不相接的边界会抛出诊断
+     * 每段最多一个前驱和后继；既有配对冲突返回 false，重复声明同一连接返回 true
+     */
+    connect(from: Readonly<PlaybackNote>, to: Readonly<PlaybackNote>): boolean;
+}
 
-/** 具体 Temporal 只发布系统原语、系统控制和延迟事件变换 */
+/** 具体 Temporal 发布音段、系统事件、结构处理与声音展开声明 */
 export interface PlaybackEmitter {
     /** 当前访问在演奏 QN 轴上的起点 */
     readonly start: Fraction;
@@ -104,24 +150,38 @@ export interface PlaybackEmitter {
     readonly end: Fraction;
     /** 当前节点所属的原始 Track；最终输出时转换为 PlaybackPlan.tracks 的索引 */
     readonly track: Track;
-    /** 为一对新的 NoteOn/NoteOff 分配共享身份 */
-    nextNoteId(): PlaybackNoteId;
-    /** 发布一个系统定义的原始播放事件；core 自动补来源、轨道和稳定次序 */
+    /** 发布无声区间，参与结构及速度效果处理，不生成音符事件 */
+    span(span: PlaybackSpanInput): void;
+    /** 发布完整音段；core 自动补轨道和来源，最终统一分配 NoteOn/NoteOff 身份 */
+    note(note: PlaybackNoteInput): void;
+    /**
+     * 用当前相接区间延长已有区间，继承的速度效果从新增部分开始
+     * 保留原区间的对象身份和声音变换，不创建新的结构目标
+     */
+    extend(span: PlaybackSpan): void;
+    /** 发布系统事件；core 自动补来源和稳定次序 */
     emit(event: PlaybackEventInput): void;
     /** 在指定时刻登记系统状态修改；同刻控制全部执行后才生成最终状态事件 */
     control(at: Fraction, apply: PlaybackControl): void;
-    /** 修饰同一 play frame 中排在当前节点之后的音符访问 */
+    /**
+     * 缩放后续有声及无声区间的 BPM；同 key 对应固定比例，重叠或相邻范围按并集生效
+     * 默认只覆盖各区间自身；followConnections 可延续到逻辑连接链尾，效果起点保持不变
+     */
+    scaleFollowingBpm(key: object, numerator: number, denominator?: number,
+        options?: { followConnections?: boolean }): void;
+    /** 对同一 play frame 的后续音段登记声音展开，内部新增修饰不泄漏到外层 */
     affectFollowing(transform: PlaybackTransform): void;
-    /** 当前节点的局部变换完成后，在当前位置处理此前已发布的事件 */
+    /** 当前节点发布完成后，在当前位置处理此前已发布的音段 */
     defer(hook: PlaybackHook): void;
     /** 递归发布折叠的子节点；未指定区间时继承当前 start 和 duration */
     play(child: TemporalNodeBase, start?: Fraction, duration?: Fraction): void;
 }
 
-/** 所有节点 hook 完成后，attachment 可以处理跨节点关系 */
+/** 结构 hook 完成后，attachment 声明音段之间的连接 */
 export interface PlaybackRelation extends LoweringAttachment {
-    applyPlayback(context: PlaybackHookContext): void;
+    applyPlayback(context: PlaybackRelationContext): void;
 }
+/** 按能力识别播放关系，避免核心依赖具体附件类 */
 export function isPlaybackRelation(attachment: LoweringAttachment): attachment is PlaybackRelation {
     return typeof (attachment as Partial<PlaybackRelation>).applyPlayback === "function";
 }
@@ -138,7 +198,7 @@ export interface PlaybackScorePoint {
  * 完整且可查询的演奏计划
  *
  * 刻意不做成 generator：随机定位、总时长和 MIDI 导出都需要完整计划，
- * 而 tie 这类关系对象要同时改写相距很远的两个端点。无限反复属于播放器的循环控制，
+ * 跨音段关系也需要完整的演奏位置。无限反复属于播放器的循环控制，
  * 应表示为有限计划加循环点，不是无限序列。
  */
 export interface PlaybackPlan {
