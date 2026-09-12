@@ -9,23 +9,22 @@ class BarFunction extends ASTFunctionNode {
     static override def = {
         name: ["bar", "|"],
         description: "小节线",
-        example: `@bar(type, lengthEM) 创建一个小节线
-语法糖: 
-- type0: '|' 普通小节线
-- type1: '||' 终止小节线 左细右粗
-- type2: '|:' 重复小节线 左粗右细
-- type3: ':|'
-- type4: ':|:' 左右反复
-`,
+        details: `\
+~~~jpfun
+@bar(0, length=1.25em)
+~~~
+有语法糖简写，见 type 参数的说明。`,
         allowExtraArgs: false,
         args: [
             {   // 小节线样式类型，对应普通、终止和反复线
                 name: "type",
+                description: "0：普通线 `|`；1：终止线 `||`（左细右粗）；2：反复起点 `|:`；3：反复终点 `:|`；4：左右反复 `:|:`",
                 type: "number" as const,
                 default: 0,
             },
             {
                 name: "length",
+                description: "小节线高度",
                 type: "length" as const,
                 default: {
                     value: 1.25,

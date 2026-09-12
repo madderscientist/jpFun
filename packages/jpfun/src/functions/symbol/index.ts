@@ -64,21 +64,25 @@ class SymbolFunction extends ASTFunctionNode {
     static override def = {
         name: ["symbol", "$"],
         description: "创建一个乐谱符号",
-        example: [
-            "@symbol(name, size)",
-            "语法糖: $name",
-            "内置:",
-            ...[...symbolTable.values()].map(item => `  $${item.name} ${item.description}`),
-        ].join("\n"),
+        details: `\
+~~~jpfun
+1 ^ @symbol(p, size=0.5em)
+~~~
+**简写**：\`$name\`，如 \`1 ^ $p\`
+
+**内置记号**
+${[...symbolTable.values()].map(item => `- \`$${item.name}\`：${item.description}`).join("\n")}`,
         allowExtraArgs: false,
         args: [
             {
                 name: "name",
+                description: "内置记号名称，见函数说明中的记号列表",
                 type: "string" as const,
                 default: null
             },
             {
                 name: "size",
+                description: "记号尺寸",
                 type: "length" as const,
                 default: { value: 0.5, unit: "em" } as LengthValue,
             },

@@ -10,9 +10,11 @@ class DashFunction extends ASTFunctionNode {
     static override def = {
         name: ["dash", "-"],
         description: "增时线",
-        example: `@dash() 创建一根增时线
-语法糖: 一个 '-' 代表一个 @dash()
-`,
+        details: `\
+~~~jpfun
+1 @dash()
+~~~
+无参数。添加一根增时线，延续前方音符的发声；也可简写为 \`1 -\`。每根线的基础时值为一个四分音符，可用减时线或附点调整。`,
         allowExtraArgs: false,
         args: []
     };

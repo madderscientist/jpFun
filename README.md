@@ -1,4 +1,4 @@
-<p><img src="apps/docs/public/logo.svg" alt="jpFun" width="280" /></p>
+<img src="apps/docs/public/logo.svg" alt="jpFun" width="320" />
 
 # jpFun —— 函数式简谱脚本
 `jpFun` 是一个使用 TypeScript 编写的简谱 DSL 编译器与排版引擎。
@@ -8,6 +8,8 @@
 > 框架实现机制，函数定义行为；函数之间解耦，注册到框架中被调用。
 
 [在线编辑器](https://madderscientist.github.io/jpFun/playground) [文档](https://madderscientist.github.io/jpFun/docs/)
+
+![编辑器实拍](apps/docs/public/inEditor.png)
 
 ## 起因
 乐谱排版 DSL 并不是一个新鲜玩意。早在 1996 年，LilyPond 就已经实现了一个功能完备的五线谱排版系统（简直是乐谱界的 Latex）。同一时期还有 ABC 记谱法等 DSL 方案。
@@ -46,8 +48,8 @@ pnpm test
 常用命令：
 ```sh
 pnpm dev                   # 一起启动文档、编辑器及核心编译监听
-pnpm dev:playground        # 只启动编辑器，默认 http://127.0.0.1:4173/
-pnpm dev:docs              # 只启动文档，默认 http://127.0.0.1:4321/
+pnpm dev:playground        # 只启动编辑器
+pnpm dev:docs              # 只启动文档
 pnpm run build:core        # 构建核心包
 pnpm run build:playground  # 构建 Playground
 pnpm run typecheck         # 只做类型检查（tsx 跑测试时不检查类型）
@@ -87,5 +89,3 @@ pnpm run test:update       # 重写测试快照基线
 
 ## todo
 - [ ] VSCode 插件
-
-完善函数描述，完善开发者文档，叫人尝试，写VSCode插件

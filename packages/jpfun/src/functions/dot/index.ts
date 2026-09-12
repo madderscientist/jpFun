@@ -19,20 +19,23 @@ class DotFunction extends ASTFunctionNode {
     static override def = {
         name: [DOT_FUNC_NAME, "."],
         description: "附点",
-        example: `@dot(C1, 2): C1右侧创建2个点 仅接收一个可接收元素
-语法糖：在目标后加'.'，可以多个
-@dot(C1, 2) === C1..
-{1^2}. === {1.^2}
-@dot(C1 C2/ @dash(), 2) 报错 因为点只能接收一个可见时间元素
-`,
+        details: `\
+~~~jpfun
+@dot(1, n=2)
+~~~
+**简写**：目标后加 \`.\`，可重复。\`@dot(1, 2)\` 等价于 \`1..\`；\`{1^2}.\` 等价于 \`{1.^2}\`。
+
+\`@dot({1 2/ -}, 2)\` 包含多个时间元素，会报错；需要分别为各元素添加附点。`,
         allowExtraArgs: false,
         args: [
             {
                 type: "content" as const,
+                description: "单个可见时间元素，如音符、增时线或折叠和弦",
                 default: null,
             },
             {
                 name: "n",
+                description: "附点数，第一点增加原时值的一半，后续各点增加量再减半",
                 type: "number" as const,
                 default: 1,
             },

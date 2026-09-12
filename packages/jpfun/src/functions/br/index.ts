@@ -10,15 +10,19 @@ class BrFunction extends ASTFunctionNode {
     static override def = {
         name: ["br"],
         description: "换行",
-        example: `@br(offset=1): 在后续事件前偏移指定行数
-@br() === @br(1)
-@br(2): 空出一行后继续
-语法糖: [仅限顶层]至少连续两个换行
-`,
+        details: `\
+~~~jpfun
+1 2 @br() 3 4
+~~~
+
+\`@br()\` 换到下一行，\`@br(2)\` 空出一行再继续
+
+**简写**：仅在顶层，连续至少两个换行表示换行`,
         allowExtraArgs: false,
         args: [
             {
                 name: "offset",
+                description: "后续内容偏移的谱面行数，2 表示空出一行再继续",
                 type: "number" as const,
                 default: 1,
             },

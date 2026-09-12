@@ -220,7 +220,7 @@ test("content recovery restores state and rethrows implementation errors", () =>
     const failure = new TypeError("test implementation failure");
     class BrokenFunction extends ASTFunctionNode {
         static override def = {
-            name: "broken", description: "test", example: "@broken()", allowExtraArgs: false, args: [],
+            name: "broken", description: "test", details: "@broken()", allowExtraArgs: false, args: [],
         };
         constructor() { super({ start: 0, end: 0 }); throw failure; }
     }

@@ -33,8 +33,14 @@ class TieFunction extends ASTFunctionNode {
     static override def = {
         name: ["tie"],
         description: "连音线",
-        example: `@tie(label1, label2, ..., height=0.5em)
-    将端点依次连接；同行用一条弧线，跨行拆成分段连接；若不传端点则找最近的`,
+        details: `\
+~~~jpfun
+1@a 2 3@b @tie(a, b, height=0.5em)
+~~~
+- **位置参数**：端点标签，可传多个，按顺序连接；省略时查找最近的可连接对象
+- **height**：弧线高度，默认 \`0.5em\`
+
+同行端点用一条弧线连接，跨行时自动拆成多段`,
         allowExtraArgs: true,
         extraArgType: "label" as const,
         args: []

@@ -8,14 +8,16 @@ class SetFunction extends ASTFunctionNode {
     static override def = {
         name: ["set"],
         description: "设置局部默认值",
-        example: `当前有以下系统配置：
-@set(fontSize=20) 则当前块内默认字体变为20px
-@set(strict=true) 开启严格模式
-还可以设置其他函数的默认值: {函数名}.{属性}=值，例:
-@set(note.octave=5, note.color=#f00)
+        details: `\
+~~~jpfun
+@set(fontsize=20, strict=true)
+{ @set(note.octave=5, note.color=#f00) C D E }
+~~~
+接受命名参数，可一次设置多项：
+- **系统选项**：如 \`fontsize=20\` 将字号设为 20px，\`strict=true\` 开启严格模式
+- **函数默认参数**：按 \`函数主名.参数名=值\` 书写，例如 \`note.octave=5\`、\`note.color=#f00\`；显式传参优先
 
-注意：@set 作用域仅在其所处 '{}' 内、其出现之后。离开当前作用域会恢复为之前的设置。此设置和时序无关，类似于局部变量。
-`,
+设置从当前位置起生效，限于当前作用域及其子作用域；离开内容块后恢复外层设置。它按源码作用域解析，与演奏时间无关。`,
         allowExtraArgs: true,
         args: []
     };

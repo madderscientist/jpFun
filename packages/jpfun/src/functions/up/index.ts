@@ -232,12 +232,14 @@ class UpFunction extends FoldFunction {
     static override def: FunctionDef = {
         name: ["up"],
         description: "把同一时间位置的可见对象向上堆叠",
-        example: `@up(content1, content2, ...)
-语法糖: ^
-{content1} ^ {content2} ^ ...
-第一个参数是宿主，其余依次叠在它的上方，常用于和弦、变速记号、音符注释。
-全体成员折叠成一个事件、共享宿主的时值；需要各自独立时值的并行分支请用 & / @stack。
-`,
+        details: `\
+~~~jpfun
+@up(1, 3, 5)
+~~~
+
+第一个内容参数为宿主，其余依次叠在上方；所有成员共享宿主时值。常用于和弦、速度记号和音符注释。
+
+**简写**：\`1 ^ 3 ^ 5\`。复杂内容可用 \`{...}\` 包裹；需要独立节奏的并行分支时，使用 \`&\` / \`@stack\`。`,
         allowExtraArgs: true,
         extraArgType: "content" as const,
         args: [],
@@ -260,12 +262,13 @@ class DownFunction extends FoldFunction {
     static override def: FunctionDef = {
         name: ["down"],
         description: "把同一时间位置的可见对象向下堆叠",
-        example: `@down(content1, content2, ...)
-语法糖: _
-{content1} _ {content2} _ ...
-第一个参数是宿主，其余依次叠在它的下方，常用于力度记号等写在音符下面的标记。
-与 ^ 混写时全部绑到同一个宿主：1^2_3 表示 2 在上、3 在下。
-`,
+        details: `\
+~~~jpfun
+@down(1, $p)
+~~~
+第一个内容参数为宿主，其余依次叠在下方并共享其时值，常用于力度等下方标记。
+
+**简写**：\`1 _ $p\`。与 \`^\` 混写时共用同一宿主：\`1^2_3\` 将 \`2\` 放在 \`1\` 上方、\`3\` 放在下方。`,
         allowExtraArgs: true,
         extraArgType: "content" as const,
         args: [],

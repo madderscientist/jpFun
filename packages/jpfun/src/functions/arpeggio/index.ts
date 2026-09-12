@@ -37,18 +37,22 @@ class ArpeggioFunction extends ASTFunctionNode {
     static override def = {
         name: ["arp", "arpeggio"],
         description: "琶音",
-        example: `@arp({1 ^ 3 ^ 5}) 默认从低到高，无箭头
-    @arp({1 ^ 3 ^ 5}, direction=up) 从低到高，顶端带箭头
-    @arp({1 ^ 3 ^ 5}, direction=down) 从高到低，底端带箭头`,
+        details: `\
+~~~jpfun
+@arp({1 ^ 3 ^ 5}, direction=up)
+~~~
+给和弦绘制一个从低到高的琶音`,
         allowExtraArgs: false,
         args: [
             {
                 name: "content",
+                description: "由 `up` / `down` 堆叠形成的和弦",
                 type: "content" as const,
                 default: null
             },
             {
                 name: "direction",
+                description: "空值从低到高、不画箭头；`up` 从低到高、顶端带箭头；`down` 从高到低、底端带箭头",
                 type: "string" as const,
                 default: ""
             },

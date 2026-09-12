@@ -19,21 +19,28 @@ class MeterFunction extends ASTFunctionNode {
     static override def = {
         name: ["meter"],
         description: "设置拍号",
-        example: `@meter(6, 8) 设置 6/8 拍号`,
+        details: `\
+~~~jpfun
+@meter(6, 8)
+~~~
+设置 \`6/8\` 拍号：每小节含六个八分音符的时值`,
         allowExtraArgs: false,
         args: [
             {
                 name: "num",
+                description: "拍号分子，每小节包含的单位拍数",
                 type: "number" as const,
                 default: null
             },
             {
                 name: "den",
+                description: "拍号分母，以几分音符为单位拍",
                 type: "number" as const,
                 default: null
             },
             {
                 name: "size",
+                description: "拍号字号",
                 type: "length" as const,
                 default: { value: 0.7, unit: "em" } as LengthValue,
             },

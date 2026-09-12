@@ -67,19 +67,26 @@ export class PageFunction extends ASTFunctionNode {
     static override def = {
         name: ["page"],
         description: "设置文档页面尺寸、边距、最小谱面行间距和页码",
-        example: "@page(width=794px, height=1123px, top=48px, bottom=48px, left=40px, right=40px, gap=1em, numbering=\"1/1\")",
+        details: `\
+~~~jpfun
+@page(
+    width=794px, height=1123px, top=48px, bottom=48px,
+    left=40px, right=40px, gap=1em, numbering="1/1"
+)
+~~~
+尺寸接受 \`px\` 或 \`em\`。页边距和行距须非负，左右边距之和须小于页宽；固定页高时，上下边距之和也须小于页高。`,
         allowExtraArgs: false,
         args: [
-            { name: "width", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.width) },
-            { name: "height", type: "length" as const, default: px(0) },
-            { name: "top", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.marginTop) },
-            { name: "bottom", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.marginBottom) },
-            { name: "left", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.marginLeft) },
-            { name: "right", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.marginRight) },
-            { name: "gap", type: "length" as const, default: { value: 1, unit: "em" as const } },
+            { name: "width", description: "页面宽度，须大于左右页边距之和", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.width) },
+            { name: "height", description: "页面高度，0 表示不分页、高度随内容增长；宽度为 `794px` 时，A4 对应高度约为 `1123px`", type: "length" as const, default: px(0) },
+            { name: "top", description: "页面上边距", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.marginTop) },
+            { name: "bottom", description: "页面下边距，启用页码时至少为 `16px`", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.marginBottom) },
+            { name: "left", description: "页面左边距", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.marginLeft) },
+            { name: "right", description: "页面右边距", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.marginRight) },
+            { name: "gap", description: "谱面行之间的最小间距", type: "length" as const, default: { value: 1, unit: "em" as const } },
             // 单个 1 取当前页；多个 1 中最后一个取总页数
-            { name: "numbering", type: "string" as const, default: "" },
-            { name: "font", type: "string" as const, default: "" },
+            { name: "numbering", description: "页码格式，空值隐藏；`1` 显示当前页，`1/1` 显示当前页/总页数", type: "string" as const, default: "" },
+            { name: "font", description: "页码字体，空值沿用当前字体设置", type: "string" as const, default: "" },
         ],
     };
 

@@ -37,18 +37,22 @@ class KeyFunction extends ASTFunctionNode {
     static override def = {
         name: ["key", "1"],
         description: "设置时间线上的 1= 调性基准",
-        example: `@1(C4) 或 @key(F#3)
-它不会修改 parser 的局部变量，而是在时间固化阶段影响其后的数字音名解释
-画出来的记号只含音名和升降号，不含八度；通常叠在音符上方书写：1 ^ @1(F#)`,
+        details: `\
+~~~jpfun
+1 ^ @key(F#3)
+~~~
+调性沿时间线影响后续数字音名。谱面记号显示音名与升降号，省略八度；通常用 \`^\` 叠在音符上方。`,
         allowExtraArgs: false,
         args: [
             {
                 name: "tonality",
+                description: "`1=` 的音高基准，如 `C4`、`F#3`",
                 type: "string" as const,
                 default: null,
             },
             {
                 name: "size",
+                description: "调性记号字号",
                 type: "length" as const,
                 default: {
                     value: 1,

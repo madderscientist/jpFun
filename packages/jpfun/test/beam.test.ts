@@ -87,6 +87,11 @@ test("显式 @beam 只连接相邻端点，否则报错", () => {
 
     for (const source of [
         `@set(div.autobeam=false) 1/@a 2/ 3/@b @beam(a,b)`,
+        `1/@a | 2/ 3/@b @beam(a,b)`,
+        `1/@a | @text("barrier") 2/@b @beam(a,b)`,
+        `1/@a | @br() 2/@b @beam(a,b)`,
+        `1/@a | 2/@b @beam(b,a)`,
+        `1/@a @up(3/, @bar()) 2/@b @beam(a,b)`,
         `@set(div.autobeam=false) 1/@a @br() 2/@b @beam(a,b)`,
         `@set(div.autobeam=false) @stack({1/@a}, {2/@b}) @beam(a,b)`,
         `@set(div.autobeam=false) 1/@a 2/@b @beam(b,a)`,
@@ -96,6 +101,33 @@ test("显式 @beam 只连接相邻端点，否则报错", () => {
 
     const parallelExplicitBeamResult = layoutOf(`@set(div.autobeam=false) @stack({1/@a 2/@b @beam(a,b)}, {3})`);
     assert(parallelExplicitBeamResult.attachments.length === 1, "events on another track must not break explicit beam adjacency");
+});
+
+test("显式 beam 跨小节线连接，保留小节线间距与自动分组边界", () => {
+    for (const barrier of ["|", "||", "|:", ":|", "| ^ @text(A)"]) {
+        const source = `1//@a ${barrier} 2//@b`;
+        const automatic = layoutOf(source);
+        const explicit = layoutOf(`${source} @beam(a,b)`);
+        assert(automatic.attachments.length === 0, "bar lines must still break automatic beams");
+        assert(explicit.attachments.length === 1, "explicit beams must cross bar lines");
+        const lines = attachmentCommands(explicit.attachments[0]).filter(command => command.kind === "line");
+        assert(lines.length === 2, "both div levels must connect across the bar line");
+        const first = explicit.objects[0];
+        const last = explicit.objects.at(-1)!;
+        for (const line of lines) {
+            assert(nearly(line.y1, line.y2), "cross-bar beams must remain horizontal");
+            assert(line.x1 < explicit.objects[1].box.x && line.x2 > explicit.objects[1].box.x,
+                "beam lines must span the bar line");
+        }
+        assert(nearly(lines[0].x1, first.box.x + first.ports[divLinePortName(0, "left")].x),
+            "beam must start at the first note div port");
+        assert(nearly(lines[0].x2, last.box.x + last.ports[divLinePortName(0, "right")].x),
+            "beam must end at the last note div port");
+        for (let index = 0; index < explicit.objects.length; index++) {
+            assert(nearly(explicit.objects[index].box.x, automatic.objects[index].box.x),
+                "cross-bar beams must preserve horizontal spacing");
+        }
+    }
 });
 
 test("写在 up 成员上的标签是合法的 beam 端点", () => {

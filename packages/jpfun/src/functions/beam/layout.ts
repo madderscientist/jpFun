@@ -1,4 +1,5 @@
 import {
+    ANCHOR_KEY,
     isVisualTemporalNode,
     type TemporalNodeBase,
     type VisualTemporalNode,
@@ -46,13 +47,14 @@ export function createBeamLayoutAttachment(
     return new BeamLayoutAttachment(endPoints, explicit, sourceSpan);
 }
 
-/** 显式 beam 必须严格连接最终同轨同谱面行中的相邻可见主体 */
+/** 显式 beam 连接同轨同谱面行中的相邻可见主体，忽略零时长小节线 */
 export function validateExplicitBeamAttachments(result: LoweringResult) {
     const tracks = new Map<number, Map<Track, LayoutHost[]>>();
 
     for (const column of result.columns) {
         for (const node of column) {
             if (!isVisualTemporalNode(node)) continue;
+            if (node.mergeKey === ANCHOR_KEY && node.T.isZero()) continue;
             let lineTracks = tracks.get(node.layoutLine);
             if (!lineTracks) {
                 lineTracks = new Map();
@@ -92,7 +94,7 @@ export function validateExplicitBeamAttachments(result: LoweringResult) {
 
             throw new ErrorDiagnostic(
                 "E_NON_ADJACENT_BEAM",
-                "@beam 的端点必须按时间顺序连接同一轨道、同一谱面行中的相邻可见元素",
+                "@beam 的端点必须按时间顺序连接同一轨道、同一谱面行中的相邻可见元素（可跨小节线）",
                 attachment.sourceSpan,
             );
         }

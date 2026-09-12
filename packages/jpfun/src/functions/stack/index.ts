@@ -48,11 +48,13 @@ class StackFunction extends ASTFunctionNode {
     static override def = {
         name: ["stack"],
         description: "临时多声部",
-        example: `@stack(content1, content2, ...)
-语法糖: &
-{content1} & {content2} & ...
-表示content1和content2在时间上完全重叠，通常用于和声等需要对齐的场景。可以有任意多个参数，至少需要两个参数。
-`,
+        details: `\
+~~~jpfun
+@stack({1 2}, {3/ 4/ 5})
+~~~
+接受至少两个内容参数，各分支同时开始、保留各自时值，整体时长取最长分支。适合节奏不同的临时多声部。
+
+**简写**：\`{1 2} & {3/ 4/ 5}\`。可继续用 \`&\` 连接更多分支；若要写和弦，请使用 \`up\` / \`down\`。`,
         allowExtraArgs: true,
         extraArgType: "content" as const,
         args: [],

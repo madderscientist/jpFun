@@ -118,7 +118,7 @@ playground 的补全由 [jpfun-language.ts](https://github.com/madderscientist/j
 
 悬浮内容按以下顺序查找：
 
-1. **词法层**：光标落在 `call.nameSpan` 上时，显示 `def.description` 和 `def.example`。这部分使用当前词法结果，不依赖 AST。
+1. **词法层**：光标落在 `call.nameSpan` 上时，显示函数简介、别名、参数信息及 `def.details` 中的 Markdown 详细说明（示例、简写与特性）。这部分使用当前词法结果，不依赖 AST。
 2. **语义层**：词法层未命中且 AST 未过期时，沿 `sourceSpan` 和 `children` 递归查找命中路径上最深的、带 `def` 的 `ASTFunctionNode`，先显示 `node.toString(source)` 生成的去糖等价写法，再显示文档。
 
 ```

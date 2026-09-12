@@ -28,17 +28,17 @@ class DynFunction extends ASTFunctionNode {
     static override def = {
         name: ["dyn"],
         description: "渐强渐弱",
-        example: `@dyn(from, to, dv) 在两个标签之间线性改变力度
-from、to 必须位于同一音轨且时间不同
-dv 为正时渐强，为负时渐弱；变化量叠加在每个音符原有力度上
-
+        details: `\
+~~~jpfun
 1 ^ $p 2@a 3 4@b
-@dyn(a, b, 24)`,
+@dyn(a, b, 24)
+~~~
+端点须位于同一音轨、不同时间；变化量沿区间线性增加，叠加在每个音符原有力度上。本例从 \`a\` 到 \`b\` 渐强，终点增加 24 的力度。`,
         allowExtraArgs: false,
         args: [
-            { name: "from", type: "label" as const, default: null },
-            { name: "to", type: "label" as const, default: null },
-            { name: "dv", type: "number" as const, default: null },
+            { name: "from", description: "渐变起点的标签", type: "label" as const, default: null },
+            { name: "to", description: "渐变终点的标签", type: "label" as const, default: null },
+            { name: "dv", description: "力度变化量，正数渐强，负数渐弱", type: "number" as const, default: null },
         ],
     };
 

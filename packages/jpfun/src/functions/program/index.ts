@@ -13,9 +13,18 @@ class ProgramFunction extends ASTFunctionNode {
     static override def = {
         name: ["program", "instrument"],
         description: "设置当前音轨的 MIDI 音色",
-        example: `@program(40) 将后续音符切换到 MIDI program 40`,
+        details: `\
+~~~jpfun
+@program(40) 1 2 3
+~~~
+切换为小提琴音色。设置将作用于当前音轨的后续音符。`,
         allowExtraArgs: false,
-        args: [{ name: "program", type: "number" as const, default: null }],
+        args: [{
+            name: "program",
+            description: "从 0 开始编号的 MIDI 音色，须为 `0..127` 的整数",
+            type: "number" as const,
+            default: null
+        }],
     };
 
     readonly program: number;

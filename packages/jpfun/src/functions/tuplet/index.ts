@@ -36,15 +36,21 @@ class TupletFunction extends ASTFunctionNode {
     static override def = {
         name: ["tuplet"],
         description: "多连音",
-        example: `@tuplet({1/23}, 4): 内容含5个最短时值单位，压缩到4倍最短单位的总时长，所以是八分音符的五连音，总时长为二分音符`,
+        details: `\
+~~~jpfun
+@tuplet({1/ 2 3}, normal=4)
+~~~
+本例最短单位为八分音符，原内容占 5 个单位，缩放后占 4 个单位：形成五连音，总时长为一个二分音符`,
         allowExtraArgs: false,
         args: [
             {
                 type: "content" as const,
+                description: "连音内容，各元素按同一比例缩放时值",
                 default: null,
             },
             {
                 name: "normal",
+                description: "目标总时长，以内容中的最短时值为单位",
                 type: "number" as const,
                 default: null,
             },

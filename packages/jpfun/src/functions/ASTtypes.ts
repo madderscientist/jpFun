@@ -134,6 +134,7 @@ export class ASTBraceNode extends ASTNodeBase {
 
 export interface FunctionArgDef {
     name?: string;  // 参数名 (可选，位置参数可以没有)
+    description?: string;
     type: paramType;// 参数类型
     /** 参数默认值 null表示必填 否则报错 */
     default: paramValue | null;
@@ -142,7 +143,7 @@ export interface FunctionArgDef {
 export interface FunctionDef {
     name: string | string[]; // 函数名或别名列表
     description: string; // 函数描述
-    example: string; // 使用示例
+    details: string; // 使用示例和其他介绍
     allowExtraArgs: boolean; // 是否允许传入定义中未声明的额外参数；类型未知时保留 SourceSpan 交给函数自己解析
     extraArgType?: paramType; // 额外位置参数的统一类型；命名参数不套用该默认值
     args: FunctionArgDef[]; // 参数定义列表

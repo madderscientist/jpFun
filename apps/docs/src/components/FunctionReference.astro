@@ -1,7 +1,14 @@
 ---
 import { defaultFunctions, primaryName, type FunctionArgDef } from "jpfun";
+import { createMarkdownProcessor } from "@astrojs/markdown-remark";
+import { rehypeJpfunSyntax } from "../jpfun-language.mjs";
 
 const definitions = defaultFunctions.map((node) => node.prototype.def).filter((definition) => definition !== undefined);
+const markdown = await createMarkdownProcessor({ syntaxHighlight: false, rehypePlugins: [rehypeJpfunSyntax] });
+const details = await Promise.all(definitions.map(async (definition) => (await markdown.render(definition.details)).code));
+const argumentDescriptions = await Promise.all(definitions.map(definition => Promise.all(
+  definition.args.map(async argument => (await markdown.render(argument.description ?? "")).code)
+)));
 function defaultValue(value: FunctionArgDef["default"]): string {
   if (value === null) return "必填";
   if (typeof value === "object" && "unit" in value) return `${value.value}${value.unit}`;
@@ -12,25 +19,27 @@ function defaultValue(value: FunctionArgDef["default"]): string {
 <div class="function-reference not-content">
   <label class="filter-label" for="function-filter">查找函数</label>
   <input id="function-filter" type="search" placeholder="名称、别名或功能" autocomplete="off" />
-  <p class="empty" hidden role="status">没有匹配的函数。</p>
+  <p class="empty" hidden role="status">没有匹配的函数</p>
   <div class="function-index" aria-label="函数索引">
     {definitions.map((definition) => <a href={`#${primaryName(definition)}`}>@{primaryName(definition)}</a>)}
   </div>
-  {definitions.map((definition) => {
+  {definitions.map((definition, index) => {
     const names = Array.isArray(definition.name) ? definition.name : [definition.name];
     return <section class="function-entry" id={names[0]} data-search={`${names.join(" ")} ${definition.description}`.toLowerCase()}>
       <h2><a href={`#${names[0]}`}>@{names[0]}</a></h2>
       {names.length > 1 && <p class="aliases">别名：{names.slice(1).map((name) => `@${name}`).join("、")}</p>}
       <p class="description">{definition.description}</p>
       {definition.args.length > 0 && <div class="table-scroll"><table>
-        <thead><tr><th>参数</th><th>类型</th><th>默认值</th></tr></thead>
-        <tbody>{definition.args.map((argument, index) => <tr>
-          <td><code>{argument.name ?? `第 ${index + 1} 个参数`}</code></td>
+        <thead><tr><th>位置</th><th>参数</th><th>类型</th><th>默认值</th><th>说明</th></tr></thead>
+        <tbody>{definition.args.map((argument, argumentIndex) => <tr>
+          <td>{argumentIndex + 1}</td>
+          <td><code>{argument.name ?? "仅位置参数"}</code></td>
           <td>{argument.type}</td><td><code>{defaultValue(argument.default)}</code></td>
+          <td class="argument-description" set:html={argumentDescriptions[index][argumentIndex]} />
         </tr>)}</tbody>
       </table></div>}
-      {definition.allowExtraArgs && <p class="aliases">支持额外参数{definition.extraArgType ? `（位置参数类型：${definition.extraArgType}）` : ""}。</p>}
-      {definition.example && <pre><code>{definition.example}</code></pre>}
+      {definition.allowExtraArgs && <p class="aliases">支持额外参数{definition.extraArgType ? `（位置参数类型：${definition.extraArgType}）` : ""}</p>}
+      {definition.details && <div class="function-details sl-markdown-content" set:html={details[index]} />}
     </section>;
   })}
 </div>
@@ -60,9 +69,13 @@ function defaultValue(value: FunctionArgDef["default"]): string {
   p { line-height: 1.8; }
   .description { white-space: pre-line; }
   .aliases { color: var(--sl-color-gray-2); font-size: .875rem; }
-  pre { padding: 1rem; background: var(--sl-color-bg-inline-code); overflow: auto; border-radius: 4px; font-size: .875rem; }
+  .function-details { margin-top: 1rem; overflow-wrap: anywhere; }
+  .function-reference :global(:not(pre) > code) { padding: .15em .35em; background: var(--sl-color-bg-inline-code); border-radius: 3px; font-family: var(--sl-font-mono); font-size: .875em; }
+  .function-details :global(pre) { padding: 1rem; background: var(--sl-color-bg-inline-code); overflow: auto; border-radius: 4px; font-size: .875rem; }
   .table-scroll { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: .875rem; }
   th, td { padding: .6rem; text-align: left; border-bottom: 1px solid var(--sl-color-hairline); }
+  .argument-description { min-width: 14rem; }
+  .argument-description :global(p) { margin: 0; }
   [hidden] { display: none; }
 </style>

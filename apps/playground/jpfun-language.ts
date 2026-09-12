@@ -1,8 +1,9 @@
 import { snippetCompletion, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import MarkdownIt from "markdown-it";
 import { insertNewlineAndIndent } from "@codemirror/commands";
 import { EditorSelection, EditorState, RangeSetBuilder, StateEffect, StateField, type ChangeSpec, type StateCommand } from "@codemirror/state";
-import { activateHover, closeHoverTooltips, Decoration, EditorView, hoverTooltip, keymap, ViewPlugin, type DecorationSet, type Tooltip } from "@codemirror/view";
-import { analyzeScoreSyntax, ASTFunctionNode, ASTLabelNode, ASTNodeBase, defaultFunctions, resolveArgType, type CallInfo, type FunctionDef, type SourceSpan, type SyntaxAnalysis, type SyntaxToken, type SyntaxTokenKind } from "jpfun";
+import { activateHover, closeHoverTooltips, Decoration, EditorView, hoverTooltip, keymap, showTooltip, ViewPlugin, type DecorationSet, type Tooltip } from "@codemirror/view";
+import { analyzeScoreSyntax, ASTFunctionNode, ASTLabelNode, ASTNodeBase, defaultFunctions, resolveArgType, type CallInfo, type FunctionArgDef, type FunctionDef, type SourceSpan, type SyntaxAnalysis, type SyntaxToken, type SyntaxTokenKind } from "jpfun";
 
 const syntaxClasses: Record<SyntaxTokenKind, string> = {
     comment: "cm-jpfun-comment",
@@ -97,11 +98,39 @@ for (const fnClass of defaultFunctions) {
     for (const name of Array.isArray(def.name) ? def.name : [def.name]) defByName.set(name.toLowerCase(), def);
 }
 
+const markdown = new MarkdownIt({ html: false });
+
+function argumentDoc(argument: FunctionArgDef, index: number): string {
+    const value = argument.default;
+    const defaultValue = value !== null && typeof value === "object" && "unit" in value
+        ? `${value.value}${value.unit}` : JSON.stringify(value);
+    return `**${index + 1}. ${argument.name ?? "位置参数"}** · \`${argument.type}\` · ${value === null ? "必填" : `默认 \`${defaultValue}\``}`
+        + (argument.description ? `\n\n${argument.description}` : "");
+}
+
+export function functionDoc(def: FunctionDef): string {
+    const names = Array.isArray(def.name) ? def.name : [def.name];
+    return [
+        `**@${names[0]}** · ${def.description}`,
+        names.length > 1 ? `别名：${names.slice(1).map(name => `\`@${name}\``).join("、")}` : "",
+        def.details,
+        def.args.length ? def.args.map((argument, index) => argumentDoc(argument, index)).join("\n\n") : "无固定参数",
+        def.allowExtraArgs ? `支持额外参数${def.extraArgType ? `，额外位置参数类型为 \`${def.extraArgType}\`` : "，由函数解析"}` : "不接受额外参数",
+    ].filter(Boolean).join("\n\n");
+}
+
+function renderFunctionDoc(source: string) {
+    const body = document.createElement("div");
+    body.className = "cm-jpfun-doc-body";
+    body.innerHTML = markdown.render(source);
+    return body;
+}
+
 const functionCompletions: Completion[] = [...defByName].map(([name, def]) => snippetCompletion(`@${name}(\${})`, {
     label: "@" + name,
     type: "function",
     detail: def.description,
-    info: def.example,
+    info: () => renderFunctionDoc(functionDoc(def)),
 }));
 
 /** 悬浮框与行框之间留的缝，免得压住光标 */
@@ -141,10 +170,7 @@ function docTooltip(from: number, to: number, doc: string, desugared?: string): 
             const dom = document.createElement("div");
             dom.className = "cm-jpfun-doc";
             if (desugared !== undefined) dom.append(desugarRow(view, desugared, from, to));
-            const body = document.createElement("div");
-            body.className = "cm-jpfun-doc-body";
-            body.textContent = doc;
-            dom.append(body);
+            dom.append(renderFunctionDoc(doc));
             return { dom, offset: { x: 0, y: TOOLTIP_GAP } };
         },
     };
@@ -154,7 +180,7 @@ function hoverAt(view: EditorView, pos: number): Tooltip | null {
     const calls = view.state.field(syntaxField).analysis.calls;
     const call = calls.find(item => pos >= item.nameSpan.start && pos < item.nameSpan.end);
     const def = call && defByName.get(call.name.toLowerCase());
-    if (call && def) return docTooltip(call.nameSpan.start, call.nameSpan.end, `${def.description}\n${def.example}`);
+    if (call && def) return docTooltip(call.nameSpan.start, call.nameSpan.end, functionDoc(def));
 
     // 写出来的调用已经由上面那条路径服务；这里只管语法糖展开出来的节点
     const ast = view.state.field(semanticField);
@@ -166,7 +192,7 @@ function hoverAt(view: EditorView, pos: number): Tooltip | null {
     return docTooltip(
         span.start,
         span.end,
-        `${node.def.description}\n${node.def.example}`,
+        functionDoc(node.def),
         node.toString(view.state.doc.toString()),
     );
 }
@@ -234,6 +260,53 @@ function callAt(calls: readonly CallInfo[], pos: number): CallInfo | undefined {
     return found;
 }
 
+function argumentIndexAt(call: CallInfo, pos: number): number {
+    return call.args.findIndex(argument => pos <= (argument.commaSpan?.start ?? call.closeParenSpan?.start ?? call.span.end));
+}
+
+export function parameterDocAt(state: EditorState): { pos: number; doc: string } | null {
+    if (!state.selection.main.empty) return null;
+    const pos = state.selection.main.head;
+    const call = callAt(state.field(syntaxField).analysis.calls, pos);
+    const def = call && defByName.get(call.name.toLowerCase());
+    if (!call || !def) return null;
+    const suppliedIndex = argumentIndexAt(call, pos);
+    const supplied = call.args[suppliedIndex];
+    const name = supplied?.nameSpan && state.sliceDoc(supplied.nameSpan.start, supplied.nameSpan.end).toLowerCase();
+    const position = suppliedIndex < 0 ? call.args.length : suppliedIndex;
+    const index = name ? def.args.findIndex(argument => argument.name?.toLowerCase() === name) : position;
+    const argument = def.args[index];
+    if (argument) return { pos, doc: `\`@${call.name}\`\n\n${argumentDoc(argument, index)}` };
+    if (!def.allowExtraArgs) return null;
+    const type = name ? "动态类型" : def.extraArgType ?? "动态类型";
+    return { pos, doc: `\`@${call.name}\`\n\n**${position + 1}. ${name || "额外位置参数"}** · \`${type}\`\n\n此参数由函数处理，具体用法见函数说明` };
+}
+
+const dismissParameter = StateEffect.define<void>();
+
+function parameterTooltip(state: EditorState): Tooltip | null {
+    const info = parameterDocAt(state);
+    if (!info) return null;
+    return {
+        pos: info.pos,
+        above: false,
+        create: () => {
+            const dom = renderFunctionDoc(info.doc);
+            dom.classList.add("cm-jpfun-parameter");
+            return { dom };
+        },
+    };
+}
+
+const parameterField = StateField.define<Tooltip | null>({
+    create: parameterTooltip,
+    update: (value, transaction) => {
+        if (transaction.effects.some(effect => effect.is(dismissParameter))) return null;
+        return transaction.docChanged || transaction.selection ? parameterTooltip(transaction.state) : value;
+    },
+    provide: field => showTooltip.from(field),
+});
+
 function complete(context: CompletionContext): CompletionResult | null {
     const word = context.matchBefore(/[@\w./-]*/)!;
     const source = context.state.doc.toString();
@@ -246,7 +319,7 @@ function complete(context: CompletionContext): CompletionResult | null {
     const def = call && defByName.get(call.name.toLowerCase());
     if (!call || !def) return null;
 
-    const argIndex = call.args.findIndex(item => context.pos >= item.span.start && context.pos <= item.span.end);
+    const argIndex = argumentIndexAt(call, context.pos);
     const arg = argIndex < 0 ? undefined : call.args[argIndex];
     const named = (span?: SourceSpan) => span && source.slice(span.start, span.end).toLowerCase();
     const inValue = arg?.equalsSpan !== undefined && context.pos > arg.equalsSpan.start;
@@ -256,7 +329,13 @@ function complete(context: CompletionContext): CompletionResult | null {
     const used = new Set(call.args.filter(item => item !== arg).map(item => named(item.nameSpan)));
     const options: Completion[] = inValue ? [] : def.args
         .filter(item => item.name && !used.has(item.name.toLowerCase()))
-        .map(item => ({ label: item.name!, type: "property", detail: item.type, apply: item.name + "=" }));
+        .map(item => ({
+            label: item.name!,
+            type: "property",
+            detail: `${def.args.indexOf(item) + 1}. ${item.type}`,
+            info: () => renderFunctionDoc(argumentDoc(item, def.args.indexOf(item))),
+            apply: item.name + "=",
+        }));
     if (type === "label") {
         // `@x` 形式的才是声明，函数参数里的裸标签是引用
         const declared = tokens.filter(token => token.kind === "label" && source[token.span.start] === "@");
@@ -448,12 +527,20 @@ export const jpFunLanguage = [
     }]),
     syntaxField,
     semanticField,
+    parameterField,
     functionHover,
     hoverControl,
     labelLinkField,
     labelLinkControl,
     labelLinkClick,
-    keymap.of([{ key: "F2", run: renameLabel }]),
+    keymap.of([
+        { key: "F2", run: renameLabel },
+        { key: "Escape", run: view => {
+            if (!view.state.field(parameterField)) return false;
+            view.dispatch({ effects: dismissParameter.of() });
+            return true;
+        } },
+    ]),
     EditorView.baseTheme({
         ".cm-jpfun-comment": { color: "var(--syntax-comment)", fontStyle: "italic" },
         ".cm-jpfun-string": { color: "var(--syntax-string)" },
@@ -469,10 +556,10 @@ export const jpFunLanguage = [
         ".cm-jpfun-doc": {
             display: "flex",
             flexDirection: "column",
-            maxWidth: "420px",
+            maxWidth: "min(480px, calc(100vw - 24px))",
             maxHeight: "260px",
             overflow: "hidden",
-            whiteSpace: "pre-wrap",
+            whiteSpace: "normal",
         },
         ".cm-jpfun-desugar": {
             display: "flex",
@@ -513,6 +600,33 @@ export const jpFunLanguage = [
             padding: "8px 10px",
             overflow: "auto",
             color: "var(--editor-muted)",
+            whiteSpace: "normal",
+            overflowWrap: "anywhere",
+            lineHeight: "1.6",
         },
+        ".cm-completionInfo:has(.cm-jpfun-doc-body)": {
+            maxWidth: "min(480px, calc(100vw - 24px))",
+            maxHeight: "300px",
+            padding: "0",
+        },
+        ".cm-completionInfo-right-narrow, .cm-completionInfo-left-narrow": {
+            left: "0 !important",
+            right: "auto !important",
+            top: "100% !important",
+            bottom: "auto !important",
+            width: "100%",
+            boxSizing: "border-box",
+        },
+        ".cm-jpfun-doc-body p": { margin: "0 0 8px" },
+        ".cm-jpfun-doc-body ul, .cm-jpfun-doc-body ol": { margin: "8px 0", paddingLeft: "20px" },
+        ".cm-jpfun-doc-body li + li": { marginTop: "4px" },
+        ".cm-jpfun-doc-body strong": { color: "var(--ink)" },
+        ".cm-jpfun-doc-body code": { fontFamily: "inherit", background: "var(--editor-active)", borderRadius: "3px", padding: "1px 3px" },
+        ".cm-jpfun-doc-body pre": { margin: "8px 0", padding: "8px", background: "var(--editor-active)", borderRadius: "4px", overflowX: "auto", whiteSpace: "pre" },
+        ".cm-jpfun-doc-body pre code": { padding: "0", background: "transparent" },
+        ".cm-jpfun-doc-body a": { color: "var(--syntax-function)" },
+        ".cm-jpfun-doc-body > :last-child": { marginBottom: "0" },
+        ".cm-jpfun-parameter": { maxWidth: "min(420px, calc(100vw - 24px))", maxHeight: "180px" },
+        "&:not(.cm-focused) .cm-jpfun-parameter, &:has(.cm-tooltip-autocomplete) .cm-jpfun-parameter": { display: "none" },
     }),
 ];

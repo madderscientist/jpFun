@@ -27,30 +27,34 @@ import { Diagnostic, ErrorDiagnostic } from "../../diagnostic.js";
 class VoltaFunction extends ASTFunctionNode {
     static override def = {
         name: ["volta"],
-        description: "反复房子",
-        example: `@volta(from, to, pass, ...) 只在指定遍数演奏的一段区间
-from 和 to 是区间首末音符的标签，因此房子可以横跨谱面行
-pass 是遍数：整段谱面演奏到第几遍时才播这里，必填正整数
-再写几个遍数就是几遍共用一个房子，顺序随意，标签按升序写成 1.2.
-
+        description: "反复的跳房子",
+        details: `\
+~~~jpfun
 |: 1 2 | 3@a 4@b :| 5@c 6@d | 7
-@volta(a, b, 1)  @volta(c, d, 2)`,
+@volta(a, b, 1) @volta(c, d, 2)
+~~~
+- **额外位置参数**：更多遍数；例如 \`@volta(a, b, 1, 2)\` 让前两遍共用一个房子。遍数顺序不限，谱面按升序显示。
+
+本例第一遍演奏 \`a\` 到 \`b\`，第二遍演奏 \`c\` 到 \`d\`。`,
         allowExtraArgs: true,
         extraArgType: "number" as const,
         args: [
             {   // 本来设计是函数包裹，但这样实现不了跨行的房子，所以改为关系型
                 name: "from",
+                description: "区间首音的标签，区间允许跨谱面行",
                 type: "label" as const,
                 default: null,
             },
             {
                 name: "to",
+                description: "区间末音的标签",
                 type: "label" as const,
                 default: null,
             },
             {
                 // 不给默认值：房子上的数字本来就是谱面的一部分，漏写会让整段被静默跳过
                 name: "pass",
+                description: "进入此区间的演奏遍数，须为正整数",
                 type: "number" as const,
                 default: null,
             },

@@ -68,30 +68,32 @@ class VoiceFunction extends ASTFunctionNode {
     static override def = {
         name: ["voice", "v"],
         description: "声部",
-        example: `@voice({}, name, 歌词1名=歌词1, 歌词2名=歌词2, ...)
-第一个参数为音符内容，第二个参数为写在最左侧的声部名称(可不填)；
-命名参数为歌词左侧的名称和内容，可以任意多个。也可以是位置参数，表示不需要名称。
-例:
-@voice({C1 D1 E1}, 钢琴, 男=ha ha ha, 女=la la la)
-@voice({C1 D1 E1}, , ha ha ha, 女="la la la") 表示音符和第一个歌词都没有名称
-歌词可以被引号包裹，如果包含逗号等歧义字符一定需要引号
-语法糖：
-N(name): C1 D1 E1
-L(name): ha ha ha...
-L: ...
-前面可以有任意空白，但最后换行表示结束。歌词此时允许有逗号而不加引号
-如果一定要换行，最后加上'\\'
-英文歌词用空格和连字符'-'分词，用'@'占位
-`,
+        details: `\
+~~~jpfun
+@voice({1 2 3}, 钢琴, 男=ha ha ha, 女=la la la)
+~~~
+- **额外参数**：每项为一行歌词；命名参数同时给出歌词行名，位置参数表示无行名。省略声部名但仍需歌词时，保留空位，如 \`@voice({1 2 3}, , ha ha ha)\`。
+
+歌词可用引号包裹；显式调用中含逗号等歧义字符时必须加引号。英文用空格或连字符 \`-\` 分词，用 \`@\` 占位。
+
+**简写**：\`N\` 声明音符行，\`L\` 声明歌词行，括号内的名称可省略：
+~~~jpfun
+N(钢琴): 1 2 3
+L(男): ha ha ha
+L: la la la
+~~~
+行首允许空白，换行结束当前声明；在行末加 \`\\\` 可续行。这种写法中的歌词允许直接使用逗号。`,
         allowExtraArgs: true,
         extraArgType: "string" as const,
         args: [
             {
                 type: "content" as const,
+                description: "声部的音符内容",
                 default: null,
             },
             {
                 name: "name",
+                description: "显示在左侧的声部名称，空值隐藏名称",
                 type: "string" as const,
                 default: "",
             },
@@ -439,17 +441,24 @@ class VoicesFunction extends ASTFunctionNode {
     static override def = {
         name: ["voices", "vs"],
         description: "多个声部",
-        example: `@voices(
-    @voice({C1 D1 E1}, 钢琴, 男=ha ha ha),
-    @voice({C2 D2 E2}, , "la la la")
+        details: `\
+~~~jpfun
+@voices(
+    @voice({1 2 3}, 钢琴, 男=ha ha ha),
+    @voice({3 4 5}, , "la la la")
 )
-语法糖：当多个 voice 用 voice 的语法糖写在一起时，会自动创建一个 voices 组件包裹它们。
-例：
-N(钢琴): C1 D1 E1
+~~~
+
+接受多个声部作为位置参数，将它们按时间对齐、分行排布；声部名称和歌词由各自的 \`@voice\` 提供
+
+**简写**：连续声明多个 \`N:\` 声部及其 \`L:\` 歌词，会自动组成 \`voices\`
+
+~~~jpfun
+N(钢琴): 1 2 3
 L(男): ha ha ha
-N: C2 D2 E2
+N: 3 4 5
 L: la la la
-`,
+~~~`,
         allowExtraArgs: true,
         extraArgType: "content" as const,
         args: []

@@ -57,26 +57,27 @@ class DivFunction extends ASTFunctionNode {
     static override def = {
         name: [DIV_FUNC_NAME, "/"],
         description: "减时线",
-        example: `@div(C1, 2): C1下方创建2根减时线
-@/({C1 C2 @dash()}, 3): C1、C2和增时线下方创建3根减时线并连接
-语法糖：在音符后加斜杠'/'，可以多个
-@div(C1, 2) === C1//
-@div(C1 C2/ @dash(), 2) === {C1 C2/ @dash()}//
-设置命名参数前缀: div
-`,
+        details: `\
+~~~jpfun
+@div({1 2 -}, n=2, autobeam=true)
+~~~
+**简写**：在目标后加 \`/\`，可重复或作用于内容块。\`@div(1, 2)\` 等价于 \`1//\`，\`@div({1 2/ -}, 2)\` 等价于 \`{1 2/ -}//\`。默认参数使用 \`div.n\`、\`div.autobeam\` 设置。`,
         allowExtraArgs: false,
         args: [
             {
                 type: "content" as const,
+                description: "要减时的内容，可包含多个音符或增时线",
                 default: null,
             },
             {
                 name: "n",
+                description: "减时层数，每级将时值减半，取非负整数",
                 type: "number" as const,
                 default: 1,
             },
             {
                 name: "autobeam",
+                description: "是否参与不同 div 之间的自动连线，同一 div 内部的连线不受影响",
                 type: "boolean" as const,
                 default: true,
             },

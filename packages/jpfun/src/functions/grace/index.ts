@@ -56,27 +56,34 @@ class GraceFunction extends ASTFunctionNode {
     static override def: FunctionDef = {
         name: ["grace"],
         description: "倚音",
-        example: `前倚音: @grace(宿主, 倚音, side=pre) 后倚音: @grace(宿主, 倚音, side=post)
-语法糖：'>' 与 '<'，箭头永远指向宿主
-2>1     前倚音：2 是 1 的倚音，画在 1 的左上角
-1<2     后倚音：2 是 1 的倚音，画在 1 的右上角
-{3 2}>1 多个倚音用大括号括起来
-1>2>3   允许嵌套：1 是 2 的倚音，2 是 3 的倚音
-倚音默认就是八分音符（自带一条减时线），再写 '/' 变成十六分音符`,
-        allowExtraArgs: true,
+        details: `\
+~~~jpfun
+@grace(1, {3 2}, side=pre)
+~~~
+**简写**：箭头始终指向宿主
+- \`2>1\`：\`2\` 是 \`1\` 的前倚音，位于左上方
+- \`1<2\`：\`2\` 是 \`1\` 的后倚音，位于右上方
+- \`{3 2}>1\`：一组前倚音，等价于上例
+- \`1>2>3\`：允许嵌套，\`1\` 修饰 \`2\`，\`2\` 修饰 \`3\`
+
+倚音默认带一条减时线，按八分音符书写；再加 \`/\` 变为十六分音符`,
+        allowExtraArgs: false,
         args: [
             {
                 name: "host",
+                description: "被倚音修饰的宿主内容",
                 type: "content" as const,
                 default: null,
             },
             {
                 name: "grace",
+                description: "倚音内容，多个音符可用大括号组合",
                 type: "content" as const,
                 default: null,
             },
             {
                 name: "side",
+                description: "`pre` 为前倚音，`post` 为后倚音",
                 type: "string" as const,
                 default: "pre",
             }

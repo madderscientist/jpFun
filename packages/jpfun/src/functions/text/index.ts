@@ -11,17 +11,22 @@ type TextAlign = "left" | "center" | "right";
 class TextFunction extends ASTFunctionNode {
     static override def = {
         name: ["text"],
-        description: "文本标记。括号内可直接换行，支持 left、center、right 对齐",
-        example: `@text(进入主题)
-语法糖：直接写双引号字符串，如 "进入主题"；可跨行，引号未配对则不生效`,
+        description: "文本标记",
+        details: `\
+~~~jpfun
+@text(进入主题, size=0.8em, align=center)
+~~~
+**简写**：直接写双引号文本，如 \`"进入主题"\`；可跨行，双引号须配对`,
         allowExtraArgs: false,
         args: [
             {
                 type: "string" as const,
+                description: "文本内容，可直接换行；含逗号等歧义字符时需加引号",
                 default: null,
             },
             {
                 name: "size",
+                description: "文本字号",
                 type: "length" as const,
                 default: {
                     value: 0.8, // 常用于标记，默认小一些
@@ -30,16 +35,19 @@ class TextFunction extends ASTFunctionNode {
             },
             {
                 name: "lineheight",
+                description: "相对自身字号的行高倍数",
                 type: "number" as const,
                 default: 1.25,   // 相对自身字号的倍数
             },
             {
                 name: "align",
+                description: "文本对齐方式：`left`、`center` 或 `right`",
                 type: "string" as const,
                 default: "left",
             },
             {
                 name: "font",
+                description: "文本字体，空值沿用当前字体设置",
                 type: "string" as const,
                 default: ""
             },

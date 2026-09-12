@@ -32,7 +32,7 @@ test("system variable declarations share types and reset defaults", () => {
 test("通用参数解析保留 0、false 和空字符串", () => {
     class ValueFunction extends ASTFunctionNode {
         static override def: FunctionDef = {
-            name: "value", description: "", example: "", allowExtraArgs: false,
+            name: "value", description: "", details: "", allowExtraArgs: false,
             args: [
                 { name: "count", type: "number", default: 1 },
                 { name: "enabled", type: "boolean", default: true },

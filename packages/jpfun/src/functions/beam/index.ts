@@ -17,7 +17,12 @@ class BeamFunction extends ASTFunctionNode {
     static override def = {
         name: ["beam"],
         description: "减时线连接",
-        example: "@beam(label1, label2, ...): 将多个已标记音符按顺序连接为减时线组",
+        details: `\
+事后将多个减时线**强行**相连
+~~~jpfun
+1/@a 2/@b | 3/@c @beam(a, b, c)
+~~~
+**位置参数**：已标记音符的标签，按传入顺序连接减时线，显式指定一组。先用 \`/\` 或 \`@div\` 为目标添加减时线，再用 \`@beam\` 控制连接。端点须同轨、同谱面行且相邻，可跨小节线；连线直接穿过小节线，保留原有间距。`,
         allowExtraArgs: true,
         extraArgType: "label" as const,
         args: [],

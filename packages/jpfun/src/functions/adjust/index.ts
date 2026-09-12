@@ -15,34 +15,41 @@ import type { PaintStyle, Painter, PathCommand, PathTransform, TextStyle } from 
 class AdjustFunction extends ASTFunctionNode {
     static override def = {
         name: ["adjust", "adj"],
-        description: "微调目标的位置与占位",
-        example: `@adjust(content, dx=0px, dy=0px, dw=0px, dh=0px)
-    dw/dh 在排版前增减占位，最终尺寸不小于 0；dw 按原左右占位比例分配，dh 调整下方；
-    dx/dy 在排版完成后平移目标，邻居不会让开，因此可以故意重叠。
-    括住的若是关系对象（连音线等）且其中没有对象，平移的就是这条关系对象`,
+        description: "微调目标的绘制位置与排版占位",
+        details: `\
+~~~jpfun
+@adjust(1, dx=2px, dy=-1px, dw=0.2em, dh=0px)
+~~~
+
+位置偏移在排版后应用，相邻对象保持原位；占位调整在排版前应用。只包裹关系对象时，平移作用于该关系对象本身。`,
         allowExtraArgs: false,
         args: [
             {
                 type: "content" as const,
+                description: "要微调的内容或关系对象",
                 default: null,
             },
             {
                 name: "dx",
+                description: "排版后的水平偏移，正值向右，不改变占位",
                 type: "length" as const,
                 default: { value: 0, unit: "px" } as LengthValue,
             },
             {
                 name: "dy",
+                description: "排版后的垂直偏移，正值向下，不改变占位",
                 type: "length" as const,
                 default: { value: 0, unit: "px" } as LengthValue,
             },
             {
                 name: "dw",
+                description: "增减水平占位，按原左右比例分配，最终宽度不小于 0",
                 type: "length" as const,
                 default: { value: 0, unit: "px" } as LengthValue,
             },
             {
                 name: "dh",
+                description: "增减下方占位，最终高度不小于 0",
                 type: "length" as const,
                 default: { value: 0, unit: "px" } as LengthValue,
             },

@@ -8,16 +8,22 @@ class TempoFunction extends ASTFunctionNode {
     static override def = {
         name: ["tempo"],
         description: "设置时间线上的速度",
-        example: `@tempo(96) 将其后的时间状态速度设置为 96 BPM`,
+        details: `\
+~~~jpfun
+@tempo(96)
+~~~
+速度从当前时间位置起生效；用 \`1 ^ @tempo(96)\` 可将记号叠在音符上方`,
         allowExtraArgs: false,
         args: [
             {
                 name: "bpm",
+                description: "每分钟四分音符数",
                 type: "number" as const,
                 default: null,
             },
             {
                 name: "size",
+                description: "速度记号字号",
                 type: "length" as const,
                 default: {
                     value: 1,

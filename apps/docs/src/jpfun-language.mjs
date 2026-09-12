@@ -6,6 +6,31 @@ export const jpfunLanguage = {
   patterns: [],
 };
 
+export function rehypeJpfunSyntax() {
+  return function visit(node) {
+    if (node.tagName === "code" && node.properties?.className?.includes("language-jpfun")) {
+      const source = node.children.map(child => child.value ?? "").join("");
+      const tokens = analyzeScoreSyntax(source).syntax.tokens;
+      const children = [];
+      let offset = 0;
+      for (const token of tokens) {
+        if (token.span.start > offset) children.push({ type: "text", value: source.slice(offset, token.span.start) });
+        children.push({
+          type: "element",
+          tagName: "span",
+          properties: { className: [`token-${token.kind}`] },
+          children: [{ type: "text", value: source.slice(token.span.start, token.span.end) }],
+        });
+        offset = token.span.end;
+      }
+      if (offset < source.length) children.push({ type: "text", value: source.slice(offset) });
+      node.children = children;
+      return;
+    }
+    node.children?.forEach(visit);
+  };
+}
+
 function tokenAnnotation(kind, columnStart, columnEnd) {
   return {
     name: `jpFun ${kind}`,

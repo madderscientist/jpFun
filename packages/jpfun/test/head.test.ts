@@ -41,7 +41,7 @@ class HeadEndpointFunction extends ASTFunctionNode {
     static override def = {
         name: ["headendpoint"],
         description: "test-only zero-duration label endpoint",
-        example: "@headendpoint()",
+        details: "@headendpoint()",
         allowExtraArgs: false,
         args: [],
     };

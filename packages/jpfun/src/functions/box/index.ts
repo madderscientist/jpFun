@@ -11,15 +11,20 @@ class BoxFunction extends ASTFunctionNode {
     static override def = {
         name: ["box"],
         description: "给目标结构或对象加外框",
-        example: `@box(content, padding=0.2em, stroke=0.08em, width=-1px)`,
+        details: `\
+~~~jpfun
+@box({1 2 3}, padding=0.2em, stroke=0.08em)
+~~~`,
         allowExtraArgs: false,
         args: [
             {
                 type: "content" as const,
+                description: "需要加框的内容或结构",
                 default: null,
             },
             {
                 name: "padding",
+                description: "内容到框线的内边距",
                 type: "length" as const,
                 default: {
                     value: 0,
@@ -28,6 +33,7 @@ class BoxFunction extends ASTFunctionNode {
             },
             {
                 name: "stroke",
+                description: "框线宽度",
                 type: "length" as const,
                 default: {
                     value: 1,
@@ -36,6 +42,7 @@ class BoxFunction extends ASTFunctionNode {
             },
             {
                 name: "width",
+                description: "约束内部排版的宽度，非正值表示随内容自动确定",
                 type: "length" as const,
                 default: {
                     value: -1,

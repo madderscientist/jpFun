@@ -351,22 +351,27 @@ class HeadSlotNode extends ASTNodeBase {
 class HeadFunction extends ASTFunctionNode {
     static override def = {
         name: ["head"],
-        description: "提供左、中、右三块布局，常用于曲谱头部信息展示；也可用连续的 H.*: 行声明构造",
-        example: `@head(left={{@key(C) @meter(4,4)}}, center={@text(标题)}, right={@text(作者)})
-语法糖：相邻的 H.*: 声明合并为一个 head，每条声明生成对应槽的一行；空行或普通内容结束组合
-H.title: 标题       center 槽，预设大字号居中 Text
-H.subtitle: 副标题  center 槽，预设小字号居中 Text
-H.author: 作者      right 槽，预设小字号右对齐 Text
-H.signature: 1=C 4/4  left 槽，同一行生成 Key 和 Meter
-H.tempo: 94           left 槽，生成 Tempo
-H.left: / H.center: / H.right: 接受对应槽的任意零时长 DSL 内容
-以 @ 或 { 开头时按 DSL 解析，否则按该字段的裸文本规则生成 Text`,
+        description: "左、中、右三区布局",
+        details: `常用于谱头：
+~~~jpfun
+@head(left={{@key(C) @meter(4,4)}},
+      center={@text(标题)}, right={@text(作者)})
+~~~
+**简写**：相邻的 \`H.*:\` 行合并为同一个谱头，每条声明生成所在区的一行；空行或普通内容结束组合
+~~~jpfun
+H.title: 标题
+H.subtitle: 副标题
+H.author: 作者
+H.signature: 1=C 4/4
+H.tempo: 94
+~~~
+\`title\` / \`subtitle\` 居中，分别预设大、小字号；\`author\` 小字号右对齐；\`signature\` 和 \`tempo\` 放在左区。\`H.left:\`、\`H.center:\`、\`H.right:\` 可直接写对应区的零时长内容。以 \`@\` 或 \`{\` 开头的值按 jpFun 解析，其余按字段的文本规则处理。`,
         allowExtraArgs: false,
         args: [
-            { name: "left", type: "content" as const, default: "" },
-            { name: "center", type: "content" as const, default: "" },
-            { name: "right", type: "content" as const, default: "" },
-            { name: "gap", type: "length" as const, default: { value: DEFAULT_GAP_PX, unit: "px" as const } },
+            { name: "left", description: "左区零时长内容，如调性、拍号与速度记号", type: "content" as const, default: "" },
+            { name: "center", description: "中区零时长内容，如标题与副标题", type: "content" as const, default: "" },
+            { name: "right", description: "右区零时长内容，如作者与署名", type: "content" as const, default: "" },
+            { name: "gap", description: "每个区内相邻行的垂直间距", type: "length" as const, default: { value: DEFAULT_GAP_PX, unit: "px" as const } },
         ],
     };
 
