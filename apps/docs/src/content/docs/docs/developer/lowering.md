@@ -1,21 +1,22 @@
 ---
 title: Lowering
+description: 将语法嵌套转换为音乐时间、事件列、轨道与附属关系。
 sidebar:
-  order: 3
+    order: 4
 ---
 
-Lowering 将 AST 转换为带时间的事件列，供布局和播放使用。在绘制流程中，它位于解析与布局之间：
-```text
-源码 -> AST -> LoweringResult -> Layout -> Render
-```
+Lowering 将 AST 的语法嵌套树形结构转换为音乐时间上的扁平事件，并得到对齐关系与轨道结构。输出 `LoweringResult` 是布局和播放的共同输入，后续分别用于计算像素坐标和展开演奏顺序。
 
-AST 适合表达嵌套语法，例如“这一组音符被二分”“两个声部并行”；排版器更关心每个对象在什么时间、哪条音轨上，以及哪些对象应排在同一列。Lowering 的任务，就是把前一种表示转换成后一种表示。
+简单理解：输出时间轴，每个时间点对应一系列在该时刻发生的事件，每个事件有起点、时长和所属音轨。
 
-转换时会保留对象间的关系和音轨结构，但不会计算像素坐标或执行绘制。理解这一阶段，先看 Temporal、Column 和 Track 三个概念即可。
+## 时间模型
 
-## 三个核心概念
+时间以四分音符时值（QN）为单位，用分数类 `Fraction` 表达。开始时间 `t` 与持续时间 `T` 描述谱面上的音乐位置，不受播放速度影响；速度决定这些位置如何映射为实际秒数。
+
+时间位置、横向对齐和纵向归属是三个独立维度，分别由 Temporal、Column 和 Track 表达。
+
 ### Temporal：时间事件
-AST 节点可以在 `loweringEnter` 或 `loweringExit` 中产生 `TemporalNodeBase`。核心字段是：
+Temporal 是本轮 Lowering 产生的事件实例。它可以有持续时间，也可以是零时长的控制或边界事件。`TemporalNodeBase` 的核心字段是：
 ```ts
 class TemporalNodeBase {
     t: Fraction;      // 开始时间，单位 QN（四分音符时值）
@@ -29,9 +30,9 @@ class TemporalNodeBase {
 函数通常只需给出事件自身的时长和行为。开始时间、音轨、创建顺序和来源 AST 由 `LoweringContext` 补齐。解析后的 AST 保持只读，这些本轮编译信息都保存在 Temporal 中。
 
 ### Column：时间列
-布局根据 `columns` 确定横向对齐关系。同一列中的事件共享横向位置，但开始时间相同的事件不一定在同一列：跨轨归并时，还要求它们的 `mergeKey` 相等。
+布局根据 `columns` 确定横向对齐关系（简谱上哪些在同一列）。同一列中的事件共享横向位置，但开始时间相同的事件不一定在同一列：跨轨归并时，还要求它们的 `mergeKey` 相等。
 - `DEFAULT_KEY`（`Infinity`）：普通事件的公共组；并行音轨上同时发生时合列。
-- 缺省值（事件自身的 `order`）：每个事件的值不同，因此各自独占一列；`key`、`tempo` 等控制事件使用这一规则，不打断相邻主体之间的对齐。
+- 缺省值（事件自身的 `order`，自然数）：每个事件的值不同，因此各自独占一列；`key`、`tempo` 等控制事件使用这一规则，不打断相邻主体之间的对齐。
 - 手写负常量：需要跨轨合并的事件取相同值，如声部名用 `-2` 合成一条标签列。
 - `ANCHOR_KEY`（`-Infinity`）：对齐锚点，例如小节线；并行分支会在对应锚点处会合。归并算法需要先处理锚点列，所以它使用最小值。
 
@@ -40,13 +41,37 @@ class TemporalNodeBase {
 锚点对齐只发生在当前 `parallel` 子树内。某个分支先到锚点时会等待其他分支，较早分支后面的事件整体后移。这样临时多声部结束后，不会影响文档后面的时间。
 
 ### Track：纵向基线
-`Track` 表示一条纵向基线及其静态父子关系，不保存最终的 y 坐标。真正的纵向位置由 layout 按谱面行求解。
-- `sequence` 子节点沿用当前 Track。
-- `parallel` 子节点通过 `track.group(...)` 获取各自的 Track。
-- 相同 `laneKey` 会复用一组基线，不同 `laneKey` 会创建独立基线。
-- `hostIndex` 指定哪个并行成员继续使用宿主 Track；传 `null` 表示所有成员都使用分支 Track。
+`Track` 表示一条纵向基线及其静态父子关系，不保存最终的 y 坐标。真正的纵向位置由 layout 按谱面行求解。Track 的创建和函数节点的类型有关：
+- `sequence` 类型的函数，其子节点沿用当前 Track，事件串行。比如 `div` 函数
+- `parallel` 类型的函数，其子节点并行展开，落入不同的 Track。比如 `voices` 和 `stack` 函数
 
-具体函数通过 `measure` 声明组内成员的排列方式。如果整组位置还依赖宿主的完整占用，再提供 `place`。引擎按这些规则处理即可，不需要区分 `stack` 和 `voices`。
+## 附属关系与作用域
+
+各类语义按参与时间流的方式组织：
+
+| 对象 | 与时间流的关系 | 用途 |
+| --- | --- | --- |
+| `Temporal` | 进入 `columns`，占据时间位置，时长可以为零 | 音符、小节线、控制事件 |
+| `LoweringAttachment` | 不推进时间，引用事件或其他边界 | 连音线、连梁、反复控制、页码等 |
+| `LayoutDecoration` | 不独立进入时间流，属于单个主体 | 附点、减时线；Lowering 只把语义写入 Temporal 的 `addon` |
+
+`LoweringGroup` 提供作用域机制，观察一段子树中的事件与附件，用于减时、附点、包围框等范围行为。嵌套分组由内向外生效，折叠对象可以隔离内部成员，避免外层修饰同时作用于成员和宿主。
+
+## 输出契约
+
+`LoweringResult` 保留音乐时间及其来源索引：
+
+| 字段 | 含义 |
+| --- | --- |
+| `columns` | 按时间和对齐规则组织的事件列 |
+| `attachments` | 按能力接口参与布局或播放的附属对象 |
+| `astToTemporal` | AST 到本轮事件的一对多索引 |
+| `duration` | 反复展开前的谱面音乐总时长 |
+| `rootTrack` / `tracks` | 轨道树根 / 按首次使用顺序收集的实际承载事件的轨道 |
+| `page` | 可选的页面配置，供布局阶段消费 |
+| `diagnostics` | 与解析及后续布局共享的诊断数组 |
+
+AST 在解析后保持只读。事件、分组和测量策略中的运行状态属于本轮 Lowering；重新布局应创建新的 Lowering 结果，不能复用已经被布局写入状态的对象。
 
 ## 处理流程
 入口是 `LoweringContext.lowerDocument(root)`。它创建根 Track，然后递归调用 `trackedEvents`：
@@ -90,9 +115,9 @@ type TimeFlowModel =
 
 这一步需要等到锚点归并完成，因为归并可能调整事件时间。调性、速度等依赖时间顺序的值，在 `onTimeState` 中从共享状态读取，并保存到 Temporal；AST 不参与这次状态更新。
 
-`TimeState` 为速度、力度和调性提供了明确的类型和初值，函数可以直接读取。其他键由具体函数约定和处理。
+`TimeState` 为速度、力度、调性和音色提供了明确的类型和初值，函数可以直接读取。其他键由具体函数约定和处理。
 
-其中只有 `velocity` 按音轨各自流动：力度属于声部，一个声部写 `$p` 不会压低同时发声的其它声部。新分叉出来的音轨沿 `Track.parent` 继承分叉处的力度，自己有了事件之后就不再跟随父轨。速度和调性整篇共享，写在任一音轨都影响所有声部。
+其中 `velocity` 和 `program` 按音轨各自流动：一个声部写 `$p` 或 `@program(...)` 不会改变同时发声的其他声部。新分叉的音轨沿 `Track.parent` 继承父轨状态，首次承载事件后独立保存。速度和调性整篇共享，写在任一音轨都影响所有声部。
 
 ### 4. 生成附属对象
 时间列、Track 和行号确定后，就可以生成依赖完整结果的附属对象（attachment）：
@@ -107,44 +132,18 @@ type TimeFlowModel =
 
 例如自动 beam 需要先看到最终的事件顺序、Track 和谱面行；显式 beam 也要到此时才能检查端点是否相邻。
 
-## Temporal、Attachment 与 Decoration
-新增功能时，可以按它与时间流、视觉主体的关系选择：
-- **Temporal**：占据时间流，进入 `columns`，例如音符、小节线和控制事件。
-- **LoweringAttachment**：不推进时间，连接或包围一个或多个主体，例如 tie、beam、box 和歌词。
-- **LayoutDecoration**：属于单个主体的局部装饰，例如附点和减时线；Lowering 只把已冻结的语义放进 Temporal 的 `addon`，layout 再据此创建装饰。
+### 分组观察与隔离
 
-`LoweringGroup` 用来观察一段内容：`onTemporal` 接收其中的事件，`onAttachment` 接收嵌套的附属对象，分组结束时还可以添加自己的 attachment。`dot`、`div`、`box` 等函数通过它实现各自的行为，引擎只需管理分组。
+`LoweringGroup.onTemporal` 接收作用域内的事件，`onAttachment` 接收嵌套的附属对象，分组结束时还可以添加自己的 attachment。
 
 分组按栈顺序结束：先移出当前分组，再把它的 attachment 交给外层分组。因此，内部附属对象总是先于外层对象注册。
 
 折叠函数通过 `isolateFromLoweringGroups` 展开内部成员。隔离期间，外层分组只会看到最终的折叠宿主，不会同时修饰成员和宿主；结束后恢复原来的作用域。
 
-## 输出
-```ts
-interface LoweringResult {
-    diagnostics: Diagnostic[];
-    columns: TemporalNodeBase[][];
-    attachments: LoweringAttachment[];
-    astToTemporal: Map<ASTNodeBase, TemporalNodeBase[]>;
-    duration: Fraction;
-    rootTrack: Track;
-    tracks: readonly Track[];
-    page?: PageConfig;
-}
-```
-- `diagnostics`：与 parser 及后续 layout 共享的诊断数组。
-- `columns`：按时间和对齐规则组织的事件列。
-- `attachments`：不推进时间的附属对象，按各自实现的接口参与布局或播放。
-- `astToTemporal`：AST 到事件的一对多索引。
-- `duration`：整份文档的总时长。
-- `rootTrack`：纵向音轨树的根。
-- `tracks`：实际承载 Temporal 的轨道；按首次使用顺序收集，空轨不进入。
-- `page`：可选的页面配置。
-
-## 如何把函数接入 Lowering
+## 函数接入
 一个函数通常用 AST 类表达语法，需要进入时间流时，再定义 Temporal 类。函数列表会依次注册给 parser、lowering 和 layout：parser 读取语法声明，lowering 收集静态后处理 hook，layout 收集装饰处理器。
 
-内置函数加入 `defaultFunctions` 即可。也可以通过 `compileScore(source, { functions })` 传入自定义列表；注意，这会替换默认列表，而不是追加到默认列表之后。
+内置函数加入 `defaultFunctions` 即可。也可以通过 `compileScore(source, { functions })` 传入自定义列表，该列表会替换默认列表。扩展内置能力时，应将 `defaultFunctions` 一并包含在自定义列表中。
 
 接入前先判断函数属于哪一类：
 
@@ -173,20 +172,20 @@ class NoteTemporalNode extends TemporalNodeBase {
     constructor(ast: NoteFunction) {
         super();
         this.ast = ast;
-        this.T = 1;
+        this.T.set(1);
         this.mergeKey = DEFAULT_KEY;
     }
 
-    override onTimeState(state: Record<string, any>) {
+    override onTimeState(state: TimeState) {
         // 最终时间确定后，再结合当前调性解析音高
     }
 }
 ```
 
-这里不需要手动填写 `t`、`track` 和 `order`，`LoweringContext` 会根据事件所在位置补齐。AST 保存源码参数和区间，Temporal 保存时长、解析后的音高等结果。锚点对齐时可以直接调整事件时间，不必改动语法树。
+`LoweringContext` 根据事件所在位置补齐 `t`、`track` 和 `order`。AST 保存源码参数和区间，Temporal 保存时长、解析后的音高等结果。锚点对齐直接调整事件时间，AST 保持只读。
 
 ### 例二：`div` 修饰整个子树
-`div` 自己不产生事件，而是在进入时开启分组，让组内每个事件的时长减半；离开时关闭分组：
+`div` 在进入时开启分组，让组内每个事件的时长减半；离开时关闭分组：
 ```ts
 override loweringEnter(ctx: LoweringContext) {
     const count = this.n;

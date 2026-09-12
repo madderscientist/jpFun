@@ -9,7 +9,36 @@ import "katex/dist/katex.min.css";
   const blocks = [...document.querySelectorAll<HTMLElement>('pre[data-language="mermaid"]')];
   if (blocks.length > 0) {
     const { default: mermaid } = await import("mermaid");
-    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "neutral" });
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: "base",
+      themeVariables: {
+        fontFamily: "var(--sl-font)",
+        fontSize: "14px",
+        primaryColor: "#e7f1eb",
+        primaryTextColor: "#24573e",
+        primaryBorderColor: "#2d7050",
+        lineColor: "#789ed0",
+      },
+      themeCSS: `
+        .node rect, .node circle, .node ellipse, .node polygon, .node path {
+          fill: var(--sl-color-accent-low);
+          stroke: var(--sl-color-accent);
+        }
+        .node rect { rx: 4px; ry: 4px; }
+        .nodeLabel, .node .label { color: var(--sl-color-text); }
+        .label text, .nodeLabel { fill: var(--sl-color-text); }
+        .cluster rect { fill: var(--site-surface); stroke: var(--sl-color-accent); stroke-width: 1px; vector-effect: non-scaling-stroke; rx: 4px; ry: 4px; }
+        .cluster-label text { fill: var(--sl-color-text); }
+        .cluster-label span { color: var(--sl-color-text); }
+        .cluster-label { font-weight: 600; }
+        .flowchart-link { stroke: var(--site-blue); }
+        .marker { fill: var(--site-blue); stroke: var(--site-blue); }
+        .edgeLabel, .edgeLabel p { background-color: var(--sl-color-bg); color: var(--sl-color-text); }
+        .edgeLabel rect, .labelBkg { fill: var(--sl-color-bg); }
+      `,
+    });
     for (const [index, block] of blocks.entries()) {
       try {
         const lines = [...block.querySelectorAll(".ec-line")];
@@ -21,7 +50,16 @@ import "katex/dist/katex.min.css";
         figure.setAttribute("role", "img");
         figure.setAttribute("aria-label", "架构流程图");
         figure.innerHTML = svg;
-        (block.closest(".expressive-code") ?? block).replaceWith(figure);
+        for (const cluster of figure.querySelectorAll(".cluster")) {
+          const frame = cluster.querySelector<SVGRectElement>(":scope > rect");
+          const label = cluster.querySelector<SVGGElement>(":scope > .cluster-label");
+          if (frame && label) {
+            label.setAttribute("transform", `translate(${frame.x.baseVal.value + 12}, ${frame.y.baseVal.value})`);
+          }
+        }
+        const container = block.closest(".expressive-code") ?? block;
+        const styles = container.querySelectorAll('style, link[rel~="stylesheet"]');
+        container.replaceWith(...styles, figure);
       } catch {
         block.setAttribute("aria-label", "架构图源码");
       }
@@ -30,7 +68,7 @@ import "katex/dist/katex.min.css";
 </script>
 
 <style is:global>
-  .architecture-diagram { margin: 1.5rem 0; padding: 1rem; background: #fff; border: 1px solid #dce2de; border-radius: 4px; overflow-x: auto; }
+  .architecture-diagram { margin: 1.5rem 0; padding: 1rem 0; overflow-x: auto; }
   .architecture-diagram svg { display: block; min-width: 30rem; margin-inline: auto; }
   .katex-display { overflow-x: auto; overflow-y: hidden; padding-block: .5rem; }
 </style>

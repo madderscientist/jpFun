@@ -1,10 +1,29 @@
 ---
 title: 播放
+description: 记谱时间、演奏时间与定时事件，以及播放编译和设备适配的边界。
 sidebar:
-  order: 6
+    order: 7
 ---
 
 Playback 从 `LoweringResult` 编译播放计划。它与 Layout 使用相同的输入：Layout 计算页面几何，Playback 生成与设备无关、可转换为 MIDI 的定时事件。
+
+## 三种时间坐标
+
+| 坐标 | 含义 | 典型用途 |
+| --- | --- | --- |
+| 记谱时间（score） | 对象在原谱中的音乐位置，以 QN 为单位 | 关联 Lowering 事件与谱面位置 |
+| 演奏时间（performance） | 按实际演奏顺序展开后的位置，以 QN 为单位 | 编排反复、房子与演奏事件 |
+| 秒时间 | 沿演奏时间上的 Tempo 积分得到的实际时间 | 设备调度与播放进度 |
+
+记谱时间与演奏时间均使用精确的 `Fraction` 表示。反复使同一记谱位置对应多次演奏访问；Tempo 决定 QN 到秒的换算，不改变事件的 QN 位置。
+
+`scoreMap` 记录演奏时间到记谱时间的分段映射，供播放进度关联原谱。`secondsToScoreTime(plan, seconds)` 先按速度换算，再映射回记谱位置；输入限制在计划时长内，不向谱面之外外推。
+
+## 计划与设备的边界
+
+`PlaybackPlan` 保存完整编译结果，包括事件、轨道、时间映射与诊断，可以同时服务于实时播放和文件导出。
+
+Web Audio、Web MIDI 和 Standard MIDI File 适配器消费同一事件计划。设备选择、PPQ 量化、实时调度和文件编码属于适配器，不应重新解释反复、房子或装饰音。布局几何也不参与事件生成，只有应用层的播放指示需要把时间映射回谱面。
 
 ## 编译入口与输出
 
@@ -15,13 +34,14 @@ compilePlayback(lowering, options?): PlaybackPlan
 
 `options.maxFlowSteps` 限制反复、房子等控制流访问时间列的次数，默认 65,536，必须是正安全整数。超过上限时抛出 `E_PLAYBACK_FLOW_LIMIT`，不返回部分计划。
 
-`PlaybackPlan` 包含 `events`、`scoreMap`、`tracks`、`performanceDuration`、`durationSeconds` 和 `diagnostics`。
-
-演奏时间（performance）和记谱时间（score）都以 QN 为单位，使用精确的 `Fraction` 表示。Tempo 只决定 QN 到秒的积分，不改变事件的 QN 位置。
-
-`secondsToScoreTime(plan, seconds)` 将秒数映射到记谱时间，并把输入限制在计划的演奏时长内。播放结束后的时钟值始终映射到计划终点，不向谱面之外外推。
-
-Web Audio、Web MIDI 和 Standard MIDI File 适配器都使用这份事件计划。设备选择、PPQ 量化、实时调度和文件编码由适配器处理，不属于 core playback 编译器。
+| `PlaybackPlan` 字段 | 内容 |
+| --- | --- |
+| `events` | 按演奏时间排序的定时事件 |
+| `scoreMap` | 演奏位置到原谱位置的映射 |
+| `tracks` | 最终实际发声的轨道 |
+| `performanceDuration` | 展开后的总演奏时值，单位 QN |
+| `durationSeconds` | 结合 Tempo 后的总秒数 |
+| `diagnostics` | 播放编译产生的可恢复诊断 |
 
 ## 事件与轨道
 
@@ -163,9 +183,9 @@ tr、dash、tie 使用上述变换和关系接口，不定义专用的事件 kin
 
 note 根据已保存的音高、力度和 Track 发布一对 NoteOn/NoteOff。休止符 `0/Z` 和占位符 `8` 不发声，但仍推进 performance QN。
 
-节拍记号 `9/X` 在 lowering 中没有旋律音高，在发布 NoteOn 时指定 `midi=37` 和 `percussion: true`。此时 `midi` 表示 GM 打击键，而不是旋律音高。普通 NoteOn 不携带该标记；NoteOff 仍通过 `noteId` 配对。它保留原 Track 和力度，不提供调内移调函数，所以重音生效、颤音和波音不展开。tie 只合并同种类的同键号音符。
+节拍记号 `9/X` 在发布 NoteOn 时指定 `midi=37` 和 `percussion: true`，其中 `midi` 表示 GM 打击键。普通 NoteOn 不携带该标记；NoteOff 仍通过 `noteId` 配对。它保留原 Track 和力度，不提供调内移调函数，所以重音生效、颤音和波音不展开。tie 只合并同种类的同键号音符。
 
-浏览器用 tinySynth 的一个私有音色槽合成短促木击近似，仍走原声部通道和调度，服从音量、静音和独奏，但忽略 program 和旋律移调。MIDI 导出时另建一条 channel 10 的打击轨，原声部身份不变；各声部打击音量折算到 velocity，旋律通道在每个 port 中避开 channel 10。当前 MIDI/MusicXML 导入仍跳过鼓通道，导出后再导入不会保留这些节拍音。
+浏览器合成和 MIDI 打击通道路由属于设备适配，详见[编辑器集成](../editor/)。它们不改变核心计划中的原声部身份。
 
 力度和 program 在 `TimeState` 中按音轨各自流动（见 lowering 文档），所以 `$p`、`$f`、`@dyn` 和 `@program` 都只影响自己所在的声部，新声部则继承分叉处的状态；速度和调性仍整篇共享。
 
@@ -216,16 +236,8 @@ tie 通过 attachment 的 `PlaybackRelation` 在所有节点 hook 之后执行�
 
 合并时删除中间的 NoteOff/NoteOn，将最终 NoteOff 的 `noteId` 改为首音的 `noteId`，并合并 source spans 与 origin lineage。反复中的每次访问独立匹配，交叉声明的 tie 链也能沿 lineage 找到合并后保留的事件。
 
-## 工作台与设备适配
+## 应用集成
 
-playground 在以下情况下调用 `compilePlayback`，相同源码版本复用计划：
+应用可以按源码版本缓存播放计划，在源码变化后使旧计划失效。实时播放与 MIDI 导出复用同一计划，分别完成设备调度与文件编码；暂停、跳转、音量和音色覆盖等交互状态由应用管理。
 
-- 首次激活播放标签；
-- 播放标签保持激活，且源码重新排版成功；
-- 用户明确请求 MIDI 导出。
-
-tinySynth 适配器将 NoteOn/NoteOff 配对后按 Tempo 积分成秒，并在调度 NoteOn 前应用该音符位置的 program。`PlaybackTrackSettings.program` 始终有值；`overrideProgram` 单独表示混音器是否对整轨覆盖谱面音色。
-
-MIDI 适配器固定使用 480 PPQ，在文件导出时完成整数化与设备范围检查。
-
-这两个适配器都直接使用编译后的计划，不重新解释反复、房子、倚音或装饰音。
+playground 的计划生命周期、tinySynth 调度与 MIDI 编码策略见[编辑器集成](../editor/)。
