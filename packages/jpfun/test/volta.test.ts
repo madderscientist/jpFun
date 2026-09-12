@@ -136,6 +136,65 @@ test("括线两端贴在相邻的小节线上", () => {
         "没有相邻小节线时括线只覆盖自己的内容");
 });
 
+test("房子标到末根增时线时，绘制和播放都包含完整延音", () => {
+    for (const ending of ["-", "- -", "-/ -/", "@dash()"]) {
+        for (const endpoints of ["a,b", "b,a"]) {
+            const source = `|: 1 2@a 3 ${ending}@b :| 5 @volta(${endpoints},1)`;
+            const layout = layoutOf(source);
+            const house = layout.attachments.find(attachment =>
+                attachment.sourceSpan?.start === source.indexOf("@volta"))!;
+            const top = attachmentCommands(house).find(command => command.kind === "line")!;
+            const bar = layout.objects.at(-2)!;
+            assert(nearly(top.x2, bar.box.x + bar.box.anchor),
+                `the labeled ${ending} must snap to the adjacent repeat bar`);
+
+            const plan = compilePlayback(lower(source));
+            const notes = playedNotes(plan);
+            const sustain = ending === "- -" ? 2 : 1;
+            assert(notes.map(note => note.midi).join() === "60,62,64,60,67",
+                "the second pass must skip the entire ending");
+            assert(notes[2].duration.equals(1 + sustain) && notes[3].duration.equals(1)
+                && plan.performanceDuration.equals(5 + sustain),
+                "skipped dashes must not extend any note or add performance time");
+            assert(!plan.diagnostics.some(item => item.code === "W_PLAYBACK_SUSTAIN_WITHOUT_TARGET"),
+                "the skipped ending must not leave orphan dashes");
+        }
+    }
+});
+
+test("房子只覆盖显式端点，不自动跨过后续增时线或换行", () => {
+    for (const next of ["-", "2", "0"]) {
+        const layout = layoutOf(`|: 1@a 6 -@b ${next} :| @volta(a,b,1)`);
+        const top = attachmentCommands(layout.attachments[0]).find(command => command.kind === "line")!;
+        const end = layout.objects.at(-3)!;
+        assert(nearly(top.x2, end.box.x + end.box.w),
+            "the volta must stop at the labeled dash");
+    }
+
+    const layout = layoutOf(`|: 1@a 6 -@b @br() :| @volta(a,b,1)`);
+    const house = layout.attachments[0];
+    const top = attachmentCommands(house).find(command => command.kind === "line")!;
+    const end = layout.objects.find(object => object.ast.toString("") === "-")!;
+    assert(house.regions.length === 1 && nearly(top.x2, end.box.x + end.box.w),
+        "a bar on the next line must not extend the volta beyond its labeled endpoint");
+});
+
+test("标记增时线的房子仍按整列覆盖其他声部", () => {
+    for (const ending of ["-", "2", "0"]) {
+        const source = `@stack({|: 1 6@a -@b :|}, {|: 3 5 ${ending} :|}) @volta(a,b,1)`;
+        const layout = layoutOf(source);
+        const top = attachmentCommands(layout.attachments[0]).find(command => command.kind === "line")!;
+        const bar = layout.objects.at(-1)!;
+        assert(nearly(top.x2, bar.box.x + bar.box.anchor),
+            "an explicit endpoint includes its entire column regardless of the other voices");
+        const plan = compilePlayback(lower(source));
+        assert(plan.performanceDuration.equals(4), "all voices must skip the ending on the second pass");
+        const secondPass = playedNotes(plan).filter(note => note.start.compare(3) >= 0);
+        assert(secondPass.length === 2 && secondPass.every(note => note.duration.equals(1)),
+            "only the two opening notes should remain on the second pass");
+    }
+});
+
 test("跨谱面行时逐行补满，只有真正的首尾下折", () => {
     const layout = layoutOf(`|: 1 2 | 3@a @br() 4 @br() 5@b :| 5 5 || @volta(a, b, 1)`);
     const house = layout.attachments[0];

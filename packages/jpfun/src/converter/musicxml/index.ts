@@ -56,6 +56,7 @@ interface RenderBlock {
 interface RenderMetadata {
     labels: Map<Pitch | MusicEvent, string>;
     afterSources: Map<MusicEvent, string[]>;
+    labelEnding(fragment: { source: string; tailDuration: Fraction }, end: Fraction): string;
 }
 
 const MAJOR_KEYS = ["Cb", "Gb", "Db", "Ab", "Eb", "Bb", "F", "C", "G", "D", "A", "E", "B", "F#", "C#"];
@@ -737,7 +738,8 @@ function durationSource(head: string | ((suffix: string) => string), continuatio
         throw new RangeError(`MusicXML duration ${duration} requires a tuplet that jpFun cannot infer`);
     }
     const result: string[] = [];
-    for (const [index, { fractionPower, dots }] of durationParts(duration).entries()) {
+    const parts = durationParts(duration);
+    for (const [index, { fractionPower, dots }] of parts.entries()) {
         const first = index === 0;
         const suffix = `${"/".repeat(Math.max(0, fractionPower))}${".".repeat(dots)}`;
         const renderedWithSuffix = first && typeof head === "function";
@@ -753,13 +755,10 @@ function durationSource(head: string | ((suffix: string) => string), continuatio
         }
         result.push(source);
     }
-    return result.join(" ");
-}
-
-function restSlotCount(duration: Fraction) {
-    if (!powerOfTwo(duration.denominator)) return 0;
-    return durationParts(duration).reduce((count, part) =>
-        count + (part.fractionPower < 0 ? 2 ** -part.fractionPower : 1), 0);
+    const tail = parts.at(-1)!;
+    const tailDuration = tail.fractionPower < 0 ? new Fraction(1)
+        : new Fraction(2 ** (tail.dots + 1) - 1, 2 ** (tail.fractionPower + tail.dots));
+    return { source: result.join(" "), tailDuration, slotCount: result.length };
 }
 
 /**
@@ -817,6 +816,7 @@ function renderBlocks(
             ];
             return points.slice(0, -1).map((at, index) => ({
                 at,
+                end: points[index + 1],
                 duration: points[index + 1].clone().sub(at)
                     .mul(modification.actual, modification.normal),
             }));
@@ -842,7 +842,7 @@ function renderBlocks(
             }
             const continuation = item.rest ? "0" : "-";
             let slotCount = item.rest ? 0 : 1;
-            for (const [pointIndex, { at, duration }] of slices[groupIndex].entries()) {
+            for (const [pointIndex, { at, end, duration }] of slices[groupIndex].entries()) {
                 const changes = adjustments?.get(keyOf(at))?.sources ?? [];
                 const head = pointIndex === 0 || changes.length > 0
                     ? (suffix: string) => attachAbove(
@@ -850,8 +850,10 @@ function renderBlocks(
                         changes,
                     )
                     : continuation;
-                prefix.push(durationSource(head, continuation, duration));
-                if (item.rest) slotCount += restSlotCount(duration);
+                const fragment = durationSource(head, continuation, duration);
+                fragment.tailDuration.mul(modification.normal, modification.actual);
+                prefix.push(metadata.labelEnding(fragment, end));
+                if (item.rest) slotCount += fragment.slotCount;
             }
             lyricEvents.push({ event: item, slotCount });
             prefix.push(...metadata.afterSources.get(item) ?? []);
@@ -874,10 +876,20 @@ function renderBlocks(
  */
 function labelRelations(score: ParsedScore) {
     let labelIndex = 0;
-    const relations: string[] = [];
+    const relations: (() => string)[] = [];
+    const endingLabels = new Map<string, { at: Fraction; label: string }>();
     const metadata: RenderMetadata = {
         labels: new Map(),
         afterSources: new Map(),
+        labelEnding({ source, tailDuration }, end) {
+            const endpoint = endingLabels.get(keyOf(end));
+            if (!endpoint) return source;
+            const at = end.clone().sub(tailDuration);
+            if (at.compare(endpoint.at) <= 0) return source;
+            endpoint.at = at;
+            endpoint.label = `mx${labelIndex++}`;
+            return `${source}@${endpoint.label}`;
+        },
     };
     const pitchLabel = (pitch: Pitch) => {
         const label = metadata.labels.get(pitch) ?? `mx${labelIndex++}`;
@@ -941,7 +953,8 @@ function labelRelations(score: ParsedScore) {
             }
             if (!from || !to || from.start.compare(to.start) >= 0) continue;
             const delta = wedge.from.type === "crescendo" ? 24 : -24;
-            relations.push(`@dyn(${eventLabel(from)}, ${eventLabel(to)}, ${delta})`);
+            const source = `@dyn(${eventLabel(from)}, ${eventLabel(to)}, ${delta})`;
+            relations.push(() => source);
         }
     }
     const events = score.lanes.flatMap(lane => lane.events)
@@ -952,7 +965,10 @@ function labelRelations(score: ParsedScore) {
         if (fromIndex >= toIndex) continue;
         const from = events[fromIndex];
         const to = events[toIndex - 1];
-        relations.push(`@volta(${eventLabel(from)}, ${eventLabel(to)}, ${ending.from.passes.join(", ")})`);
+        const fromLabel = eventLabel(from);
+        const endpoint = endingLabels.get(keyOf(ending.end)) ?? { at: to.start, label: eventLabel(to) };
+        endingLabels.set(keyOf(ending.end), endpoint);
+        relations.push(() => `@volta(${fromLabel}, ${endpoint.label}, ${ending.from.passes.join(", ")})`);
     }
     return { relations, metadata };
 }
@@ -1124,16 +1140,18 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions) {
                         changes,
                     )
                     : continuation;
-                outputs.at(-1)!.push(durationSource(head, continuation, duration));
+                const fragment = durationSource(head, continuation, duration);
+                outputs.at(-1)!.push(metadata.labelEnding(fragment, next));
                 if (start) outputs.at(-1)!.push(...metadata.afterSources.get(event) ?? []);
-                if (event.rest) addLyricSlots(start ? event : undefined, restSlotCount(duration));
+                if (event.rest) addLyricSlots(start ? event : undefined, fragment.slotCount);
                 else if (start) addLyricSlots(event, 1);
             } else {
                 const head = changes.length > 0
                     ? (suffix: string) => attachAbove(`0${suffix}`, changes)
                     : "0";
-                outputs.at(-1)!.push(durationSource(head, "0", duration));
-                addLyricSlots(undefined, restSlotCount(duration));
+                const fragment = durationSource(head, "0", duration);
+                outputs.at(-1)!.push(metadata.labelEnding(fragment, next));
+                addLyricSlots(undefined, fragment.slotCount);
             }
         }
         const partName = lane.partName && (!score.lanes[laneIndex - 1] || score.lanes[laneIndex - 1].partId !== lane.partId)
@@ -1156,7 +1174,7 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions) {
         tempo: initialTempo.bpm,
     });
     const body = renderSystems(voices);
-    return `${page}${head}\n\n${body}${relations.length > 0 ? `\n${relations.join(" ")}` : ""}`;
+    return `${page}${head}\n\n${body}${relations.length > 0 ? `\n${relations.map(source => source()).join(" ")}` : ""}`;
 }
 
 /** 将解析好的 MusicXML 根元素同步转换为可重新解析的 jpFun 源码 */

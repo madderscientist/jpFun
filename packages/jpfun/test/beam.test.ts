@@ -103,6 +103,19 @@ test("显式 @beam 只连接相邻端点，否则报错", () => {
     assert(parallelExplicitBeamResult.attachments.length === 1, "events on another track must not break explicit beam adjacency");
 });
 
+test("增时线可显式连梁，也参与最近两个端点的回退", () => {
+    for (const relation of ["@beam(a,b)", "@beam()"]) {
+        const layout = layoutOf(`@set(div.autobeam=false) 1/ 2/@a -/@b ${relation}`);
+        assert(layout.attachments.length === 1, "one explicit beam must be created");
+        const lines = attachmentCommands(layout.attachments[0]).filter(command => command.kind === "line");
+        const [, start, end] = layout.objects;
+        assert(lines.length === 1
+            && nearly(lines[0].x1, start.box.x + start.ports[divLinePortName(0, "left")].x)
+            && nearly(lines[0].x2, end.box.x + end.ports[divLinePortName(0, "right")].x),
+        "the beam must connect the second note and the dash");
+    }
+});
+
 test("显式 beam 跨小节线连接，保留小节线间距与自动分组边界", () => {
     for (const barrier of ["|", "||", "|:", ":|", "| ^ @text(A)"]) {
         const source = `1//@a ${barrier} 2//@b`;

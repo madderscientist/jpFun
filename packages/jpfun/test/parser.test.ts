@@ -2,6 +2,7 @@ import { deepStrictEqual, throws } from "node:assert/strict";
 import { test } from "node:test";
 
 import { ASTFunctionNode, ASTLabelNode, ASTNodeBase } from "../src/functions/ASTtypes.js";
+import { DashNode } from "../src/functions/dash/index.js";
 import { preprocessSource } from "../src/parser/preprocess.js";
 import { analyzeScoreSyntax, compileScore } from "../src/pipeline.js";
 import { assert, createParser, expectDiagnostic, expectSnapshot, parse } from "./helpers.js";
@@ -234,6 +235,22 @@ test("content recovery restores state and rethrows implementation errors", () =>
     deepStrictEqual(parser.labelableNodes, [target]);
     deepStrictEqual(Object.getOwnPropertyDescriptor(target, "label"), descriptor);
     deepStrictEqual(parser.diagnostics, []);
+});
+
+test("增时线独立承载标签，时值包装透明，小节线保持透明", () => {
+    for (const dash of ["-", "-/.", "@dash()", "@div(-,1)", "@box(-)"]) {
+        const parser = createParser(`1@a ${dash}@b`);
+        parser.parse();
+        const targets = parser.labelableNodes.filter(node => node?.label);
+        assert(targets.length === 2 && targets[0]?.label === "a"
+            && targets[1] instanceof DashNode && targets[1].label === "b",
+        "the dash must carry its own label without replacing the preceding note label");
+        assert(parser.diagnostics.length === 0, "labeling a dash must not warn");
+    }
+    const parser = createParser(`1 |@a`);
+    parser.parse();
+    assert(parser.labelableNodes.length === 1 && parser.labelableNodes[0]?.label === "a",
+        "bar lines must remain transparent to labels");
 });
 
 test("标签的 target 指向被标注对象，不随容器改写", () => {

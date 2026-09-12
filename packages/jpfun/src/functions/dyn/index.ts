@@ -33,7 +33,9 @@ class DynFunction extends ASTFunctionNode {
 1 ^ $p 2@a 3 4@b
 @dyn(a, b, 24)
 ~~~
-端点须位于同一音轨、不同时间；变化量沿区间线性增加，叠加在每个音符原有力度上。本例从 \`a\` 到 \`b\` 渐强，终点增加 24 的力度。`,
+端点须位于同一音轨、不同时间；变化量沿区间线性增加，叠加在每个音符原有力度上。本例从 \`a\` 到 \`b\` 渐强，终点增加 24 的力度。
+
+端点也可标在增时线上。终点没有力度时，取同轨、不晚于终点的最后一个原始力度作为保持基准；找不到时给出警告并仅绘制。增时线延续的音符保持起音时的力度。`,
         allowExtraArgs: false,
         args: [
             { name: "from", description: "渐变起点的标签", type: "label" as const, default: null },
@@ -63,9 +65,22 @@ class DynFunction extends ASTFunctionNode {
 
         // 先累计全部 dyn 的贡献，最后统一写回，避免声明顺序改变后续 dyn 读取的原始力度
         for (const dynamic of dynamics) {
-            const endVelocity = dynamic.end.playbackState?.velocity
+            let endVelocity = dynamic.end.playbackState?.velocity
                 ?? records.find(record => record.host === dynamic.toHost)?.velocity;
-            if (endVelocity === undefined) throw new Error("@dyn end endpoint has no velocity-bearing member");
+            for (let index = records.length - 1; endVelocity === undefined && index >= 0; index--) {
+                const record = records[index];
+                if (record.host.track === dynamic.track && record.host.t.compare(dynamic.toHost.t) <= 0) {
+                    endVelocity = record.velocity;
+                }
+            }
+            if (endVelocity === undefined) {
+                result.diagnostics.push(new WarningDiagnostic(
+                    "W_DYN_NO_VELOCITY",
+                    "@dyn 终点及此前同轨没有可用的力度基准，仅绘制渐变线",
+                    dynamic.sourceSpan,
+                ));
+                continue;
+            }
 
             // 终点后保持完整增量，直到原始力度相对终点再次发生变化
             const stop = records.find(record =>

@@ -2,7 +2,8 @@ import { test } from "node:test";
 
 import type { PlacedAttachment } from "../src/layout/types.js";
 import type { PathCommand } from "../src/render/types.js";
-import { assert, attachmentCommands, commandsOfKind, layoutOf, nearly } from "./helpers.js";
+import { compilePlayback } from "../src/playback/compile.js";
+import { assert, attachmentCommands, commandsOfKind, layoutOf, lower, nearly, playedNotes } from "./helpers.js";
 
 /** 两个控制点同高的三次贝塞尔，实际弧高是抬高的 3/4 */
 function tieApexHeight(path: { commands: readonly PathCommand[] }) {
@@ -37,6 +38,28 @@ test("同行连音线是一条闭合填充的丝带", () => {
         opsOf(farTiePaths[0]) === "M,C,C,Z",
         "distance must not change the same-line tie drawing type",
     );
+});
+
+test("增时线参与显式及默认连音端点，但不合并播放音符", () => {
+    for (const source of [
+        `1 -@a 1@b @tie(a,b)`,
+        `1@a -@b 1 @tie(a,b)`,
+        `1 1 - @tie()`,
+        `1 - 1 @tie()`,
+    ]) {
+        const layout = layoutOf(source);
+        const path = attachmentCommands(layout.attachments[0]).find(command => command.kind === "path");
+        assert(path?.kind === "path" && path.commands[0]?.op === "M", "a dash tie must still draw its curve");
+        const start = source.startsWith("1@a") ? layout.objects[0] : layout.objects[1];
+        assert(nearly(path.commands[0].x, start.box.x + (start.ports["tie.top"]?.x ?? start.box.w / 2)),
+            "default endpoints must include the recent dash instead of skipping it");
+        const plan = compilePlayback(lower(source));
+        const notes = playedNotes(plan);
+        assert(notes.length === 2 && notes[0].midi === 60 && notes[1].midi === 60
+            && notes[0].duration.clone().add(notes[1].duration).equals(3)
+            && notes[1].start.equals(notes[0].duration),
+        "a tie involving a dash must leave two separately articulated notes");
+    }
 });
 
 test("连音线弧高随字号缩放，也接受显式长度", () => {

@@ -43,6 +43,8 @@ class DashFunction extends ASTFunctionNode {
         return [new DashTemporalNode(this)];
     }
 
+    override labelable() { return this; }
+
     override toString() { return "-"; }
 }
 

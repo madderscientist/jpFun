@@ -38,6 +38,52 @@ test("dyn 按记谱时间线性叠加力度并在区间后保持", () => {
     "output velocity must be clamped to the audible MIDI range");
 });
 
+test("dyn 的增时线端点使用同轨此前最后一个音符的力度基准", () => {
+    for (const endpoints of ["a,b", "b,a"]) {
+        const source = `1@a ^ $p 2 -@b 3 4 ^ $f @dyn(${endpoints},24)`;
+        assert(velocities(source).join(" ") === "48 60 72 96",
+            "a dash endpoint must retain the ramp until the next original velocity change");
+        const notes = playedNotes(compilePlayback(lower(source)));
+        assert(notes[1].duration.equals(2), "the sustained note must keep its own onset velocity and duration");
+        const { layout, lines } = hairpin(source);
+        const end = layout.objects.find(object => object.ast.sourceSpan.start === source.indexOf("-@b"))!;
+        assert(nearly(lines[0].x2, end.box.x + end.box.w),
+            "the visual endpoint must remain on the labeled dash");
+    }
+    assert(velocities(`1@a ^ $p 2 ^ $f -@b 3 4 ^ $p @dyn(a,b,24)`).join(" ") === "48 108 120 48",
+        "the fallback must use the last original velocity, not the start velocity");
+    assert(velocities(`1 ^ $p -@a 2 -@b 3 @dyn(a,b,24)`).join(" ") === "48 60 72",
+        "both endpoints may be dashes without changing notes before the range");
+});
+
+test("dyn 的增时线端点不借用其他声部的力度", () => {
+    const source = `@stack({1@a ^ $p 2 -@b 3 4 ^ $f}, {5 ^ $f 6 7 1 2}) @dyn(a,b,24)`;
+    const lowering = lower(source);
+    const track = lowering.columns.flat().find(node => node.ast.sourceSpan.start === source.indexOf("-@b"))!.track;
+    const plan = compilePlayback(lowering);
+    const trackIndex = plan.tracks.indexOf(track);
+    const notes = playedNotes(plan);
+    assert(notes.filter(note => note.track === trackIndex).map(note => note.velocity).join(" ") === "48 60 72 96",
+        "the endpoint baseline must come from its own track");
+    assert(notes.filter(note => note.track !== trackIndex).every(note => note.velocity === 96),
+        "other tracks must remain unchanged");
+});
+
+test("dyn 找不到此前同轨力度时给出诊断并保留图形", () => {
+    for (const content of ["-@a -@b", "@stack({-@a -@b 1}, {5 6 7})"]) {
+        const source = `${content} @dyn(a,b,24)`;
+        const result = compileScore(source);
+        const warnings = result.diagnostics.filter(item => item.code === "W_DYN_NO_VELOCITY");
+        assert(warnings.length === 1 && source.slice(warnings[0].span.start, warnings[0].span.end) === "@dyn(a,b,24)",
+            "a missing baseline must produce one source-located warning");
+        const attachment = result.layout.attachments.find(item => item.sourceSpan?.start === source.indexOf("@dyn"))!;
+        assert(attachmentCommands(attachment).filter(command => command.kind === "line").length === 2,
+            "the dynamic marking must still be drawn");
+        assert(playedNotes(compilePlayback(result.lowering)).every(note => note.velocity === 80),
+            "future notes and other tracks must not supply a baseline or receive an increment");
+    }
+});
+
 test("dyn 与区间内外的力度记号保持解耦", () => {
     assert(velocities(`1@a ^ $p 2 3 ^ $f 4@b 5 6 ^ $p @dyn(a,b,24)`).join(" ") === "48 56 112 120 120 48",
         "each note must receive the ramp delta on top of its own original velocity");

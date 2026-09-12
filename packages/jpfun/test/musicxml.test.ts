@@ -7,7 +7,7 @@ import {
   compileScore,
   musicXmlToJpFun as convertMusicXmlElement,
 } from "../src/index.js";
-import { assert, lower, playedNotes, recordCommands } from "./helpers.js";
+import { assert, attachmentCommands, lower, nearly, playedNotes, recordCommands } from "./helpers.js";
 
 function musicXmlToJpFun(
   source: string,
@@ -377,6 +377,57 @@ test("MusicXML time-modification 精确生成 jpFun tuplet", () => {
     assert(source.split("\n\n").length - 1 === 2,
         `十小节应沿用 MusicXML 的 6+4 系统，不得额外切成 4+2+4：${source}`);
   });
+
+test("MusicXML ending 的末尾长音包含全部 dash 且括线贴到反复线", () => {
+  for (const duration of [2, 3, 5]) {
+    const source = musicXmlToJpFun(`<score-partwise version="4.0">
+      <part-list><score-part id="P1"><part-name>Long Ending</part-name></score-part></part-list>
+      <part id="P1">
+        <measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+        <measure number="2"><attributes><time><beats>${duration}</beats><beat-type>4</beat-type></time></attributes><barline location="left"><ending number="1" type="start"/></barline><note><pitch><step>D</step><octave>4</octave></pitch><duration>${duration}</duration></note><barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline></measure>
+        <measure number="3"><note><pitch><step>E</step><octave>4</octave></pitch><duration>${duration}</duration></note></measure>
+      </part></score-partwise>`);
+    const result = compileScore(source);
+    const plan = compilePlayback(result.lowering);
+    const notes = playedNotes(plan);
+    assert(notes.map(note => `${note.midi}:${note.duration}`).join() === `60:1,62:${duration},60:1,64:${duration}`
+      && plan.performanceDuration.equals(2 + 2 * duration),
+    `房子尾部的 dash 不得泄漏到第二遍：${source}`);
+    const volta = result.layout.attachments.find(item => item.sourceSpan?.start === source.indexOf("@volta"))!;
+    const top = attachmentCommands(volta).find(command => command.kind === "line")!;
+    const bar = result.layout.objects.find(item => item.ast.sourceSpan.start === source.indexOf(":|"))!;
+    assert(nearly(top.x2, bar.box.x + bar.box.anchor), `导入的房子应完整覆盖延音并吸附反复线：${source}`);
+  }
+});
+
+test("MusicXML ending 选择全声部最晚的末片段，tie 仍连接起音", () => {
+  const source = musicXmlToJpFun(`<score-partwise version="4.0">
+    <part-list><score-part id="P1"><part-name>Ending Tie</part-name></score-part></part-list>
+    <part id="P1">
+      <measure number="1"><attributes><divisions>2</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><tie type="start"/></note></measure>
+      <measure number="2"><attributes><time><beats>3</beats><beat-type>4</beat-type></time></attributes><barline location="left"><ending number="1" type="start"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>6</duration><voice>1</voice><tie type="stop"/></note><backup><duration>6</duration></backup><note><rest/><duration>1</duration><voice>2</voice></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>5</duration><voice>2</voice></note><barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline></measure>
+      <measure number="3"><note><pitch><step>D</step><octave>4</octave></pitch><duration>6</duration><voice>1</voice></note></measure>
+    </part></score-partwise>`);
+  const plan = compilePlayback(lower(source));
+  assert(plan.diagnostics.length === 0, `标签不得冲突或失效：${source}`);
+  assert(playedNotes(plan).map(note => `${note.midi}:${note.start}:${note.duration}`).join() === "60:0:4,64:3/2:5/2,60:4:1,62:5:3"
+    && plan.performanceDuration.equals(8), `房子须跳过所有声部末片段，tie 须合并真实音符：${source}`);
+});
+
+test("MusicXML ending 的连音组末尾 dash 使用实际时间定位", () => {
+  const triplet = (step: string, duration: number, marker: string) => `<note><pitch><step>${step}</step><octave>4</octave></pitch><duration>${duration}</duration><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="${marker}"/></notations></note>`;
+  const source = musicXmlToJpFun(`<score-partwise version="4.0">
+    <part-list><score-part id="P1"><part-name>Tuplet Ending</part-name></score-part></part-list>
+    <part id="P1">
+      <measure number="1"><attributes><divisions>3</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>3</duration></note></measure>
+      <measure number="2"><attributes><time><beats>2</beats><beat-type>4</beat-type></time></attributes><barline location="left"><ending number="1" type="start"/></barline>${triplet("D", 2, "start")}${triplet("E", 4, "stop")}<barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline></measure>
+      <measure number="3"><note><pitch><step>F</step><octave>4</octave></pitch><duration>6</duration></note></measure>
+    </part></score-partwise>`);
+  const plan = compilePlayback(lower(source));
+  assert(plan.diagnostics.length === 0 && plan.performanceDuration.equals(6), `连音组房子须保留实际时长：${source}`);
+  assert(playedNotes(plan).map(note => `${note.midi}:${note.duration}`).join() === "60:1,62:2/3,64:4/3,60:1,65:2",
+    `第二遍不得执行连音组内的末根 dash：${source}`);
+});
 
 test("MusicXML first/second ending 生成 volta 并控制反复顺序", () => {
     const source = musicXmlToJpFun(`<?xml version="1.0"?>

@@ -41,13 +41,13 @@ class VoltaFunction extends ASTFunctionNode {
         args: [
             {   // 本来设计是函数包裹，但这样实现不了跨行的房子，所以改为关系型
                 name: "from",
-                description: "区间首音的标签，区间允许跨谱面行",
+                description: "区间起点的标签，区间允许跨谱面行",
                 type: "label" as const,
                 default: null,
             },
             {
                 name: "to",
-                description: "区间末音的标签",
+                description: "区间终点的标签",
                 type: "label" as const,
                 default: null,
             },

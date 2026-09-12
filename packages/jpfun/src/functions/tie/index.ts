@@ -37,10 +37,10 @@ class TieFunction extends ASTFunctionNode {
 ~~~jpfun
 1@a 2 3@b @tie(a, b, height=0.5em)
 ~~~
-- **位置参数**：端点标签，可传多个，按顺序连接；省略时查找最近的可连接对象
+- **位置参数**：端点标签，可传多个，按顺序连接；省略时查找最近的可标记对象，包括增时线
 - **height**：弧线高度，默认 \`0.5em\`
 
-同行端点用一条弧线连接，跨行时自动拆成多段`,
+同行端点用一条弧线连接，跨行时自动拆成多段。涉及增时线的连接仅绘制，不合并播放音符。`,
         allowExtraArgs: true,
         extraArgType: "label" as const,
         args: []
