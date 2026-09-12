@@ -1,0 +1,41 @@
+@page(width=793px, height=1122px, top=37px, bottom=75px, left=30px, right=30px, numbering=1/1)
+H.title: Air on the G string
+H.author: Johann Sebastian Bach
+H.signature: 1=C4 4/4
+H.tempo: 33
+
+N("Violin I"): { @program(40) F#5@mx0 - - - | F#5/@mx1 @tie(mx0, mx1) B5// G5// {{F#5} > E5//} D5// C#5// D5// C#5 {{B4} > A4} | A5 - A5// F#5// C5// B4// E5// D#5// A5// G5// | }
+N("Violin II"): { @program(40) D5@mx26 - - - | D5@mx27 @tie(mx26, mx27) B4 A4 - | A4/ C5// B4// C5/ A5// C5// B4/ 0/ 0 | }
+N("Viola"): { @program(41) A4 - B4 - | B3 E4 E4 - | E4/ D#4 E4/ F#4/ 0/ 0 | }
+N("Violoncello"): { @program(42) D3/ D4/ C#4/ C#3/ B2/ B3/ A3/ A2/ | G2/ G3/ G#3/ G#2/ A2/ A3/ G3/ G2/ | F#2/ F#3/ E3/ E2/ D#2/ D#3/ B2/ B3/ | }
+
+N: { G5 - G5// E5// B4// A4// D5// C#5// G5// F#5// | F#5. G#5// A5// D5/ D5/// E5/// F#5//@mx2 F#5//@mx3 @tie(mx2, mx3) E5// E5// D5// | C#5//@mx79 B4// B4/// C#5/// D5//@mx4 D5/@mx5 @tie(mx4, mx5) C#5// B4// A4 - :| }
+N: { B4/ E5// D5// E5// F#5// G5// F#5// A4/ 0/ 0 | A4@mx28 - A4/@mx29 @tie(mx28, mx29) G#4// A4// B4/ G#4/ | A4/ A4/@mx30 A4/@mx31 @tie(mx30, mx31) G#4/ E4 - :| }
+N: { E4/ B3 E4/ E4/ 0/ 0 | D4@mx61 D4/@mx62 @tie(mx61, mx62) E4/ F#4/ D4/ B3/ E4/@mx63 | E4/@mx64 @tie(mx63, mx64) F#4/ B3/ E4/ C#4 - :| }
+N: { E2/ E3/ D3/ D2/ C#2/ C#3/ A2/ A3/ | D3/ D4/ C#4/ C#3/ B2/ B3/ G#3/ E3/ | A3/ D3/ E3/ E2/ A2// B2// C#3// D3// E3// G3// F#3// E3//@mx80 :| }
+
+N: { C#5//@mx81 B4// B4/// C#5/// D5//@mx6 D5/@mx7 @tie(mx6, mx7) C#5// B4// A4 -@mx83 |: C#5@mx8 C#5//@mx9 @tie(mx8, mx9) D5/// C#5/// B4/// C#5/// A4// A5. C5/ | B4/ B5/@mx10 B5//@mx11 @tie(mx10, mx11) A5// G5// F#5// G5@mx12 G5///@mx13 @tie(mx12, mx13) F#5/// E5/// D5/// C#5// B4// | }
+N: { A4/ A4/@mx32 A4/@mx33 @tie(mx32, mx33) G#4/ E4 - |: A4@mx34 - A4//@mx35 @tie(mx34, mx35) B4// C5/@mx36 C5//@mx37 @tie(mx36, mx37) B4// A4// G4// | F#4. D#5/ E5@mx38 - | }
+N: { E4/ F#4/ B3/ E4/ C#4 - |: E4@mx65 - E4/@mx66 @tie(mx65, mx66) D#4// E4// F#4@mx67 | F#4//@mx68 @tie(mx67, mx68) G4// A4// F#4// D#4/ B4/ B4 B3 | }
+N: { A3/ D3/ E3/ E2/ A2 - |: A2/ A3/ G3/ G2/ F#2/ F#3/ E3/ E2/ | D#2/ D#3/ F#3/ B2/ E3/ E4/ D4/ D3/ | }
+
+N: { A#4// B4// C#5/@mx14 C#5//@mx15 @tie(mx14, mx15) D5// E5/@mx16 E5//@mx17 @tie(mx16, mx17) F#5// G5/@mx18 G5/@mx19 @tie(mx18, mx19) F#5/ | E5// D5// C#5// B4// C#5// D5/// E5/// D5/ B4 - | D5@mx20 D5//@mx21 @tie(mx20, mx21) F#5// E5// D5// B5@mx22 B5/@mx23 @tie(mx22, mx23) A5// G#5// | }
+N: { E5@mx39 - @tie(mx38, mx39) E5//@mx40 @tie(mx39, mx40) D5// C#5// B4// A#4// B4// C#5/ | B4/ B4/ B4/ A#4/ F#4 - | E4 F#4 B4/ E4// F#4// G#4// A4// B4/@mx41 | }
+N: { C#4// D4// E4// F#4// G4// F#4// G4// E4// F#4/ E4// D4// C#4/ F#4/ | F#4/ E4// D4// G4/ F#4// E4// D4 - | B3/ B4/ A4// G#4// A4/ G#4/@mx69 G#4//@mx70 @tie(mx69, mx70) F#4// E4 | }
+N: { C#3/ C#4/ B3/ B2/ A#2/ B2/ C#3/ A#2/ | B2/ G3/ E3/ F#3/ B2/ B3/ A3/ A2/ | G#2/ G#3/ F#3/ F#2/ E2/ E3/ D3/ D2/ | }
+
+N: { {{F#5} > E5//} A5// A4/ B4/. C#5/// D5/// C#5/. B4// A4 | D5. F#5// E5// E5. G5// F#5// | F#5. A5// G5// G5 - | }
+N: { B4/@mx42 @tie(mx41, mx42) A4 G#4/ A4@mx43 - | A4/@mx44 @tie(mx43, mx44) B4// C5// B4// C#5// D5/@mx45 D5/@mx46 @tie(mx45, mx46) C#5// B4// C#5// D#5// E5/@mx47 | E5/@mx48 @tie(mx47, mx48) D#5// C#5// D#5// E5// F#5/@mx49 F#5//@mx50 @tie(mx49, mx50) D#5// E5// B4// E4@mx51 | }
+N: { E4/ E4/ G4/ E4/ E4/@mx71 E4//@mx72 @tie(mx71, mx72) D4// C#4// D4// E4// C#4// | A3/ D4 B3 E4 C#4/@mx73 | C#4/@mx74 @tie(mx73, mx74) F#4 D#4/ B3@mx75 B3//@mx76 @tie(mx75, mx76) B4// G4// E4// | }
+N: { C#2/ C#3/ D3/ E3/ A2/ A3/ G3/ G2/ | F#2/ F#3/ G3/ G2/ G#2/ G#3/ A3/ A2/ | A#2/ A#3/ B3/ B2/ E3/ E4/ D4/ D3/ | }
+
+N: { A4 A4// C#5// E5// G5// G5// E5// F#5/@mx24 F#5/@mx25 @tie(mx24, mx25) F#5// G5/// A5/// | D5 D5// F#5// A5// C6// B5. D5/ | C#5// E5// G5 B4/ A4/ E5// F#5/// G5/// G5// F#5/ E5// | }
+N: { E4//@mx52 @tie(mx51, mx52) C#4// E4// A4// C#5/ A4/@mx53 A4/@mx54 @tie(mx53, mx54) C#5// D5// D4@mx55 | D4/@mx56 @tie(mx55, mx56) E4/ F#4 G4@mx57 - | G4/@mx58 @tie(mx57, mx58) B4/ E5@mx59 E5//@mx60 @tie(mx59, mx60) D5// C#5// B4// A4/ B4/ | }
+N: { A4/ G4/ F#4/ E4/ D4 A4@mx77 | A4/@mx78 @tie(mx77, mx78) G4/ A4 D4 - | E4// B3// E4// G4// B4// A4// G4// F#4// E4/ A4 G4/ | }
+N: { C#3/ C#4/ A3/ C#4/ D4/ D3/ C3/ C4/ | B3/ B2/ A2/ A3/ G3/ G2/ F#2/ F#3/ | E3/ E2/ D2/ D3/ C#3/ A2/ D3/ G3/ | }
+
+N: { D5/// C#5/// B4/ C#5// {D5/ ^ $tr} C#5// D5// {D5 ^ $fermata} - :| }
+N: { A4 {G4// ^ $tr} F#4// G4/ {F#4 ^ $fermata} - :| }
+N: { F#4 E4/ A3/ {A3 ^ $fermata} - :| }
+N: { A3/ G3/ A3/ A2/ {D2 ^ $fermata} - :| }
+@volta(mx79, mx80, 1) @volta(mx81, mx83, 2)
