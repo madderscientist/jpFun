@@ -87,3 +87,5 @@ pnpm run test:update       # 重写测试快照基线
 
 ## todo
 - [ ] VSCode 插件
+
+完善函数描述，完善开发者文档，叫人尝试，写VSCode插件

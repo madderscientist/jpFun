@@ -7,7 +7,8 @@
 教程目录：`src/content/docs/docs/tutorial/`。
 
 - `index.mdx`：教程入口，当前是第一课。
-- `functions.mdx`：函数、语法糖与标签。
+- `grammar.mdx`：函数调用与参数，`sidebar.order: 2.0`。
+- `composition.mdx`：基本类型，`sidebar.order: 2.1`；后续音符章为 `2.2`。
 - 新课程：复制下面的模板为该目录下的 `.mdx` 文件。侧栏会自动收录，`sidebar.order` 控制顺序。
 
 ````mdx
