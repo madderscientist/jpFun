@@ -63,10 +63,10 @@
   "author": "madderscientist",
   "license": "Apache-2.0",
   "devDependencies": {
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.5.1",
     "@xmldom/xmldom": "^0.9.12",
-    "esbuild": "^0.25.0",
-    "tsx": "^4.23.12",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   }
 }
