@@ -17,8 +17,9 @@ class NoteFunction extends ASTFunctionNode {
 @note(A, acc=#, octave=3, color=#c33)
 ~~~
 **简写**：数字音名按“升降号、音名、相对八度”书写；字母音名按“音名、升降号、绝对八度”书写。\`1,,\` 比当前调性基准低两个八度，\`1'\` 高一个八度。
-- \`A#3\` 等价于 \`@note(A#3)\` 或 \`@note(A, #, 3)\`
-- \`#1'\` 等价于 \`@note("#1'")\` 或 \`@note(1, #, 1)\`
+- 简写的升降号完全由自身决定，省略时为空，不继承 \`@set(note.acc=...)\`；显式调用省略 \`acc\` 时仍继承默认值
+- \`A#3\` 等价于 \`@note(A, #, 3)\`，默认 \`acc\` 为空时也等价于 \`@note(A#3)\`
+- \`#1'\` 等价于 \`@note(1, #, 1)\`，默认 \`acc\` 为空时也等价于 \`@note("#1'")\`
 - 支持组合升降号，如 \`A##bn99\`；无歧义时也接受后置写法，如 \`A3#\`、\`6#,,\`
 - 升降号后紧跟数字时归入下一音符：\`6#3\` 解析为 \`6\` 和 \`#3\``,
         allowExtraArgs: false,
@@ -78,7 +79,7 @@ class NoteFunction extends ASTFunctionNode {
         const argMap: FunctionArgs = new Map();
         argMap.set("name", parseResult.name);
         if (parseResult.octave !== null) argMap.set("octave", parseResult.octave);
-        if (parseResult.acc) argMap.set("acc", parseResult.acc);
+        argMap.set("acc", parseResult.acc ?? "");   // 必须覆盖不然会用到 set 的默认值
         const node: GrammarCallNodeTyped = {
             kind: "call",
             typed: true,
