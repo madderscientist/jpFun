@@ -327,15 +327,15 @@ function complete(context: CompletionContext): CompletionResult | null {
     if (type === "content") return null; // 光标在内容里，该由内容自己的语法补全
 
     const used = new Set(call.args.filter(item => item !== arg).map(item => named(item.nameSpan)));
-    const options: Completion[] = inValue ? [] : def.args
-        .filter(item => item.name && !used.has(item.name.toLowerCase()))
-        .map(item => ({
+    const options: Completion[] = inValue ? [] : def.args.flatMap((item, index) =>
+        item.name && !used.has(item.name.toLowerCase()) ? [{
             label: item.name!,
-            type: "property",
-            detail: `${def.args.indexOf(item) + 1}. ${item.type}`,
-            info: () => renderFunctionDoc(argumentDoc(item, def.args.indexOf(item))),
+            type: "parameter",
+            detail: item.type,
+            sortText: String(index).padStart(String(def.args.length).length, "0"),
+            info: () => renderFunctionDoc(argumentDoc(item, index)),
             apply: item.name + "=",
-        }));
+        }] : []);
     if (type === "label") {
         // `@x` 形式的才是声明，函数参数里的裸标签是引用
         const declared = tokens.filter(token => token.kind === "label" && source[token.span.start] === "@");
@@ -608,6 +608,7 @@ export const jpFunLanguage = [
             maxWidth: "min(480px, calc(100vw - 24px))",
             maxHeight: "300px",
             padding: "0",
+            overflow: "auto",
         },
         ".cm-completionInfo-right-narrow, .cm-completionInfo-left-narrow": {
             left: "0 !important",

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { CompletionContext } from "@codemirror/autocomplete";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { defaultFunctions } from "jpfun";
 import { functionDoc, jpFunLanguage, parameterDocAt } from "../jpfun-language.ts";
@@ -53,6 +54,19 @@ test("parameter docs handle extras and disappear outside calls or selections", (
     }
     const state = stateAt("@adjust(1, dx=|)");
     assert.equal(parameterDocAt(state.update({ selection: { anchor: 8, head: 9 } }).state), null);
+});
+
+test("parameter completions sort by declared position", () => {
+    const state = stateAt("@note(|)");
+    const [source] = state.languageDataAt("autocomplete", state.selection.main.head);
+    const result = source(new CompletionContext(state, state.selection.main.head, true));
+    assert.ok(result);
+    assert.deepEqual(result.options.map(option => [option.label, option.sortText, option.type, option.detail]), [
+        ["name", "0", "parameter", "string"],
+        ["acc", "1", "parameter", "string"],
+        ["octave", "2", "parameter", "number"],
+        ["color", "3", "parameter", "string"],
+    ]);
 });
 
 test("full function docs include aliases, parameter metadata and examples", () => {

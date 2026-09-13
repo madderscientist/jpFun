@@ -1,4 +1,4 @@
-import { acceptCompletion, autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
+import { acceptCompletion, autocompletion, closeBrackets, closeBracketsKeymap, type Completion, completionKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { bracketMatching } from "@codemirror/language";
 import { lintGutter, setDiagnostics } from "@codemirror/lint";
@@ -86,6 +86,14 @@ function toggleLineWrapping(view: EditorView) {
     return true;
 }
 
+function renderParameterIndex(completion: Completion) {
+    if (completion.type !== "parameter" || completion.sortText === undefined) return null;
+    const element = document.createElement("span");
+    element.className = "cm-jpfun-completion-index";
+    element.textContent = `${Number(completion.sortText) + 1}.`;
+    return element;
+}
+
 const editorTheme = EditorView.theme({
     "&": {
         height: "100%",
@@ -170,6 +178,14 @@ const editorTheme = EditorView.theme({
     ".cm-searchMatch-selected": {
         backgroundColor: "color-mix(in srgb, var(--accent) 38%, transparent)",
     },
+    ".cm-completionIcon-parameter": { display: "none" },
+    ".cm-jpfun-completion-index": {
+        display: "inline-block",
+        width: "1.8em",
+        paddingRight: "0.4em",
+        textAlign: "right",
+        opacity: "0.7",
+    },
     ".cm-tooltip": { border: "1px solid var(--line)", backgroundColor: "var(--surface)" },
 });
 
@@ -188,7 +204,10 @@ export function createSourceEditor(options: SourceEditorOptions): EditorView {
                 EditorState.allowMultipleSelections.of(true),
                 bracketMatching(),
                 closeBrackets(),
-                autocompletion({ defaultKeymap: false }),
+                autocompletion({
+                    defaultKeymap: false,
+                    addToOptions: [{ position: 20, render: renderParameterIndex }],
+                }),
                 // VS Code 风格：Tab 接受补全，回车留给换行；补全未打开时 Tab 会落到 indentWithTab
                 Prec.highest(keymap.of([
                     ...completionKeymap.filter(binding => binding.key !== "Enter"),
