@@ -3,6 +3,7 @@ export * from "./pipeline.js";
 export * from "./functions/ASTtypes.js";
 export * from "./functions/temporal.js";
 export * from "./functions/default.js";
+export { transformNotes, type NoteTransform, type SourceEdit } from "./functions/note/index.js";
 
 export * from "./diagnostic.js";
 export * from "./fraction.js";

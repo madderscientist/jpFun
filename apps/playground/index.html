@@ -36,6 +36,16 @@
                         </button>
                     </div>
                     <div class="pane-toolbar-actions">
+                        <div class="zoom-control">
+                            <button class="tool-button pitch-button" id="pitchButton" type="button" aria-label="音高变换" title="音高变换" aria-haspopup="menu" aria-expanded="false" aria-controls="pitchMenu">♯</button>
+                            <div class="zoom-menu" id="pitchMenu" role="menu" aria-label="音高变换" hidden>
+                                <button type="button" role="menuitem" data-note-transform="to-absolute">转为绝对音高</button>
+                                <button type="button" role="menuitem" data-note-transform="to-relative">转为相对音高</button>
+                                <div class="zoom-menu-separator" role="separator"></div>
+                                <button type="button" role="menuitem" data-note-transform="semitone-up">升半音</button>
+                                <button type="button" role="menuitem" data-note-transform="semitone-down">降半音</button>
+                            </div>
+                        </div>
                         <label class="auto-format"><input id="autoFormat" type="checkbox" checked /><span>自动格式化</span></label>
                         <span class="source-size" id="sourceSize">0 字符</span>
                         <a class="docs-link" href="../docs/" target="_blank" rel="noopener noreferrer" aria-label="打开帮助文档" title="帮助文档">?</a>

@@ -1,8 +1,41 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { history, undo } from "@codemirror/commands";
+import { history, undo, redo } from "@codemirror/commands";
 import { EditorSelection, EditorState, StateField } from "@codemirror/state";
 import { insertFormattedNewline, jpFunLanguage } from "../jpfun-language.ts";
+import { applySourceEdits } from "../editor.ts";
+
+test("source edits form one isolated undo step and map multiple selections", () => {
+    const editor = editorFor("1 3", [1, 3]);
+    editor.dispatch(editor.state.update({ changes: { from: 3, insert: " 7" }, userEvent: "input.type" }));
+    const original = editor.state.doc.toString();
+    assert.equal(applySourceEdits(editor, original, [
+        { span: { start: 0, end: 1 }, text: "C4" },
+        { span: { start: 2, end: 3 }, text: "E4" },
+        { span: { start: 4, end: 5 }, text: "B4" },
+    ]), true);
+    assert.equal(editor.state.doc.toString(), "C4 E4 B4");
+    assert.deepEqual(editor.state.selection.ranges.map(range => range.head), [2, 5]);
+    editor.dispatch(editor.state.update({ changes: { from: 8, insert: " " }, userEvent: "input.type" }));
+    assert.equal(undo(editor), true);
+    assert.equal(editor.state.doc.toString(), "C4 E4 B4");
+    assert.equal(undo(editor), true);
+    assert.equal(editor.state.doc.toString(), original);
+    assert.equal(redo(editor), true);
+    assert.equal(editor.state.doc.toString(), "C4 E4 B4");
+});
+
+test("source edits refuse stale documents, composition and empty changes", () => {
+    const editor = editorFor("1");
+    const edits = [{ span: { start: 0, end: 1 }, text: "#1" }];
+    assert.equal(applySourceEdits(editor, "2", edits), false);
+    editor.composing = true;
+    assert.equal(applySourceEdits(editor, "1", edits), false);
+    editor.composing = false;
+    assert.equal(applySourceEdits(editor, "1", []), false);
+    assert.equal(editor.state.doc.toString(), "1");
+    assert.equal(undo(editor), false);
+});
 
 function editorFor(doc, positions = [doc.length]) {
     const editor = {

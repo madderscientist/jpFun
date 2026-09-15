@@ -48,6 +48,7 @@ sidebar:
 | 函数文档悬浮 | `syntax.calls` + `def` | `HoverProvider` |
 | 去糖写法悬浮 | `compileScore().ast` | 同上 |
 | 去糖替换 | `node.toString(source)` | `CodeActionProvider`（见下） |
+| 音高变换 | `transformNotes(source, compiled.lowering, operation)` | `CodeActionProvider` + `WorkspaceEdit` |
 | 标签跳转定义 | `syntax.tokens` + `ASTLabelNode.target` | `DefinitionProvider` |
 | 标签重命名 | `syntax.tokens` | `RenameProvider` |
 | 诊断 | `compiled.diagnostics` + 抛出的错误 | `DiagnosticCollection` |
@@ -63,6 +64,14 @@ sidebar:
 playground 将源码与播放、谱面与诊断组织为两组视图。视图切换只改变展示和按需计算时机，不改变文档内容；桌面拆分布局与移动端上下布局共用这些状态。
 
 布局选择、编辑器宽度、主题等偏好保存在 `localStorage` 中，存储不可用时退化为会话内状态。编译状态与统计来自当前结果，播放状态来自独立的计划和调度器。持久化失败或设备不可用不应阻断源码编辑与排版。
+
+## 音高变换
+
+源码工具栏的音高菜单提供转绝对音高、转相对音高、升半音和降半音。有选区时只处理被选区完整覆盖的音符，支持多个选区；没有选区时处理整篇。互转保持实际音高；升降半音保持原来的绝对或相对表示，全部调号不变。休止符、占位符和打击音不参与变换，颤音等派生音继续按原调号生成。
+
+`transformNotes` 由 note 模块提供，读取同一源码版本的 lowering，返回基于原始偏移的 `{ span, text }[]`。函数形式与简写形式保留，显式调用只修改音高参数值；低八度逗号需要保护时使用引号或大括号，例如 `@n(C3)` 转成 `@n("1,")`，`@div(C3, 1)` 转成 `@div({1,}, 1)`。默认参数只在当前音符局部覆盖，不修改 `@set`。
+
+playground 在执行前确认编译结果未过期，候选源码编译成功后用一次 CodeMirror 事务提交全部 edits，并隔离前后的撤销历史。光标和选区沿修改映射，文件关联不变；文档变化继续触发现有的脏状态、预览与播放失效流程。输入法组合期间不执行变换，失败时保留当前文档。
 
 ## 语法着色
 

@@ -11,6 +11,7 @@
 import type { MidiJson, MidiJsonInstrument, MidiJsonNote, MidiJsonTrack } from "./json.js";
 import { identifyTriplets, type TripletMark } from "./triplet.js";
 import { attachAbove, quote, renderHead, renderPitch, renderSystems, type PitchMode } from "../source.js";
+import { SHARP_NOTE_NAMES as ABSOLUTE_NAMES } from "../../parser/parse-utils/note-utils.js";
 
 export type * from "./json.js";
 
@@ -93,7 +94,6 @@ const AUTO_LINE_LIMIT_RATIO = 1.25;
 const AUTO_LINE_UNDERFILL_PENALTY = 4;
 const AUTO_LINE_MAX_BARS = 8;
 const RELATIVE_NAMES = ["1", "1#", "2", "2#", "3", "4", "4#", "5", "5#", "6", "6#", "7"] as const;
-const ABSOLUTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
 
 function expectSafeInteger(value: number, name: string, min = 0, max = Number.MAX_SAFE_INTEGER) {
     if (!Number.isSafeInteger(value) || value < min || value > max) {

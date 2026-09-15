@@ -424,6 +424,7 @@ button:focus-visible, [tabindex]:focus-visible {
     cursor: pointer;
 }
 .tool-button:hover { color: var(--ink); background: var(--hover); }
+.pitch-button { width: 30px; padding: 0; font-size: 20px; }
 .zoom-control, .export-control { position: relative; }
 .zoom-button { min-width: 52px; font-family: "Cascadia Mono", monospace; }
 .zoom-menu, .export-menu {

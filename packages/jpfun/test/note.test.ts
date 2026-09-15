@@ -1,11 +1,136 @@
 import { test } from "node:test";
+import strictAssert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import type { ASTFunctionNode } from "../src/functions/ASTtypes.js";
 import { layoutDocument } from "../src/layout/engine.js";
 import { isVisualTemporalNode, type VisualTemporalNode } from "../src/functions/temporal.js";
 import type { PathCommand } from "../src/render/types.js";
 import { compileScore } from "../src/pipeline.js";
+import { transformNotes, type NoteTransform } from "../src/functions/note/index.js";
 import { assert, expectCompileError, layoutContext, layoutOf, lower, nearly, recordCommands } from "./helpers.js";
+
+function transformed(source: string, operation: NoteTransform) {
+    let result = source;
+    for (const { span, text } of transformNotes(source, lower(source), operation).reverse()) {
+        result = result.slice(0, span.start) + text + result.slice(span.end);
+    }
+    return result;
+}
+
+function noteFacts(source: string) {
+    return [...lower(source).astToTemporal.values()].flat()
+        .filter(node => "resolvedMidi" in node)
+        .sort((left, right) => left.ast.sourceSpan.start - right.ast.sourceSpan.start)
+        .map(node => ({ midi: (node as typeof node & { resolvedMidi: number | null }).resolvedMidi,
+            time: node.t.toString(), duration: node.T.toString() }));
+}
+
+test("shorthand accidentals override defaults even when empty", () => {
+    const source = '@set(note.acc=#) 1 C4 #1 C#4 b1 Cb4 n1 Cn4 @n(1) @n(C4)';
+    strictAssert.deepEqual(noteFacts(source).map(note => note.midi), [60, 60, 61, 61, 59, 59, 60, 60, 61, 61]);
+    const notes = [...compileScore(source).lowering.astToTemporal.values()].flat()
+        .filter(node => "resolvedMidi" in node);
+    strictAssert.equal((notes[0] as typeof notes[number] & { acc: string }).acc, "");
+    strictAssert.equal(transformed("@set(note.acc=#) 3", "semitone-up"), "@set(note.acc=#) 4");
+    strictAssert.equal(transformed("@set(note.acc=#) C4", "to-relative"), "@set(note.acc=#) 1");
+    strictAssert.equal(transformed("@set(note.acc=#) @n(C4)", "semitone-up"), '@set(note.acc=#) @n(D4, acc="")');
+});
+
+test("note source transformations preserve shorthand and call arguments", () => {
+    const selected = (source: string, ranges: { start: number; end: number }[], operation: NoteTransform = "to-absolute") => {
+        let result = source;
+        const edits = transformNotes(source, lower(source), operation, ranges);
+        for (const { span, text } of edits.reverse()) result = result.slice(0, span.start) + text + result.slice(span.end);
+        return result;
+    };
+    strictAssert.equal(selected("123", [{ start: 1, end: 2 }]), "1D4 3");
+    strictAssert.equal(selected("C4D4", [{ start: 2, end: 4 }], "to-relative"), "C4 2");
+    strictAssert.equal(selected("123", [{ start: 0, end: 1 }, { start: 2, end: 3 }]), "C4 2E4");
+    strictAssert.equal(selected("C#4", [{ start: 1, end: 3 }], "to-relative"), "C#4");
+    strictAssert.equal(selected("123", []), "123");
+    strictAssert.equal(selected("123", [{ start: 1, end: 1 }]), "123");
+    strictAssert.equal(selected("@key(D4) @div(1,1) 2", [{ start: 9, end: 18 }]), "@key(D4) @div(D4,1) 2");
+    for (const [source, expected] of [
+        ["C#4", "#1"],
+        ["@div(C#4)", "@div(#1)"],
+        ['@n("C#4", color=red)', '@n("#1", color=red)'],
+        ["@n(C, acc=#, octave=4)", "@n(1, acc=#, octave=0)"],
+        ["@n(C3)", '@n("1,")'],
+        ["@div(C3, 1)", "@div({1,}, 1)"],
+    ]) {
+        const result = transformed(source, "to-relative");
+        assert(result === expected, `${source}: ${result} != ${expected}`);
+        strictAssert.deepEqual(noteFacts(result), noteFacts(source));
+    }
+});
+
+test("note transformations preserve pitches, timing, defaults and JE scopes", () => {
+    const sources = [
+        "1234567 #1 b3 7' 1,, 0 Z 8 9 X",
+        "C0 C-1 C+2 C4D4E4 F#4 Bb3 B#4 Cb4",
+        "@key(D3) 1 #2 b7 C#4 C4 @key(Bb4) 1 F4",
+        "@key(5) 1 2 C4 G4",
+        "(1 [2] 3) (C4 [D4] E4)",
+        '@set(note.acc=#) 1 C4 #2 D#4 n3 @n(C4) @n("C#4", acc=b)',
+        '@set(note.name=C4, note.octave=3, note.acc=b) @n() @n(acc=#) @n(name=D, octave=4)',
+        '@n(C4, name=D4, name=E4, acc=#, acc=b) @n(C4, , 4, red)',
+        '@up(C3,E3) @div(C3,1) @div({C3 D3},1)',
+        '1/ ^ 3 _ 5 {C3 D3}>E3 C4<{D4 E4} 1@a 1@b @tie(a,b)',
+        'N: C4 D4 | E4 F4\nL: "C4 D4"\nN: G3 A3 | B3 C4',
+        '@key(F#3) @voices(@voice({C3 E3}), @voice({1 3}))',
+    ];
+    for (const source of sources) {
+        const facts = noteFacts(source);
+        for (const operation of ["to-absolute", "to-relative", "semitone-up", "semitone-down"] as const) {
+            const result = transformed(source, operation);
+            const delta = operation === "semitone-up" ? 1 : operation === "semitone-down" ? -1 : 0;
+            strictAssert.deepEqual(noteFacts(result), facts.map(note => ({ ...note,
+                midi: note.midi === null ? null : note.midi + delta })), `${operation}: ${source} -> ${result}`);
+        }
+        strictAssert.deepEqual(noteFacts(transformed(transformed(source, "to-relative"), "to-absolute")), facts);
+    }
+});
+
+test("semitones prefer simple spellings and leave unrelated source untouched", () => {
+    strictAssert.equal(transformed("3 7 B4 E4", "semitone-up"), "4 1' C5 F4");
+    strictAssert.equal(transformed("1 4 C4 F4", "semitone-down"), "7, 3 B3 E4");
+    strictAssert.equal(transformed("@key(D4) 3 7", "semitone-up"), "@key(D4) 4 1'");
+    const source = 'H.signature: 1=C4 4/4\nN: @n( C4 , color = red )/ 3@a 0 X\nL: C4\n% C4 #1';
+    strictAssert.equal(transformed(source, "semitone-up"),
+        'H.signature: 1=C4 4/4\nN: @n( C#4 , color = red )/ 4@a 0 X\nL: C4\n% C4 #1');
+    strictAssert.equal(transformed("@div(C3,1)", "to-relative"), "@div({1,},1)");
+    strictAssert.equal(transformed("C4D4", "to-relative"), "12");
+    strictAssert.equal(transformed("0 Z 8 9 X @key(D) 123", "to-relative"), "0 Z 8 9 X @key(D) 123");
+});
+
+test("note conversion round trips across keys and accidental spellings", () => {
+    for (const key of ["C", "C#", "Db", "D", "Eb", "E", "F", "F#", "Gb", "G", "Ab", "A", "Bb", "B", "5"]) {
+        const source = `@key(${key}3) ` + ["1", "2", "3", "4", "5", "6", "7"].flatMap(name =>
+            ["", "#", "b", "##", "bb"].flatMap(acc => [",", "", "'"].map(octave => acc + name + octave))).join(" ");
+        const facts = noteFacts(source);
+        strictAssert.deepEqual(noteFacts(transformed(source, "to-absolute")), facts, key);
+        strictAssert.deepEqual(noteFacts(transformed(transformed(source, "to-absolute"), "to-relative")), facts, key);
+        strictAssert.deepEqual(noteFacts(transformed(transformed(source, "semitone-up"), "semitone-down")), facts, key);
+    }
+});
+
+test("real score transformations preserve every note and its timing", () => {
+    for (const name of ["Air on the G string", "Time Flows Ever Onward"]) {
+        const source = readFileSync(new URL(`../../../apps/docs/src/data/${name}.jpfun`, import.meta.url), "utf8");
+        const facts = noteFacts(source);
+        const relative = transformed(source, "to-relative");
+        strictAssert.deepEqual(noteFacts(relative), facts, name);
+        strictAssert.deepEqual(noteFacts(transformed(relative, "to-absolute")), facts, name);
+        strictAssert.deepEqual(noteFacts(transformed(source, "semitone-up")), facts.map(note => ({ ...note,
+            midi: note.midi === null ? null : note.midi + 1 })), name);
+    }
+});
+
+test("ambiguous or recovered note input fails without partial edits", () => {
+    for (const source of ["1 @note(C, octave=bad)", "@note(C, octave=0.5)", "1 @note()"])
+    strictAssert.throws(() => transformNotes(source, compileScore(source).lowering, "semitone-up"), source);
+});
 
 /** 固定图形只给出路径命令，取包围盒才能和数字盒比较位置 */
 function commandBounds(commands: readonly PathCommand[]) {

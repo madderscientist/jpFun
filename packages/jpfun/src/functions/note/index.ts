@@ -5,6 +5,22 @@ import { GrammarCallNodeTyped, type GrammarNode, type GrammarSugarNode } from ".
 import type { LayoutBox, LayoutDecoration, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
 import { paintAccidental, placeAccidentals, type PlacedAccidental } from "./accidentals.js";
+import type { LoweringResult } from "../../lowering/types.js";
+import { rewriteNotes, type NoteTransform, type SourceEdit } from "./source-transform.js";
+
+export type { NoteTransform, SourceEdit } from "./source-transform.js";
+
+/** 根据同一源码的 lowering 生成局部修改；传入 ranges 时只处理完整落入任一选区的音符 */
+export function transformNotes(source: string, lowering: LoweringResult, operation: NoteTransform, ranges?: readonly SourceSpan[]): SourceEdit[] {
+    const error = lowering.diagnostics.find(item => item instanceof ErrorDiagnostic);
+    if (error) throw error;
+    const notes = [...lowering.astToTemporal.values()].flat()
+        .filter((node): node is NoteTemporalNode => node instanceof NoteTemporalNode);
+    const invalid = lowering.diagnostics.find(item => notes.some(note =>
+        item.span.start < note.ast.sourceSpan.end && item.span.end > note.ast.sourceSpan.start));
+    if (invalid) throw invalid;
+    return rewriteNotes(source, notes, operation, ranges);
+}
 
 const JE_OCTAVE_OFFSET = "note.jeOctaveOffset";
 
@@ -116,9 +132,12 @@ class NoteFunction extends ASTFunctionNode {
 
     // JE 八度偏移量
     jeOctaveOffset: number;
+    // 源码改写时判断是否需要覆盖默认升降号
+    readonly hasDefaultAcc: boolean;
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
+        this.hasDefaultAcc = Boolean(ctx.variables["note.acc"]);
         [this.name, this.acc, this.octave, this.color] = this.getArgValue(args, ctx) as [string, string, number, string];
         this.font = ctx.variables.numberfont;
         this.size = ctx.variables.fontsize;
@@ -177,6 +196,7 @@ class NoteTemporalNode extends TemporalNodeBase {
 
     // 时间固化后的参数
     resolvedMidi: number | null = null; // MIDI音高 name是数字则需要在onTimeState中基于当前调性偏移 播放的音高
+    keySignature = "C4";    // 用于转调时记录大环境
     transposeDiatonic: ((steps: number) => number) | undefined;
     name: string;     // 数字
     acc: string;      // 升降号
@@ -322,7 +342,7 @@ class NoteTemporalNode extends TemporalNodeBase {
 
     /** 固化记谱位置的音高、力度和音色，并保留基于该调性的相对移调能力 */
     override onTimeState(state: TimeState) {
-        const keySignature = state.keySignature;
+        const keySignature = this.keySignature = state.keySignature;
         this.playbackState = { bpm: state.bpm, velocity: state.velocity, program: state.program };
         this.resolvedMidi = resolveNoteMidi(this.name, this.acc, this.octave, keySignature);
         this.transposeDiatonic = createDiatonicTranspose(this.name, this.acc, this.octave, keySignature);

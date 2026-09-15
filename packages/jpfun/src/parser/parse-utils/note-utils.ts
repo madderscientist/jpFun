@@ -1,5 +1,8 @@
 import { Diagnostic } from "../../diagnostic.js";
 
+export const SHARP_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
+export const FLAT_NOTE_NAMES = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"] as const;
+
 /** 同一音高的两种拼写升在前、降在后，反查拼写时依赖这个顺序 */
 export const NoteNameMap: Record<string, number> = {
     "C": 0,

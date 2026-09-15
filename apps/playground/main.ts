@@ -5,7 +5,9 @@ import {
     ErrorDiagnostic,
     compilePlayback,
     compileScore,
+    transformNotes,
     type CompileScoreResult,
+    type NoteTransform,
 } from "jpfun";
 import { createDiagnosticsController } from "./diagnostics.js";
 import {
@@ -13,7 +15,7 @@ import {
     loadDraftSource,
 } from "./document.js";
 import { PLAYGROUND_EXAMPLE } from "./example.js";
-import { createSourceEditor, revealSourcePosition } from "./editor.js";
+import { applySourceEdits, createSourceEditor, revealSourcePosition } from "./editor.js";
 import { publishSemanticAst } from "./jpfun-language.js";
 import { createDropdown, readStoredValue, requiredElement, storeValue } from "./platform.js";
 import {
@@ -68,6 +70,7 @@ let scoreDiagnostics: Diagnostic[] = [];
 let playbackDiagnostics: Diagnostic[] = [];
 // 排版必须按最终绘制的字体测量，否则字形宽度会与盒子对不上
 const textMeasurer = new CanvasTextMeasurer(document.createElement("canvas").getContext("2d")!);
+const compileOptions = { variables: { fontsize: DEFAULT_FONT_SIZE }, rowGap: 18, textMeasurer };
 initializeTheme();
 const editor = createSourceEditor({
     parent: editorHost,
@@ -302,11 +305,7 @@ function compileAndRender(): boolean {
     const startedAt = performance.now();
     const sourceText = source();
     try {
-        const compiled = compileScore(sourceText, {
-            variables: { fontsize: DEFAULT_FONT_SIZE },
-            rowGap: 18,
-            textMeasurer,
-        });
+        const compiled = compileScore(sourceText, compileOptions);
         latestCompiled = compiled;
         latestCompiledSource = sourceText;
         scoreDiagnostics = [...compiled.diagnostics];
@@ -364,6 +363,44 @@ const storedExportPpi = readStoredValue("jpfun-export-ppi");
 if (storedExportPpi !== null) exportPpiInput.value = storedExportPpi;
 normalizedExportPpi();
 exportPpiInput.addEventListener("change", normalizedExportPpi);
+/** 先验证候选源码再提交；失败时保留当前文档和预览，成功后沿用正常编辑失效流程 */
+function runNoteTransform(operation: NoteTransform) {
+    if (editor.composing) return;
+    const ranges = editor.state.selection.ranges.filter(range => !range.empty)
+        .map(range => ({ start: range.from, end: range.to }));
+    window.clearTimeout(renderTimer);
+    const original = source();
+    if ((!latestCompiled || latestCompiledSource !== original) && !compileAndRender()) return;
+    if (!latestCompiled) return;
+    try {
+        const edits = transformNotes(original, latestCompiled.lowering, operation, ranges.length ? ranges : undefined);
+        if (!edits.length) {
+            statusMessage.textContent = "音高无需修改";
+            return;
+        }
+        const candidate = edits.reduceRight((text, edit) =>
+            text.slice(0, edit.span.start) + edit.text + text.slice(edit.span.end), original);
+        const checked = compileScore(candidate, compileOptions);
+        const error = checked.diagnostics.find(item => item instanceof ErrorDiagnostic);
+        if (error) throw error;
+        applySourceEdits(editor, original, edits);
+        editor.focus();
+    } catch (error) {
+        statusMessage.dataset.state = "error";
+        statusMessage.textContent = "音高变换失败";
+        statusMessage.title = formatError(error);
+    }
+}
+
+const pitchMenu = requiredElement<HTMLElement>("#pitchMenu");
+const closePitchMenu = createDropdown(requiredElement<HTMLButtonElement>("#pitchButton"), pitchMenu);
+for (const button of pitchMenu.querySelectorAll<HTMLButtonElement>("[data-note-transform]")) {
+    button.addEventListener("click", () => {
+        closePitchMenu();
+        runNoteTransform(button.dataset.noteTransform as NoteTransform);
+    });
+}
+
 const closeExportMenu = createDropdown(exportButton, exportMenu);
 
 for (const button of exportFormatButtons) {

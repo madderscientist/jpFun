@@ -1,5 +1,5 @@
 import { acceptCompletion, autocompletion, closeBrackets, closeBracketsKeymap, type Completion, completionKeymap } from "@codemirror/autocomplete";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory } from "@codemirror/commands";
 import { bracketMatching } from "@codemirror/language";
 import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
@@ -19,12 +19,23 @@ import {
     rectangularSelection,
     ViewPlugin,
 } from "@codemirror/view";
-import { Diagnostic, ErrorDiagnostic } from "jpfun";
+import { Diagnostic, ErrorDiagnostic, type SourceEdit } from "jpfun";
 import { insertFormattedNewline, jpFunLanguage, labelJumped } from "./jpfun-language.js";
 
 export interface SourceRange {
     from: number;
     to: number;
+}
+
+/** 同一源码版本的局部修改一次提交；选区由 ChangeSet 映射，撤销与前后键入隔离 */
+export function applySourceEdits(editor: EditorView, source: string, edits: readonly SourceEdit[]): boolean {
+    if (editor.composing || editor.state.doc.toString() !== source || edits.length === 0) return false;
+    editor.dispatch(editor.state.update({
+        changes: edits.map(({ span, text }) => ({ from: span.start, to: span.end, insert: text })),
+        annotations: isolateHistory.of("full"),
+        userEvent: "input.transform",
+    }));
+    return true;
 }
 
 interface SourceEditorOptions {
