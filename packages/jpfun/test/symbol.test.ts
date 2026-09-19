@@ -1,6 +1,8 @@
 import { test } from "node:test";
 
 import { DEFAULT_VELOCITY, TemporalNodeBase } from "../src/functions/temporal.js";
+import { symbolBounds, type SymbolShape } from "../src/functions/symbol/shape.js";
+import { fermataSymbol } from "../src/functions/symbol/symbols/fermata.js";
 import { analyzeScoreSyntax, compileScore } from "../src/pipeline.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import { assert, expectDiagnostic, layoutOf, lower, nearly, parse, playedNotes, recordCommands } from "./helpers.js";
@@ -333,9 +335,22 @@ test("内置 symbol 使用固定图形生成稳定几何和绘制命令", () => 
 
 test("包围盒取曲线真实极值，宽扁符号用 weight 修正视觉重量", () => {
     // 延长记号的两段弧若按控制点求边界会把高度高估三分之一
-    const fermata = layoutOf(`$fermata`).objects[0].box;
-    assert(nearly(fermata.h, 11 * 0.6), "延长记号的高度应是 size 乘以自己的 weight");
-    assert(fermata.w / fermata.h > 2, "延长记号是宽扁字形，真实包围盒的宽高比应大于 2");
+    const layout = layoutOf(`$fermata`);
+    const fermata = layout.objects[0].box;
+    const painted = symbolBounds(recordCommands(layout).flatMap<SymbolShape>(command => {
+        if (command.kind === "path") return [{ path: command.commands, style: command.style ?? {} }];
+        if (command.kind === "circle") return [{
+            circle: { cx: command.cx, cy: command.cy, r: command.r },
+            style: command.style ?? {},
+        }];
+        return [];
+    }));
+    const scale = 11 * 0.6 / symbolBounds(fermataSymbol.shapes!).h;
+    const padding = (fermataSymbol.paddingBottom ?? 0) * scale;
+    assert(nearly(painted.h, 11 * 0.6), "延长记号的图形高度应是 size 乘以自己的 weight");
+    assert(painted.w / painted.h > 2, "延长记号是宽扁字形，图形边界的宽高比应大于 2");
+    assert(padding > 0 && nearly(fermata.h, painted.h + padding), "占位应包含按图形比例缩放的底部留白");
+    assert(nearly(painted.y, fermata.y) && nearly(painted.w, fermata.w), "底部留白不应移动或拉伸图形");
 
     const tr = layoutOf(`$tr`).objects[0].box;
     assert(nearly(tr.h, 11), "未声明 weight 的符号高度应等于 size");

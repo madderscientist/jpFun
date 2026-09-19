@@ -241,7 +241,7 @@ class NoteTemporalNode extends TemporalNodeBase {
         const mainMetrics = context.textMeasurer.measureText("0", this.numberStyle);
 
         const dotCount = Math.abs(this.octave);
-        this.octaveDotRadius = size * 0.065;
+        this.octaveDotRadius = size * 0.075;
         const dotGap = size * 0.08;
         const dotStep = this.octaveDotRadius * 2 + dotGap;
         const octaveSpace = dotCount === 0

@@ -44,6 +44,8 @@ export interface SymbolDefinition {
 
     /** 符号高度 = size × weight，用来修正宽扁字形的视觉重量；默认 1 */
     readonly weight?: number;
+    /** 图形下方留白，使用符号自身坐标并随 scale 缩放；默认 0 */
+    readonly paddingBottom?: number;
     /** 写入本位置之后持续生效的状态，例如力度记号的 velocity */
     readonly onTimeState?: (state: TimeState) => void;
     /** 发布系统控制，或注册对同一折叠序列后续音符的局部变换 */
@@ -175,7 +177,7 @@ class SymbolTemporal extends TemporalNodeBase implements PlaybackFlow {
         } else {
             this.scale = this.height / this.bounds.h;
             this.box.w = this.bounds.w * this.scale;
-            this.box.h = this.height;
+            this.box.h = this.height + (this.ast.definition.paddingBottom ?? 0) * this.scale;
         }
         this.box.anchor = this.box.w / 2;
         this.box.visualAxis = this.box.h / 2;

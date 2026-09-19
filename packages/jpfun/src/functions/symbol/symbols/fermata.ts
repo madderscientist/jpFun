@@ -7,6 +7,7 @@ export const fermataSymbol: SymbolDefinition = {
     name: "fermata",
     description: "延长记号：覆盖区间速度减半，目标音实际时长翻倍",
     weight: 0.6,
+    paddingBottom: 3,
     shapes: [
         {
             path: [
