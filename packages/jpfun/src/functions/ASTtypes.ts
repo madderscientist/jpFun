@@ -259,15 +259,12 @@ export class ASTFunctionNode extends ASTNodeBase {
 
     /**
      * 用于语法糖向前结合
-     * 一般向前结合都是寻找brace或者function
-     * 文本节点会打断连接 注意解析时已经跳过了空格 因此允许语法糖之间有空格
+     * 从指定位置向前寻找最后一个可由后缀语法糖包装的节点，跳过不产生语义对象的文本
      */
-    static findLastFuncContentNode(nodes: ASTNodeBase[], i: number): ASTNodeBase | null {
+    static findLastFuncContentIndex(nodes: ASTNodeBase[], i: number): number {
         for (; i >= 0; i--) {
-            const n = nodes[i];
-            if (n instanceof ASTTextNode) return null;
-            if (n instanceof ASTFunctionNode || n instanceof ASTBraceNode) return n;
-        } return null;
+            if (nodes[i] instanceof ASTFunctionNode || nodes[i] instanceof ASTBraceNode) return i;
+        } return -1;
     }
 }
 

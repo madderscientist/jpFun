@@ -2,13 +2,13 @@ import { test } from "node:test";
 import strictAssert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import type { ASTFunctionNode } from "../src/functions/ASTtypes.js";
+import { ASTTextNode, type ASTFunctionNode } from "../src/functions/ASTtypes.js";
 import { layoutDocument } from "../src/layout/engine.js";
 import { isVisualTemporalNode, type VisualTemporalNode } from "../src/functions/temporal.js";
 import type { PathCommand } from "../src/render/types.js";
 import { compileScore } from "../src/pipeline.js";
 import { transformNotes, type NoteTransform } from "../src/functions/note/index.js";
-import { assert, expectCompileError, layoutContext, layoutOf, lower, nearly, recordCommands } from "./helpers.js";
+import { assert, expectCompileError, layoutContext, layoutOf, lower, nearly, parse, recordCommands } from "./helpers.js";
 
 function transformed(source: string, operation: NoteTransform) {
     let result = source;
@@ -90,6 +90,18 @@ test("note transformations preserve pitches, timing, defaults and JE scopes", ()
         }
         strictAssert.deepEqual(noteFacts(transformed(transformed(source, "to-relative"), "to-absolute")), facts);
     }
+});
+
+test("rhythm suffixes skip ignored text nodes", () => {
+    strictAssert.deepEqual(noteFacts("(1)/ (2)."), [
+        { midi: 48, time: "0", duration: "1/2" },
+        { midi: 50, time: "1/2", duration: "3/2" },
+    ]);
+    strictAssert.deepEqual(noteFacts("1 text/"), [
+        { midi: 60, time: "0", duration: "1/2" },
+    ]);
+    strictAssert.deepEqual(parse("1 text/").children?.map(node => node instanceof ASTTextNode ? "text" : "function"),
+        ["function", "text"], "the suffix must replace its target in place and preserve intervening text");
 });
 
 test("semitones prefer simple spellings and leave unrelated source untouched", () => {
