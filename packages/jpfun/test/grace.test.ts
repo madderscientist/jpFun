@@ -1,6 +1,7 @@
 import { test } from "node:test";
 
 import { divLinePortName } from "../src/functions/div/index.js";
+import { GraceTemporal } from "../src/functions/grace/index.js";
 import type { LayoutBox } from "../src/layout/types.js";
 import type { VisualTemporalNode } from "../src/functions/temporal.js";
 import { compilePlayback } from "../src/playback/compile.js";
@@ -129,14 +130,13 @@ test("倚音槽里的零时长标记只随块排版，不承担节奏", () => {
 
     // 标记在视觉上是隔断：它两侧的倚音不是邻居，不能连成一条跨过标记的梁
     const split = layoutGrace(`{2 @key(F) 1}>2`);
-    const splitKey = split.commands
-        .filter(command => command.kind === "text")
-        .find(command => command.text === "1=");
+    const splitKey = (split.result.objects[0] as GraceTemporal).graces[1].box;
     const splitLines = split.commands.filter(command => command.kind === "line");
     assert(split.result.attachments.length === 0,
         "a mark standing between two grace notes must break the beam run");
-    assert(splitKey !== undefined && splitLines.length === 2
-        && splitLines.every(line => line.x2 < splitKey.x || line.x1 > splitKey.x),
+    assert(splitLines.length === 2
+        && splitLines.every(line => line.x2 < splitKey.x || nearly(line.x2, splitKey.x)
+            || line.x1 > splitKey.x + splitKey.w || nearly(line.x1, splitKey.x + splitKey.w)),
         "each side of the mark keeps its own div line instead of one crossing the mark");
 
     // 隔断只在标记处切一次，标记之后仍然相邻的倚音照常合并
@@ -215,5 +215,22 @@ test("grace 外部标签穿透宿主后仍保留完整关系左操作数", () =>
     ]) {
         assert(layoutOf(source).objects.length > 0,
             `a labeled grace must remain the complete left relation operand: ${source}`);
+    }
+});
+
+test("倚音局部横排保持书写列序，混合时值和零时长标记使用零间隙", () => {
+    for (const source of ["{2 3/ @text(A) 4}>1", "1<{2 3/ @text(A) 4}"]) {
+        const node = layoutOf(source).objects[0];
+        assert(node instanceof GraceTemporal, "expected a grace composite");
+        for (let index = 1; index < node.graces.length; index++) {
+            const previous = node.graces[index - 1].box;
+            assert(nearly(node.graces[index].box.x, previous.x + previous.w),
+                "local columns must remain distinct and touch without duration-dependent gaps");
+        }
+        const width = node.graces.reduce((sum, grace) => sum + grace.box.w, 0);
+        assert(nearly(node.box.w, width + node.host.box.w + node.ast.size * 0.7 * 0.2),
+            "the composite reserves the natural widths and its existing side gap");
+        assert(node.graces.every(grace => (grace.springConfig.alpha_L ?? 0) > 0),
+            "zeroing temporary margins must not clear the members' spring configuration");
     }
 });

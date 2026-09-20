@@ -51,8 +51,6 @@ export interface DocumentLayoutResult {
 interface LayoutLine {
     /** lowering 的结果只保留看得见的列 */
     columns: VisualTemporalNode[][];
-    /** 横向布局 hooks */
-    horizontalLayoutHooks: HorizontalLayoutHookEntry[];
     /** 只包含可见主体的轴局部占用，整个纵向布局中不变 */
     hostExtents: Map<Track, Extent>;
     /**
@@ -161,22 +159,12 @@ export function layoutDocument(
     }
 
     // 2. 横向弹簧布局，得到 box.x
-    const views = buildLineViews(lines, options.globalC);
-    for (const object of objects) object.prepareHorizontal?.(views[object.layoutLine]);
+    const horizontal = lines.map((line, index) => prepareHorizontalLine(line.columns, index, options));
+    const views = horizontal.map(line => line.view);
     for (const attachment of layoutAttachments) attachment.prepareHorizontal?.(views, context);
-    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-        const line = lines[lineIndex];
-        const elements = line.columns.map(column =>
-            column.map(node => layoutElement(node.springConfig, node.box, node, options.globalC))
-        );
-        layoutHorizontal(
-            elements,
-            contentWidth,
-            options,
-            line.horizontalLayoutHooks,
-            0.5,    // 满半行直接撑满
-        );
-        for (const column of line.columns) {
+    for (const line of horizontal) {
+        line.layout(contentWidth, 0.5); // 满半行直接撑满
+        for (const column of line.view.columns) {
             for (const node of column) node.box.x += originX;
         }
     }
@@ -315,7 +303,6 @@ function arrangeBelowDecorations(node: VisualTemporalNode) {
 function splitLayoutLines(result: LoweringResult): LayoutLine[] {
     const createLine = (): LayoutLine => ({
         columns: [],
-        horizontalLayoutHooks: [],
         hostExtents: new Map(),
         attachmentExtents: new Map(),
         attachmentRanges: [],
@@ -361,40 +348,73 @@ function includeTrackExtent(
 }
 
 /**
- * 固化每行的横向拓扑：补齐弹簧配置，并生成交给具体函数的只读视图
+ * 为已完成尺寸准备的成员建立横向视图并注册约束；调用 layout 时才创建输入和执行 hook
+ * compact 只清零本轮自然间隙，保留时值和弹簧配置；局部列顺序由调用方提供
  */
-function buildLineViews(lines: readonly LayoutLine[], force?: number): HorizontalLineView[] {
-    return lines.map((line, index) => {
-        const columnIndex = new Map<LayoutHost, number>();  // 不考虑被折叠的。要查询的话需要从 foldedInto 追溯到宿主
-        const trackRuns = new Map<Track, VisualTemporalNode[]>();
+export function prepareHorizontalLine(
+    columns: readonly (readonly VisualTemporalNode[])[],
+    index: number,
+    options: SolverOptions = {},
+    compact = false,
+) {
+    const hooks: HorizontalLayoutHookEntry[] = [];
+    const columnIndex = new Map<LayoutHost, number>();
+    const trackRuns = new Map<Track, VisualTemporalNode[]>();
 
-        for (let i = 0; i < line.columns.length; i++) {
-            for (const node of line.columns[i]) {
-                columnIndex.set(node, i);
-                completeSpringConfig(node.springConfig, force);
-                const run = trackRuns.get(node.track);
-                if (run) run.push(node);
-                else trackRuns.set(node.track, [node]);
-            }
+    for (let column = 0; column < columns.length; column++) {
+        for (const node of columns[column]) {
+            columnIndex.set(node, column);
+            completeSpringConfig(node.springConfig, options.globalC);
+            const run = trackRuns.get(node.track);
+            if (run) run.push(node);
+            else trackRuns.set(node.track, [node]);
         }
+    }
 
-        return {
-            index,
-            columns: line.columns,
-            trackRuns,
-            columnOf: host => columnIndex.get(host) ?? -1,
-            registerHorizontalLayoutHook(from, to, hook) {
-                const start = columnIndex.get(from);
-                const end = columnIndex.get(to);
-                if (start === void 0 || end === void 0) return;
-                line.horizontalLayoutHooks.push({
-                    start: Math.min(start, end),
-                    end: Math.max(start, end),
-                    hook,
-                });
-            },
-        };
-    });
+    const view: HorizontalLineView = {
+        index,
+        columns,
+        trackRuns,
+        columnOf: host => columnIndex.get(host) ?? -1,
+        registerHorizontalLayoutHook(from, to, hook) {
+            const start = columnIndex.get(from);
+            const end = columnIndex.get(to);
+            if (start === void 0 || end === void 0) return;
+            hooks.push({ start: Math.min(start, end), end: Math.max(start, end), hook });
+        },
+    };
+    for (const column of columns) {
+        for (const node of column) node.prepareHorizontal?.(view);
+    }
+    return {
+        view,
+        layout(limit: number, fillMinRatio?: number) {
+            const elements = columns.map(column => column.map(node => {
+                const element = layoutElement(node.springConfig, node.box, node, options.globalC);
+                if (compact) element.margin_L = element.margin_R = 0;
+                return element;
+            }));
+            layoutHorizontal(elements, limit, options, hooks, fillMinRatio);
+            return elements;
+        },
+    };
+}
+
+/** 局部序列按给定顺序完成尺寸、约束与零间隙自然横排，归零占位左沿并返回完整宽度 */
+export function layoutLocalSequence(nodes: readonly VisualTemporalNode[], context: LayoutPrepareContext): number {
+    if (nodes.length === 0) return 0;
+    for (const node of nodes) prepareLayoutHost(node, context);
+    const line = prepareHorizontalLine(nodes.map(node => [node]), nodes[0].layoutLine, {}, true);
+    const elements = line.layout(Infinity);
+    let left = Infinity;
+    let right = -Infinity;
+    for (const [element] of elements) {
+        const anchor = element.box.x + element.box.anchor;
+        left = Math.min(left, anchor - element.WL);
+        right = Math.max(right, anchor + element.WR);
+    }
+    for (const node of nodes) node.box.x -= left;
+    return right - left;
 }
 
 /** 行距取该行最大字号的 0.75 倍；没有可见对象的行回退到全文档最大字号 */

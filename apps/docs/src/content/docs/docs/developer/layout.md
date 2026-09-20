@@ -106,6 +106,8 @@ place(root, -ext.top)
 
 `HorizontalSpringConfig` 保存 `alpha_L/R`、`mu_L/R`、`beta_L/R` 六个弹簧参数。主体尺寸准备好后，引擎先用 `completeSpringConfig` 补齐默认值，再运行 hook，函数此时可以直接使用这些字段。修改 `alpha` 不会自动重算已经补齐的 `beta`。
 
+`prepareHorizontalLine` 建立一行视图、补齐配置并调用成员的 `prepareHorizontal`，此时只注册约束。返回对象的 `layout` 方法才创建本轮 `LayoutElement`、执行 hook 并求解。全局布局在两步之间调用 attachment 的 `prepareHorizontal`，使其配置修改也进入本轮输入。
+
 每个 attachment 的 `LayoutAttachment.prepareHorizontal` 在整篇布局中只调用一次，收到各谱面行的只读视图 `HorizontalLineView`：
 - `index` 使用与 `host.layoutLine` 相同的行号。
 - `trackRuns` 按列顺序列出同一 Track 上的主体，相邻项就是视觉上的前后邻居。
@@ -123,6 +125,12 @@ place(root, -ext.top)
 3. 求解后把虚拟列的整体位移展开回原列，fixed 内部坐标差保持不变。
 
 定宽 box 使用这套机制冻结内部间隙；固定区域可以嵌套，但不能部分交叉或对相同列声明冲突宽度。
+
+`box` 在 Lowering 退出时把横向注册组合到首成员的回调上，只有全部成员都在当前视图时才注册。hook 先按需执行定宽求解，再给本框首列成员的 `WL`、末列成员的 `WR` 加上 `padding + stroke / 2`。定宽读取内层 hook 已累加的占位，本层留白仍在指定宽度之外。同列其他轨道的对象不增加这层留白，内容盒、端口和时间列保持不变。
+
+`grace` 对倚音序列和宿主单列分别调用 `layoutLocalSequence`：准备尺寸、建立视图、注册约束、创建输入、执行 hook、自然宽度求解。局部列遵循书写顺序；hook 执行前仅把临时 `margin_L/R` 归零，不修改成员的时值或弹簧配置。求解上限为 `Infinity`，不启用撑满，因此无定宽约束时直接采用自然预排列。
+
+局部宽度按最终 `WL/WR` 与锚点位置计算，包含首尾留白；占位左沿归零后，grace 保存内容偏移并沿肩线拼接前后倚音。`onPlaced` 只同步绝对坐标。局部流程不重放全局 attachment 准备，最终附件几何仍在成员放置后生成；box 的纵向边界继续只参与画布范围。
 
 ## 命名端口
 关系函数通过命名端口获取连接位置，不必判断端点是什么类型。端口坐标相对于 `LayoutBox` 左上角：

@@ -2,6 +2,7 @@ import { deepStrictEqual } from "node:assert/strict";
 import { test } from "node:test";
 
 import { DIV_ADDON_KEY } from "../src/functions/div/index.js";
+import { GraceTemporal } from "../src/functions/grace/index.js";
 import { layoutDocument } from "../src/layout/engine.js";
 import type { LayoutAttachment } from "../src/layout/types.js";
 import { isVisualTemporalNode } from "../src/functions/temporal.js";
@@ -39,6 +40,7 @@ test("finalizeLayout sees completed decorations before horizontal preparation", 
 test("repeated placement synchronization and painting do not accumulate offsets", () => {
     const sources = [
         "@adjust(@up(1,3), dx=3px, dy=-4px) 2",
+        "@adjust(@grace(@box(1,padding=5px),{@box({2 3},padding=8px)}),dx=7px,dy=-4px) 2",
         "@adjust({1@a}, dx=5px) 2@b @tie(a,b,height=60px)",
         "@head(left={@text(L)}, center={@box(@text(C))}, right={@text(R)}) @br() 1",
     ];
@@ -52,6 +54,39 @@ test("repeated placement synchronization and painting do not accumulate offsets"
             deepStrictEqual(layout.objects.map(object => ({ ...object.box })), boxes);
         }
     }
+});
+
+test("局部横排先完成全部尺寸，再注册约束、创建零间隙输入并执行 hook", () => {
+    const lowered = lower("@grace(1,{2 3})");
+    const node = lowered.columns.flat().find(item => item instanceof GraceTemporal);
+    assert(node instanceof GraceTemporal, "expected a grace composite");
+    const [first, last] = node.graces;
+    const calls: string[] = [];
+    first.prepareHorizontal = line => {
+        calls.push("prepare");
+        assert(last.box.w > 0 && last.springConfig.alpha_L !== undefined,
+            "all local members must be measured and their spring defaults completed");
+        assert(line.columnOf(first) === 0 && line.columnOf(last) === 1 && first.t.equals(last.t),
+            "local columns must follow written order even when global times coincide");
+        first.springConfig.alpha_R = 99;
+        line.registerHorizontalLayoutHook(first, last, ({ columns, start, end }) => {
+            calls.push("hook");
+            assert(columns[start][0].config.alpha_R === 99,
+                "input creation must follow prepareHorizontal");
+            assert(columns.every(column => column.every(element =>
+                element.margin_L === 0 && element.margin_R === 0
+                && element.duration_L > 0 && element.duration_R > 0)),
+                "hooks must receive zero margins without zeroing duration or stiffness");
+            columns[start][0].WL += 7;
+            columns[end][0].WR += 11;
+        });
+    };
+    layoutDocument(lowered, layoutContext);
+    deepStrictEqual(calls, ["prepare", "hook"]);
+    assert(nearly(first.box.x - node.box.x, 7), "the saved offset must retain the left hook inset");
+    assert(nearly(node.box.w,
+        first.box.w + last.box.w + 18 + node.host.box.w + node.ast.size * 0.7 * 0.2),
+        "the composite must measure both edges of the solved occupancy");
 });
 
 test("综合样例的每个 LayoutBox 都有效且保持横向顺序", () => {

@@ -1,5 +1,5 @@
 import { ErrorDiagnostic } from "../../diagnostic.js";
-import { prepareLayoutHost } from "../../layout/engine.js";
+import { layoutLocalSequence } from "../../layout/engine.js";
 import type { LayoutBox, LayoutPoint, LayoutPrepareContext } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import { Fraction } from "../../fraction.js";
@@ -454,7 +454,7 @@ export class GraceTemporal extends TemporalNodeBase {
     /**
      * 宿主留在轨道基线上，倚音整体抬到它的左上或右上角
      *
-     * 倚音成员之间自己紧排，不参与横向弹簧；整块的宽度计入复合盒，
+    * 成员以零自然间隙执行完整局部横排；含约束留白的宽度计入复合盒，
      * 因此左右邻居会被固有宽度推开，不会在空间紧张时被压穿。
      */
     override prepareLayout(context: LayoutPrepareContext) {
@@ -464,37 +464,31 @@ export class GraceTemporal extends TemporalNodeBase {
             this.host.addon = this.addon;
             this.addon = void 0;
         }
-        for (const grace of this.graces) prepareLayoutHost(grace, context);
-        prepareLayoutHost(this.host, context);
+        const graceWidth = layoutLocalSequence(this.graces, context);
+        const hostWidth = layoutLocalSequence([this.host], context);
 
-        const em = this.ast.size;
-        const graceEm = em * GRACE_SCALE;
-        const memberGap = graceEm * 0.16;
+        const graceEm = this.ast.size * GRACE_SCALE;
         const sideGap = graceEm * 0.2;
         const rise = graceEm * GRACE_RISE;
 
-        let graceWidth = 0;
         let graceAxis = 0;
         let graceHeight = 0;
         // 倚音之间按视觉轴对齐，否则带下八度点的成员会把数字顶得比旁边高
         for (const grace of this.graces) graceAxis = Math.max(graceAxis, grace.box.visualAxis);
         this.graceOffsets = this.graces.map(grace => {
-            const x = graceWidth;
-            graceWidth += grace.box.w + memberGap;
             const y = graceAxis - grace.box.visualAxis;
             graceHeight = Math.max(graceHeight, y + grace.box.h);
-            return { x, y };
+            return { x: grace.box.x, y };
         });
-        if (this.graces.length > 0) graceWidth -= memberGap;
 
         // 倚音贴着宿主的肩线而不是宿主盒顶：宿主本身也是复合体时，
         // 肩线由它转发上来，所以两侧倚音会落在同一高度而不是层层叠高
         const shoulder = this.host.ports[SHOULDER_PORT]?.y ?? 0;
         const graceTop = shoulder - rise - graceHeight;
         const lift = Math.max(0, -graceTop);
-        const graceX = this.side === "pre" ? 0 : this.host.box.w + sideGap;
+        const graceX = this.side === "pre" ? 0 : hostWidth + sideGap;
         this.hostOffset = {
-            x: this.side === "pre" ? graceWidth + sideGap : 0,
+            x: this.host.box.x + (this.side === "pre" ? graceWidth + sideGap : 0),
             y: lift,
         };
         for (const offset of this.graceOffsets) {
@@ -502,7 +496,7 @@ export class GraceTemporal extends TemporalNodeBase {
             offset.y += graceTop + lift;
         }
 
-        this.box.w = this.host.box.w + sideGap + graceWidth;
+        this.box.w = hostWidth + sideGap + graceWidth;
         this.box.h = lift + this.host.box.h;
         this.box.anchor = this.hostOffset.x + this.host.box.anchor;
         this.box.visualAxis = lift + this.host.box.visualAxis;

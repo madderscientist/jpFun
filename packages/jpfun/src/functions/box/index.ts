@@ -84,9 +84,17 @@ class BoxFunction extends ASTFunctionNode {
         return [];
     }
 
-    /** 目标内容完成 lowering 后结束当前 box 作用域 */
+    /** 退出时把注册入口接到首成员；嵌套框按退出顺序由内向外组合 */
     override loweringExit(ctx: LoweringContext) {
-        ctx.endLoweringGroup(this);
+        const attachment = ctx.endLoweringGroup(this).attachment as BoxLayoutAttachment;
+        const first = attachment.temporalMembers[0];
+        if (first) {
+            const prepare = first.prepareHorizontal;
+            first.prepareHorizontal = line => {
+                prepare?.call(first, line);
+                attachment.registerHorizontal(line);
+            };
+        }
         return [];
     }
 
@@ -106,96 +114,85 @@ export const BoxNode: ASTFunctionClass = BoxFunction;
 class BoxLayoutAttachment implements LayoutAttachment {
     layer = "background" as const;
 
-    private readonly temporalMembers: VisualTemporalNode[];
-    /** 写在 box 内的关系对象；lowering 递归中持续加入，因而总在 box 自身之前完成几何 */
-    private readonly childAttachments: LayoutAttachment[];
-    private readonly owner: BoxFunction;
     private fixedStart: VisualTemporalNode | null = null;
     private wallOffset = 0;
     get sourceSpan() { return this.owner.sourceSpan; }
 
     constructor(
-        temporalMembers: VisualTemporalNode[],
-        childAttachments: LayoutAttachment[],
-        owner: BoxFunction,
-    ) {
-        this.temporalMembers = temporalMembers;
-        this.childAttachments = childAttachments;
-        this.owner = owner;
-    }
+        readonly temporalMembers: VisualTemporalNode[],
+        /** 框内关系按 lowering 退出顺序注册，均在本框之前完成几何 */
+        private readonly childAttachments: LayoutAttachment[],
+        private readonly owner: BoxFunction,
+    ) {}
 
-    /** 定宽 box 在成员覆盖的全局列上运行局部墙布局 */
-    prepareHorizontal(context: HorizontalLineView[]) {
-        const layoutLine = this.temporalMembers[0]?.layoutLine;
-        if (layoutLine === void 0) return;
-        if (this.temporalMembers.some(member => member.layoutLine !== layoutLine)) {
+    /** 只在完整包含成员的视图注册；留白和定宽共用同一个由内向外执行的 hook */
+    registerHorizontal(line: HorizontalLineView) {
+        let first = this.temporalMembers[0];
+        if (!first) return;
+        if (this.temporalMembers.some(member => member.layoutLine !== first.layoutLine)) {
             throw new ErrorDiagnostic(
                 "E_BOX_CROSS_LINE",
                 "@box 的内容不能跨越谱面行",
                 this.owner.sourceSpan,
             );
         }
-        if (this.owner.width <= 0) return;
+        let last = first;
 
-        const line = context[layoutLine];
-        if (!line) return;
-        let first: VisualTemporalNode | null = null;
-        let last: VisualTemporalNode | null = null;
-        let firstIndex = Infinity;
-        let lastIndex = -Infinity;
-        let leftInset = 0;
-        let rightInset = 0;
-
-        // 首末列可能同时站着多个声部，取其中最宽的固有半宽
         for (const member of this.temporalMembers) {
             const index = line.columnOf(member);
-            if (index < 0) continue;
-            const left = member.box.anchor;
-            const right = member.box.w - left;
-            if (index < firstIndex) { firstIndex = index; first = member; leftInset = left; }
-            else if (index === firstIndex) leftInset = Math.max(leftInset, left);
-            if (index > lastIndex) { lastIndex = index; last = member; rightInset = right; }
-            else if (index === lastIndex) rightInset = Math.max(rightInset, right);
+            if (index < 0) return;
+            if (index < line.columnOf(first)) first = member;
+            if (index > line.columnOf(last)) last = member;
         }
-        if (!first || !last) return;
-
-        if (this.owner.width < leftInset + rightInset - 1e-6) {
-            throw new ErrorDiagnostic(
-                "E_BOX_WIDTH_TOO_SMALL",
-                "@box 的宽度小于首末元素的固有宽度",
-                this.owner.sourceSpan,
-            );
-        }
+        const { width, padding, stroke } = this.owner;
         line.registerHorizontalLayoutHook(first, last, ({
             columns, rows, start, end, X, fixed, options,
         }) => {
-            if (fixed[start - 1] || fixed[end]) {
-                throw new ErrorDiagnostic(
-                    "E_BOX_CONSTRAINT_CROSSING",
-                    "定宽 @box 可以嵌套，但不能部分交叉",
-                    this.owner.sourceSpan,
+            const edge = (index: number) => columns[index].filter(element =>
+                this.temporalMembers.some(member => member.box === element.box));
+            const left = edge(start);
+            const right = edge(end);
+            if (width > 0) {
+                const leftInset = Math.max(...left.map(element => element.WL));
+                const rightInset = Math.max(...right.map(element => element.WR));
+                if (width < leftInset + rightInset - 1e-6) {
+                    throw new ErrorDiagnostic(
+                        "E_BOX_WIDTH_TOO_SMALL",
+                        "@box 的宽度小于首末元素的固有宽度",
+                        this.owner.sourceSpan,
+                    );
+                }
+                if (fixed[start - 1] || fixed[end]) {
+                    throw new ErrorDiagnostic(
+                        "E_BOX_CONSTRAINT_CROSSING",
+                        "定宽 @box 可以嵌套，但不能部分交叉",
+                        this.owner.sourceSpan,
+                    );
+                }
+                const regionX = X.subarray(start, end + 1);
+                layoutHorizontalRegion(
+                    columns.slice(start, end + 1),
+                    rows,
+                    regionX,
+                    fixed.subarray(start, end),
+                    width,
+                    options,
+                    0,
                 );
+                const actualWidth = regionX[regionX.length - 1] - regionX[0] + leftInset + rightInset;
+                if (Math.abs(actualWidth - width) > 1e-6) {
+                    throw new ErrorDiagnostic(
+                        "E_BOX_CONSTRAINT_CONFLICT",
+                        "多个 @box 为相同内容指定了不同宽度",
+                        this.owner.sourceSpan,
+                    );
+                }
+                this.fixedStart = first;
+                this.wallOffset = -regionX[0];
             }
-            const regionX = X.subarray(start, end + 1);
-            layoutHorizontalRegion(
-                columns.slice(start, end + 1),
-                rows,
-                regionX,
-                fixed.subarray(start, end),
-                this.owner.width,
-                options,
-                0,
-            );
-            const actualWidth = regionX[regionX.length - 1] - regionX[0] + leftInset + rightInset;
-            if (Math.abs(actualWidth - this.owner.width) > 1e-6) {
-                throw new ErrorDiagnostic(
-                    "E_BOX_CONSTRAINT_CONFLICT",
-                    "多个 @box 为相同内容指定了不同宽度",
-                    this.owner.sourceSpan,
-                );
-            }
-            this.fixedStart = first;
-            this.wallOffset = -regionX[0];
+            const inset = padding + stroke / 2;
+            for (const element of left) element.WL += inset;
+            for (const element of right) element.WR += inset;
         });
     }
 
