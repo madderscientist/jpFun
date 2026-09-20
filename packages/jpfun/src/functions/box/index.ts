@@ -24,7 +24,7 @@ class BoxFunction extends ASTFunctionNode {
             },
             {
                 name: "padding",
-                description: "内容到框线的内边距",
+                description: "内容到框线的内边距，负值向内收缩",
                 type: "length" as const,
                 default: {
                     value: 0,
@@ -103,7 +103,7 @@ class BoxFunction extends ASTFunctionNode {
         const [tgt, pad, stroke, width] = this.getArgValue(args, ctx) as [ASTNodeBase, LengthValue, LengthValue, LengthValue];
         tgt.parent = this;
         this.target = tgt;
-        this.padding = Math.max(0, ctx.length2px(pad));
+        this.padding = ctx.length2px(pad);
         this.stroke = Math.max(0, ctx.length2px(stroke));
         this.width = ctx.length2px(width);
     }
@@ -223,6 +223,13 @@ class BoxLayoutAttachment implements LayoutAttachment {
             w: (this.fixedStart ? this.owner.width : rect.w) + inset * 2,
             h: rect.h + inset * 2,
         };
+        if (region.w < stroke || region.h < stroke) {
+            throw new ErrorDiagnostic(
+                "E_BOX_PADDING_TOO_SMALL",
+                "@box 的负内边距使边框宽度或高度小于零",
+                this.owner.sourceSpan,
+            );
+        }
         return {
             regions: [region],
             paint(painter: Painter) {

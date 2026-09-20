@@ -167,6 +167,21 @@ test("box 首尾留白参与横排，嵌套每层只计一次", () => {
     expectLayoutError("@box(@box(1,padding=10px),width=20px)", "E_BOX_WIDTH_TOO_SMALL");
 });
 
+test("负 padding 收窄边框与占位，过量收缩时报错", () => {
+    const baseline = layoutOf("1 @box({2 3},padding=0px,stroke=2px) 4");
+    const narrowed = layoutOf("1 @box({2 3},padding=-2px,stroke=2px) 4");
+    assert(nearly(narrowed.attachments[0].box.w, baseline.attachments[0].box.w - 4)
+        && nearly(narrowed.attachments[0].box.h, baseline.attachments[0].box.h - 4),
+        "negative padding must inset both frame edges");
+    assert(narrowed.objects.every((node, index) =>
+        nearly(node.box.x - baseline.objects[index].box.x, [0, -2, -2, -4][index])
+        && nearly(node.box.w, baseline.objects[index].box.w)
+        && nearly(node.box.h, baseline.objects[index].box.h)),
+        "only external spacing changes; content dimensions and internal spacing stay unchanged");
+    expectLayoutError("@box(1,padding=-100px)", "E_BOX_PADDING_TOO_SMALL");
+    expectLayoutError("@box({1 2},padding=-12px,width=120px)", "E_BOX_PADDING_TOO_SMALL");
+});
+
 test("倚音序列和宿主都预留框占位，前后倚音与嵌套框共用横向约束", () => {
     for (const side of ["pre", "post"]) {
         const layout = layoutOf(`@grace(@box(1,padding=5px,stroke=2px),
