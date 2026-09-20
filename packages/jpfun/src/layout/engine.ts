@@ -163,7 +163,7 @@ export function layoutDocument(
     const views = horizontal.map(line => line.view);
     for (const attachment of layoutAttachments) attachment.prepareHorizontal?.(views, context);
     for (const line of horizontal) {
-        line.layout(contentWidth, 0.5); // 满半行直接撑满
+        line.layout(contentWidth, page.fillRatio);
         for (const column of line.view.columns) {
             for (const node of column) node.box.x += originX;
         }

@@ -31,6 +31,7 @@ export const DEFAULT_PAGE_CONFIG: Readonly<PageConfig> = {
     marginLeft: 40,
     marginRight: 40,
     lineGap: 22,
+    fillRatio: 0.5,
 };
 
 /**
@@ -46,6 +47,7 @@ export function normalizePageConfig(source: Partial<PageConfig> = {}): PageConfi
         marginLeft: Math.max(0, source.marginLeft ?? DEFAULT_PAGE_CONFIG.marginLeft),
         marginRight: Math.max(0, source.marginRight ?? DEFAULT_PAGE_CONFIG.marginRight),
         lineGap: Math.max(0, source.lineGap ?? DEFAULT_PAGE_CONFIG.lineGap),
+        fillRatio: source.fillRatio ?? DEFAULT_PAGE_CONFIG.fillRatio,
     };
 
     if (!Number.isFinite(page.width) || page.width <= 0) {

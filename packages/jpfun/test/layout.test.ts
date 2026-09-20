@@ -148,6 +148,11 @@ test("所有行超过半页时横向撑满，短行保持自然宽度", () => {
     assert(short.at(-1)!.box.x + short.at(-1)!.box.w < 100,
         "a line shorter than half the content area must keep its natural spacing");
 
+    const unfilled = layoutOf(`${page.replace(")", ",fillRatio=1)")}1 2 3 4 @br() 5`)
+        .objects.filter(object => object.layoutLine === 0);
+    assert(unfilled.at(-1)!.box.x + unfilled.at(-1)!.box.w < 190,
+        "fillRatio must control when a line expands to the content width");
+
     const final = layoutOf(`${page}1 2 3 4`).objects;
     assert(nearly(final[0].box.x, 10), "a filled final line must start at the left content edge");
     assert(nearly(final.at(-1)!.box.x + final.at(-1)!.box.w, 190),

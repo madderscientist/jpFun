@@ -66,15 +66,15 @@ class PageNumberAttachment implements LayoutAttachment {
 export class PageFunction extends ASTFunctionNode {
     static override def = {
         name: ["page"],
-        description: "设置文档页面尺寸、边距、最小谱面行间距和页码",
+        description: "设置文档页面",
         details: `\
 ~~~jpfun
 @page(
     width=794px, height=1123px, top=48px, bottom=48px,
-    left=40px, right=40px, gap=1em, numbering="1/1"
+    left=40px, right=40px, gap=1em, numbering="1/1", fillRatio=0.5
 )
 ~~~
-尺寸接受 \`px\` 或 \`em\`。页边距和行距须非负，左右边距之和须小于页宽；固定页高时，上下边距之和也须小于页高。`,
+尺寸接受 \`px\` 或 \`em\`。页边距和行距须非负；左右边距之和须小于页宽，固定页高时上下边距之和须小于页高。`,
         allowExtraArgs: false,
         args: [
             { name: "width", description: "页面宽度，须大于左右页边距之和", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.width) },
@@ -87,6 +87,7 @@ export class PageFunction extends ASTFunctionNode {
             // 单个 1 取当前页；多个 1 中最后一个取总页数
             { name: "numbering", description: "页码格式，空值隐藏；`1` 显示当前页，`1/1` 显示当前页/总页数", type: "string" as const, default: "" },
             { name: "font", description: "页码字体，空值沿用当前字体设置", type: "string" as const, default: "" },
+            { name: "fillRatio", description: "自然宽度达到该比例后撑满", type: "number" as const, default: DEFAULT_PAGE_CONFIG.fillRatio },
         ],
     };
 
@@ -125,6 +126,7 @@ export class PageFunction extends ASTFunctionNode {
         ctx.documentDeclarations["page"] = true;
 
         const values = this.getArgValue(args, ctx);
+        const fillRatio = values.pop() as number;
         this.font = (values.pop() as string) || ctx.variables.font;
         const numbering = values.pop() as string;
         const [width, height, top, bottom, left, right, gap] =
@@ -153,6 +155,7 @@ export class PageFunction extends ASTFunctionNode {
             marginLeft: left,
             marginRight: right,
             lineGap: gap,
+            fillRatio,
         });
         this.numbering = numbering;
     }
@@ -173,8 +176,8 @@ export class PageFunction extends ASTFunctionNode {
 
     override toString() {
         if (!this.config) return "@page()";
-        const { width, height, marginTop, marginBottom, marginLeft, marginRight, lineGap } = this.config;
-        return `@page(width=${width}px, height=${Number.isFinite(height) ? height : 0}px, top=${marginTop}px, bottom=${marginBottom}px, left=${marginLeft}px, right=${marginRight}px, gap=${lineGap}px, numbering=${quote(this.numbering)}, font=${quote(this.font)})`;
+        const { width, height, marginTop, marginBottom, marginLeft, marginRight, lineGap, fillRatio } = this.config;
+        return `@page(width=${width}px, height=${Number.isFinite(height) ? height : 0}px, top=${marginTop}px, bottom=${marginBottom}px, left=${marginLeft}px, right=${marginRight}px, gap=${lineGap}px, numbering=${quote(this.numbering)}, font=${quote(this.font)}, fillRatio=${fillRatio})`;
     }
 }
 

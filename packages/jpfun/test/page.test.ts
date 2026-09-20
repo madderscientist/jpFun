@@ -97,6 +97,17 @@ test("默认页面与配置归一化", () => {
     assert(partialPageConfig.marginTop === 0, "page normalization must clamp provided margins");
     assert(partialPageConfig.marginBottom === DEFAULT_PAGE_CONFIG.marginBottom,
         "page normalization must fill omitted values from the default config");
+    assert(partialPageConfig.fillRatio === 0.5, "page normalization must default fillRatio to 0.5");
+
+    const configuredFill = compileScore(`@page(fillRatio=0.75) 1`);
+    assert(configuredFill.lowering.page?.fillRatio === 0.75,
+        "page declarations must solidify the configured fillRatio");
+    assert(compileScore(`@page(fillRatio=-1) 1`).lowering.page?.fillRatio === -1,
+        "page declarations must allow fillRatio below zero");
+    assert(compileScore(`@page(fillRatio=2) 1`).lowering.page?.fillRatio === 2,
+        "page declarations must allow fillRatio above one");
+    assert(compileScore(`@page(fillRatio=Infinity) 1`).lowering.page?.fillRatio === Infinity,
+        "page declarations must allow an infinite fillRatio");
 });
 
 test("非法页面参数指向它的声明，高度 0 固化为无限", () => {
@@ -105,7 +116,11 @@ test("非法页面参数指向它的声明，高度 0 固化为无限", () => {
     assert(negativeHeightSource.slice(negativeHeightDiagnostic.span.start, negativeHeightDiagnostic.span.end)
         === "@page(height=-1px, gap=5px)", "an invalid page diagnostic must point to the page declaration");
 
-    for (const source of [`@page(top=-1px) 1`, `@page(gap=-1px) 1`, `@page(bottom=15px, numbering="1") 1`]) {
+    for (const source of [
+        `@page(top=-1px) 1`,
+        `@page(gap=-1px) 1`,
+        `@page(bottom=15px, numbering="1") 1`,
+    ]) {
         expectCompileError(source, "E_INVALID_PAGE_CONFIG");
     }
 

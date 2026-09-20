@@ -62,6 +62,7 @@ export interface PageConfig {
     marginLeft: number;
     marginRight: number;
     lineGap: number;     // 相邻谱面行之间的最小空隙
+    fillRatio: number;   // 自然宽度达到版心比例后撑满
 }
 
 /**
