@@ -52,7 +52,7 @@ const pages = renderLayoutPagesToSvg(result.layout);
 | MIDI 转为 jpFun | `jpfun/converter/midi` |
 | MusicXML 转为 jpFun | `jpfun/converter/musicxml` |
 | 编辑器即时语法反馈 | `analyzeScoreSyntax` |
-| 自定义绘制后端 | `compileScore` + `paintLayoutPages` / `Painter` |
+| 自定义绘制后端 | `compileScore` + `paintLayout` / `Painter` |
 
 渲染和播放是两条独立的输出路径：渲染消费布局，播放消费音乐时间数据。`compileScore` 提供两者所需的结果，但不会自动绘制或发声。
 
@@ -280,4 +280,4 @@ const { syntax, diagnostics } = analyzeScoreSyntax(source);
 
 实现自定义函数、编译阶段或渲染后端时，需要进一步理解 AST、Lowering 和 Layout 的契约。下一篇[架构总览](../architecture/)介绍这些表示之间的关系与职责边界。
 
-仓库中的文档网站在构建时调用核心库生成谱例；[在线编辑器](/playground/)展示浏览器中编译、诊断、预览、播放和导出的完整集成，其应用层设计见[编辑器集成](../editor/)。
+仓库中的文档网站在构建时调用核心库生成谱例；[在线编辑器](../../../playground/)展示浏览器中编译、诊断、预览、播放和导出的完整集成，其应用层设计见[编辑器集成](../editor/)。
