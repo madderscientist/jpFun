@@ -16,6 +16,18 @@ export type RecordedPaintCommand =
 export class RecordingPainter implements Painter {
     commands: RecordedPaintCommand[] = [];
 
+    replay(painter: Painter) {
+        for (const command of this.commands) {
+            switch (command.kind) {
+                case "text": painter.drawText(command.text, command.x, command.y, command.style); break;
+                case "line": painter.drawLine(command.x1, command.y1, command.x2, command.y2, command.style); break;
+                case "rect": painter.drawRect(command.x, command.y, command.w, command.h, command.style); break;
+                case "circle": painter.drawCircle(command.cx, command.cy, command.r, command.style); break;
+                case "path": painter.drawPath(command.commands, command.style); break;
+            }
+        }
+    }
+
     drawText(text: string, x: number, y: number, style: TextStyle) {
         this.commands.push({
             kind: "text",

@@ -1,5 +1,8 @@
 import {
+    CanvasPainter,
+    RecordingPainter,
     layoutPageBounds,
+    paintLayoutPages,
     renderLayoutPagesToCanvas,
     renderLayoutPagesToSvg,
     type CompileScoreResult,
@@ -63,6 +66,35 @@ function canvasBlob(canvas: HTMLCanvasElement, format: "png" | "jpeg"): Promise<
             else reject(new Error(`无法生成 ${format.toUpperCase()} 文件`));
         }, `image/${format}`, format === "jpeg" ? 0.95 : void 0);
     });
+}
+
+export async function downloadBitmapPages(layout: CompileScoreResult["layout"], format: "png" | "jpeg", ppi: number) {
+    const pages = layoutPageBounds(layout);
+    const recordings = pages.map(() => new RecordingPainter());
+    paintLayoutPages(layout, recordings);
+    const scale = ppi / CSS_PIXELS_PER_INCH;
+    const canvas = document.createElement("canvas");
+    for (const [index, page] of pages.entries()) {
+        try {
+            canvas.width = Math.max(1, Math.ceil(page.w * scale));
+            canvas.height = Math.max(1, Math.ceil(page.h * scale));
+            const context = canvas.getContext("2d");
+            if (!context) throw new Error("Canvas 2D context is unavailable");
+            if (format === "jpeg") {
+                context.fillStyle = "#ffffff";
+                context.fillRect(0, 0, canvas.width, canvas.height);
+            }
+            context.scale(scale, scale);
+            context.translate(-page.x, -page.y);
+            recordings[index].replay(new CanvasPainter(context));
+            recordings[index].commands.length = 0;
+            const blob = await canvasBlob(canvas, format);
+            savePage(blob, format, index, pages.length);
+        } finally {
+            canvas.width = 1;
+            canvas.height = 1;
+        }
+    }
 }
 
 export function createPreviewController(options: PreviewControllerOptions): PreviewController {
@@ -412,28 +444,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
             return;
         }
 
-        const scale = ppi / CSS_PIXELS_PER_INCH;
-        const contexts = pageBounds.map(page => {
-            const canvas = document.createElement("canvas");
-            canvas.width = Math.max(1, Math.ceil(page.w * scale));
-            canvas.height = Math.max(1, Math.ceil(page.h * scale));
-            const context = canvas.getContext("2d");
-            if (!context) throw new Error("Canvas 2D context is unavailable");
-            if (format === "jpeg") {
-                context.fillStyle = "#ffffff";
-                context.fillRect(0, 0, canvas.width, canvas.height);
-            }
-            context.scale(scale, scale);
-            return context;
-        });
-        renderLayoutPagesToCanvas(result.layout, contexts);
-
-        for (const [index, { canvas }] of contexts.entries()) {
-            const blob = await canvasBlob(canvas, format);
-            savePage(blob, format, index, contexts.length);
-            canvas.width = 1;
-            canvas.height = 1;
-        }
+        await downloadBitmapPages(result.layout, format, ppi);
     }
 
     const closeZoomMenu = createDropdown(zoomButton, zoomMenu);
