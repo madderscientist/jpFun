@@ -264,6 +264,7 @@ class NoteTemporalNode extends TemporalNodeBase {
         // 升降号和附点参与完整盒布局，但不计入数字主体范围，减时线因此只画在数字下
         this.ports["body.left"] = { x: this.box.anchor - mainMetrics.w / 2, y: this.box.visualAxis };
         this.ports["body.right"] = { x: this.box.anchor + mainMetrics.w / 2, y: this.box.visualAxis };
+        this.ports["shoulder"] = { x: this.box.anchor, y: mainY };
 
         // 覆盖 dot 的默认“右边界 + 视觉轴”，让附点贴合数字字形的视觉位置
         this.ports["dot"] = {
