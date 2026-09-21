@@ -53,8 +53,11 @@ export function tonality2Midi(tonality: string, defaultOctave: number): number {
     if (noteValue === undefined) throw Diagnostic.error.InvalidTonality(tonality, { start: 0, end: i });
     // 解析八度
     if (i < tonality.length) {
-        defaultOctave = parseInt(tonality.slice(i), 10);
-        if (isNaN(defaultOctave)) throw Diagnostic.error.InvalidTonality(tonality, { start: i, end: tonality.length });
+        const octave = tonality.slice(i);
+        defaultOctave = Number(octave);
+        if (!/^-?\d+$/.test(octave) || !Number.isSafeInteger(defaultOctave)) {
+            throw Diagnostic.error.InvalidTonality(tonality, { start: i, end: tonality.length });
+        }
     }
     return (defaultOctave + 1) * 12 + noteValue;
 }

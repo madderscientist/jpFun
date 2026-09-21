@@ -79,7 +79,11 @@ class SetFunction extends ASTFunctionNode {
     }
 
     override toString() {
-        return `@set(${Array.from(this.args, ([key, value]) => `${key}=${typeof value === "string" ? quote(value) : value}`).join(", ")})`;
+        return `@set(${Array.from(this.args, ([key, value]) => {
+            const text = typeof value === "string" ? quote(value)
+                : value && typeof value === "object" && "unit" in value ? `${value.value}${value.unit}` : value;
+            return `${key}=${text}`;
+        }).join(", ")})`;
     }
 }
 

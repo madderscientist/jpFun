@@ -107,9 +107,19 @@ class MeterFunction extends ASTFunctionNode {
             measureStart.copyFrom(end);
         };
 
+        const metersByHost = new Map<TemporalNodeBase, MeterTemporal>();
+        for (const nodes of result.astToTemporal.values()) {
+            for (const node of nodes) {
+                if (!(node instanceof MeterTemporal)) continue;
+                let host: TemporalNodeBase = node;
+                while (host.foldedInto) host = host.foldedInto;
+                if (!metersByHost.has(host)) metersByHost.set(host, node);
+            }
+        }
         for (const column of result.columns) {
             const time = column[0].t;
-            const meter = column.find(node => node instanceof MeterTemporal);
+            const host = column.find(node => metersByHost.has(node));
+            const meter = host && metersByHost.get(host);
             if (meter) {
                 closeMeasure(time, meter.ast.sourceSpan.start);
                 active = meter.ast;

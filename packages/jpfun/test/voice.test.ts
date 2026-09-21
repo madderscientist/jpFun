@@ -10,6 +10,24 @@ const axisOf = (object: { box: { y: number; visualAxis: number } }) => object.bo
 /** 无名声部的名称占位盒只为括线预留横向空间，高度为 0；纵向断言只关心真正可见的对象 */
 const drawn = (source: string) => layoutOf(source).objects.filter(object => object.box.h > 0);
 
+test("nested voices collect only their direct name hosts", () => {
+    for (const source of [
+        "@voices(@voice({1}), @voice({@voices(@voice({2}))}))",
+        "@voices(@voice({1}, A), @voice({@voices(@voice({2}, B), @voice({3}, C))}, D))",
+    ]) {
+        const result = compileScore(source);
+        assert(result.diagnostics.length === 0, "nested voices must compile without diagnostics");
+        assert(result.layout.attachments.every(attachment => Number.isFinite(attachment.box.y)), "nested braces must have finite geometry");
+    }
+});
+
+test("lyrics preserve supplementary Unicode characters as single slots", () => {
+    const word = "\u{20bb7}\u91ce";
+    const result = layoutOf(`@voice({1 2}, , ${quote(word)})`);
+    const lyrics = attachmentCommands(result.attachments[0]).filter(command => command.kind === "text");
+    deepStrictEqual(lyrics.map(command => command.text), [...word]);
+});
+
 test("voice serialization roundtrips names, lyric slots and nested LF/tab", () => {
     const lyric = String.raw`{你好} {hello world} @ \@ {你\}好} {\{brace\}} {back\\slash} {hel\-lo} {"quoted",word} @`;
     const multiline = "{line\n\tbreak} {tab\tinside} {back\\\\slash\nline} @";

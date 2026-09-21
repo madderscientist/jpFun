@@ -3,13 +3,20 @@ import { test } from "node:test";
 import { ErrorDiagnostic } from "../src/diagnostic.js";
 import type { Fraction } from "../src/fraction.js";
 import { compileScore } from "../src/pipeline.js";
-import { assert, layoutOf, lower, nearly, recordCommands } from "./helpers.js";
+import { assert, expectCompileError, layoutOf, lower, nearly, recordCommands } from "./helpers.js";
 
 type MeterAst = {
     numerator: number;
     denominator: number;
     measureDuration: Fraction;
 };
+
+test("folded meters validate global measures", () => {
+    for (const content of ["@up(1,@meter(3,4))", "@down(1,@meter(3,4))", "@up(1,{@up(@meter(3,4))})"]) {
+        expectCompileError(`@set(strict=true) ${content} | 2 |`, "E_METER_MISMATCH");
+        assert(compileScore(`${content} | 2 3 4 |`).diagnostics.length === 0, "complete folded-meter measures must pass");
+    }
+});
 
 test("meter 固化任意正整数拍号且不改变音符时值", () => {
     for (const [source, expected] of [

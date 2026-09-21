@@ -20,7 +20,7 @@ function normalizeTonality(tonality: string): string | null {
     } catch { /* 落到下面归一化 */ }
 
     const parsed = parseNoteName(tonality.replace(/^[a-g]/, letter => letter.toUpperCase()));
-    if (parsed instanceof Diagnostic) return null;
+    if (parsed instanceof Diagnostic || parsed.next !== tonality.length) return null;
     const pitchClass = NoteNameMap[parsed.name];
     if (pitchClass === undefined) return null;
 

@@ -94,7 +94,9 @@ class TieFunction extends ASTFunctionNode {
     }
 
     override toString(source: string) {
-        return `@tie(${this.endPoints.map(p => `${(p as ASTFunctionNode).label ?? 'anon'}:[${p.toString(source)}]`).join(", ")})`;
+        const labels = this.endPoints.map(endpoint => (endpoint as ASTFunctionNode).label);
+        if (labels.some(label => label === undefined)) return source.slice(this.sourceSpan.start, this.sourceSpan.end);
+        return `@tie(${labels.join(", ")}, height=${this.height}px)`;
     }
 }
 

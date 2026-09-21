@@ -111,6 +111,10 @@ class AdjustFunction extends ASTFunctionNode {
         this.dw = ctx.length2px(dw);
         this.dh = ctx.length2px(dh);
     }
+
+    override toString(source: string) {
+        return `@adjust(${this.target.toString(source)}, dx=${this.dx}px, dy=${this.dy}px, dw=${this.dw}px, dh=${this.dh}px)`;
+    }
 }
 
 export const AdjustNode: ASTFunctionClass = AdjustFunction;

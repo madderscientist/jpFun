@@ -36,6 +36,14 @@ test("numeric arguments reject infinities and overflowing lengths", () => {
     }
 });
 
+test("key octave parsing consumes the entire value", () => {
+    for (const tonality of ["C4junk", "C4#"]) {
+        expectDiagnostic(() => compileScore(`@key(${tonality}) 1`, { variables: { strict: true } }), "E_KEY_TONALITY");
+        assert(compileScore(`@key(${tonality}) 1`).diagnostics.some(item => item.code === "W_KEY_TONALITY"), "invalid spelling must be diagnosed");
+    }
+    assert(compileScore("@key(C#4) 1").diagnostics.length === 0, "canonical spelling must remain valid");
+});
+
 test("续行与注释掩码保持源码长度和行首偏移", () => {
     const { maskedSource, lineStarts } = preprocessSource(source);
     assert(maskedSource.length === source.length, "掩码不能改变源码长度，否则所有 span 都会错位");

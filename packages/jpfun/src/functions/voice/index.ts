@@ -376,7 +376,8 @@ L: la la la
             token = "";
         };
         for (let i = 0; i < value.length; i++) {
-            const ch = value[i];
+            const ch = String.fromCodePoint(value.codePointAt(i)!);
+            i += ch.length - 1;
             if (ch === "\\" && i + 1 < value.length && /[\\{}@-]/.test(value[i + 1])) {
                 token += value[++i];
             } else if (ch === "{") {
@@ -489,8 +490,8 @@ L: la la la
         const names: VoiceNameTemporal[] = [];
         ctx.beginLoweringGroup(this, {
             attachment: new VoicesBraceAttachment(names, this),
-            onTemporal(node) {
-                if (node instanceof VoiceNameTemporal) names.push(node);
+            onTemporal: node => {
+                if (node instanceof VoiceNameTemporal && node.ast.parent === this) names.push(node);
             },
         });
         return [];

@@ -173,7 +173,7 @@ class NoteFunction extends ASTFunctionNode {
     }
 
     override toString() {
-        return `@n(${this.name}, ${this.acc}, ${this.octave}, ${this.color})`;
+        return `@n(${this.name}, ${this.acc || '""'}, ${this.octave}, ${this.color})`;
     }
 }
 

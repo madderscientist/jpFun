@@ -107,6 +107,10 @@ class BoxFunction extends ASTFunctionNode {
         this.stroke = Math.max(0, ctx.length2px(stroke));
         this.width = ctx.length2px(width);
     }
+
+    override toString(source: string) {
+        return `@box(${this.target.toString(source)}, padding=${this.padding}px, stroke=${this.stroke}px, width=${this.width}px)`;
+    }
 }
 
 export const BoxNode: ASTFunctionClass = BoxFunction;

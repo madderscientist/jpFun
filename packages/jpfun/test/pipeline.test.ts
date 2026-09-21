@@ -4,6 +4,7 @@ import { deepStrictEqual } from "node:assert/strict";
 import { ASTBraceNode } from "../src/functions/ASTtypes.js";
 import { preprocessSource } from "../src/parser/preprocess.js";
 import { compileScore } from "../src/pipeline.js";
+import { compilePlayback } from "../src/playback/compile.js";
 import { assert, createLowering, createParser, expectSnapshot, recordCommands } from "./helpers.js";
 
 const SAMPLE_SCORE = `@set(text="100% ok")   % 字符串内的%不触发注释
@@ -45,6 +46,27 @@ test("compileScore forwards root variables without mutating the input", () => {
     assert(texts.some(command => command.style.fontFamily === "Ordinary"), "ordinary font must be forwarded");
     assert(texts.some(command => command.style.fontFamily === "Digits" && command.style.fontSize === 30), "numeric font and px size must be forwarded");
     deepStrictEqual(variables, { fontsize: 30, font: "Ordinary", numberfont: "Digits", strict: false, custom: "kept" });
+});
+
+test("desugaring preserves wrappers, typed defaults and tie endpoints", () => {
+    for (const source of [
+        "N: @box({1 2}, padding=2px, stroke=2px, width=80px)",
+        "N: @adjust({1 2}, dx=2px, dy=-1px, dw=3px, dh=4px)",
+        "N: @set(fontsize=30, text.size=0.5em) 1 2",
+        "N: 1@a 1@b @tie(a,b,height=12px)",
+        "N: 1 1 @tie(height=12px)",
+        "@set(note.acc=#) 1",
+    ]) {
+        const before = compileScore(source);
+        const replacement = before.ast.toString(source);
+        const after = compileScore(replacement);
+        deepStrictEqual(after.diagnostics, [], replacement);
+        assert(after.lowering.duration.equals(before.lowering.duration), "desugaring must preserve duration");
+        deepStrictEqual(recordCommands(after.layout), recordCommands(before.layout));
+        const notes = (result: typeof before) => compilePlayback(result.lowering).events
+            .filter(event => event.kind === "note-on").map(event => [event.midi, event.at.toString()]);
+        deepStrictEqual(notes(after), notes(before));
+    }
 });
 
 test("综合示例乐谱可以完整解析", () => {
