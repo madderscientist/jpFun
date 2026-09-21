@@ -13,7 +13,7 @@ import {
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import { Fraction } from "../../fraction.js";
 import type { Track } from "../../lowering/track.js";
-import { prepareLayoutHost } from "../../layout/engine.js";
+import { layoutLocalSequence } from "../../layout/engine.js";
 import type { HorizontalLineView, LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";
 import type { PlaybackEmitter } from "../../playback/types.js";
@@ -363,7 +363,7 @@ class FoldTemporal extends TemporalNodeBase {
      * 宿主留在轨道基线上，其余成员按书写顺序向上或向下叠放
      *
      * 成员不进入全局 columns，因此它们的准备、定位和绘制都由本节点负责；
-     * 准备直接复用引擎的 prepareLayoutHost，保证成员的装饰、端口与顶层对象完全一致。
+    * 每个成员独立执行局部横排，宿主继承含框约束的占位，其余成员仍沿宿主锚点悬挂。
      */
     override prepareLayout(context: LayoutPrepareContext) {
         // lowering 期间修饰挂在折叠体上（augmenter 要看到整体节奏），渲染时交给宿主：
@@ -372,20 +372,20 @@ class FoldTemporal extends TemporalNodeBase {
             this.members[0].addon = this.addon;
             this.addon = void 0;
         }
-        for (const member of this.members) prepareLayoutHost(member, context);
-
         const first = this.members[0];
         if (!first) {
             this.box.w = this.box.h = 0;
             this.box.anchor = this.box.visualAxis = 0;
             return;
         }
+        this.box.w = layoutLocalSequence([first], context);
+        for (let index = 1; index < this.members.length; index++) layoutLocalSequence([this.members[index]], context);
 
         this.springConfig = { ...first.springConfig, ...this.springConfig };
 
         // 横向完全等于宿主：上下的标记（变速、注释、力度）常常比音符宽得多，
         // 让它们撑宽盒子会把右邻推开一大截；它们画在基线外侧，伸出盒外也不会碰撞
-        const anchor = first.box.anchor;
+        const anchor = first.box.x + first.box.anchor;
         const gap = this.ast.size * 0.12;
         this.verticalOffsets.length = this.members.length;
         this.verticalOffsets.fill(0);
@@ -404,7 +404,6 @@ class FoldTemporal extends TemporalNodeBase {
         }
         for (let i = 0; i < this.verticalOffsets.length; i++) this.verticalOffsets[i] -= top;
 
-        this.box.w = first.box.w;
         this.box.h = bottom - top;
         this.box.anchor = anchor;
         // 宿主对齐轨道基线，两侧成员各自向外撑开行高
@@ -415,12 +414,12 @@ class FoldTemporal extends TemporalNodeBase {
         const firstOffset = this.verticalOffsets[0];
         for (const name in first.ports) {
             const port = first.ports[name];
-            this.ports[name] = { x: port.x, y: firstOffset + port.y };
+            this.ports[name] = { x: first.box.x + port.x, y: firstOffset + port.y };
         }
 
         // 代表成员没声明核心范围时退回它的整个盒子
-        this.ports["body.left"] ??= { x: 0, y: this.box.visualAxis };
-        this.ports["body.right"] ??= { x: first.box.w, y: this.box.visualAxis };
+        this.ports["body.left"] ??= { x: first.box.x, y: this.box.visualAxis };
+        this.ports["body.right"] ??= { x: first.box.x + first.box.w, y: this.box.visualAxis };
 
         // 唯一的例外：连音线要接到最上面那个成员的顶部
         const topIndex = this.aboveCount - 1;

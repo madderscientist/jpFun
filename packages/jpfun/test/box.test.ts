@@ -262,3 +262,32 @@ test("窄页只压缩外层横排，嵌套倚音内的自然占位保持不变",
         nearly(member.box.x - wide.box.x, narrowMembers[index].box.x - narrow.box.x)),
         "all saved local offsets must survive outer compression");
 });
+
+test("single-column fixed boxes reserve width without resizing their contents", () => {
+    for (const content of ["1", "1^3", "@box(1,padding=3px,stroke=2px)"]) {
+        const layout = layoutOf(`@box(${content},width=100px,padding=5px,stroke=2px) 4`);
+        const frame = layout.attachments.filter(item => item.layer === "background").at(-1)!;
+        assert(nearly(frame.box.w, 112), "fixed width must exclude the frame's own padding and stroke");
+        assert(nearly(layout.objects[0].box.x + layout.objects[0].box.w / 2, frame.box.x + frame.box.w / 2),
+            "single-column content must be centered without changing its intrinsic box");
+        assert(layout.objects[1].box.x >= frame.box.x + frame.box.w,
+            "the following note must clear the fixed frame");
+    }
+});
+
+test("folded host boxes execute local width and padding constraints", () => {
+    for (const source of [
+        "@box(1,width=100px,padding=5px,stroke=2px)^3 4",
+        "@box(1,width=100px,padding=5px,stroke=2px)_3 4",
+        "{@box(1,width=100px,padding=5px,stroke=2px)^3}^5 4",
+    ]) {
+        const layout = layoutOf(source);
+        const frame = layout.attachments.find(item => item.layer === "background")!;
+        assert(nearly(frame.box.w, 112) && nearly(layout.objects[0].box.w, 112),
+            "the folded host must retain the complete local frame width");
+        assert(nearly(frame.box.x, layout.objects[0].box.x), "the frame and composite must share the left occupied edge");
+        assert(layout.objects[1].box.x >= frame.box.x + frame.box.w, "the following note must clear the folded frame");
+    }
+    expectLayoutError("@box(1,width=1px)^3", "E_BOX_WIDTH_TOO_SMALL");
+    expectLayoutError("1^@box(3,width=1px)", "E_BOX_WIDTH_TOO_SMALL");
+});

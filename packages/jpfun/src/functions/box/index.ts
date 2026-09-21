@@ -174,22 +174,29 @@ class BoxLayoutAttachment implements LayoutAttachment {
                     );
                 }
                 const regionX = X.subarray(start, end + 1);
-                layoutHorizontalRegion(
-                    columns.slice(start, end + 1),
-                    rows,
-                    regionX,
-                    fixed.subarray(start, end),
-                    width,
-                    options,
-                    0,
-                );
-                const actualWidth = regionX[regionX.length - 1] - regionX[0] + leftInset + rightInset;
-                if (Math.abs(actualWidth - width) > 1e-6) {
-                    throw new ErrorDiagnostic(
-                        "E_BOX_CONSTRAINT_CONFLICT",
-                        "多个 @box 为相同内容指定了不同宽度",
-                        this.owner.sourceSpan,
+                if (start === end) {
+                    const extra = (width - leftInset - rightInset) / 2;
+                    for (const element of left) element.WL += extra;
+                    for (const element of right) element.WR += extra;
+                    regionX[0] = leftInset + extra;
+                } else {
+                    layoutHorizontalRegion(
+                        columns.slice(start, end + 1),
+                        rows,
+                        regionX,
+                        fixed.subarray(start, end),
+                        width,
+                        options,
+                        0,
                     );
+                    const actualWidth = regionX[regionX.length - 1] - regionX[0] + leftInset + rightInset;
+                    if (Math.abs(actualWidth - width) > 1e-6) {
+                        throw new ErrorDiagnostic(
+                            "E_BOX_CONSTRAINT_CONFLICT",
+                            "多个 @box 为相同内容指定了不同宽度",
+                            this.owner.sourceSpan,
+                        );
+                    }
                 }
                 this.fixedStart = first;
                 this.wallOffset = -regionX[0];
