@@ -26,6 +26,7 @@ export interface PlaybackController {
     setScoreError(message: string): void;
     seekScoreTime(scoreTime: number): void;
     downloadMidi(): Promise<void>;
+    pause(): void;
     invalidate(): void;
     destroy(): void;
 }
@@ -75,6 +76,7 @@ export function createPlaybackController(options: PlaybackControllerOptions): Pl
     let showProgress = false;
     let audioAvailable: boolean | null = null;
     let audioError = "";
+    let audioLoading = false;
 
     const player = new TinySynthPlayer({
         onStateChange: renderTransport,
@@ -244,6 +246,12 @@ export function createPlaybackController(options: PlaybackControllerOptions): Pl
         setStatus("loading", "正在准备播放");
         renderTransport();
         if (!await options.requestPlan()) return;
+        await prepareAudio();
+    }
+
+    async function prepareAudio() {
+        if (audioLoading || audioAvailable === true) return;
+        audioLoading = true;
         try {
             instruments = await loadTinySynth();
             audioAvailable = true;
@@ -256,6 +264,8 @@ export function createPlaybackController(options: PlaybackControllerOptions): Pl
             showProgress = false;
             setStatus("error", audioError);
             renderTransport();
+        } finally {
+            audioLoading = false;
         }
     }
 
@@ -343,6 +353,7 @@ export function createPlaybackController(options: PlaybackControllerOptions): Pl
             if (audioAvailable === true) renderMixer();
             if (audioAvailable === true) showPlanStatus();
             else if (audioAvailable === false) setStatus("error", audioError);
+            else if (isActive) void prepareAudio();
         },
         setCompileError(message, hasDiagnostic) {
             showProgress = false;
@@ -364,6 +375,7 @@ export function createPlaybackController(options: PlaybackControllerOptions): Pl
             void player.seek(scoreTimeToSeconds(plan, scoreTime));
         },
         downloadMidi,
+        pause() { player.pause(); },
         invalidate() {
             if (!plan && status.dataset.state === "idle") return;
             showProgress = false;

@@ -447,7 +447,10 @@ window.addEventListener("keydown", event => {
     void documents.save();
 });
 window.addEventListener("pagehide", documents.flushDraft);
-window.addEventListener("pagehide", () => playback?.destroy());
+window.addEventListener("pagehide", event => {
+    if (event.persisted) playback?.pause();
+    else playback?.destroy();
+});
 
 requiredElement<HTMLButtonElement>("#runLayout").addEventListener("click", compileAndRender);
 window.addEventListener("beforeprint", () => {

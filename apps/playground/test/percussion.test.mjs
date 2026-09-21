@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { compileScore, compilePlayback } from "../../../packages/jpfun/src/index.ts";
 import { loadTinySynth, TinySynthPlayer } from "../tiny-synth.ts";
 import { createMidiBlob } from "../midi-export.ts";
+import { createPlaybackController } from "../playback.ts";
 
 class MidiEventStub {
     constructor(event) { Object.assign(this, event); }
@@ -99,6 +100,60 @@ test("percussion timbre registration is idempotent and hidden from the program m
     assert.equal(wave[0].t, 0);
     assert.equal(wave[0].s, 0);
     assert.ok(wave[0].d < 0.01);
+});
+
+test("playback recovers after an initial compile failure and preserves a paused plan", async context => {
+    class ElementStub extends EventTarget {
+        dataset = {};
+        value = "";
+        textContent = "";
+        append() {}
+        replaceChildren() {}
+        setAttribute() {}
+        matches() { return false; }
+    }
+    const documentBefore = globalThis.document;
+    const elements = new Map();
+    globalThis.document = {
+        ...documentBefore,
+        querySelector(selector) {
+            if (!elements.has(selector)) elements.set(selector, new ElementStub());
+            return elements.get(selector);
+        },
+        createElement: () => new ElementStub(),
+    };
+    window.cancelAnimationFrame = () => {};
+    window.requestAnimationFrame = () => 1;
+    const controller = createPlaybackController({
+        requestPlan: () => false, showDiagnostics() {}, getFileName: () => "score.jpfun", onScorePosition() {},
+    });
+    context.after(() => { controller.destroy(); globalThis.document = documentBefore; });
+    controller.setActive(true);
+    await new Promise(resolve => setImmediate(resolve));
+    controller.setPlan(planOf("1 2 3 4"));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(elements.get("#playbackToggle").disabled, false);
+    elements.get("#playbackToggle").dispatchEvent(new Event("click"));
+    await new Promise(resolve => setImmediate(resolve));
+    const synth = TinySynthStub.instances.at(-1);
+    const starts = synth.calls.length;
+    controller.pause();
+    assert.equal(controller.hasPlan, true);
+    assert.equal(elements.get("#playbackTotalTime").textContent, "00:02");
+    elements.get("#playbackToggle").dispatchEvent(new Event("click"));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.ok(synth.calls.length > starts);
+});
+
+test("pause cancels audio startup without discarding the plan", async context => {
+    const player = playerFor(context, planOf("1 2"));
+    const pending = player.play();
+    player.pause();
+    await pending;
+    assert.equal(player.isPlaying, false);
+    assert.equal(player.duration, 1);
+    await player.play();
+    assert.equal(player.isPlaying, true);
 });
 
 test("mixed notes reuse one channel while percussion ignores program and transpose", async context => {

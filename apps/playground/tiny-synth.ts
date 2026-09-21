@@ -214,7 +214,7 @@ export class TinySynthPlayer {
     }
 
     pause() {
-        if (!this.running) return;
+        if (!this.running && !this.starting) return;
         this.pausedAt = this.position;
         this.halt();
         this.options.onStateChange();
