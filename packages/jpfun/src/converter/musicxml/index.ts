@@ -17,7 +17,7 @@ import {
 import {
     directionDynamic, directionTexts, endingPasses, metronomeBpm,
     mergeArpeggio, noteArpeggio, noteLyrics, noteModifiers, parsePitch,
-    parseTimeSignature, partMeasures, timeModification,
+    parseTimeSignature, partMeasures, timeModification, transposePitch,
 } from "./features.js";
 import type {
     MusicXmlDirectionPoint as DirectionPoint,
@@ -128,6 +128,22 @@ function setBar(bars: Map<string, string>, at: Fraction, token: string) {
 function parseScore(root: MusicXmlElement): ParsedScore {
     const partNames = new Map<string, string>();
     type Instrument = { channel?: number; program?: number };
+    const readInstrument = (midi: MusicXmlElement): Instrument => {
+        const instrument: Instrument = {};
+        if (child(midi, "midi-channel")) {
+            instrument.channel = number(midi, "midi-channel");
+            if (!Number.isSafeInteger(instrument.channel) || instrument.channel < 1 || instrument.channel > 16) {
+                throw new RangeError("MusicXML midi-channel must be an integer in 1..16");
+            }
+        }
+        if (child(midi, "midi-program")) {
+            instrument.program = number(midi, "midi-program") - 1;
+            if (!Number.isSafeInteger(instrument.program) || instrument.program < 0 || instrument.program > 127) {
+                throw new RangeError("MusicXML midi-program must be an integer in 1..128");
+            }
+        }
+        return instrument;
+    };
     const instrumentsByPart = new Map<string, { fallback?: Instrument; byId: Map<string, Instrument> }>();
     const partList = child(root, "part-list");
     if (partList) {
@@ -139,17 +155,7 @@ function parseScore(root: MusicXmlElement): ParsedScore {
             let fallback: Instrument | undefined;
             // 一个 part 可声明多个 instrument，首个定义同时作为无 id note 的回退
             for (const midi of children(scorePart, "midi-instrument")) {
-                const channelSource = text(midi, "midi-channel");
-                const programSource = text(midi, "midi-program");
-                const channel = channelSource === "" ? undefined : Number(channelSource);
-                const program = programSource === "" ? undefined : Number(programSource) - 1;
-                if (channel !== undefined && (!Number.isSafeInteger(channel) || channel < 1 || channel > 16)) {
-                    throw new RangeError("MusicXML midi-channel must be an integer in 1..16");
-                }
-                if (program !== undefined && (!Number.isSafeInteger(program) || program < 0 || program > 127)) {
-                    throw new RangeError("MusicXML midi-program must be an integer in 1..128");
-                }
-                const instrument = { channel, program };
+                const instrument = readInstrument(midi);
                 fallback ??= instrument;
                 byId.set(midi.getAttribute("id") ?? "", instrument);
             }
@@ -225,12 +231,23 @@ function parseScore(root: MusicXmlElement): ParsedScore {
         let activeMeter = { numerator: 4, denominator: 4 };
         const lastEvent = new Map<string, MusicEvent>();
         const pendingGraces = new Map<string, Pitch[][]>();
-
+        const transpositions: { at: Fraction; staff: string; chromatic: number; diatonic?: number; octaves: number }[] = [];
+        const pitches: { pitch: Pitch; staff: string; at: Fraction }[] = [];
+        const instrumentChanges: { at: Fraction; id: string; instrument: Instrument }[] = [];
+        const eventInstruments = new Map<MusicEvent, string>();
+        const instrumentAt = (id: string, at: Fraction): Instrument => {
+            const value = { ...(partInstruments?.byId.get(id) ?? partInstruments?.fallback) };
+            for (const change of instrumentChanges) {
+                if (change.id === id && change.at.compare(at) <= 0) Object.assign(value, change.instrument);
+            }
+            return value;
+        };
         // 小节游标从零开始，partTime 保存当前小节在全谱中的绝对起点
         for (let measureIndex = 0; measureIndex < measures.length; measureIndex++) {
             const { body: measure, container: measureContainer } = measures[measureIndex];
             let cursor = new Fraction();
             let measureEnd = new Fraction();
+            let chordStart: Fraction | undefined;
             if (measureContainer.getAttribute("implicit") !== "yes" && measureIndex > 0) {
                 setBar(bars, partTime, "|");
                 if (partId === controlPartId) measureBoundaries.add(keyOf(partTime));
@@ -270,6 +287,15 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                 // attributes 从当前位置起更新 divisions 拍号和调号
                 if (tag === "attributes") {
                     const at = add(partTime, cursor);
+                    for (const transpose of children(item, "transpose")) {
+                        const chromatic = number(transpose, "chromatic");
+                        const diatonic = child(transpose, "diatonic") ? number(transpose, "diatonic") : undefined;
+                        const octaves = number(transpose, "octave-change", 0);
+                        if (![chromatic, octaves, diatonic ?? 0].every(Number.isSafeInteger) || child(transpose, "double")) {
+                            throw new RangeError("jpFun requires integer MusicXML transposition without octave doubling");
+                        }
+                        transpositions.push({ at: at.clone(), staff: transpose.getAttribute("number") ?? "", chromatic, diatonic, octaves });
+                    }
                     if (child(item, "divisions")) divisions = number(item, "divisions");
                     if (!Number.isSafeInteger(divisions) || divisions <= 0) throw new RangeError("MusicXML divisions must be a positive integer");
                     const time = child(item, "time");
@@ -292,6 +318,7 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                 }
                 // backup 和 forward 只重定位当前小节游标，用于交错 voice
                 if (tag === "backup" || tag === "forward") {
+                    chordStart = undefined;
                     const duration = new Fraction(number(item, "duration"), divisions);
                     if (tag === "backup") cursor.sub(duration);
                     else cursor.add(duration);
@@ -299,17 +326,24 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                     measureEnd = measureEnd.compare(cursor) < 0 ? cursor.clone() : measureEnd;
                     continue;
                 }
-                // direction 收集精确时间上的速度、力度、文字和楔形线端点
-                if (tag === "direction") {
-                    const offset = new Fraction(number(item, "offset", 0), divisions);
+                // sound 共用速度和乐器读取；direction 继续收集力度、文字和楔形线端点
+                if (tag === "direction" || tag === "sound") {
+                    const offset = new Fraction(tag === "direction" ? number(item, "offset", 0) : 0, divisions);
                     const at = add(add(partTime, cursor), offset);
-                    const sound = child(item, "sound");
+                    const sound = tag === "sound" ? item : child(item, "sound");
+                    if (sound) {
+                        for (const midi of children(sound, "midi-instrument")) {
+                            instrumentChanges.push({ at, id: midi.getAttribute("id") ?? "", instrument: readInstrument(midi) });
+                        }
+                        instrumentChanges.sort((left, right) => left.at.compare(right.at));
+                    }
                     const tempo = sound?.getAttribute("tempo");
-                    const bpm = tempo !== null && tempo !== undefined && tempo !== "" ? Number(tempo) : metronomeBpm(item);
+                    const bpm = tempo ? Number(tempo) : tag === "direction" ? metronomeBpm(item) : undefined;
                     if (bpm !== undefined) {
                         if (!Number.isFinite(bpm) || bpm <= 0) throw new RangeError("MusicXML tempo must be positive and finite");
                         tempos.set(keyOf(at), { at, bpm });
                     }
+                    if (tag === "sound") continue;
                     const dynamic = directionDynamic(item);
                     const texts = directionTexts(item);
                     if (dynamic || texts.length > 0) directions.push({
@@ -335,15 +369,6 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                     }
                     continue;
                 }
-                // measure 直属 sound 也可能携带速度，不要求包在 direction 中
-                const tempo = tag === "sound" ? item.getAttribute("tempo") : null;
-                if (tempo !== null && tempo !== "") {
-                    const bpm = Number(tempo);
-                    if (!Number.isFinite(bpm) || bpm <= 0) throw new RangeError("MusicXML tempo must be positive and finite");
-                    const at = add(partTime, cursor);
-                    tempos.set(keyOf(at), { at, bpm });
-                    continue;
-                }
                 if (tag === "barline" && item.getAttribute("location") === "middle") {
                     recordBarline(item, add(partTime, cursor));
                     continue;
@@ -354,10 +379,8 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                 const voice = text(item, "voice") || "1";
                 const staff = text(item, "staff") || "1";
                 const laneKey = `${partId}\0${staff}\0${voice}`;
-                const instrumentId = child(item, "instrument")?.getAttribute("id") ?? "";
-                const instrument = instrumentId
-                    ? partInstruments?.byId.get(instrumentId)
-                    : partInstruments?.fallback;
+                const instrumentId = child(item, "instrument")?.getAttribute("id")
+                    || partInstruments?.byId.keys().next().value || "";
                 const pitch = parsePitch(item);
                 const rest = child(item, "rest") !== undefined;
                 if (!pitch && !rest) {
@@ -365,8 +388,11 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                 }
                 const chord = child(item, "chord") !== undefined;
                 const grace = child(item, "grace");
+                const start = chord && chordStart ? chordStart.clone() : add(partTime, cursor);
+                if (!chord && !grace) chordStart = start.clone();
+                if (pitch && child(item, "pitch")) pitches.push({ pitch, staff, at: start });
                 // 打击乐尚未建模，但普通音符仍须推进游标以保持后续事件位置
-                if (instrument?.channel === 10) {
+                if (instrumentAt(instrumentId, start).channel === 10) {
                     if (grace) continue;
                     const duration = new Fraction(number(item, "duration"), divisions);
                     if (duration.compare(0) <= 0) throw new RangeError("MusicXML non-grace notes require a positive duration");
@@ -406,7 +432,6 @@ function parseScore(root: MusicXmlElement): ParsedScore {
 
                 const duration = new Fraction(number(item, "duration"), divisions);
                 if (duration.compare(0) <= 0) throw new RangeError("MusicXML non-grace notes require a positive duration");
-                const start = chord ? previousEvent?.start.clone() ?? add(partTime, cursor) : add(partTime, cursor);
                 let event = chord ? previousEvent : undefined;
                 const lyrics = noteLyrics(item);
                 const modifiers = noteModifiers(item);
@@ -425,14 +450,13 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                         postGraces: [],
                         lyrics,
                         arpeggio,
-                        program: instrument?.program,
                         timeModification: timeModification(item),
                     };
                     pendingGraces.delete(laneKey);
                     lane.events.push(event);
+                    eventInstruments.set(event, instrumentId);
                     lastEvent.set(laneKey, event);
                 } else {
-                    event.program ??= instrument?.program;
                     event.arpeggio = mergeArpeggio(event.arpeggio, arpeggio);
                     for (const modifier of modifiers) {
                         if (!event.modifiers.some(item => item.name === modifier.name && item.placement === modifier.placement)) {
@@ -472,6 +496,12 @@ function parseScore(root: MusicXmlElement): ParsedScore {
             partTime.add(length);
             if (scoreEnd.compare(partTime) < 0) scoreEnd = partTime.clone();
         }
+        transpositions.sort((left, right) => left.at.compare(right.at)).reverse();
+        for (const { pitch, staff, at } of pitches) {
+            const change = transpositions.find(item => (!item.staff || item.staff === staff) && item.at.compare(at) <= 0);
+            if (change) transposePitch(pitch, change.chromatic, change.diatonic, change.octaves);
+        }
+        for (const [event, id] of eventInstruments) event.program = instrumentAt(id, event.start).program;
         setBar(bars, partTime, "||");
     }
 
@@ -586,7 +616,18 @@ function parseScore(root: MusicXmlElement): ParsedScore {
         subtitle,
         creator,
         page,
-        lanes: laneList.sort((left, right) =>
+        lanes: laneList.flatMap(lane => {
+            const parallel: Lane[] = [];
+            for (const event of [...lane.events].sort((left, right) => left.start.compare(right.start) || left.order - right.order)) {
+                const target = parallel.find(candidate => {
+                    const previous = candidate.events.at(-1)!;
+                    return add(previous.start, previous.duration).compare(event.start) <= 0;
+                });
+                if (target) target.events.push(event);
+                else parallel.push({ ...lane, events: [event] });
+            }
+            return parallel.length ? parallel : [lane];
+        }).sort((left, right) =>
             partOrder.get(left.partId)! - partOrder.get(right.partId)!
             || Number(left.staff) - Number(right.staff)
             || Number(left.voice) - Number(right.voice)),

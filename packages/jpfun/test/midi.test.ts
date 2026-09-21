@@ -41,6 +41,22 @@ function note(ticks: number, durationTicks: number, pitch: number, intensity = 1
     return { ticks, durationTicks, midi: pitch, intensity };
 }
 
+test("reused overlap lanes restore the current program", () => {
+    const input = midi([[
+        note(0, 960, 60), note(480, 960, 67), note(1440, 480, 62),
+        note(1920, 960, 64), note(2400, 960, 69),
+    ]]);
+    input.tracks[0].instruments = [{ ticks: 0, number: 40 }, { ticks: 1440, number: 41 }];
+    const source = midiJsonToJpFun(input, { barsPerLine: 4 });
+    const programs = new Map<number, number>();
+    for (const event of compilePlayback(lower(source)).events) {
+        if (event.kind === "program-change") programs.set(event.track, event.program);
+        if (event.kind === "note-on") {
+            assert(programs.get(event.track) === (event.at.compare(3) < 0 ? 40 : 41), "every lane must use the current program");
+        }
+    }
+});
+
 function naturalSystemWidths(source: string) {
     const layout = compileScore(`@page(width=1000000px, height=0px, top=0px, bottom=0px, left=0px, right=0px)\n${source}`).layout;
     return Array.from({ length: layout.lineCount - 1 }, (_, index) => {

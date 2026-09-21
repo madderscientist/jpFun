@@ -442,7 +442,7 @@ function renderLane(
     bars: ReadonlySet<number>,
     lineBreaks: ReadonlySet<number>,
     adjustments: ReadonlyMap<number, readonly string[]> | undefined,
-    programs: ReadonlyMap<number, number> | undefined,
+    programs: ReadonlyMap<number, number>,
     nextTieLabel: () => string,
 ) {
     // 事件边界与所有控制点共同切分时间线，保证每个片段内语义不变
@@ -455,7 +455,7 @@ function renderLane(
     for (const at of adjustments?.keys() ?? []) {
         if (at >= rangeStart && at < rangeEnd) points.add(at);
     }
-    for (const at of programs?.keys() ?? []) {
+    for (const at of programs.keys()) {
         if (at >= rangeStart && at < rangeEnd) points.add(at);
     }
     const timeline = [...points].sort((left, right) => left - right);
@@ -485,6 +485,14 @@ function renderLane(
     const outputs: string[][] = Array.from({ length: lineBreaks.size + 1 }, () => []);
     let outputIndex = [...lineBreaks].filter(at => at <= rangeStart).length;
     let itemIndex = 0;
+    let initialProgram = programs.size ? 0 : undefined;
+    let programStart = -Infinity;
+    for (const [at, program] of programs) {
+        if (at <= rangeStart && at >= programStart) {
+            initialProgram = program;
+            programStart = at;
+        }
+    }
     // 沿时间片单向推进当前事件，依次输出控制项、音符或补齐休止
     for (let index = 0; index < timeline.length; index++) {
         const at = timeline[index];
@@ -495,7 +503,7 @@ function renderLane(
 
         const next = timeline[index + 1];
         if (next === undefined) continue;
-        const program = programs?.get(at);
+        const program = at === rangeStart ? initialProgram : programs.get(at);
         if (program !== undefined) outputs[outputIndex].push(`@program(${program})`);
         const changes = adjustments?.get(at) ?? [];
         const item = lane.items[itemIndex];
@@ -731,13 +739,12 @@ export function convertMidiJsonToJpFun(
             lastNoteEnd = Math.max(lastNoteEnd, end);
             return { ...note, start, end };
         });
-        const programs = coalesceSorted(track.programs
-            .filter(item => item.ticks === 0 || item.ticks < rawNoteEnd)
-            .map(item => ({ at: binaryUnitAt(item.ticks), program: item.number })));
         convertedTracks.push({
             source: track.source,
             regions: splitRegions(groupTriplets(combineChords(notes))),
-            programs: new Map(programs.map(item => [item.at, item.program])),
+            programs: new Map(track.programs
+                .filter(item => item.ticks === 0 || item.ticks < rawNoteEnd)
+                .map(item => [binaryUnitAt(item.ticks), item.number])),
         });
     }
 

@@ -3,6 +3,7 @@ import {
     type MusicXmlElement,
 } from "./dom.js";
 import type { MusicXmlArpeggio, MusicXmlEvent, MusicXmlPitch } from "./model.js";
+import { NoteNameMap, SHARP_NOTE_NAMES } from "../../parser/parse-utils/note-utils.js";
 
 /** 统一两种 MusicXML 根结构中的小节内容与外层小节容器 */
 export interface MusicXmlMeasureSource {
@@ -65,6 +66,22 @@ export function parsePitch(note: MusicXmlElement) {
         tieStart: tieTypes.has("start") || tieTypes.has("continue"),
         tieStop: tieTypes.has("stop") || tieTypes.has("continue"),
     } satisfies MusicXmlPitch;
+}
+
+export function transposePitch(pitch: MusicXmlPitch, chromatic: number, diatonic: number | undefined, octaves: number) {
+    const midi = (pitch.octave + 1) * 12 + NoteNameMap[pitch.step] + pitch.alter + chromatic + octaves * 12;
+    if (diatonic === undefined) {
+        const spelling = SHARP_NOTE_NAMES[((midi % 12) + 12) % 12];
+        pitch.step = spelling[0];
+        pitch.alter = spelling.length - 1;
+        pitch.octave = Math.floor(midi / 12) - 1;
+    } else {
+        const letters = "CDEFGAB";
+        const degree = pitch.octave * 7 + letters.indexOf(pitch.step) + diatonic + octaves * 7;
+        pitch.step = letters[((degree % 7) + 7) % 7];
+        pitch.octave = Math.floor(degree / 7);
+        pitch.alter = midi - (pitch.octave + 1) * 12 - NoteNameMap[pitch.step];
+    }
 }
 
 /** 将支持的 fermata articulation 和 ornament 转成 jpFun 修饰符 */

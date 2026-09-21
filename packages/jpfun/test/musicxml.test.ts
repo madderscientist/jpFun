@@ -50,6 +50,54 @@ const SCORE = `<?xml version="1.0" encoding="UTF-8"?>
   </part>
 </score-partwise>`;
 
+test("MusicXML unequal-duration and cross-staff chords preserve every onset", () => {
+  for (const [duration, staff] of [[1, 1], [2, 2], [1, 2]]) {
+    const source = musicXmlToJpFun(`<score-partwise><part-list><score-part id="P1"><part-name>Chord</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><staves>2</staves></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><staff>1</staff></note><note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>${duration}</duration><voice>1</voice><staff>${staff}</staff></note></measure></part></score-partwise>`);
+    const result = compileScore(source);
+    const notes = playedNotes(compilePlayback(result.lowering));
+    assert(result.diagnostics.length === 0 && notes.length === 2, `both chord members must survive: ${source}`);
+    assert(notes.every(note => note.start.equals(0)), "cross-staff chord members must share the leading onset");
+    assert(notes.find(note => note.midi === 60)?.duration.equals(2), "leading duration must be retained");
+    assert(notes.find(note => note.midi === 64)?.duration.equals(duration), "member duration must be retained");
+  }
+});
+
+test("MusicXML transpose follows staff and time in both pitch modes", () => {
+  const xml = `<score-partwise><part-list><score-part id="P1"><part-name>Transpose</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><transpose number="1"><diatonic>-1</diatonic><chromatic>-2</chromatic><octave-change>-1</octave-change></transpose></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><staff>1</staff></note><attributes><transpose number="1"><chromatic>0</chromatic></transpose></attributes><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><staff>1</staff></note><backup><duration>2</duration></backup><note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><staff>2</staff></note></measure></part></score-partwise>`;
+  for (const pitchMode of ["absolute", "relative"] as const) {
+    const source = musicXmlToJpFun(xml, { pitchMode });
+    const notes = playedNotes(compilePlayback(lower(source)));
+    assert(notes.some(note => note.midi === 46 && note.start.equals(0)), "staff 1 must apply chromatic and octave transposition");
+    assert(notes.some(note => note.midi === 62 && note.start.equals(1)), "later reset must apply only from its time");
+    assert(notes.some(note => note.midi === 64 && note.start.equals(0)), "staff 2 must remain untransposed");
+  }
+});
+
+test("MusicXML sound instrument changes honor direction offsets", () => {
+  for (const change of [
+    `<sound><midi-instrument id="I1"><midi-program>42</midi-program></midi-instrument></sound>`,
+    `<direction><offset>0</offset><sound><midi-instrument id="I1"><midi-program>42</midi-program></midi-instrument></sound></direction>`,
+  ]) {
+    const source = musicXmlToJpFun(`<score-partwise><part-list><score-part id="P1"><part-name>Instrument</part-name><midi-instrument id="I1"><midi-channel>1</midi-channel><midi-program>41</midi-program></midi-instrument></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>${change}<note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note></measure></part></score-partwise>`);
+    const programs = compilePlayback(lower(source)).events.filter(event => event.kind === "program-change");
+    assert(programs.map(event => `${event.at}:${event.program}`).join() === "0:40,1:41", `sound must update the program: ${source}`);
+  }
+});
+
+test("MusicXML future program changes do not leak through backup", () => {
+  const source = musicXmlToJpFun(`<score-partwise><part-list><score-part id="P1"><part-name>Instrument</part-name><midi-instrument id="I1"><midi-program>41</midi-program></midi-instrument></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes><direction><offset>2</offset><sound><midi-instrument id="I1"><midi-program>42</midi-program></midi-instrument></sound></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><backup><duration>3</duration></backup><note><pitch><step>F</step><octave>4</octave></pitch><duration>3</duration><voice>2</voice></note></measure></part></score-partwise>`);
+  const programs = new Map<number, number>();
+  let count = 0;
+  for (const event of compilePlayback(lower(source)).events) {
+    if (event.kind === "program-change") programs.set(event.track, event.program);
+    if (event.kind === "note-on") {
+      count++;
+      assert(programs.get(event.track) === (event.at.compare(2) < 0 ? 40 : 41), `program must follow musical time: ${source}`);
+    }
+  }
+  assert(count === 4, "all voices must remain audible");
+});
+
 test("MusicXML 的 part、staff、voice、chord、rest 和 backup 转成可播放 jpFun", () => {
     const source = musicXmlToJpFun(SCORE);
     const plan = compilePlayback(lower(source));
