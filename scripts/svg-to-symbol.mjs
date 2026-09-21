@@ -57,8 +57,8 @@ function parsePath(data) {
             } else if (kind === "C" || kind === "S") {
                 let cx1, cy1;
                 if (kind === "S") {
-                    cx1 = lastControl ? 2 * baseX - lastControl.x : baseX;
-                    cy1 = lastControl ? 2 * baseY - lastControl.y : baseY;
+                    cx1 = lastControl?.kind === "C" ? 2 * baseX - lastControl.x : baseX;
+                    cy1 = lastControl?.kind === "C" ? 2 * baseY - lastControl.y : baseY;
                 } else {
                     cx1 = abs(next(), baseX);
                     cy1 = abs(next(), baseY);
@@ -68,12 +68,12 @@ function parsePath(data) {
                 x = abs(next(), baseX);
                 y = abs(next(), baseY);
                 out.push({ op: "C", cx1: num(cx1), cy1: num(cy1), cx2: num(cx2), cy2: num(cy2), x: num(x), y: num(y) });
-                lastControl = { x: cx2, y: cy2 };
+                lastControl = { kind: "C", x: cx2, y: cy2 };
             } else if (kind === "Q" || kind === "T") {
                 let cx, cy;
                 if (kind === "T") {
-                    cx = lastControl ? 2 * baseX - lastControl.x : baseX;
-                    cy = lastControl ? 2 * baseY - lastControl.y : baseY;
+                    cx = lastControl?.kind === "Q" ? 2 * baseX - lastControl.x : baseX;
+                    cy = lastControl?.kind === "Q" ? 2 * baseY - lastControl.y : baseY;
                 } else {
                     cx = abs(next(), baseX);
                     cy = abs(next(), baseY);
@@ -81,7 +81,7 @@ function parsePath(data) {
                 x = abs(next(), baseX);
                 y = abs(next(), baseY);
                 out.push({ op: "Q", cx: num(cx), cy: num(cy), x: num(x), y: num(y) });
-                lastControl = { x: cx, y: cy };
+                lastControl = { kind: "Q", x: cx, y: cy };
             } else {
                 throw new Error(`不支持的 path 命令: ${command}`);
             }
@@ -122,8 +122,12 @@ if (/<(g|use)[\s>]/.test(svg) || /\stransform\s*=/.test(svg)) {
 }
 
 const shapes = [];
-for (const [tag] of svg.matchAll(/<path\b[^>]*>/g)) {
+for (const [tag, kind] of svg.matchAll(/<(path|circle)\b[^>]*>/g)) {
     const attrs = attributes(tag);
+    if (kind === "circle") {
+        shapes.push(`        {\n            circle: { cx: ${num(Number(attrs.cx ?? 0))}, cy: ${num(Number(attrs.cy ?? 0))}, r: ${num(Number(attrs.r ?? 0))} },\n            style: ${styleOf(attrs)},\n        },`);
+        continue;
+    }
     if (!attrs.d) continue;
     const commands = parsePath(attrs.d)
         .map(c => c.op === "Z"
@@ -136,11 +140,6 @@ for (const [tag] of svg.matchAll(/<path\b[^>]*>/g)) {
         .join("\n");
     shapes.push(`        {\n            path: [\n${commands}\n            ],\n            style: ${styleOf(attrs)},\n        },`);
 }
-for (const [tag] of svg.matchAll(/<circle\b[^>]*>/g)) {
-    const attrs = attributes(tag);
-    shapes.push(`        {\n            circle: { cx: ${num(Number(attrs.cx ?? 0))}, cy: ${num(Number(attrs.cy ?? 0))}, r: ${num(Number(attrs.r ?? 0))} },\n            style: ${styleOf(attrs)},\n        },`);
-}
-
 if (shapes.length === 0) {
     console.error("没有找到任何 <path> 或 <circle>");
     process.exit(1);
