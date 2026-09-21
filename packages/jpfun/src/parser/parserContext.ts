@@ -442,7 +442,7 @@ export class ParserContext {
         switch (type) {
             case "number":
                 const num = Number(text);
-                if (isNaN(num)) {
+                if (!Number.isFinite(num)) {    // NaN or Infinity 的判断
                     this.diagnostics.push(
                         Diagnostic.warning.InvalidNumber(text, r)
                     ); return null;

@@ -28,6 +28,9 @@ export class Fraction {
     }
 
     set(numerator: number, denominator = 1): this {
+        if (!Number.isFinite(numerator) || !Number.isFinite(denominator)) {
+            throw new RangeError("Fraction numerator and denominator must be finite");
+        }
         if (denominator === 0) throw new RangeError("Denominator must not be zero");
         if (denominator < 0) {
             numerator = -numerator;
@@ -112,7 +115,9 @@ export class Fraction {
             this._numerator /= 2;
             power--;
         }
-        this._denominator *= 2 ** power;
+        const denominator = this._denominator * 2 ** power;
+        if (!Number.isFinite(denominator)) throw new RangeError("Fraction denominator overflow");
+        this._denominator = denominator;
         return this;
     }
 

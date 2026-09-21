@@ -22,6 +22,20 @@ const source = [
     "end"
 ].join("\n");
 
+test("numeric arguments reject infinities and overflowing lengths", () => {
+    for (const value of ["Infinity", "-Infinity", "1e309"]) {
+        const result = compileScore(`@div(1, ${value})`);
+        assert(result.diagnostics.some(item => item.code === "W_INVALID_NUMBER"), "non-finite numbers must be diagnosed");
+        assert(result.lowering.duration.equals(1, 2), "invalid count must fall back to one division");
+    }
+    const result = compileScore(`@set(fontsize=${"9".repeat(309)}px) 1`);
+    assert(result.diagnostics.some(item => item.code === "W_INVALID_LENGTH"), "overflowing length must be diagnosed");
+    assert(result.layout.objects.every(node => Number.isFinite(node.box.w) && Number.isFinite(node.box.x)), "fallback geometry must be finite");
+    for (const source of ["@div(1, 1024)", "@dot(1, 1024)", "@dot(@dot(1, 800), 800)"]) {
+        throws(() => compileScore(source), RangeError, "finite counts must not hang when fraction arithmetic overflows");
+    }
+});
+
 test("续行与注释掩码保持源码长度和行首偏移", () => {
     const { maskedSource, lineStarts } = preprocessSource(source);
     assert(maskedSource.length === source.length, "掩码不能改变源码长度，否则所有 span 都会错位");

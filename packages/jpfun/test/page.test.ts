@@ -106,8 +106,10 @@ test("默认页面与配置归一化", () => {
         "page declarations must allow fillRatio below zero");
     assert(compileScore(`@page(fillRatio=2) 1`).lowering.page?.fillRatio === 2,
         "page declarations must allow fillRatio above one");
-    assert(compileScore(`@page(fillRatio=Infinity) 1`).lowering.page?.fillRatio === Infinity,
-        "page declarations must allow an infinite fillRatio");
+    const infiniteFill = compileScore(`@page(fillRatio=Infinity) 1`);
+    assert(infiniteFill.lowering.page?.fillRatio === DEFAULT_PAGE_CONFIG.fillRatio
+        && infiniteFill.diagnostics.some(item => item.code === "W_INVALID_NUMBER"),
+        "page declarations must diagnose non-finite numbers and use the default");
 });
 
 test("非法页面参数指向它的声明，高度 0 固化为无限", () => {
