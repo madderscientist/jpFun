@@ -40,6 +40,7 @@ export interface MusicXmlLane {
     staff: string;
     voice: string;
     events: MusicXmlEvent[];
+    dynamics?: ({ at: Fraction } & MusicXmlEvent["modifiers"][number])[];
 }
 
 /** 全谱时间流上的拍号状态点 */

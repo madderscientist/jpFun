@@ -591,11 +591,11 @@ function parseScore(root: MusicXmlElement): ParsedScore {
             ? candidates
             : laneList.filter(item => item.partId === direction.partId).slice(0, 1);
         for (const lane of targets) {
-            const contained = lane.events.find(item => item.start.compare(direction.at) <= 0
-                && add(item.start, item.duration).compare(direction.at) > 0);
-            let event = contained ?? lane.events.find(item => item.start.compare(direction.at) >= 0);
-            if (!event) event = lane.events.at(-1);
-            if (event && direction.dynamic) event.modifiers.push({ name: direction.dynamic, placement: direction.placement });
+            if (direction.dynamic) (lane.dynamics ??= []).push({
+                at: direction.at,
+                name: direction.dynamic,
+                placement: direction.placement,
+            });
         }
         if (direction.texts.length > 0) {
             const events = targets.flatMap(lane => lane.events);
@@ -742,6 +742,12 @@ function powerOfTwo(value: number) {
     return value > 0 && Number.isInteger(Math.log2(value));
 }
 
+function attachAdjustment(source: string, adjustment?: { sources: readonly string[]; below?: readonly string[] }) {
+    source = attachAbove(source, adjustment?.sources ?? []);
+    for (const below of adjustment?.below ?? []) source = `{${source} _ ${below}}`;
+    return source;
+}
+
 function addDivisions(source: string, power: number) {
     const divisions = "/".repeat(power);
     // 标签必须留在减时线之后，否则词法层会把斜线吞进标签名
@@ -812,12 +818,12 @@ function renderBlocks(
     pitchMode: PitchMode,
     score: ParsedScore,
     keys: readonly KeyPoint[],
-    adjustments: ReadonlyMap<string, { at: Fraction; sources: readonly string[] }> | undefined,
+    adjustments: ReadonlyMap<string, { at: Fraction; sources: readonly string[]; below?: readonly string[] }>,
     programs: ReadonlyMap<string, number>,
     metadata: RenderMetadata,
 ) {
     const blocks: RenderBlock[] = [];
-    const adjustmentPoints = [...adjustments?.values() ?? []]
+    const adjustmentPoints = [...adjustments.values()]
         .sort((left, right) => left.at.compare(right.at));
     for (let index = 0; index < lane.events.length;) {
         const event = lane.events[index];
@@ -884,9 +890,9 @@ function renderBlocks(
             const continuation = item.rest ? "0" : "-";
             let slotCount = item.rest ? 0 : 1;
             for (const [pointIndex, { at, end, duration }] of slices[groupIndex].entries()) {
-                const changes = adjustments?.get(keyOf(at))?.sources ?? [];
-                const head = pointIndex === 0 || changes.length > 0
-                    ? (suffix: string) => attachAbove(
+                const changes = adjustments.get(keyOf(at));
+                const head = pointIndex === 0 || changes
+                    ? (suffix: string) => attachAdjustment(
                         pointIndex === 0 ? eventSource(item, pitchMode, key, metadata, suffix) : `${continuation}${suffix}`,
                         changes,
                     )
@@ -1033,7 +1039,7 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions) {
         : score.tempos;
 
     // 初始状态进入 head；中途状态作为精确时间点只写在最上方 lane
-    const scoreAdjustments = new Map<string, { at: Fraction; sources: string[] }>();
+    const scoreAdjustments = new Map<string, { at: Fraction; sources: string[]; below?: string[] }>();
     const addAdjustment = (at: Fraction, source: string) => {
         const key = keyOf(at);
         const point = scoreAdjustments.get(key) ?? { at, sources: [] };
@@ -1043,6 +1049,17 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions) {
     for (const item of keys.slice(1)) addAdjustment(item.at, `@1(${tonicName(item)}4)`);
     for (const item of meters.slice(1)) addAdjustment(item.at, `@meter(${item.numerator}, ${item.denominator})`);
     for (const item of tempos.slice(1)) addAdjustment(item.at, `@tempo(${item.bpm})`);
+    const adjustmentsByLane = score.lanes.map((lane, index) => {
+        const adjustments: typeof scoreAdjustments = index === 0 ? scoreAdjustments : new Map();
+        for (const dynamic of lane.dynamics ?? []) {
+            const key = keyOf(dynamic.at);
+            const point = adjustments.get(key) ?? { at: dynamic.at, sources: [] };
+            if (dynamic.placement === "below") (point.below ??= []).push(`$${dynamic.name}`);
+            else point.sources.push(`$${dynamic.name}`);
+            adjustments.set(key, point);
+        }
+        return adjustments;
+    });
     // 每条 lane 只记录 program 真正变化的起点
     const programsByLane = score.lanes.map(lane => {
         const programs = new Map<string, number>();
@@ -1085,7 +1102,7 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions) {
         pitchMode,
         score,
         keys,
-        index === 0 ? scoreAdjustments : undefined,
+        adjustmentsByLane[index],
         programsByLane[index],
         metadata,
     ));
@@ -1133,10 +1150,9 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions) {
         }
         for (const at of barTimes) if (!insideSpan(tupletBlocks, at)) points.set(keyOf(at), at);
         for (const [value, at] of lineBreaks) points.set(value, at);
-        if (laneIndex === 0) {
-            for (const [value, point] of scoreAdjustments) {
-                if (!insideSpan(tupletBlocks, point.at)) points.set(value, point.at);
-            }
+        const adjustments = adjustmentsByLane[laneIndex];
+        for (const [value, point] of adjustments) {
+            if (!insideSpan(tupletBlocks, point.at)) points.set(value, point.at);
         }
         const timeline = [...points.values()].sort((left, right) => left.compare(right));
         let blockIndex = 0;
@@ -1155,7 +1171,7 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions) {
             if (!next) continue;
             const duration = next.clone().sub(at);
             if (duration.isZero()) continue;
-            const changes = laneIndex === 0 ? scoreAdjustments.get(keyOf(at))?.sources ?? [] : [];
+            const changes = adjustments.get(keyOf(at));
             const block = blocks[blockIndex];
             if (block?.source) {
                 if (!block.start.equals(at) || !block.end.equals(next)) {
@@ -1175,8 +1191,8 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions) {
                 const key = pointAt(keys, event.start);
                 const continuation = event.rest ? "0" : "-";
                 // 中途状态挂到 continuation，起音片段则重新生成完整事件源码
-                const head = start || changes.length > 0
-                    ? (suffix: string) => attachAbove(
+                const head = start || changes
+                    ? (suffix: string) => attachAdjustment(
                         start ? eventSource(event, pitchMode, key, metadata, suffix) : `${continuation}${suffix}`,
                         changes,
                     )
@@ -1187,8 +1203,8 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions) {
                 if (event.rest) addLyricSlots(start ? event : undefined, fragment.slotCount);
                 else if (start) addLyricSlots(event, 1);
             } else {
-                const head = changes.length > 0
-                    ? (suffix: string) => attachAbove(`0${suffix}`, changes)
+                const head = changes
+                    ? (suffix: string) => attachAdjustment(`0${suffix}`, changes)
                     : "0";
                 const fragment = durationSource(head, "0", duration);
                 outputs.at(-1)!.push(metadata.labelEnding(fragment, next));

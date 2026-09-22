@@ -3,6 +3,7 @@ import { throws } from "node:assert/strict";
 import { DOMParser } from "@xmldom/xmldom";
 
 import {
+  ASTFunctionNode,
   compilePlayback,
   compileScore,
   musicXmlToJpFun as convertMusicXmlElement,
@@ -96,6 +97,43 @@ test("MusicXML future program changes do not leak through backup", () => {
     }
   }
   assert(count === 4, "all voices must remain audible");
+});
+
+test("MusicXML dynamics preserve offsets inside sustained notes and rests", () => {
+  for (const first of [
+    "<pitch><step>C</step><octave>4</octave></pitch>",
+    "<rest/>",
+  ]) {
+    const source = musicXmlToJpFun(`<score-partwise><part-list><score-part id="P1"><part-name>Offset</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>2</divisions></attributes><direction placement="below"><direction-type><dynamics><p/></dynamics></direction-type><offset>1</offset></direction><note>${first}<duration>4</duration></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration></note></measure></part></score-partwise>`);
+    const result = compileScore(source);
+    const notes = playedNotes(compilePlayback(result.lowering));
+    const leading = notes.find(note => note.midi === 60);
+    assert(!leading || leading.velocity === 80 && leading.start.equals(0) && leading.duration.equals(2),
+      "a later dynamic must not change or retrigger the leading note");
+    assert(notes.find(note => note.midi === 62)?.velocity === 48, "the next onset must inherit the dynamic");
+    const dynamic = [...result.lowering.astToTemporal.values()].flat().find(node =>
+      node.ast instanceof ASTFunctionNode && node.ast.callName === "symbol");
+    assert(dynamic?.t.equals(1, 2), `the direction offset must survive conversion: ${source}`);
+    assert(source.includes("_ $p"), "below placement must be retained");
+  }
+});
+
+test("MusicXML dynamics inside tuplets stay local to the selected voice", () => {
+  const tuplet = ["G", "A", "B"].map(step => `<note><pitch><step>${step}</step><octave>4</octave></pitch><duration>2</duration><voice>2</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification></note>`).join("");
+  const source = musicXmlToJpFun(`<score-partwise><part-list><score-part id="P1"><part-name>Voices</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>6</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>12</duration><voice>1</voice></note><backup><duration>12</duration></backup><direction><direction-type><dynamics><p/></dynamics></direction-type><offset>1</offset><voice>2</voice></direction>${tuplet}<note><pitch><step>C</step><octave>5</octave></pitch><duration>6</duration><voice>2</voice></note></measure></part></score-partwise>`);
+  const result = compileScore(source);
+  const notes = playedNotes(compilePlayback(result.lowering));
+  assert(notes.find(note => note.midi === 60)?.velocity === 80, "the other voice must retain its own dynamic");
+  assert(notes.find(note => note.midi === 67)?.velocity === 80, "the first tuplet onset precedes the change");
+  for (const [index, midi] of [67, 69, 71].entries()) {
+    const note = notes.find(note => note.midi === midi);
+    assert(note && note.start.equals(index, 3) && note.duration.equals(1, 3), "control slicing must preserve tuplet timing");
+    if (index > 0) assert(note.velocity === 48, "later tuplet onsets must inherit the dynamic");
+  }
+  assert(notes.find(note => note.midi === 72)?.velocity === 48, "the dynamic must survive the end of the tuplet");
+  const dynamic = [...result.lowering.astToTemporal.values()].flat().find(node =>
+    node.ast instanceof ASTFunctionNode && node.ast.callName === "symbol");
+  assert(dynamic?.t.equals(1, 6), `the tuplet direction must retain its exact offset: ${source}`);
 });
 
 test("MusicXML 的 part、staff、voice、chord、rest 和 backup 转成可播放 jpFun", () => {
