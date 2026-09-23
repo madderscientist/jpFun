@@ -507,6 +507,7 @@ export class GraceTemporal extends TemporalNodeBase {
         for (const name in this.host.ports) {
             const port = this.host.ports[name];
             this.ports[name] = {
+                ...port,
                 x: this.hostOffset.x + port.x,
                 y: this.hostOffset.y + port.y,
             };

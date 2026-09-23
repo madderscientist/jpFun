@@ -13,13 +13,13 @@ export function divLinePortName(level: number, edge: "left" | "right"): string {
 }
 
 interface DivLinePort extends LayoutPoint {
-    /** 当前 layout 中该级局部线已由 beam 合并绘制 */
-    claimed?: boolean;
+    /** 当前 layout 中该级局部线的接管状态，由平移后的端口副本共享 */
+    state: { claimed: boolean };
 }
 
 export function claimDivLine(host: LayoutHost, level: number) {
     const port = host.ports[divLinePortName(level, "left")] as DivLinePort | undefined;
-    if (port) port.claimed = true;
+    if (port) port.state.claimed = true;
 }
 
 /** 接管绘制的函数必须用同一条公式，否则同一条减时线会因为谁画而粗细不一 */
@@ -162,7 +162,8 @@ class DivFunction extends ASTFunctionNode {
                         host.ports[divLinePortName(i, "left")] = {
                             x: lineLeft,
                             y: lineY,
-                        };
+                            state: { claimed: false },
+                        } as DivLinePort;
                         host.ports[divLinePortName(i, "right")] = {
                             x: lineRight,
                             y: lineY,
@@ -174,7 +175,7 @@ class DivFunction extends ASTFunctionNode {
                 // 未被关系对象接管的级别仍由本装饰独立绘制
                 for (let i = 0; i < count; i++) {
                     const leftPort = host.ports[divLinePortName(i, "left")] as DivLinePort;
-                    if (leftPort.claimed) continue;
+                    if (leftPort.state.claimed) continue;
                     const y = host.box.y + firstLine + i * lineGap;
                     painter.drawLine(
                         host.box.x + lineLeft,

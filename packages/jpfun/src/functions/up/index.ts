@@ -414,7 +414,7 @@ class FoldTemporal extends TemporalNodeBase {
         const firstOffset = this.verticalOffsets[0];
         for (const name in first.ports) {
             const port = first.ports[name];
-            this.ports[name] = { x: first.box.x + port.x, y: firstOffset + port.y };
+            this.ports[name] = { ...port, x: first.box.x + port.x, y: firstOffset + port.y };
         }
 
         // 代表成员没声明核心范围时退回它的整个盒子

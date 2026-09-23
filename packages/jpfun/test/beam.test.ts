@@ -191,6 +191,45 @@ test("减时线在数字与下八度点之间保持水平", () => {
 
 const EXPLICIT_BEAM = `@set(div.autobeam=false) 1/@a 2/@b @beam(a,b)`;
 
+for (const source of [
+    `{1^3}/ 2/`,
+    `{1_3}/ 2/`,
+    `@up({1^3},5)/ 2/`,
+    `{@set(fontsize=40px) 1^3}/ 2/`,
+    `{1^3}/ {@set(fontsize=40px) 2/}`,
+    `@set(div.autobeam=false) {1^3}/@a 2/@b @beam(a,b)`,
+    `{{1^3} 2}>4`,
+]) {
+    test(`折叠宿主的减时线被连梁接管后只绘制一次：${source}`, () => {
+        const layout = layoutOf(source);
+        const lines = recordCommands(layout).filter(command => command.kind === "line");
+        assert(layout.attachments.length === 1, "the sample must create one beam attachment");
+        const beamLines = attachmentCommands(layout.attachments[0]).filter(command => command.kind === "line");
+        assert(beamLines.length === 1, "the beam must paint one complete line");
+        assert(lines.length === 1, "a claimed folded div must not paint a duplicate local line");
+        assert(nearly(lines[0].x1, beamLines[0].x1) && nearly(lines[0].x2, beamLines[0].x2),
+            "the remaining line must span the complete beam");
+    });
+}
+
+test("折叠与倚音相互嵌套时共享宿主的减时线接管状态", () => {
+    for (const source of [`@grace({1^3},4)/ 2/`, `@up({4>1},3)/ 2/`]) {
+        const layout = layoutOf(source);
+        assert(layout.attachments.length === 1, "the two main events must share one beam");
+        assert(recordCommands(layout).filter(command => command.kind === "line").length === 2,
+            `only the main beam and the unconnected grace line must remain: ${source}`);
+    }
+});
+
+test("折叠宿主保留未被连梁接管的减时线级别", () => {
+    assert(commandsOfKind(`{1^3}/`, "line").length === 1,
+        "an isolated folded div must keep its local line");
+    assert(commandsOfKind(`@set(div.autobeam=false) {1^3}/ 2/`, "line").length === 2,
+        "disabled auto beam must preserve both local lines");
+    assert(commandsOfKind(`{1^3}// 2/`, "line").length === 2,
+        "only the shared level is claimed; the extra folded level must remain local");
+});
+
 test("减时线的合并与拆分遵循连梁语义", () => {
     assert(commandsOfKind(`@div({1@a 2@b @beam(a,b)}, 1)`, "line").length === 1,
         "explicit beam over divided notes must emit one merged line");
