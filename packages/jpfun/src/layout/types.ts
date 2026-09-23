@@ -1,9 +1,10 @@
 import type { Painter, TextMeasurer } from "../render/types.js";
 import type { Track } from "../lowering/track.js";
 import type { Fraction } from "../fraction.js";
+import type { TemporalNodeBase } from "../functions/temporal.js";
 import type { SourceSpan } from "../parser/types.js";
 import type { HorizontalLayoutHook } from "./model.js";
-import type { LoweringAttachment } from "../lowering/types.js";
+import type { LoweringAttachment, LoweringContent } from "../lowering/types.js";
 
 /** 轴对齐矩形，是所有排版几何的公共部分 */
 export interface Rect {
@@ -74,7 +75,22 @@ export interface PageConfig {
 export interface LayoutPrepareContext {
     textMeasurer: TextMeasurer;
     decorationHandlers: ReadonlyMap<string, LayoutDecorationHandler>; // addon key 到装饰 handler 的注册表
+    /**
+     * 按横向先后顺序登记局部列；每列同一 Track 至多一个成员。
+     * 当前要求成员与 owner 同行同轨，序列和列非空，成员不重复且不形成循环包含。
+     *
+     * 单轨对象范围查询逐层筛选目标 Track，再递归展开已注册成员；
+     * 全轨查询仍使用正文列，不展开或对齐不同轨道的内部列。
+     * 未注册的复合体保持单列，例如 up/down。
+     *
+     * 登记保存列结构快照，不改变时间列或横向求解。
+     * 仅允许在主体准备阶段注册；独立尺寸测量时此入口可缺省。
+     */
+    registerLocalColumns?(owner: LayoutHost, columns: readonly (readonly LayoutHost[])[]): void;
 }
+
+export type LayoutRange = readonly [from: number, to: number]
+    | readonly [from: LayoutHost, to: LayoutHost];
 
 /** attachment 根据当前视觉轴生成几何时需要的完整页面信息 */
 export interface AttachmentLayoutContext extends LayoutPrepareContext {
@@ -85,20 +101,31 @@ export interface AttachmentLayoutContext extends LayoutPrepareContext {
     getVisualAxis(line: number, track: Track): number;
     /** 只包含可见主体的轴局部占用（top 通常为负），不受 attachment 或最终分页坐标影响 */
     getHostExtent(line: number, track: Track): Readonly<Extent> | undefined;
+    /** 获取本行范围内的列；指定 track 时对象端点可深入局部序列，否则覆盖完整正文列 */
+    getRangeColumns(line: number, range?: LayoutRange, track?: Track): readonly (readonly LayoutHost[])[];
     /**
-     * 闭区间列 [from, to] 内按轨分组的已定占用
+     * 本行闭区间内的已定占用；全轨返回按 Track 分组的 Map，单轨直接返回 Extent 或 undefined
      *
-     * 主体按时间列精确筛选；attachment 按这些列最终盒子的横向范围筛选。
+     * 数字端点表示正文列下标；对象端点在指定 track 时精确展开已注册局部列，
+     * 未指定 track 时上溯到正文列，覆盖首尾整列的全部轨道。跨行对象区间自动截取本行部分。
+     * 主体按查询列筛选；attachment 按这些列最终盒子的横向范围筛选，并遵守 track 过滤。
      * attachment 部分与 getAttachmentBox 同一条可见性规则：只看得见比自己先注册的，
      * 也就是「后声明的排在外层」。避让型 attachment 用它把自己排到已有内容之外。
      * 省略列号表示整行，供跨行 attachment 查询没有可见列的中间行。
      */
     getRangeExtents(
         line: number,
-        columns?: readonly [from: number, to: number],
+        columns?: LayoutRange,
     ): ReadonlyMap<Track, Readonly<Extent>>;
+    getRangeExtents(
+        line: number,
+        columns: LayoutRange | undefined,
+        track: Track,
+    ): Readonly<Extent> | undefined;
     /** 读取本轮已完成的 attachment 边界；分组在 endLoweringGroup 才注册，因而组内对象必然排在分组之前 */
     getAttachmentBox(attachment: LayoutAttachment): Readonly<Rect>;
+    /** 内容的实际几何并集；只包含作用域内主体与此前已测附件，不代表撑行占用 */
+    getContentBounds(content: LoweringContent): Readonly<Rect> | undefined;
 }
 
 
@@ -234,6 +261,8 @@ export interface AttachmentGeometry {
  * 实例只保存语义输入和一次横向准备状态，不保存最终 box、regions 或绘制几何。
  */
 export interface LayoutAttachment extends LoweringAttachment {
+    /** 几何端点，供系统确定占用所属的公共局部序列；不表示内容包含或播放端点投影 */
+    readonly endPoints?: readonly TemporalNodeBase[];
     /** 相对于 Temporal 主体的绘制层；background 比内容先绘制 */
     readonly layer: "background" | "foreground";
     /** 对应的源码范围；自动生成图形可覆盖其首末宿主的源码 */

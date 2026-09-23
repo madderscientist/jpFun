@@ -1,10 +1,10 @@
-import { deepStrictEqual } from "node:assert/strict";
+import { deepStrictEqual, throws } from "node:assert/strict";
 import { test } from "node:test";
 
 import { DIV_ADDON_KEY } from "../src/functions/div/index.js";
 import { GraceTemporal } from "../src/functions/grace/index.js";
 import { layoutDocument } from "../src/layout/engine.js";
-import type { LayoutAttachment } from "../src/layout/types.js";
+import type { Extent, LayoutAttachment } from "../src/layout/types.js";
 import { isVisualTemporalNode } from "../src/functions/temporal.js";
 import { compileScore } from "../src/pipeline.js";
 import { assert, expectSnapshot, layoutContext, layoutOf, lower, nearly, recordCommands } from "./helpers.js";
@@ -15,6 +15,312 @@ const result = compileScore(`1 #2'./ | - @text("进入")`, { rowGap: 12 }).layou
 test("装饰处理器从主函数名推导注册键", () => {
     assert(layoutContext.decorationHandlers.has(DIV_ADDON_KEY),
         "div layout must derive its handler key from the primary function name");
+});
+
+test("extent overloads return a scalar for one track and a map for all tracks", () => {
+    const lowered = lower("@stack({1 2},{3 4})");
+    const host = lowered.columns[0][0];
+    const absentTrack = lower("5").rootTrack;
+    const probe: LayoutAttachment = {
+        layer: "foreground",
+        createGeometry(context) {
+            const all: ReadonlyMap<typeof host.track, Readonly<Extent>> = context.getRangeExtents(0);
+            const single: Readonly<Extent> | undefined = context.getRangeExtents(0, undefined, host.track);
+            assert(all instanceof Map && all.size === 2, "all-track queries must retain a map");
+            assert(single && !(single instanceof Map), "single-track queries must return an extent");
+            deepStrictEqual(single, all.get(host.track));
+            deepStrictEqual(context.getRangeExtents(0, [0, 1], host.track), single);
+            assert(context.getRangeExtents(0, [1, 0], host.track) === undefined, "an empty range has no scalar extent");
+            assert(context.getRangeExtents(0, [1, 0]).size === 0, "an empty all-track range returns an empty map");
+            assert(context.getRangeExtents(0, undefined, absentTrack) === undefined, "an absent track has no extent");
+            assert(context.getRangeExtents(10, undefined, host.track) === undefined, "an absent line has no scalar extent");
+            assert(context.getRangeExtents(10).size === 0, "an absent line returns an empty all-track map");
+            return { regions: [], paint() {} };
+        },
+    };
+    lowered.attachments.push(probe);
+    layoutDocument(lowered, layoutContext);
+});
+
+test("range queries preserve local endpoints only when a track is selected", () => {
+    const lowered = lower("@stack({@grace(1,{2 3}) 4}, {@grace(5,{6 7}) 1})");
+    const graces = lowered.columns.flat().filter(node => node instanceof GraceTemporal);
+    assert(graces.length === 2, "expected two grace groups in the same document column");
+    const [first, second] = graces;
+    const last = lowered.columns.at(-1)!.find(node => node.track === first.track && isVisualTemporalNode(node));
+    assert(last && isVisualTemporalNode(last), "expected a following host on the first track");
+    let calls = 0;
+    const probe: LayoutAttachment = {
+        layer: "foreground",
+        createGeometry(context) {
+            calls++;
+            const local = context.getRangeExtents(first.layoutLine, [first.graces[1], last], first.track);
+            assert(local && !(local instanceof Map), "a single-track query must return an extent directly");
+            const axis = context.getVisualAxis(first.layoutLine, first.track);
+            const expected = [first.graces[1], first.host, last];
+            assert(nearly(local.top + axis, Math.min(...expected.map(host => host.box.y))),
+                "local endpoints must measure their actual member boxes");
+            const whole = context.getRangeExtents(first.layoutLine, [first.graces[1], last]);
+            assert(whole.has(second.track), "an all-track query must include the other track's document columns");
+            const secondAxis = context.getVisualAxis(first.layoutLine, second.track);
+            assert(nearly(whole.get(second.track)!.top + secondAxis, second.box.y),
+                "an all-track query must retain the entire parallel composite");
+            return { regions: [], paint() {} };
+        },
+    };
+    lowered.attachments.push(probe);
+    layoutDocument(lowered, layoutContext);
+    assert(calls > 0, "the query probe must run");
+});
+
+test("local endpoint attachments participate in subsequent range avoidance", () => {
+    for (const first of ["@dyn(a,b,24)", "@tie(a,b)"]) {
+        for (const wrap of [(body: string) => body, (body: string) => `@grace(1,{${body}})`]) {
+            const source = wrap(`2@a 3@b ${first} @dyn(a,b,24)`);
+            const result = layoutOf(source);
+            const before = result.attachments.find(attachment => attachment.sourceSpan?.start === source.indexOf(first));
+            const after = result.attachments.find(attachment => attachment.sourceSpan?.start === source.lastIndexOf("@dyn"));
+            assert(before && after && before !== after, "expected two distinct endpoint attachments");
+            assert(after.box.y + after.box.h <= before.box.y,
+                `a later dynamic must clear the preceding relation in both document and local ranges: ${source}`);
+        }
+    }
+});
+
+test("endpoint occupancy remains isolated between compressed local sequences", () => {
+    const group = "@grace(1,{2@a 3@b @tie(a,b) @dyn(a,b,24) @dyn(a,b,24)})";
+    assert(nearly(layoutOf(group).bounds.h, layoutOf(Array(30).fill(group).join(" ")).bounds.h),
+        "endpoint attachment buckets must not leak into adjacent grace groups under compression");
+});
+
+test("local occupancy is visible to ancestors and the document but not sibling scopes", () => {
+    const lowered = lower("@grace(1,{@grace(2,{3 4}) 5}) @grace(6,{7 1})");
+    const [outer, sibling] = lowered.columns.flat().filter(node => node instanceof GraceTemporal);
+    const inner = outer.graces.find(node => node instanceof GraceTemporal);
+    assert(inner instanceof GraceTemporal, "expected nested local sequences");
+    let passes = 0;
+    let occupiedTop = 0;
+    const attachment: LayoutAttachment = {
+        layer: "foreground",
+        endPoints: inner.graces,
+        createGeometry() {
+            passes++;
+            occupiedTop = Math.min(...inner.graces.map(node => node.box.y)) - 50;
+            return {
+                regions: [{
+                    x: inner.graces[0].box.x, y: occupiedTop,
+                    w: inner.graces.at(-1)!.box.x + inner.graces.at(-1)!.box.w - inner.graces[0].box.x,
+                    h: 5, line: inner.layoutLine, track: inner.track,
+                }],
+                paint() {},
+            };
+        },
+    };
+    const probe: LayoutAttachment = {
+        layer: "foreground",
+        createGeometry(context) {
+            const axis = context.getVisualAxis(inner.layoutLine, inner.track);
+            for (const owner of [inner, outer]) {
+                const extent = context.getRangeExtents(owner.layoutLine, [owner, owner], owner.track);
+                assert(extent && nearly(extent.top + axis, occupiedTop),
+                    "local occupancy must be visible to its own and enclosing sequences in each pass");
+            }
+            const document = context.getRangeExtents(inner.layoutLine).get(inner.track);
+            assert(document && nearly(document.top + axis, occupiedTop), "the document scope must include local occupancy");
+            const isolated = context.getRangeExtents(sibling.layoutLine, [sibling, sibling], sibling.track);
+            assert(isolated && nearly(isolated.top + axis, Math.min(sibling.host.box.y, ...sibling.graces.map(node => node.box.y))),
+                "sibling queries must contain only their own hosts and attachments");
+            return { regions: [], paint() {} };
+        },
+    };
+    lowered.attachments.push(attachment, probe);
+    layoutDocument(lowered, layoutContext);
+    assert(passes === 2, "the probe must cover both initial measurement and vertical replacement");
+});
+
+test("local query topology is snapshotted and closed after preparation", () => {
+    const lowered = lower("1^3 5");
+    const owner = lowered.columns[0][0];
+    const spare = lowered.columns[1][0];
+    const members = [...lowered.astToTemporal.values()].flat().filter(node => node.foldedInto === owner).filter(isVisualTemporalNode);
+    assert(isVisualTemporalNode(owner) && isVisualTemporalNode(spare), "expected visible test hosts");
+    const columns = members.map(member => [member]);
+    const prepare = owner.prepareLayout;
+    let register: NonNullable<typeof layoutContext.registerLocalColumns>;
+    owner.prepareLayout = context => {
+        prepare.call(owner, context);
+        register = context.registerLocalColumns!;
+        register(owner, columns);
+        columns[0].push(spare);
+        columns.reverse();
+    };
+    const horizontal = owner.prepareHorizontal;
+    owner.prepareHorizontal = line => {
+        throws(() => register(spare, [[owner]]), /preparation|sealed/);
+        horizontal?.call(owner, line);
+    };
+    const probe: LayoutAttachment = {
+        layer: "foreground",
+        createGeometry(context) {
+            deepStrictEqual(context.getRangeColumns(0, [owner, owner], owner.track), members.map(member => [member]));
+            throws(() => register(spare, [[owner]]), /preparation|sealed/);
+            return { regions: [], paint() {} };
+        },
+    };
+    lowered.attachments.push(probe);
+    layoutDocument(lowered, layoutContext);
+});
+
+test("local query boundaries follow pre/post order, nesting and document lines", () => {
+    for (const source of [
+        "@grace(1,{2''' 3}) 4",
+        "@grace(1,{2''' 3},side=post) 4",
+        "@grace(@grace(1,{2''' 3}),{5 6},side=post) 4",
+        "@grace(1,{2''' 3}) @br() 4",
+    ]) {
+        const lowered = lower(source);
+        const events = [...lowered.astToTemporal.values()].flat();
+        const from = events.find(node => node.ast.sourceSpan.start === source.indexOf("3"));
+        const to = events.find(node => node.ast.sourceSpan.start === source.lastIndexOf("4"));
+        assert(from && to && isVisualTemporalNode(from) && isVisualTemporalNode(to), "expected visible endpoints");
+        const probe: LayoutAttachment = {
+            layer: "foreground",
+            createGeometry(context) {
+                for (let line = from.layoutLine; line <= to.layoutLine; line++) {
+                    const forward: Readonly<Extent> | undefined = context.getRangeExtents(line, [from, to], from.track);
+                    const reverse: Readonly<Extent> | undefined = context.getRangeExtents(line, [to, from], from.track);
+                    deepStrictEqual(forward, reverse);
+                    assert(forward, "cross-line queries must retain the selected track");
+                }
+                const local = context.getRangeExtents(from.layoutLine, [from, from], from.track)!;
+                const axis = context.getVisualAxis(from.layoutLine, from.track);
+                assert(nearly(local.top + axis, from.box.y) && nearly(local.bottom + axis, from.box.y + from.box.h),
+                    "a one-member query must exclude the earlier tall grace and its containing composite");
+                return { regions: [], paint() {} };
+            },
+        };
+        lowered.attachments.push(probe);
+        layoutDocument(lowered, layoutContext);
+    }
+});
+
+test("opaque folded members share a column while nested registered sequences remain queryable", () => {
+    const lowered = lower("{@grace(1,{2 3})}^5 6");
+    const events = [...lowered.astToTemporal.values()].flat();
+    const grace = events.find(node => node instanceof GraceTemporal);
+    const fold = lowered.columns[0][0];
+    assert(grace instanceof GraceTemporal && isVisualTemporalNode(fold), "expected a grace inside an opaque fold");
+    const probe: LayoutAttachment = {
+        layer: "foreground",
+        createGeometry(context) {
+            const axis = context.getVisualAxis(0, fold.track);
+            const local = context.getRangeExtents(0, [grace.graces[0], grace.graces[1]], fold.track)!;
+            assert(nearly(local.top + axis, Math.min(...grace.graces.map(node => node.box.y))),
+                "a registered sequence inside a fold must remain locally addressable");
+            const member = events.find(node => node !== fold && node.foldedInto === fold && node !== grace);
+            assert(member && isVisualTemporalNode(member), "expected the upper member");
+            const column = context.getRangeExtents(0, [member, member], fold.track)!;
+            assert(nearly(column.top + axis, fold.box.y), "an opaque fold member selects its whole column");
+            return { regions: [], paint() {} };
+        },
+    };
+    lowered.attachments.push(probe);
+    layoutDocument(lowered, layoutContext);
+});
+
+test("custom composites register query columns without changing document columns", () => {
+    const lowered = lower("1^3^5 6");
+    const owner = lowered.columns[0][0];
+    const members = [...lowered.astToTemporal.values()].flat().filter(node =>
+        node.foldedInto === owner && isVisualTemporalNode(node)).filter(isVisualTemporalNode);
+    assert(isVisualTemporalNode(owner) && members.length === 3, "expected a custom three-member test composite");
+    const prepare = owner.prepareLayout;
+    owner.prepareLayout = context => {
+        prepare.call(owner, context);
+        context.registerLocalColumns!(owner, members.map(member => [member]));
+    };
+    const probe: LayoutAttachment = {
+        layer: "foreground",
+        createGeometry(context) {
+            deepStrictEqual(context.getRangeColumns(0, [members[1], members[2]], owner.track).flat(), members.slice(1));
+            deepStrictEqual(context.getRangeColumns(0, [members[1], members[2]]).flat(), [owner]);
+            deepStrictEqual(context.getRangeColumns(0, [owner, owner], owner.track).flat(), members);
+            assert(lowered.columns.length === 2 && context.lines[0].columns.length === 2,
+                "query expansion must leave time and solver columns unchanged");
+            return { regions: [], paint() {} };
+        },
+    };
+    lowered.attachments.push(probe);
+    layoutDocument(lowered, layoutContext);
+    assert(layoutContext.registerLocalColumns === undefined, "registration must not leak into the caller's reusable context");
+});
+
+test("two grace sequences inside one fold remain independent", () => {
+    const lowered = lower("@up(@grace(1,{2 3}),@grace(4,{5 6},side=post)) 7");
+    const graces = [...lowered.astToTemporal.values()].flat().filter(node => node instanceof GraceTemporal);
+    const fold = lowered.columns[0][0];
+    assert(graces.length === 2 && isVisualTemporalNode(fold), "expected two local sequences in one folded column");
+    const [first, second] = graces;
+    const probe: LayoutAttachment = {
+        layer: "foreground",
+        createGeometry(context) {
+            for (const grace of graces) {
+                const [from, to] = grace.graces;
+                deepStrictEqual(context.getRangeColumns(0, [from, to], fold.track), [[from], [to]]);
+                const members = grace.side === "pre" ? [...grace.graces, grace.host] : [grace.host, ...grace.graces];
+                deepStrictEqual(context.getRangeColumns(0, [grace, grace], fold.track), members.map(member => [member]));
+                deepStrictEqual(context.getRangeColumns(0, [from, to]), [[fold]]);
+            }
+            deepStrictEqual(context.getRangeColumns(0, [first.graces[1], second.graces[0]], fold.track), [[fold]]);
+            return { regions: [], paint() {} };
+        },
+    };
+    lowered.attachments.push(probe);
+    layoutDocument(lowered, layoutContext);
+});
+
+test("local column registration rejects empty sequences, duplicate members and cycles", () => {
+    for (const invalid of ["empty", "empty-column", "duplicate", "same-track", "cycle", "registration"]) {
+        const lowered = lower("1^3");
+        const owner = lowered.columns[0][0];
+        const member = [...lowered.astToTemporal.values()].flat().find(node => node.foldedInto === owner);
+        assert(isVisualTemporalNode(owner) && member && isVisualTemporalNode(member), "expected folded test members");
+        const prepare = owner.prepareLayout;
+        owner.prepareLayout = context => {
+            prepare.call(owner, context);
+            let columns = [[member]];
+            if (invalid === "empty") columns = [];
+            if (invalid === "empty-column") columns = [[]];
+            if (invalid === "duplicate") columns = [[member], [member]];
+            if (invalid === "cycle") columns = [[owner]];
+            if (invalid === "same-track") columns = [[...lowered.astToTemporal.values()].flat()
+                .filter(node => node.foldedInto === owner).filter(isVisualTemporalNode)];
+            context.registerLocalColumns!(owner, columns);
+            if (invalid === "registration") context.registerLocalColumns!(owner, columns);
+        };
+        throws(() => layoutDocument(lowered, layoutContext), /local layout|Local layout/);
+    }
+});
+
+test("content measurement filters empty and non-layout attachments and rejects forward dependencies", () => {
+    const lowered = lower("1");
+    const host = lowered.columns[0][0];
+    assert(isVisualTemporalNode(host), "expected one measured host");
+    const empty: LayoutAttachment = { layer: "foreground", createGeometry: () => ({ regions: [], paint() {} }) };
+    const later: LayoutAttachment = { layer: "foreground", createGeometry: () => ({ regions: [], paint() {} }) };
+    const probe: LayoutAttachment = {
+        layer: "foreground",
+        createGeometry(context) {
+            const bounds = context.getContentBounds({ nodes: [host], attachments: [empty, {}] });
+            deepStrictEqual(bounds, { x: host.box.x, y: host.box.y, w: host.box.w, h: host.box.h });
+            assert(context.getContentBounds({ nodes: [], attachments: [empty, {}] }) === undefined,
+                "empty geometry must not create a box at the origin");
+            throws(() => context.getContentBounds({ nodes: [], attachments: [later] }), /has not been measured/);
+            return { regions: [], paint() {} };
+        },
+    };
+    lowered.attachments.push(empty, probe, later);
+    layoutDocument(lowered, layoutContext);
 });
 
 test("finalizeLayout sees completed decorations before horizontal preparation", () => {

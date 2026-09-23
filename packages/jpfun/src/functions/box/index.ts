@@ -1,11 +1,13 @@
 ﻿import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, ParserContext, SourceSpan, LengthValue } from "../ASTtypes.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
+import type { LoweringContent, LoweringGroup } from "../../lowering/types.js";
 import { isVisualTemporalNode, type VisualTemporalNode } from "../temporal.js";
 import { ErrorDiagnostic } from "../../diagnostic.js";
-import { unionLayoutBoxes } from "../../layout/engine.js";
 import { layoutHorizontalRegion } from "../../layout/model.js";
-import { isLayoutAttachment, type AttachmentLayoutContext, type HorizontalLineView, type LayoutAttachment, type Rect } from "../../layout/types.js";
+import type { AttachmentLayoutContext, HorizontalLineView, LayoutAttachment } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";
+
+type BoxContent = LoweringContent & { nodes: VisualTemporalNode[] };
 
 class BoxFunction extends ASTFunctionNode {
     static override def = {
@@ -69,25 +71,22 @@ class BoxFunction extends ASTFunctionNode {
       * 进入目标内容前只开始收集所有成员矩形的引用
      */
     override loweringEnter(ctx: LoweringContext) {
-        const temporalMembers: VisualTemporalNode[] = [];
-        const childAttachments: LayoutAttachment[] = [];
-        ctx.beginLoweringGroup(this, {
-            attachment: new BoxLayoutAttachment(temporalMembers, childAttachments, this),
-            onTemporal(node) {
-                if (!isVisualTemporalNode(node)) return;
-                temporalMembers.push(node);
-            },
-            onAttachment(attachment) {
-                if (isLayoutAttachment(attachment)) childAttachments.push(attachment);
-            },
-        });
+        const group: LoweringGroup & BoxContent = {
+            nodes: [],
+            attachments: [],
+            onTemporal(node) { if (isVisualTemporalNode(node)) group.nodes.push(node); },
+            onAttachment(attachment) { group.attachments.push(attachment); },
+        };
+        ctx.beginLoweringGroup(this, group);
         return [];
     }
 
     /** 退出时把注册入口接到首成员；嵌套框按退出顺序由内向外组合 */
     override loweringExit(ctx: LoweringContext) {
-        const attachment = ctx.endLoweringGroup(this).attachment as BoxLayoutAttachment;
-        const first = attachment.temporalMembers[0];
+        const content = ctx.endLoweringGroup(this) as LoweringGroup & BoxContent;
+        const attachment = new BoxLayoutAttachment(content, this);
+        ctx.addAttachment(attachment);
+        const first = content.nodes[0];
         if (first) {
             const prepare = first.prepareHorizontal;
             first.prepareHorizontal = line => {
@@ -123,17 +122,16 @@ class BoxLayoutAttachment implements LayoutAttachment {
     get sourceSpan() { return this.owner.sourceSpan; }
 
     constructor(
-        readonly temporalMembers: VisualTemporalNode[],
-        /** 框内关系按 lowering 退出顺序注册，均在本框之前完成几何 */
-        private readonly childAttachments: LayoutAttachment[],
+        private readonly content: BoxContent,
         private readonly owner: BoxFunction,
     ) {}
 
     /** 只在完整包含成员的视图注册；留白和定宽共用同一个由内向外执行的 hook */
     registerHorizontal(line: HorizontalLineView) {
-        let first = this.temporalMembers[0];
+        const members = this.content.nodes;
+        let first = members[0];
         if (!first) return;
-        if (this.temporalMembers.some(member => member.layoutLine !== first.layoutLine)) {
+        if (members.some(member => member.layoutLine !== first.layoutLine)) {
             throw new ErrorDiagnostic(
                 "E_BOX_CROSS_LINE",
                 "@box 的内容不能跨越谱面行",
@@ -142,7 +140,7 @@ class BoxLayoutAttachment implements LayoutAttachment {
         }
         let last = first;
 
-        for (const member of this.temporalMembers) {
+        for (const member of members) {
             const index = line.columnOf(member);
             if (index < 0) return;
             if (index < line.columnOf(first)) first = member;
@@ -153,7 +151,7 @@ class BoxLayoutAttachment implements LayoutAttachment {
             columns, rows, start, end, X, fixed, options,
         }) => {
             const edge = (index: number) => columns[index].filter(element =>
-                this.temporalMembers.some(member => member.box === element.box));
+                members.some(member => member.box === element.box));
             const left = edge(start);
             const right = edge(end);
             if (width > 0) {
@@ -213,13 +211,8 @@ class BoxLayoutAttachment implements LayoutAttachment {
      */
     createGeometry(context: AttachmentLayoutContext) {
         const { padding, stroke } = this.owner;
-        const rect: Rect = { x: 0, y: 0, w: 0, h: 0 };
-        const members = [
-            ...this.temporalMembers.map(member => member.box),
-            ...this.childAttachments.map(attachment => context.getAttachmentBox(attachment)),
-        ];
-        // 未命名歌词等 attachment 会保留全零盒，不能让它把边框拉到文档原点
-        if (!unionLayoutBoxes(rect, members.filter(member => member.w > 0 || member.h > 0))) {
+        const rect = context.getContentBounds(this.content);
+        if (!rect) {
             return { regions: [], paint() {} };
         }
 

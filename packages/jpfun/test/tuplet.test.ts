@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { compileScore } from "../src/pipeline.js";
 
 import type { TemporalNodeBase, VisualTemporalNode } from "../src/functions/temporal.js";
 import {
@@ -145,4 +146,43 @@ test("tuplet 主体纵移后仍按最终位置避让", () => {
     const hostTop = Math.min(...result.objects.map(host => host.box.y));
     assert(bracket.box.y + bracket.box.h <= hostTop + 1e-6,
         "the bracket must stay above vertically adjusted hosts");
+});
+
+test("tuplet brackets stay above folded grace members", () => {
+    for (const source of [
+        "@grace(1,@tuplet({2 3 4},2))",
+        "@grace(1,@tuplet({2 3 4},2), side=post)",
+    ]) {
+        const result = compileScore(source);
+        const bracket = result.layout.attachments.find(item =>
+            attachmentCommands(item).some(command => command.kind === "text" && command.text === "3"));
+        const members = [...result.lowering.astToTemporal.values()].flat()
+            .filter(node => node.foldedInto && node.ast.sourceSpan.start > source.indexOf("tuplet")) as VisualTemporalNode[];
+        assert(bracket && members.length === 3, "all folded tuplet members must remain addressable");
+        assert(bracket.box.y + bracket.box.h <= Math.min(...members.map(node => node.box.y)),
+            "the entire bracket must clear its folded members");
+    }
+});
+
+test("folded tuplets clear nested brackets and enclosed frames", () => {
+    for (const content of [
+        "@tuplet({@tuplet({2/3/4/},2) 5},3)",
+        "@tuplet(@box({2 3 4},padding=12px),2)",
+    ]) {
+        const result = layoutOf(`@grace(1,${content})`);
+        const attachments = result.attachments.filter(item =>
+            item.layer === "background" || attachmentCommands(item).some(command => command.kind === "text"));
+        const [inner, outer] = attachments;
+        assert(attachments.length === 2, "expected the inner frame or bracket and the outer tuplet bracket");
+        assert(outer.box.y + outer.box.h <= inner.box.y,
+            "folded tuplets must clear previously placed attachments inside their scope");
+    }
+});
+
+test("separate compressed grace groups do not stack their tuplet brackets", () => {
+    const source = "@grace(1,@tuplet({2 3 4},2))";
+    const single = layoutOf(source);
+    const repeated = layoutOf(Array(40).fill(source).join(" "));
+    assert(Math.abs(single.bounds.h - repeated.bounds.h) < 1e-6,
+        "independent local sequences must retain the same height under horizontal compression");
 });

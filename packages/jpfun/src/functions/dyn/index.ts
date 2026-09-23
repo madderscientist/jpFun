@@ -188,7 +188,6 @@ interface HairpinRange {
     line: number;
     startX: number;
     endX: number;
-    columns: readonly [from: number, to: number];
 }
 
 class DynAttachment implements LayoutAttachment {
@@ -202,53 +201,38 @@ class DynAttachment implements LayoutAttachment {
     ) {}
 
     get sourceSpan() { return this.ast.sourceSpan; }
+    get endPoints() { return [this.fromHost, this.toHost] as const; }
     get dv() { return this.ast.dv; }
     get track() { return this.fromHost.track; }
 
     createGeometry(context: AttachmentLayoutContext) {
-        const locate = (host: VisualTemporalNode) => {
-            const view = context.lines[host.layoutLine];
-            return { line: host.layoutLine, view, column: view?.columnOf(host) ?? -1 };
-        };
-        const from = locate(this.fromHost);
-        const to = locate(this.toHost);
-        if (!from.view || !to.view || from.column < 0 || to.column < 0) {
-            return { regions: [], paint() {} };
-        }
-
+        const fromLine = this.fromHost.layoutLine;
+        const toLine = this.toHost.layoutLine;
+        const endpoints = [this.fromHost, this.toHost] as const;
         const ranges: HairpinRange[] = [];
         let size = this.ast.size;
 
-        for (let line = from.line; line <= to.line; line++) {
-            const view = context.lines[line];
-            const start = line === from.line ? from.column : 0;
-            const end = line === to.line ? to.column : view.columns.length - 1;
-            let firstColumn = -1;
-            let lastColumn = -1;
-
-            for (let column = start; column <= end; column++) {
-                for (const host of view.columns[column]) {
-                    if (host.track !== this.track) continue;
-                    firstColumn = firstColumn < 0 ? column : firstColumn;
-                    lastColumn = column;
+        for (let line = fromLine; line <= toLine; line++) {
+            const columns = context.getRangeColumns(line, endpoints, this.track);
+            if (!columns.some(column => column.length > 0)) continue;
+            for (const column of columns) {
+                for (const host of column) {
                     size = Math.max(size, host.ast.size);
                 }
             }
-            if (firstColumn < 0) continue;
 
             ranges.push({
                 line,
-                startX: line === from.line ? this.fromHost.box.x : this.lineEntryX(context, line),
-                endX: line === to.line
+                startX: line === fromLine ? this.fromHost.box.x : this.lineEntryX(context, line),
+                endX: line === toLine
                     ? this.toHost.box.x + this.toHost.box.w
                     : this.lineRightX(context, line),
-                columns: [firstColumn, lastColumn],
             });
         }
 
         // 允许左边超出一点
         for (const range of ranges) {
-            if (range.line > from.line) range.startX -= size / 4;
+            if (range.line > fromLine) range.startX -= size / 4;
         }
 
         const strokeWidth = Math.max(0.75, size * 0.035);
@@ -264,7 +248,7 @@ class DynAttachment implements LayoutAttachment {
             const start = covered / total;
             const end = (covered + width) / total;
             covered += width;
-            const extent = context.getRangeExtents(range.line, range.columns).get(this.track);
+            const extent = context.getRangeExtents(range.line, endpoints, this.track);
             const axis = context.getVisualAxis(range.line, this.track);
             const hostTop = extent ? axis + extent.top : axis;
             return {

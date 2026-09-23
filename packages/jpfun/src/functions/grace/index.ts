@@ -466,6 +466,8 @@ export class GraceTemporal extends TemporalNodeBase {
         }
         const graceWidth = layoutLocalSequence(this.graces, context);
         const hostWidth = layoutLocalSequence([this.host], context);
+        const members = this.side === "pre" ? [...this.graces, this.host] : [this.host, ...this.graces];
+        context.registerLocalColumns?.(this, members.map(member => [member]));
 
         const graceEm = this.ast.size * GRACE_SCALE;
         const sideGap = graceEm * 0.2;

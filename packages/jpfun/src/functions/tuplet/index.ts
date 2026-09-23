@@ -5,10 +5,9 @@ import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { Track } from "../../lowering/track.js";
 import {
     isVisualTemporalNode,
-    type TemporalNodeBase,
     type VisualTemporalNode,
 } from "../temporal.js";
-import type { LoweringGroup, LoweringResult } from "../../lowering/types.js";
+import type { LoweringContent, LoweringGroup, LoweringResult } from "../../lowering/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
 import {
     ASTFunctionNode,
@@ -18,14 +17,6 @@ import {
     type ParserContext,
     type SourceSpan,
 } from "../ASTtypes.js";
-
-/**
- * tuplet 的比例要等内容全部展开后才能推导，因此 enter 阶段只收集事件引用，
- * exit 阶段再根据完整作用域统一缩放。事件本身仍由普通 lowering 流程加入全局列。
- */
-interface TupletLoweringGroup extends LoweringGroup {
-    events: TemporalNodeBase[];
-}
 
 /**
  * 多连音是范围时值变换，不产生自己的 Temporal：
@@ -77,23 +68,21 @@ class TupletFunction extends ASTFunctionNode {
     }
 
     override loweringEnter(ctx: LoweringContext) {
-        const events: TemporalNodeBase[] = [];
-        const group: TupletLoweringGroup = {
-            events,
-            onTemporal(node) {
-                // 此时不能改 T：actual 依赖整个作用域的最短值和总和。
-                events.push(node);
-            },
+        const group: LoweringGroup & LoweringContent = {
+            nodes: [],
+            attachments: [],
+            onTemporal(node) { group.nodes.push(node); },
+            onAttachment(attachment) { group.attachments.push(attachment); },
         };
         ctx.beginLoweringGroup(this, group);
         return [];
     }
 
     override loweringExit(ctx: LoweringContext, _track: Track, timeOffset: Fraction) {
-        const group = ctx.endLoweringGroup(this) as TupletLoweringGroup;
+        const content = ctx.endLoweringGroup(this) as LoweringGroup & LoweringContent;
 
         // 零时长控制事件不构成连音单位，但稍后仍要随整组移动其开始位置。
-        const positive = group.events.filter(event => event.T.compare(0) > 0);
+        const positive = content.nodes.filter(event => event.T.compare(0) > 0);
         if (positive.length === 0) {
             throw new ErrorDiagnostic(
                 "E_TUPLET_EMPTY",
@@ -138,15 +127,15 @@ class TupletFunction extends ASTFunctionNode {
         }
 
         // 以作用域最早时间为仿射缩放原点，不能直接缩放绝对 t，否则嵌套位置会漂移。
-        let start = group.events[0].t;
-        for (let i = 1; i < group.events.length; i++) {
-            if (group.events[i].t.compare(start) < 0) start = group.events[i].t;
+        let start = content.nodes[0].t;
+        for (let i = 1; i < content.nodes.length; i++) {
+            if (content.nodes[i].t.compare(start) < 0) start = content.nodes[i].t;
         }
         start = start.clone();
 
         // t、T 与 lowering 游标必须一起修改；后继节点才会从缩放后的组尾继续。
         const offset = new Fraction();
-        for (const event of group.events) {
+        for (const event of content.nodes) {
             offset.copyFrom(event.t).sub(start).mul(this.normal, actual);
             event.t.copyFrom(start).add(offset);
             event.T.mul(this.normal, actual);
@@ -156,7 +145,7 @@ class TupletFunction extends ASTFunctionNode {
         // 括线只依附可见主体；时值缩放本身仍覆盖所有收集到的事件。
         const visible = positive.filter(isVisualTemporalNode);
         if (visible.length >= 2) {
-            ctx.addAttachment(new TupletLayoutAttachment(visible, actual, this.sourceSpan, this.font));
+            ctx.addAttachment(new TupletLayoutAttachment(visible, actual, this.sourceSpan, this.font, content));
         }
         return [];
     }
@@ -193,7 +182,7 @@ class TupletLayoutAttachment implements LayoutAttachment {
     layer = "foreground" as const;
 
     /** lowering 固化的连音语义；重复 layout 时保持不变 */
-    private readonly endPoints: readonly VisualTemporalNode[];
+    readonly endPoints: readonly VisualTemporalNode[];
     private readonly actual: number;
     readonly sourceSpan: SourceSpan;
 
@@ -201,7 +190,8 @@ class TupletLayoutAttachment implements LayoutAttachment {
     private readonly style: TextStyle;
     private readonly size: number;
 
-    constructor(endPoints: readonly VisualTemporalNode[], actual: number, sourceSpan: SourceSpan, font: string) {
+    constructor(endPoints: readonly VisualTemporalNode[], actual: number, sourceSpan: SourceSpan, font: string,
+        private readonly content: LoweringContent) {
         this.endPoints = endPoints;
         this.actual = actual;
         this.sourceSpan = sourceSpan;
@@ -243,15 +233,11 @@ class TupletLayoutAttachment implements LayoutAttachment {
         const textGap = this.size * 0.12;
         const hookHeight = this.size * 0.18;
         const hostGap = this.size * 0.14;
-        // 只测首尾时间列，并合并先注册的 attachment，使后声明的括线排在外层。
-        const view = context.lines[first.layoutLine];
-        const from = view?.columnOf(first) ?? -1;
-        const to = view?.columnOf(last) ?? -1;
+        // 范围避让与内容包含分别由系统查询，局部成员和正文使用同一入口。
         const axis = context.getVisualAxis(first.layoutLine, first.track);
-        const extent = from < 0 || to < 0
-            ? undefined
-            : context.getRangeExtents(first.layoutLine, [Math.min(from, to), Math.max(from, to)]).get(first.track);
-        const hostTop = axis + (extent?.top ?? 0);
+        const extent = context.getRangeExtents(first.layoutLine, [first, last], first.track);
+        const bounds = context.getContentBounds(this.content);
+        const hostTop = Math.min(axis + (extent?.top ?? 0), bounds?.y ?? Infinity);
         const strokeWidth = Math.max(1, this.size * 0.055);
         const lineY = hostTop - hostGap - Math.max(hookHeight, metrics.h / 2);
         const hookBottom = lineY + hookHeight;

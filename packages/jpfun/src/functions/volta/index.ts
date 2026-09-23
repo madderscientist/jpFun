@@ -127,6 +127,7 @@ class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
     ) {}
 
     get sourceSpan(): SourceSpan { return this.ast.sourceSpan; }
+    get endPoints() { return [this.from, this.to] as const; }
 
     /** 房子只决定跳不跳过本列；遍数怎么数、什么时候回跳都归小节线 */
     playbackFlow(columnOf: PlaybackColumnOf): PlaybackFlowHook | undefined {
@@ -165,16 +166,11 @@ class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
         const rightBar = barIn(to.view.columns[to.column + 1]);
 
         let span = 0;
-        const coverage: { from: number; to: number; wholeLine: boolean }[] = [];
         // 括线盖住的是：首行从起点列向右、末行向左到终点列、中间行整行
         for (let line = from.line; line <= to.line; line++) {
-            const view = context.lines[line];
-            const start = line === from.line ? from.column : 0;
-            const end = line === to.line ? to.column : view.columns.length - 1;
-            for (let column = start; column <= end; column++) {
-                span = Math.max(span, view.columns[column][0].ast.size);
+            for (const column of context.getRangeColumns(line, [head, tail])) {
+                span = Math.max(span, column[0].ast.size);
             }
-            coverage.push({ from: start, to: end, wholeLine: line !== from.line && line !== to.line });
         }
         const firstLine = head.layoutLine;
         const lastLine = tail.layoutLine;
@@ -200,10 +196,9 @@ class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
 
             let topTrack = head.track;
             let hostTop = Infinity;
-            const range = coverage[offset];
-            const extents = range.wholeLine
+            const extents = line !== firstLine && line !== lastLine
                 ? context.getRangeExtents(line)
-                : context.getRangeExtents(line, [range.from, range.to]);
+                : context.getRangeExtents(line, [head, tail]);
             for (const [track, extent] of extents) {
                 const y = context.getVisualAxis(line, track) + extent.top;
                 if (y < hostTop) {

@@ -11,6 +11,12 @@ export interface LoweringAttachment {
     readonly sourceSpan?: SourceSpan;
 }
 
+/** 按现有分组可见性捕获的内容身份；只保存引用，不含布局结果 */
+export interface LoweringContent {
+    nodes: TemporalNodeBase[];
+    attachments: LoweringAttachment[];
+}
+
 /** 时间流固化后生成额外 attachment；读取统一追加前的结果，不直接修改结果 */
 export type LoweringAugmenter = (result: LoweringResult) => Iterable<LoweringAttachment>;
 
