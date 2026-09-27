@@ -233,6 +233,8 @@ export function compilePlayback(
         start: Fraction,
         duration: Fraction,
         ancestors: PlaybackOrigin[] = [],
+        // 折叠成员沿用正文事件的轨发声，倚音各声部的私有轨因此并入宿主轨
+        track = node.track,
     ) {
         const lineage: PlaybackOrigin[] = [...ancestors, { node }];
         // 当前目标使用进入时的效果快照；子节点序列使用副本，内部新增效果不会回灌外层
@@ -248,7 +250,7 @@ export function compilePlayback(
                 ...input,
                 start: input.start.clone(),
                 end: input.end.clone(),
-                track: node.track,
+                track,
                 origins: lineage,
                 sourceSpans: [{ ...node.ast.sourceSpan }],
             };
@@ -259,10 +261,10 @@ export function compilePlayback(
 
         // 每次访问都恢复记谱位置固化的基础状态，回跳不继承上一遍结束时的状态
         const program = node.playbackState?.program;
-        if (program !== undefined && activePrograms.get(node.track) !== program) {
-            activePrograms.set(node.track, program);
+        if (program !== undefined && activePrograms.get(track) !== program) {
+            activePrograms.set(track, program);
             events.push({ kind: "program-change", at: start.clone(), order: nextEventOrder++,
-                origins: lineage, track: node.track, program });
+                origins: lineage, track, program });
         }
         const bpm = node.playbackState?.bpm;
         if (bpm !== undefined) scheduleControl(start, lineage, state => { state.bpm = bpm; });
@@ -270,7 +272,7 @@ export function compilePlayback(
         node.emitPlayback?.({
             start,
             end: start.clone().add(duration),
-            track: node.track,
+            track,
             span(input) { publishSpan(input); },
             /** 有声目标沿用已发布的区间对象，只额外登记声音变换 */
             note(input) {
@@ -320,7 +322,7 @@ export function compilePlayback(
             affectFollowing: transform => activeTransforms.push(transform),
             defer: hook => deferred.push(hook),
             play: (child, childStart, childDuration) => play(child, childTransforms, childScales,
-                childStart ?? start, childDuration ?? duration, lineage),
+                childStart ?? start, childDuration ?? duration, lineage, track),
         });
         // 当前节点发布完成就执行结构处理，因此 hook 只能看到当前位置此前的目标
         for (const hook of deferred) hook(structureContext);

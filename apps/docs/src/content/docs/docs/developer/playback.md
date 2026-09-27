@@ -150,7 +150,7 @@ interface PlaybackEmitter {
 - `scaleFollowingBpm` 为同一 play frame 的后续有声及无声区间声明速度比例及作用范围
 - `affectFollowing` 为同一 play frame 的后续音段登记声音变换
 - `defer` 在当前节点发布完成后处理此前区间，dash 使用它选取要延长的区间
-- `play` 递归发布折叠成员，未指定区间时继承当前区间
+- `play` 递归发布折叠成员，未指定区间时继承当前区间；成员始终在当前访问的 Track 上发声
 
 每个 play frame 维护局部 transform 链和速度效果声明。修饰节点先登记声明，后续兄弟目标在各自访问时继承；已经发布的目标保留原有声明。子 frame 继承副本，内部新增修饰不影响父级。每个叶区间保存继承的速度效果，有声音段另行保存声音变换链；复合父节点不会再次展开同一叶音。
 
@@ -266,7 +266,7 @@ core 保留任意正整数分母。Standard MIDI File 只能表示以 2 为幂�
 
 ### Up 与 Grace
 
-up 按附属成员到宿主的顺序调用 `play`。grace 在宿主区间内计算借时，再用显式 start/duration 发布倚音和宿主。
+up 按附属成员到宿主的顺序调用 `play`。grace 在宿主区间内计算借时：块长取各声部最晚的局部终点，局部时间按同一比例映射进借走的时值，再用显式 start/duration 发布倚音和宿主，各声部因此同时起奏。折叠成员沿用正文事件的 Track 发声，倚音各声部虽在布局中位于私有 Track，播放与 MIDI 导出时都并入宿主轨。
 
 ### Accent 与 Ornament
 

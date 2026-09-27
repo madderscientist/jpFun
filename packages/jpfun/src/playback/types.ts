@@ -148,7 +148,7 @@ export interface PlaybackEmitter {
      * 和 t+T 不一定相等，例如 up 中的折叠节点
      */
     readonly end: Fraction;
-    /** 当前节点所属的原始 Track；最终输出时转换为 PlaybackPlan.tracks 的索引 */
+    /** 当前访问发声所在的 Track，折叠成员沿用正文事件的轨；最终输出时转换为 PlaybackPlan.tracks 的索引 */
     readonly track: Track;
     /** 发布无声区间，参与结构及速度效果处理，不生成音符事件 */
     span(span: PlaybackSpanInput): void;
@@ -173,7 +173,7 @@ export interface PlaybackEmitter {
     affectFollowing(transform: PlaybackTransform): void;
     /** 当前节点发布完成后，在当前位置处理此前已发布的音段 */
     defer(hook: PlaybackHook): void;
-    /** 递归发布折叠的子节点；未指定区间时继承当前 start 和 duration */
+    /** 递归发布折叠的子节点；未指定区间时继承当前 start 和 duration，并始终在当前轨上发声 */
     play(child: TemporalNodeBase, start?: Fraction, duration?: Fraction): void;
 }
 

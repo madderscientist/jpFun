@@ -2,6 +2,7 @@ import { Diagnostic } from "../diagnostic.js";
 import type { Track, TrackGroup, TrackPlacement } from "../lowering/track.js";
 import {
     isVisualTemporalNode,
+    type TemporalNodeBase,
     type VisualTemporalNode,
 } from "../functions/temporal.js";
 import type { LoweringResult } from "../lowering/types.js";
@@ -19,13 +20,16 @@ import {
     type DocumentLayoutPage,
 } from "./page.js";
 import { isLayoutAttachment } from "./types.js";
-import { LayoutRangeIndex, type LayoutScope } from "./range.js";
+import { liftInto, rangeColumns, resolveRange, type QueryLine } from "./range.js";
+import { TranslatingPainter } from "../render/translate.js";
 import type {
+    AttachmentGeometry,
     AttachmentLayoutContext,
     Extent,
     HorizontalLineView,
     LayoutAttachment,
     LayoutHost,
+    LayoutPoint,
     LayoutPrepareContext,
     LayoutRange,
     PlacedAttachment,
@@ -49,18 +53,33 @@ export interface DocumentLayoutResult {
     pages: DocumentLayoutPage[];     // 全局坐标中的页面边界与谱面行范围
 }
 
-interface LayoutLine {
-    /** lowering 的结果只保留看得见的列 */
-    columns: VisualTemporalNode[][];
+/** 一行的纵向占用；正文每行一份，子域只有自己所在的一行 */
+interface LineExtents {
     /** 只包含可见主体的轴局部占用，整个纵向布局中不变 */
     hostExtents: Map<Track, Extent>;
     /**
      * attachment 测量区域折算出的占用，必要时触发最终重排
      *
-    * 故意跨轮累积（查询范围的占用列表则逐轮重建）：第二轮放置发生在第二轮测量之前，
+     * 故意跨轮累积（查询范围的占用列表则逐轮重建）：第二轮放置发生在第二轮测量之前，
      * 求轴时读到的必须是第一轮的结果。如果将来加第三轮，要先重新定义这里的语义。
      */
     attachmentExtents: Map<Track, Extent>;
+}
+
+interface LayoutLine extends LineExtents {
+    /** lowering 的结果只保留看得见的列 */
+    columns: VisualTemporalNode[][];
+}
+
+type BaseAttachmentContext = Omit<AttachmentLayoutContext, "getAttachmentBox" | "getRangeExtents" | "getContentBounds">;
+
+/** 子域附件在块内测得的几何；块此后的位移由参照成员当前与测量时的位置差给出 */
+interface SubdomainItem {
+    geometry: AttachmentGeometry;
+    box: Rect;
+    reference: VisualTemporalNode;
+    x: number;
+    y: number;
 }
 
 /** 一块 attachment 的轴局部占用 */
@@ -69,6 +88,9 @@ interface ExtentRange extends Extent {
     left: number;
     right: number;
 }
+
+/** 轨道间距相对行内最大字号的比例；正文行与子域共用 */
+const ROW_GAP_RATIO = 0.75;
 
 /**
  * 把多个已经定位的盒子合并到 target
@@ -144,8 +166,39 @@ export function layoutDocument(
     const page = normalizePageConfig(result.page);
     const contentWidth = page.width - page.marginLeft - page.marginRight;
     const originX = page.marginLeft;
-    const ranges = new LayoutRangeIndex();
-    context = { ...context, registerLocalColumns: (owner, columns) => ranges.register(owner, columns) };
+    const lift = liftInto(result.rootTrack);
+
+    // 子域在主体准备时就排版完毕；它认领的附件保留块内几何，随块平移
+    const order = new Map(layoutAttachments.map((attachment, index) => [attachment, index]));
+    const relations = groupRelations(layoutAttachments);
+    const subdomainItems = new Map<LayoutAttachment, SubdomainItem>();
+    const subdomainBox = (attachment: LayoutAttachment) => {
+        const item = subdomainItems.get(attachment);
+        return item && moveSubdomainItem(item).box;
+    };
+    context = {
+        ...context,
+        layoutSubdomain(owner, columns, root, attachments) {
+            // 横排时内层子域先排版并认领关系，这里只取剩下的
+            const line = layoutLocalLine(columns, context);
+            const members = new Set<TemporalNodeBase>(columns.flat());
+            const within = (node: TemporalNodeBase) => {
+                for (let host: TemporalNodeBase | undefined = node; host && host !== owner; host = host.foldedInto) {
+                    if (members.has(host)) return true;
+                }
+                return false;
+            };
+            // 内容附件跟随声明位置，关系附件跟随端点
+            const own = attachments.filter(isLayoutAttachment).filter(attachment => !attachment.endPoints?.length);
+            for (const relation of relations.get(owner) ?? []) {
+                if (!subdomainItems.has(relation) && relation.endPoints!.every(within)) own.push(relation);
+            }
+            own.sort((left, right) => order.get(left)! - order.get(right)!);
+            const block = layoutSubdomainBlock(columns, line, root, own, context, subdomainBox);
+            own.forEach((attachment, index) => subdomainItems.set(attachment, block.items[index]));
+            return { width: line.width, height: block.height, positions: block.positions };
+        },
+    };
 
     // 1. 按 layoutLine 切行，并生成固有尺寸与装饰尺寸
     const lines = splitLayoutLines(result);
@@ -158,13 +211,12 @@ export function layoutDocument(
             }
         }
     }
-
-    ranges.seal();
+    const documentAttachments = layoutAttachments.filter(attachment => !subdomainItems.has(attachment));
 
     // 2. 横向弹簧布局，得到 box.x
     const horizontal = lines.map((line, index) => prepareHorizontalLine(line.columns, index, options));
     const views = horizontal.map(line => line.view);
-    for (const attachment of layoutAttachments) attachment.prepareHorizontal?.(views, context);
+    for (const attachment of documentAttachments) attachment.prepareHorizontal?.(views, context);
     for (const line of horizontal) {
         line.layout(contentWidth, page.fillRatio);
         for (const column of line.view.columns) {
@@ -222,20 +274,16 @@ export function layoutDocument(
             node.onPlaced?.();
         }
 
-        const attachmentContext: Omit<AttachmentLayoutContext, "getAttachmentBox" | "getRangeExtents" | "getContentBounds"> = {
+        const attachmentContext: BaseAttachmentContext = {
             ...context,
             width: contentWidth,
             originX,
             pages: pages.map(item => item.bounds),
             lines: views,
-            getVisualAxis: visualAxisOf,
-            getHostExtent: (line, track) => lines[line]?.hostExtents.get(track),
-            getRangeColumns(line, range, track) {
-                if (!views[line]) return [];
-                const resolved = ranges.resolve(views[line], range, track);
-                const columns = resolved.columns.slice(resolved.start, resolved.end + 1);
-                return track ? columns.map(column => column.filter(host => host.track === track)) : columns;
-            },
+            // 子域的私有轨在正文里归入复合体所在的轨
+            getVisualAxis: (line, track) => visualAxisOf(line, lift(track)),
+            getHostExtent: (line, track) => lines[line]?.hostExtents.get(lift(track)),
+            getRangeColumns: (line, range, track) => rangeColumns(views[line], range, track, lift),
         };
 
         return { pages, attachmentContext };
@@ -243,19 +291,17 @@ export function layoutDocument(
 
     // 3. 首次纵向放置后测量 attachment；只有有效轨道占用扩张时才重新求解
     let placement = placeVertically();
-    const attachmentScopes = new Map(layoutAttachments.map(attachment => {
-        const endPoints = attachment.endPoints;
-        return [attachment, endPoints ? ranges.contentScope(endPoints) : undefined] as const;
-    }));
-    let measured = measureAttachments(layoutAttachments, placement.attachmentContext, lines, ranges, attachmentScopes);
+    let measured = measureAttachments(documentAttachments, placement.attachmentContext, lines, lift, subdomainBox);
 
     if (measured.needsRelayout) {
         placement = placeVertically();
-        measured = measureAttachments(layoutAttachments, placement.attachmentContext, lines, ranges, attachmentScopes);
+        measured = measureAttachments(documentAttachments, placement.attachmentContext, lines, lift, subdomainBox);
     }
     const pages = placement.pages;
-    const attachments = layoutAttachments.map<PlacedAttachment>((attachment, index) => {
-        const { geometry, box } = measured.items[index];
+    let next = 0;
+    const attachments = layoutAttachments.map<PlacedAttachment>(attachment => {
+        const item = subdomainItems.get(attachment);
+        const { geometry, box } = item ? moveSubdomainItem(item) : measured.items[next++];
         return {
             box,
             regions: geometry.regions,
@@ -414,22 +460,137 @@ export function prepareHorizontalLine(
 
 /** 局部序列按给定顺序完成尺寸、约束与零间隙自然横排，归零占位左沿并返回完整宽度 */
 export function layoutLocalSequence(nodes: readonly VisualTemporalNode[], context: LayoutPrepareContext): number {
-    if (nodes.length === 0) return 0;
-    for (const node of nodes) prepareLayoutHost(node, context);
-    const line = prepareHorizontalLine(nodes.map(node => [node]), nodes[0].layoutLine, {}, true);
-    const elements = line.layout(Infinity);
-    let left = Infinity;
-    let right = -Infinity;
-    for (const [element] of elements) {
-        const anchor = element.box.x + element.box.anchor;
-        left = Math.min(left, anchor - element.WL);
-        right = Math.max(right, anchor + element.WR);
-    }
-    for (const node of nodes) node.box.x -= left;
-    return right - left;
+    return nodes.length === 0 ? 0 : layoutLocalLine(nodes.map(node => [node]), context).width;
 }
 
-/** 行距取该行最大字号的 0.75 倍；没有可见对象的行回退到全文档最大字号 */
+/** 同 layoutLocalSequence，但同列成员按各自 Track 分行；columns 不能为空 */
+function layoutLocalLine(
+    columns: readonly (readonly VisualTemporalNode[])[],
+    context: LayoutPrepareContext,
+): { width: number; view: HorizontalLineView } {
+    for (const column of columns) {
+        for (const node of column) prepareLayoutHost(node, context);
+    }
+    const line = prepareHorizontalLine(columns, columns[0][0].layoutLine, {}, true);
+    let left = Infinity;
+    let right = -Infinity;
+    for (const column of line.layout(Infinity)) {
+        for (const element of column) {
+            const anchor = element.box.x + element.box.anchor;
+            left = Math.min(left, anchor - element.WL);
+            right = Math.max(right, anchor + element.WR);
+        }
+    }
+    for (const column of columns) {
+        for (const node of column) node.box.x -= left;
+    }
+    return { width: right - left, view: line.view };
+}
+
+/**
+ * 把已横排的子域按正文规则纵向排版，坐标以块的左上角为原点
+ *
+ * 与正文行的流程相同：沿 root 的 Track 树求轴放置，按登记顺序测量附件，
+ * 附件扩张占用时重排一次。positions 是放置时写入的块内位置，不含成员 onPlaced 追加的平移
+ */
+function layoutSubdomainBlock(
+    columns: readonly (readonly VisualTemporalNode[])[],
+    { width, view }: { width: number; view: HorizontalLineView },
+    root: Track,
+    attachments: readonly LayoutAttachment[],
+    context: LayoutPrepareContext,
+    measuredElsewhere: (attachment: LayoutAttachment) => Readonly<Rect> | undefined,
+): { height: number; positions: LayoutPoint[]; items: SubdomainItem[] } {
+    const members = columns.flat();
+    const extents: LineExtents = { hostExtents: new Map(), attachmentExtents: new Map() };
+    let gap = 0;
+    for (const member of members) {
+        const top = -member.box.visualAxis;
+        includeTrackExtent(extents.hostExtents, member.track, top, top + member.box.h);
+        gap = Math.max(gap, member.ast.size * ROW_GAP_RATIO);
+    }
+    const positions = members.map(member => ({ x: member.box.x, y: 0 }));
+    const place = () => {
+        const solved = solveVerticalAxes(extents, root, gap);
+        members.forEach((member, index) => {
+            member.box.y = positions[index].y = solved.axes.get(member.track)! - member.box.visualAxis;
+            member.onPlaced?.();
+        });
+        return solved;
+    };
+    let solved = place();
+    if (attachments.length === 0) return { height: solved.height, positions, items: [] };
+
+    const lift = liftInto(root);
+    // 附件按行号查询，子域只占自己所在的那一行
+    const lines: LineExtents[] = [];
+    const views: QueryLine[] = [];
+    lines[view.index] = extents;
+    views[view.index] = view;
+    const measure = () => measureAttachments(attachments, {
+        ...context,
+        width,
+        originX: 0,
+        pages: [],
+        lines: views,
+        getVisualAxis: (_line, track) => solved.axes.get(lift(track)) ?? 0,
+        getHostExtent: (line, track) => lines[line]?.hostExtents.get(lift(track)),
+        getRangeColumns: (line, range, track) => rangeColumns(views[line], range, track, lift),
+    }, lines, lift, measuredElsewhere);
+    let measured = measure();
+    if (measured.needsRelayout) {
+        solved = place();
+        measured = measure();
+    }
+    const reference = members[0];
+    const items = measured.items.map(item => ({ ...item, reference, x: reference.box.x, y: reference.box.y }));
+    return { height: solved.height, positions, items };
+}
+
+/**
+ * 关系附件按同时包含全部端点的复合体分组，由内到外逐层登记
+ *
+ * 端点都在正文的附件不进分组；子域从这里认领端点全部落在自己成员上的关系，不论它写在哪里
+ */
+function groupRelations(attachments: readonly LayoutAttachment[]) {
+    const groups = new Map<TemporalNodeBase, LayoutAttachment[]>();
+    for (const attachment of attachments) {
+        const [first, ...rest] = attachment.endPoints ?? [];
+        for (let owner = first?.foldedInto; owner; owner = owner.foldedInto) {
+            const candidate = owner;
+            if (!rest.every(point => encloses(candidate, point))) continue;
+            const group = groups.get(owner);
+            if (group) group.push(attachment);
+            else groups.set(owner, [attachment]);
+        }
+    }
+    return groups;
+}
+
+function encloses(owner: TemporalNodeBase, node: TemporalNodeBase) {
+    for (let host = node.foldedInto; host; host = host.foldedInto) {
+        if (host === owner) return true;
+    }
+    return false;
+}
+
+/** 子域是刚性块：按参照成员的位移平移块内测得的几何 */
+function moveSubdomainItem(item: SubdomainItem): { geometry: AttachmentGeometry; box: Rect } {
+    const dx = item.reference.box.x - item.x;
+    const dy = item.reference.box.y - item.y;
+    if (dx === 0 && dy === 0) return item;
+    const move = <T extends Rect>(rect: T): T => ({ ...rect, x: rect.x + dx, y: rect.y + dy });
+    const { geometry } = item;
+    return {
+        box: move(item.box),
+        geometry: {
+            regions: geometry.regions.map(move),
+            paint: painter => geometry.paint(new TranslatingPainter(painter, dx, dy)),
+        },
+    };
+}
+
+/** 行距取该行最大字号的 ROW_GAP_RATIO 倍；没有可见对象的行回退到全文档最大字号 */
 function measureRowGaps(
     lineCount: number,
     objects: readonly VisualTemporalNode[],
@@ -441,7 +602,7 @@ function measureRowGaps(
     let documentGap = 0;
 
     for (const node of objects) {
-        const gap = node.ast.size * 0.75;
+        const gap = node.ast.size * ROW_GAP_RATIO;
         if (gap > gaps[node.layoutLine]) gaps[node.layoutLine] = gap;
         if (gap > documentGap) documentGap = gap;
     }
@@ -452,41 +613,45 @@ function measureRowGaps(
 /**
  * 按 lowering 注册顺序原子生成本轮几何，并同步登记轨道占用
  *
+ * 正文与子域共用：lines 与 baseContext.lines 都按行号索引，lift 把域外的私有轨归入本域。
  * 分组的 attachment 总在组内对象之后注册，所以读取依赖不需要额外排序；
  * 占用逐条累加，后注册者因此能通过 getRangeExtents 避让先注册者。
+ * 其他域测得的附件由 measuredElsewhere 给出当前位置。
  * 返回的 needsRelayout 表示本轮占用超出了主体与先前区域的合并范围。
  */
 function measureAttachments(
     attachments: readonly LayoutAttachment[],
-    baseContext: Omit<AttachmentLayoutContext, "getAttachmentBox" | "getRangeExtents" | "getContentBounds">,
-    lines: readonly LayoutLine[],
-    ranges: LayoutRangeIndex,
-    attachmentScopes: ReadonlyMap<LayoutAttachment, LayoutHost | undefined>,
+    baseContext: BaseAttachmentContext,
+    lines: readonly LineExtents[],
+    lift: (track: Track) => Track,
+    measuredElsewhere: (attachment: LayoutAttachment) => Readonly<Rect> | undefined,
 ) {
     const measured = new Map<LayoutAttachment, Rect>();
-    const occupancyByScope = new Map<LayoutScope, ExtentRange[]>();
+    const own = new Set(attachments);
+    const occupancy: ExtentRange[][] = [];
     let needsRelayout = false;
 
     function getRangeExtents(line: number, columns?: LayoutRange): ReadonlyMap<Track, Readonly<Extent>>;
     function getRangeExtents(line: number, columns: LayoutRange | undefined, track: Track): Readonly<Extent> | undefined;
     function getRangeExtents(line: number, columns?: LayoutRange, track?: Track): ReadonlyMap<Track, Readonly<Extent>> | Readonly<Extent> | undefined {
-        const target = lines[line];
+        const view = baseContext.lines[line];
         const extents = track === undefined ? new Map<Track, Extent>() : undefined;
         let extent: Extent | undefined;
-        if (!target) return extents;
+        if (!view) return extents;
         const include = (owner: Track, top: number, bottom: number) => {
             if (extents) includeTrackExtent(extents, owner, top, bottom);
             else if (extent) includeExtent(extent, top, bottom);
             else extent = { top, bottom };
         };
         // 主体和附件共用范围筛选，仅累加结果的容器随查询模式变化。
-        const { columns: selected, start, end, scope, wholeLine } = ranges.resolve(baseContext.lines[line], columns, track);
+        const { start, end, wholeLine } = resolveRange(view, columns, track, lift);
+        const target = track && lift(track);
 
         let left = wholeLine ? baseContext.originX : Infinity;
         let right = wholeLine ? baseContext.originX + baseContext.width : -Infinity;
         for (let column = start; column <= end; column++) {
-            for (const host of selected[column]) {
-                if (track && host.track !== track) continue;
+            for (const host of view.columns[column]) {
+                if (target && host.track !== target) continue;
                 if (!wholeLine) {
                     if (host.box.x < left) left = host.box.x;
                     if (host.box.x + host.box.w > right) right = host.box.x + host.box.w;
@@ -496,8 +661,8 @@ function measureAttachments(
             }
         }
 
-        for (const range of occupancyByScope.get(scope) ?? []) {
-            if (track && range.track !== track) continue;
+        for (const range of occupancy[line] ?? []) {
+            if (target && range.track !== target) continue;
             if (range.right <= left || range.left >= right) continue;
             include(range.track, range.top, range.bottom);
         }
@@ -508,7 +673,7 @@ function measureAttachments(
         ...baseContext,
         getRangeExtents,
         getAttachmentBox(dependency) {
-            const resolved = measured.get(dependency);
+            const resolved = measured.get(dependency) ?? measuredElsewhere(dependency);
             if (!resolved) throw new Error("Layout attachment dependency has not been measured");
             return resolved;
         },
@@ -519,6 +684,8 @@ function measureAttachments(
             }
             for (const attachment of content.attachments) {
                 if (!isLayoutAttachment(attachment)) continue;
+                // 端点越出本域的关系交给外层测量，此时还没有几何
+                if (!own.has(attachment) && !measuredElsewhere(attachment)) continue;
                 const box = context.getAttachmentBox(attachment);
                 if (box.w > 0 || box.h > 0) boxes.push(box);
             }
@@ -537,29 +704,23 @@ function measureAttachments(
         for (const region of geometry.occupancy ?? geometry.regions) {
             if (region.line === void 0) continue;
             const line = lines[region.line];
-            const top = region.y - baseContext.getVisualAxis(region.line, region.track);
+            const track = lift(region.track);
+            const top = region.y - baseContext.getVisualAxis(region.line, track);
             const bottom = top + region.h;
-            const hostExtent = line.hostExtents.get(region.track);
-            const attachmentExtent = line.attachmentExtents.get(region.track);
+            const hostExtent = line.hostExtents.get(track);
+            const attachmentExtent = line.attachmentExtents.get(track);
             if (top < Math.min(hostExtent?.top ?? Infinity, attachmentExtent?.top ?? Infinity)
                 || bottom > Math.max(hostExtent?.bottom ?? -Infinity, attachmentExtent?.bottom ?? -Infinity)) {
                 needsRelayout = true;
             }
-            includeTrackExtent(line.attachmentExtents, region.track, top, bottom);
-            const range = {
-                track: region.track,
+            includeTrackExtent(line.attachmentExtents, track, top, bottom);
+            (occupancy[region.line] ??= []).push({
+                track,
                 left: region.x,
                 right: region.x + region.w,
                 top,
                 bottom,
-            };
-            const documentScope = baseContext.lines[region.line];
-            for (let scope: LayoutScope | undefined = attachmentScopes.get(attachment) ?? documentScope;
-                scope; scope = ranges.parentScope(scope, documentScope)) {
-                const entries = occupancyByScope.get(scope);
-                if (entries) entries.push(range);
-                else occupancyByScope.set(scope, [range]);
-            }
+            });
         }
         return item;
     });
@@ -582,7 +743,7 @@ interface VerticalSolution {
  * 因此这里不需要认识 stack、voices 或任何将来新增的排版函数。
  */
 function solveVerticalAxes(
-    line: LayoutLine,
+    line: LineExtents,
     rootTrack: Track,
     gap: number,
 ): VerticalSolution {

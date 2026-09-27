@@ -2,8 +2,9 @@ import { ErrorDiagnostic } from "../../diagnostic.js";
 import { layoutLocalSequence } from "../../layout/engine.js";
 import type { LayoutBox, LayoutPoint, LayoutPrepareContext } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
+import type { LoweringAttachment } from "../../lowering/types.js";
 import { Fraction } from "../../fraction.js";
-import type { Track } from "../../lowering/track.js";
+import { Track } from "../../lowering/track.js";
 import {
     isVisualTemporalNode,
     TemporalNodeBase,
@@ -66,7 +67,9 @@ class GraceFunction extends ASTFunctionNode {
 - \`{3 2}>1\`：一组前倚音，等价于上例
 - \`1>2>3\`：允许嵌套，\`1\` 修饰 \`2\`，\`2\` 修饰 \`3\`
 
-倚音默认带一条减时线，按八分音符书写；再加 \`/\` 变为十六分音符`,
+倚音默认带一条减时线，按八分音符书写；再加 \`/\` 变为十六分音符
+
+倚音内容可以是换行以外的任意结构，例如 \`{1 & 3}>2\` 的两个声部同时奏出`,
         allowExtraArgs: false,
         args: [
             {
@@ -77,7 +80,7 @@ class GraceFunction extends ASTFunctionNode {
             },
             {
                 name: "grace",
-                description: "倚音内容，多个音符可用大括号组合",
+                description: "倚音内容，多个音符可用大括号组合，也可以含多个声部",
                 type: "content" as const,
                 default: null,
             },
@@ -258,9 +261,11 @@ class GraceFunction extends ASTFunctionNode {
         this.sourceSpan.end = Math.max(this.sourceSpan.end, node.sourceSpan.end);
     }
 
-    /** 倚音与宿主各自收敛成可见 Temporal，然后整体折叠进一个复合节点 */
+    /** 宿主收敛成一个可见 Temporal，倚音展开成局部时间列，然后整体折叠进一个复合节点 */
     override loweringEnter(ctx: LoweringContext, track: Track) {
-        if (!this.host || !this.grace) {
+        const host = this.host;
+        const grace = this.grace;
+        if (!host || !grace) {
             throw new ErrorDiagnostic(
                 "E_GRACE_MISSING_ARGS",
                 "@grace 需要同时给出宿主和倚音",
@@ -268,51 +273,45 @@ class GraceFunction extends ASTFunctionNode {
             );
         }
 
-        let graces: VisualTemporalNode[] = [];
-        let host: VisualTemporalNode | null = null;
+        // 倚音内容是一个子域：在私有根轨上展开，根轨不挂进宿主轨的分组，其中的并行结构另开声部
+        const root = new Track(track);
+        let hostEvents: TemporalNodeBase[] = [];
+        let columns: TemporalNodeBase[][] = [];
+        const attachments: LoweringAttachment[] = [];
+        const lower = (content: ASTNodeBase, lane: Track) => ctx.trackedEvents(content, new Fraction(), lane);
         // 成员不是外层分组的成员，复合节点才是；否则 voice 的歌词会按下标错位
+        // 按发声顺序展开，事件序号随之有序
         ctx.isolateFromLoweringGroups(() => {
-            const order = this.side === "pre"
-                ? [this.grace!, this.host!]
-                : [this.host!, this.grace!];
-            for (const content of order) {
-                const events = ctx.trackedEvents(content, new Fraction(), track).flat();
-                const visible = events.filter(isVisualTemporalNode);
-                // 并行分支的纵向关系由引擎解 Track 树，而折叠成员进不了引擎
-                if (events.some(event => event.track !== track))
-                    throw new ErrorDiagnostic(
-                        "E_GRACE_PARALLEL_CONTENT",
-                        "@grace 的内容不能包含多声部结构（& / @voices）；要在倚音里叠音请用 ^",
-                        content.sourceSpan,
-                    );
-                if (content === this.host) {
-                    if (visible.length !== 1 || visible.length !== events.length) {
-                        throw new ErrorDiagnostic(
-                            "E_GRACE_INVALID_HOST",
-                            "@grace 的宿主必须恰好产生一个可见 Temporal",
-                            content.sourceSpan,
-                        );
-                    }
-                    host = visible[0];
-                } else {
-                    if (visible.length === 0 || visible.length !== events.length) {
-                        throw new ErrorDiagnostic(
-                            "E_GRACE_INVALID_CONTENT",
-                            "@grace 的倚音必须只产生可见 Temporal，且至少一个",
-                            content.sourceSpan,
-                        );
-                    }
-                    graces = visible;
-                }
-            }
+            if (this.side === "post") hostEvents = lower(host, track).flat();
+            ctx.beginLoweringGroup(this, { onAttachment(attachment) { attachments.push(attachment); } });
+            columns = lower(grace, root);
+            ctx.endLoweringGroup(this);
+            if (this.side === "pre") hostEvents = lower(host, track).flat();
         });
 
-        const composite = new GraceTemporal(this, host!, graces, this.side);
+        const [hostNode] = hostEvents;
+        if (hostEvents.length !== 1 || !isVisualTemporalNode(hostNode)) {
+            throw new ErrorDiagnostic(
+                "E_GRACE_INVALID_HOST",
+                "@grace 的宿主必须恰好产生一个可见 Temporal",
+                host.sourceSpan,
+            );
+        }
+        const events = columns.flat();
+        if (!events.some(isVisualTemporalNode) || events.some(event => event.breakBefore > 0)) {
+            throw new ErrorDiagnostic(
+                "E_GRACE_INVALID_CONTENT",
+                "@grace 的倚音至少产生一个可见对象，且不能换行",
+                grace.sourceSpan,
+            );
+        }
+
+        const composite = new GraceTemporal(this, hostNode, columns, root, attachments, this.side);
         // 倚音同段无条件全部相连，只被零时长标记切断，所以 grace 一定认识 beam，允许耦合
         // 折叠成员不进全局时间列，autobeam 看不到它们，要手动调用且强制连接
         for (const run of composite.graceRuns) {
             if (run.length < 2) continue;
-            ctx.addAttachment(createBeamLayoutAttachment([...run], false, this.grace.sourceSpan));
+            ctx.addAttachment(createBeamLayoutAttachment([...run], false, grace.sourceSpan));
         }
         return [composite];
     }
@@ -336,7 +335,7 @@ const HOOK_COMMANDS: readonly PathCommand[] = [
 const HOOK_WIDTH = 0.07;
 /** 倚音块底边到宿主肩线的视觉间隙；倚音线会探进这段空间指向宿主 */
 const GRACE_RISE = 0.18;
-/** 倪音向宿主借时值的上限，防止宿主被偷光；只读 */
+/** 倚音向宿主借时值的上限，防止宿主被偷光；只读 */
 const MAX_STEAL_RATIO = new Fraction(3, 4);
 
 
@@ -346,10 +345,22 @@ export class GraceTemporal extends TemporalNodeBase {
     declare box: LayoutBox;
 
     readonly host: VisualTemporalNode;
+    /** 可见倚音按局部时间成列，同列成员分属不同声部 */
+    readonly graceColumns: readonly (readonly VisualTemporalNode[])[];
+    /** graceColumns 按列展开 */
     readonly graces: readonly VisualTemporalNode[];
-    /** 承担节奏的倚音成员，按零时长标记切段；同段视觉上首尾相接，无条件连成一束减时线 */
+    /** 承担节奏的倚音成员，按声部与零时长标记切段；同段视觉上首尾相接，无条件连成一束减时线 */
     readonly graceRuns: readonly (readonly VisualTemporalNode[])[];
     readonly side: GraceSide;
+
+    /** 倚音子域的根轨：由宿主轨分出，不挂进它的分组，子域之外不可见 */
+    private readonly root: Track;
+    /** 倚音内容里声明的附件，随子域排版 */
+    private readonly attachments: readonly LoweringAttachment[];
+    /** 倚音内容的全部事件，含不可见的状态事件，按局部时间列展开 */
+    private readonly events: readonly TemporalNodeBase[];
+    /** 与 events 一一对应的局部起点，已随时值减半 */
+    private readonly starts: readonly Fraction[];
 
     /** 成员相对本盒左上角的局部偏移，onPlaced 时同步为绝对坐标 */
     private hostOffset: LayoutPoint = { x: 0, y: 0 };
@@ -360,13 +371,16 @@ export class GraceTemporal extends TemporalNodeBase {
     constructor(
         ast: GraceFunction,
         host: VisualTemporalNode,
-        graces: readonly VisualTemporalNode[],
+        columns: readonly (readonly TemporalNodeBase[])[],
+        root: Track,
+        attachments: readonly LoweringAttachment[],
         side: GraceSide,
     ) {
         super();
         this.ast = ast;
         this.host = host;
-        this.graces = graces;
+        this.root = root;
+        this.attachments = attachments;
         this.side = side;
 
         this.T.copyFrom(host.T);
@@ -379,36 +393,54 @@ export class GraceTemporal extends TemporalNodeBase {
         // 成员不进入全局 columns，对外由复合体代表：写在成员上的标签仍可做关系端点
         host.foldedInto = this;
 
-        const runs: VisualTemporalNode[][] = [];
-        let run: VisualTemporalNode[] = [];
-        for (const grace of graces) {
-            grace.foldedInto = this;
-            // 调号、速度这类零时长标记不承担节奏，还会在视觉上把倚音串切断
+        const graceColumns: VisualTemporalNode[][] = [];
+        const events: TemporalNodeBase[] = [];
+        const starts: Fraction[] = [];
+        for (const column of columns) {
+            // 倚音默认就是八分音符，局部时间整体减半；成员的 t 随后与宿主同步，所以局部起点另存
+            const start = column[0].t.clone().divPow2();
+            const visible: VisualTemporalNode[] = [];
+            for (const event of column) {
+                event.foldedInto = this;
+                events.push(event);
+                starts.push(start);
+                if (isVisualTemporalNode(event)) visible.push(event);
+            }
+            if (visible.length > 0) graceColumns.push(visible);
+        }
+        this.graceColumns = graceColumns;
+        this.graces = graceColumns.flat();
+        this.events = events;
+        this.starts = starts;
+
+        const runs = new Map<Track, VisualTemporalNode[]>();
+        const graceRuns: VisualTemporalNode[][] = [];
+        for (const grace of this.graces) {
+            // 调号、速度这类零时长标记不承担节奏，还会在视觉上把本声部的倚音串切断
             if (grace.T.isZero()) {
-                if (run.length > 0) runs.push(run);
-                run = [];
+                runs.delete(grace.track);
                 continue;
             }
+            let run = runs.get(grace.track);
+            if (!run) {
+                runs.set(grace.track, run = []);
+                graceRuns.push(run);
+            }
             run.push(grace);
-            // 倚音默认就是八分音符：补一条减时线，书面时值随之减半
+            // 补一条减时线，书面时值随之减半
             const addon = grace.addon = { ...grace.addon };
             addon[DIV_ADDON_KEY] = (Number(addon[DIV_ADDON_KEY]) || 0) + 1;
             grace.T.divPow2();
         }
-        if (run.length > 0) runs.push(run);
-        this.graceRuns = runs;
+        this.graceRuns = graceRuns;
     }
 
     /** 成员共享全局时间状态，按发声顺序固化 */
     override onTimeState(state: TimeState) {
         // 同步时间的修改。比如tuplet修改的是GraceTemporal.T，这里要把它传给成员
         this.host.T.copyFrom(this.T);
-        const members = this.side === "pre"
-            ? [...this.graces, this.host]
-            : [this.host, ...this.graces];
-        for (const member of members) {
+        for (const member of this.side === "pre" ? [...this.events, this.host] : [this.host, ...this.events]) {
             member.t.copyFrom(this.t);
-            member.track = this.track;
             member.layoutLine = this.layoutLine;
             member.onTimeState?.(state);
         }
@@ -417,44 +449,36 @@ export class GraceTemporal extends TemporalNodeBase {
     /**
      * 播放时倚音从宿主借走的时值（前倚音从开头、后倚音从末尾）
      *
-     * 比例 = 倚音字面总时值 / 四分音符，而四分音符 T=1，所以直接累加成员的 T。
+     * 比例 = 倚音块字面时长 / 四分音符，而四分音符 T=1，所以直接取各声部最晚的局部终点。
      * 基准取宿主经过 div 与 dot 后的实际时值；延时线是独立事件、tie 不改 T，天然不计入。
+     * 局部时间按同一比例映射进借走的时值，各声部因此同时起奏。
      */
     override emitPlayback(emitter: PlaybackEmitter) {
         const written = new Fraction();
-        for (const grace of this.graces) written.add(grace.T);
+        const end = new Fraction();
+        this.events.forEach((event, index) => {
+            end.copyFrom(this.starts[index]).add(event.T);
+            if (end.compare(written) > 0) written.copyFrom(end);
+        });
         const ratio = written.compare(MAX_STEAL_RATIO) > 0 ? MAX_STEAL_RATIO : written;
         const total = emitter.end.clone().sub(emitter.start);
         const steal = total.clone().mul(ratio);
         const hostDuration = total.sub(steal);
-        const start = emitter.start.clone();
+        // 全是零时长标记时块长为 0，成员都落在借时起点
+        const scale = written.isZero() ? new Fraction() : steal.clone().div(written);
+        const base = this.side === "pre" ? emitter.start.clone() : emitter.start.clone().add(hostDuration);
 
-        const playGraces = (cursor: Fraction) => {
-            for (const grace of this.graces) {
-                if (grace.T.isZero() || written.isZero()) {
-                    emitter.play(grace, cursor, new Fraction());
-                    continue;
-                }
-                const duration = steal.clone().mul(grace.T).div(written);
-                emitter.play(grace, cursor, duration);
-                cursor.add(duration);
-            }
-        };
-
-        if (this.side === "pre") {
-            const cursor = start.clone();
-            playGraces(cursor);
-            emitter.play(this.host, cursor, hostDuration);
-        } else {
-            emitter.play(this.host, start, hostDuration);
-            playGraces(start.clone().add(hostDuration));
-        }
+        if (this.side === "post") emitter.play(this.host, emitter.start.clone(), hostDuration);
+        this.events.forEach((event, index) => {
+            emitter.play(event, this.starts[index].clone().mul(scale).add(base), event.T.clone().mul(scale));
+        });
+        if (this.side === "pre") emitter.play(this.host, base.add(steal), hostDuration);
     }
 
     /**
      * 宿主留在轨道基线上，倚音整体抬到它的左上或右上角
      *
-    * 成员以零自然间隙执行完整局部横排；含约束留白的宽度计入复合盒，
+     * 倚音内容作为子域先排成一个刚性块，块内的附件同时就位；含约束留白的宽度计入复合盒，
      * 因此左右邻居会被固有宽度推开，不会在空间紧张时被压穿。
      */
     override prepareLayout(context: LayoutPrepareContext) {
@@ -464,41 +488,29 @@ export class GraceTemporal extends TemporalNodeBase {
             this.host.addon = this.addon;
             this.addon = void 0;
         }
-        const graceWidth = layoutLocalSequence(this.graces, context);
+        const block = context.layoutSubdomain!(this, this.graceColumns, this.root, this.attachments);
         const hostWidth = layoutLocalSequence([this.host], context);
-        const members = this.side === "pre" ? [...this.graces, this.host] : [this.host, ...this.graces];
-        context.registerLocalColumns?.(this, members.map(member => [member]));
 
         const graceEm = this.ast.size * GRACE_SCALE;
         const sideGap = graceEm * 0.2;
         const rise = graceEm * GRACE_RISE;
 
-        let graceAxis = 0;
-        let graceHeight = 0;
-        // 倚音之间按视觉轴对齐，否则带下八度点的成员会把数字顶得比旁边高
-        for (const grace of this.graces) graceAxis = Math.max(graceAxis, grace.box.visualAxis);
-        this.graceOffsets = this.graces.map(grace => {
-            const y = graceAxis - grace.box.visualAxis;
-            graceHeight = Math.max(graceHeight, y + grace.box.h);
-            return { x: grace.box.x, y };
-        });
-
         // 倚音贴着宿主的肩线而不是宿主盒顶：宿主本身也是复合体时，
         // 肩线由它转发上来，所以两侧倚音会落在同一高度而不是层层叠高
         const shoulder = this.host.ports[SHOULDER_PORT]?.y ?? 0;
-        const graceTop = shoulder - rise - graceHeight;
+        const graceTop = shoulder - rise - block.height;
         const lift = Math.max(0, -graceTop);
         const graceX = this.side === "pre" ? 0 : hostWidth + sideGap;
         this.hostOffset = {
-            x: this.host.box.x + (this.side === "pre" ? graceWidth + sideGap : 0),
+            x: this.host.box.x + (this.side === "pre" ? block.width + sideGap : 0),
             y: lift,
         };
-        for (const offset of this.graceOffsets) {
-            offset.x += graceX;
-            offset.y += graceTop + lift;
-        }
+        this.graceOffsets = block.positions.map(position => ({
+            x: graceX + position.x,
+            y: graceTop + lift + position.y,
+        }));
 
-        this.box.w = hostWidth + sideGap + graceWidth;
+        this.box.w = hostWidth + sideGap + block.width;
         this.box.h = lift + this.host.box.h;
         this.box.anchor = this.hostOffset.x + this.host.box.anchor;
         this.box.visualAxis = lift + this.host.box.visualAxis;
@@ -515,13 +527,12 @@ export class GraceTemporal extends TemporalNodeBase {
         // 宿主没有肩线时它自己的盒顶就是肩线；有则上面那轮转发已经带偏移抬好了
         this.ports[SHOULDER_PORT] ??= { x: this.box.anchor, y: this.hostOffset.y };
 
-        // 钩形曲线挂在靠近宿主的那个倚音成员下方，零时长标记不承接它
-        const near = this.side === "pre"
-            ? this.graceRuns.at(-1)?.at(-1)
-            : this.graceRuns[0]?.[0];
+        // 钩形曲线挂在靠近宿主的那个倚音成员下方，零时长标记不承接它；高度取成员的最低下沿，不含块内附件
+        const rhythmic = this.graces.filter(grace => !grace.T.isZero());
+        const near = this.side === "pre" ? rhythmic.at(-1) : rhythmic[0];
         this.hookOrigin = near ? {
             x: this.graceOffsets[this.graces.indexOf(near)].x + near.box.anchor,
-            y: graceTop + lift + graceHeight,
+            y: Math.max(...this.graces.map((grace, index) => this.graceOffsets[index].y + grace.box.h)),
         } : null;
     }
 

@@ -222,7 +222,7 @@ test("增时线延长同轨上一组发声音符", () => {
     const withGrace = playedNotes(compilePlayback(lower(`{2>1}^3 -`)));
     const top = withGrace.find(note => note.midi === 64);
     assert(top !== undefined && top.duration.equals(2),
-        "和弦顶部应与宿主一起被延长，不能被中间的倪音顶掉");
+        "和弦顶部应与宿主一起被延长，不能被中间的倚音顶掉");
 
     const trill = playedNotes(compilePlayback(lower(`1^$tr -`)));
     assert(trill.length === 16 && trill.every(note => note.duration.equals(1, 8))
@@ -254,6 +254,23 @@ test("前后倚音在宿主时值内按发声顺序排程", () => {
         && capped[1].duration.equals(3, 8)
         && capped[2].duration.equals(1, 4),
         "多倚音总借时必须封顶为宿主的四分之三并保持比例");
+});
+test("多声部倚音同时起奏，借时按整块字面时长计算，全部在宿主轨上发声", () => {
+    const byMidi = (plan: ReturnType<typeof compilePlayback>) =>
+        new Map(playedNotes(plan).map(note => [note.midi, note]));
+    const plan = compilePlayback(lower(`{1 & {3 4}}>5`));
+    const voices = byMidi(plan);
+    const [main, upper, later, host] = [60, 64, 65, 67].map(midi => voices.get(midi)!);
+    assert(main.start.equals(0) && upper.start.equals(0) && main.duration.equals(3, 8) && upper.duration.equals(3, 8),
+        "simultaneous grace voices must start together on one local time scale");
+    assert(later.start.equals(3, 8) && later.duration.equals(3, 8) && host.start.equals(3, 4) && host.duration.equals(1, 4),
+        "the steal ratio must use the whole block length and keep its cap");
+    assert(plan.tracks.length === 1 && [main, upper, later].every(note => note.track === host.track),
+        "every grace voice must play on the host track so exports gain no extra tracks");
+
+    const sustained = byMidi(compilePlayback(lower(`1<{2 & 3} -`)));
+    assert(sustained.get(62)!.duration.equals(3, 2) && sustained.get(64)!.duration.equals(3, 2),
+        "a following dash must sustain every voice that ends with the post grace");
 });
 
 test("tie 只合并同轨同音且连续的单音", () => {

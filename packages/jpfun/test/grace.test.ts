@@ -1,3 +1,4 @@
+import { deepStrictEqual } from "node:assert/strict";
 import { test } from "node:test";
 
 import { divLinePortName } from "../src/functions/div/index.js";
@@ -22,7 +23,7 @@ function layoutGrace(source: string) {
     return { result, commands: recordCommands(result) };
 }
 
-/** 倪音向宿主借走的演奏时值：前倪音先发声，所以就是首个 gesture 的时长 */
+/** 倚音向宿主借走的演奏时值：前倚音先发声，所以就是首个 gesture 的时长 */
 function stealOf(source: string) {
     return playedNotes(compilePlayback(lower(source)))[0].duration.toNumber();
 }
@@ -235,8 +236,6 @@ test("写在倚音内部的标签仍是合法的关系端点", () => {
         "a label written inside a grace composite must still work as a tie endpoint");
 
     expectLoweringError(`3>{1 2}`, "E_GRACE_INVALID_HOST");
-    // & 的堆叠靠并行 Track，而折叠成员不进引擎，放行只会退化成横排
-    expectLoweringError(`{1 & 3}/>2`, "E_GRACE_PARALLEL_CONTENT");
 });
 
 test("grace 外部标签穿透宿主后仍保留完整关系左操作数", () => {
@@ -265,4 +264,109 @@ test("倚音局部横排保持书写列序，混合时值和零时长标记使�
         assert(node.graces.every(grace => (grace.springConfig.alpha_L ?? 0) > 0),
             "zeroing temporary margins must not clear the members' spring configuration");
     }
+});
+
+test("倚音内容只拒绝换行，并且至少产生一个可见对象", () => {
+    expectLoweringError(`{1 @br() 2}>3`, "E_GRACE_INVALID_CONTENT");
+    expectLoweringError(`{@program(40)}>3`, "E_GRACE_INVALID_CONTENT");
+    expectLoweringError(`{1 & 3}>{2 & 4}`, "E_GRACE_INVALID_HOST");
+
+    // 不可见的状态事件留在倚音的时间流里，照常影响后续音色
+    const changes = compilePlayback(lower(`{@program(40) 1}>2 3`)).events
+        .flatMap(event => event.kind === "program-change" ? [`${event.at.toNumber()}:${event.program}`] : []);
+    assert(changes.join() === "0:40", "a state event inside a grace must stay in its time flow");
+});
+
+test("倚音可以含多个声部：同列共用锚点并纵向叠放，声部轨只属于倚音子域", () => {
+    const layout = layoutOf(`{1 & 3}>2`);
+    const node = layout.objects[0];
+    assert(layout.objects.length === 1 && node instanceof GraceTemporal, "a multi-voice grace must still fold into one object");
+    const [main, branch] = node.graceColumns[0];
+    assert(node.graceColumns.length === 1 && branch !== undefined, "simultaneous voices must share one local column");
+    assert(main.track.parent === node.track && branch.track.parent === main.track,
+        "grace voices must stay on private tracks split from the host track");
+    assert(nearly(main.box.x + main.box.anchor, branch.box.x + branch.box.anchor),
+        "voices in one local column must share the column anchor");
+    assert(branch.box.y + branch.box.h < main.box.y, "the branch voice must stack above the main voice");
+
+    const single = layoutOf(`1>2`).objects[0] as GraceTemporal;
+    assert(nearly(main.box.y - node.host.box.y, single.graces[0].box.y - single.host.box.y),
+        "the main voice keeps the single-voice position on the host shoulder");
+    const [hook] = recordCommands(layout).filter(command => command.kind === "path");
+    assert(hook?.kind === "path" && hook.commands[0].op === "M"
+        && nearly(hook.commands[0].y, main.box.y + main.box.h),
+        "the hook must start from the bottom of the whole grace block");
+});
+
+test("每个倚音声部各自连梁，零时长标记只切断所在声部", () => {
+    const beams = layoutOf(`{{1 2} & {3 4}}>5`).attachments;
+    assert(beams.length === 2 && Math.abs(beams[0].box.y - beams[1].box.y) > 1,
+        "each grace voice must get its own beam at its own height");
+    assert(layoutOf(`{{1 2} & {3 @key(F) 4}}>5`).attachments.length === 1,
+        "a mark must only break the run of its own voice");
+});
+
+test("多声部倚音可以后置、嵌套或使用 @voices，同列声部互不重叠", () => {
+    for (const source of [`5<{{1 2} & 3}`, `{{2>1} & 3}>4`, `{1 & {3>4}}>2`, `{@voices(@voice({1 2}), @voice({3 4}))}>5`]) {
+        const node = layoutOf(source).objects[0];
+        assert(node instanceof GraceTemporal, `expected a grace composite: ${source}`);
+        for (const column of node.graceColumns) {
+            const boxes = column.map(member => member.box).filter(box => box.h > 0).sort((a, b) => a.y - b.y);
+            for (let index = 1; index < boxes.length; index++) {
+                assert(boxes[index - 1].y + boxes[index - 1].h <= boxes[index].y + 1e-6,
+                    `voices of one local column must not overlap: ${source}`);
+            }
+        }
+    }
+});
+
+/** 倚音块里带数字的括线，即 tuplet */
+function bracketOf(layout: ReturnType<typeof layoutOf>) {
+    const bracket = layout.attachments.find(attachment =>
+        attachmentCommands(attachment).some(command => command.kind === "text"));
+    assert(bracket, "expected a tuplet bracket");
+    return bracket.box;
+}
+
+test("倚音子域连同附件先排版：括线在声部之间撑出空间，并计入复合盒", () => {
+    const lowerVoice = layoutOf(`{@tuplet({1 2 3},2) & 1}>1`);
+    const node = lowerVoice.objects[0];
+    assert(node instanceof GraceTemporal, "expected a grace composite");
+    const [[main, branch]] = node.graceColumns;
+    const bracket = bracketOf(lowerVoice);
+    assert(branch.box.y + branch.box.h <= bracket.y + 1e-6 && bracket.y + bracket.h <= main.box.y + 1e-6,
+        "a bracket on the lower voice must push the upper voice above it, as in the document");
+
+    for (const source of [`{1 & @tuplet({3 4 5},2)}>2`, `@grace(1,@tuplet({2 3 4},2))`]) {
+        const layout = layoutOf(source);
+        const composite = layout.objects[0];
+        const box = bracketOf(layout);
+        assert(composite instanceof GraceTemporal && box.y >= composite.box.y - 1e-6
+            && box.y + box.h <= Math.min(...composite.graces.map(grace => grace.box.y)) + 1e-6,
+            `the composite must contain the bracket above its graces: ${source}`);
+    }
+});
+
+test("端点都在倚音里的关系写在外面也归子域", () => {
+    for (const [inside, outside] of [
+        [`{2@a 3@b @tie(a,b)}>1`, `{2@a 3@b}>1 @tie(a,b)`],
+        [`{{2@a 3@b @tie(a,b)} & 5}>1`, `{{2@a 3@b} & 5}>1 @tie(a,b)`],
+    ]) {
+        const geometry = (source: string) => {
+            const layout = layoutOf(source);
+            const node = layout.objects[0];
+            assert(node instanceof GraceTemporal, `expected a grace composite: ${source}`);
+            return [node, ...node.graces, ...layout.attachments]
+                .map(({ box }) => [box.x, box.y, box.w, box.h].map(value => value.toFixed(6)).join())
+                .sort();
+        };
+        deepStrictEqual(geometry(outside), geometry(inside), `the writing position must not change the grace block: ${outside}`);
+    }
+});
+
+test("子域附件随复合体整体平移", () => {
+    const source = `@grace(1,@tuplet({2 3 4},2)) 5`;
+    const base = bracketOf(layoutOf(source));
+    const moved = bracketOf(layoutOf(`@adjust(${source.slice(0, -2)}, dx=5px, dy=-4px) 5`));
+    assert(nearly(moved.x - base.x, 5) && nearly(moved.y - base.y, -4), "sub-domain geometry must follow its composite");
 });
