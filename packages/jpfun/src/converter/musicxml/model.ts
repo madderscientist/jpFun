@@ -1,9 +1,34 @@
 import type { Fraction } from "../../fraction.js";
 
-export type MusicXmlArpeggio = "none" | "up" | "down";
+export interface MusicXmlDiagnostic {
+    code: "W_MUSICXML_PERCUSSION_SKIPPED" | "W_MUSICXML_APPROXIMATED"
+        | "W_MUSICXML_UNSUPPORTED_ELEMENT" | "W_MUSICXML_UNATTACHED_CONTENT"
+        | "W_MUSICXML_UNRESOLVED_RELATION";
+    severity: "warning";
+    message: string;
+    location: {
+        element: string;
+        partId?: string;
+        measureIndex?: number;
+        measureNumber?: string;
+        staff?: string;
+        voice?: string;
+    };
+}
+
+type MusicXmlPartLocation = MusicXmlDiagnostic["location"] & {
+    partId: string;
+    measureIndex: number;
+};
+
+export interface MusicXmlArpeggio {
+    direction: "none" | "up" | "down";
+    location: MusicXmlPitch["location"];
+}
 
 /** 单个书面音高，tie 标记保留在音高上以支持和弦成员独立连音 */
 export interface MusicXmlPitch {
+    location: MusicXmlPartLocation & { staff: string; voice: string };
     step: string;
     alter: number;
     octave: number;
@@ -40,7 +65,7 @@ export interface MusicXmlLane {
     staff: string;
     voice: string;
     events: MusicXmlEvent[];
-    dynamics?: ({ at: Fraction } & MusicXmlEvent["modifiers"][number])[];
+    dynamics?: ({ at: Fraction; location: MusicXmlDiagnostic["location"] } & MusicXmlEvent["modifiers"][number])[];
 }
 
 /** 全谱时间流上的拍号状态点 */
@@ -59,10 +84,8 @@ export interface MusicXmlKeyPoint {
 
 /** 尚未附着到事件的力度或文字方向 */
 export interface MusicXmlDirectionPoint {
+    location: MusicXmlPartLocation & { staff: string };
     at: Fraction;
-    partId: string;
-    staff: string;
-    voice: string;
     placement: "above" | "below";
     dynamic?: string;
     texts: { text: string; boxed: boolean }[];
@@ -70,10 +93,8 @@ export interface MusicXmlDirectionPoint {
 
 /** 参与楔形线配对的原始起止点 */
 export interface MusicXmlWedgePoint {
+    location: MusicXmlDirectionPoint["location"];
     at: Fraction;
-    partId: string;
-    staff: string;
-    voice: string;
     number: string;
     type: "crescendo" | "diminuendo" | "stop";
 }
@@ -86,6 +107,7 @@ export interface MusicXmlWedgeSpan {
 
 /** 参与房子配对的原始起止点 */
 export interface MusicXmlEndingPoint {
+    location: MusicXmlPartLocation;
     at: Fraction;
     type: "start" | "stop" | "discontinue";
     passes: number[];
@@ -113,7 +135,7 @@ export interface ParsedMusicXmlScore {
     lanes: MusicXmlLane[];
     meters: MusicXmlMeterPoint[];
     keys: MusicXmlKeyPoint[];
-    tempos: { at: Fraction; bpm: number }[];
+    tempos: { at: Fraction; bpm: number; location?: MusicXmlDiagnostic["location"] }[];
     wedges: MusicXmlWedgeSpan[];
     endings: MusicXmlEndingSpan[];
     bars: Map<string, string>;

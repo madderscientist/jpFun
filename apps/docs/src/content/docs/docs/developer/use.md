@@ -225,11 +225,31 @@ const document = new DOMParser().parseFromString(xml, "application/xml");
 const parseError = document.querySelector("parsererror");
 if (parseError) throw new SyntaxError(parseError.textContent || "Invalid MusicXML");
 
-const source = musicXmlToJpFun(document.documentElement, {
+const { script, diagnostics } = musicXmlToJpFun(document.documentElement, {
   pitchMode: "absolute",
   barsPerLine: 4,
 });
 ```
+
+返回对象包含源码 `script` 和结构化诊断数组 `diagnostics`。原先直接使用字符串返回值的调用方需要改为读取 `.script`。转换失败仍抛异常，不返回部分结果。
+
+每条 `MusicXmlDiagnostic` 包含稳定编号 `code`、级别 `severity: "warning"`、说明 `message` 和原始 MusicXML 位置 `location`：
+
+| 编号 | 报告内容 |
+| --- | --- |
+| `W_MUSICXML_PERCUSSION_SKIPPED` | channel 10 音符被跳过 |
+| `W_MUSICXML_APPROXIMATED` | 无固定音高音符按显示音高转换、后倚音改为前倚音、渐强线按起音端点和固定力度变化近似 |
+| `W_MUSICXML_UNSUPPORTED_ELEMENT` | 和声及记号容器中被舍弃的踏板、连奏线、演奏记号、装饰音记号和力度等 |
+| `W_MUSICXML_UNATTACHED_CONTENT` | 倚音、文字或力度没有可附着目标 |
+| `W_MUSICXML_UNRESOLVED_RELATION` | 连音线、渐强线或房子未配对、被覆盖、未闭合或无法生成端点 |
+
+`location.element` 是去掉命名空间前缀的元素名；可取得的位置还包含 `partId`、从 1 开始的声部内小节序号 `measureIndex`、原始字符串编号 `measureNumber`、`staff` 和 `voice`。这些位置属于原始 XML，不是生成源码的偏移；最小 DOM 接口不提供 XML 行列号。诊断按转换阶段的处理顺序输出，多次转换的顺序一致，不保证与 XML 全文顺序相同。
+
+没有已覆盖的问题时 `diagnostics` 为 `[]`，这不代表完全无损转换。默认值补齐、纯雕版坐标和未覆盖的 MusicXML 特性不在诊断保证范围内；程序应按 `code` 分类，不解析 `message` 文本。
+
+文字、力度和楔形线严格匹配所属 part 和 staff；省略 voice 时，力度和楔形线作用于该 staff 的匹配声部，文字只附着一次。目标不存在时报告诊断，不会改写其他 staff 或 voice。连音组标记只有被最终事件的节奏状态保留才算确认，和弦成员上的等价重复声明不会误报。
+
+同一音符的所有 `notations` 容器都会检查。速度和力度标记只有实际进入生成源码才算输出，曲末等未输出的标记会报告无法附着。琶音若在和弦合并及声部拆分后无法表达，例如跨 staff 分组被拆成单音事件，会报告未支持的内容。
 
 在 Node.js 中可使用任意兼容 DOM 实现，并传入满足 `MusicXmlElement` 接口的根元素。转换器支持 partwise/timewise、part/staff/voice、休止与和弦、倚音、连音、连音组、歌词、速度、调号、拍号、力度、反复与房子，以及基本的分页和谱头信息。
 
@@ -249,7 +269,7 @@ async function importScore(file: File) {
       await file.text(),
       "application/xml",
     );
-    return musicXmlToJpFun(document.documentElement);
+    return musicXmlToJpFun(document.documentElement).script;
   }
 
   if (/\.midi?$/i.test(file.name)) {

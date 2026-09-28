@@ -1,6 +1,8 @@
 <img src="apps/docs/public/logo.svg" alt="jpFun" width="320" />
 
 # jpFun —— 函数式简谱脚本
+[![npm: jpfun](https://img.shields.io/npm/v/jpfun?label=jpfun)](https://www.npmjs.com/package/jpfun)
+
 `jpFun` 是一个使用 TypeScript 编写的简谱 DSL 编译器与排版引擎。
 
 它借鉴 Typst 的设计思路：底层能力由函数表达，常用写法则通过语法糖保持简洁。项目遵循一个核心原则：
@@ -76,16 +78,8 @@ pnpm run test:update       # 重写测试快照基线
 ## npm 包
 核心包位于 [`packages/jpfun`](./packages/jpfun/README.md)，使用 Apache-2.0 许可证
 
-## 开发文档
-- [架构总览](apps/docs/src/content/docs/docs/developer/architecture.md)
-- [语法解析](apps/docs/src/content/docs/docs/developer/parser.md)
-- [Lowering](apps/docs/src/content/docs/docs/developer/lowering.md)
-- [布局系统](apps/docs/src/content/docs/docs/developer/layout.md)
-- [渲染后端](apps/docs/src/content/docs/docs/developer/render.md)
-- [播放](apps/docs/src/content/docs/docs/developer/playback.md)
-- [编辑器集成](apps/docs/src/content/docs/docs/developer/editor.md)
-- [教程与网站维护](apps/docs/README.md)
-- [完整语法规范](packages/jpfun/grammar.md)
+## 应用
+除了人工手写外，本项目的语法非常适合让大语言模型生成简谱内容。只要将 [grammar.md](./packages/jpfun/grammar.md) 交给大模型，就可以实现简谱图片转脚本、五线谱图片转脚本等功能。
 
 ## todo
 - [ ] VSCode 插件

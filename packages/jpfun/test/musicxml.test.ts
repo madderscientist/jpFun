@@ -1,5 +1,5 @@
 import test from "node:test";
-import { throws } from "node:assert/strict";
+import { deepStrictEqual, throws } from "node:assert/strict";
 import { DOMParser } from "@xmldom/xmldom";
 
 import {
@@ -9,8 +9,10 @@ import {
   musicXmlToJpFun as convertMusicXmlElement,
 } from "../src/index.js";
 import { assert, attachmentCommands, lower, nearly, playedNotes, recordCommands } from "./helpers.js";
+import { MusicXmlReader } from "../src/converter/musicxml/features.js";
+import type { MusicXmlDiagnostic } from "../src/index.js";
 
-function musicXmlToJpFun(
+function importMusicXml(
   source: string,
   options?: Parameters<typeof convertMusicXmlElement>[1],
 ) {
@@ -24,6 +26,10 @@ function musicXmlToJpFun(
     throw new SyntaxError(`Invalid MusicXML: ${errors[0] ?? "missing document element"}`);
   }
   return convertMusicXmlElement(document.documentElement, options);
+}
+
+function musicXmlToJpFun(source: string, options?: Parameters<typeof convertMusicXmlElement>[1]) {
+  return importMusicXml(source, options).script;
 }
 
 const SCORE = `<?xml version="1.0" encoding="UTF-8"?>
@@ -51,6 +57,54 @@ const SCORE = `<?xml version="1.0" encoding="UTF-8"?>
   </part>
 </score-partwise>`;
 
+test("MusicXML returns a script and structured diagnostics", () => {
+  const document = new DOMParser().parseFromString(SCORE, "application/xml");
+  const result = convertMusicXmlElement(document.documentElement!);
+  assert(typeof result.script === "string" && result.script.includes("H.title: Example"),
+    "the generated script must be returned explicitly");
+  deepStrictEqual(result.diagnostics, []);
+  assert(playedNotes(compilePlayback(lower(result.script))).length === 4, "all original notes must survive");
+});
+
+test("MusicXML queries do not confirm preservation until explicitly accepted", () => {
+  const root = new DOMParser().parseFromString(
+    '<direction><direction-type><future/><future/><ignored/><group><nested/><nested/></group></direction-type></direction>',
+    'application/xml',
+  ).documentElement!;
+  const reader = new MusicXmlReader([root]);
+  const container = reader.read("direction-type")!;
+  const first = reader.read("future", true)!;
+  const nested = reader.readAll("nested", true);
+  const group = reader.read("group", true)!;
+  const diagnostics: MusicXmlDiagnostic[] = [];
+  const location = { element: "direction", partId: "P1" };
+  reader.report(diagnostics, location, container);
+  reader.report(diagnostics, location, group);
+  deepStrictEqual(diagnostics.map(item => item.location.element), ["future", "future", "ignored", "group", "nested", "nested"]);
+  reader.accept(first);
+  reader.accept(group);
+  for (const element of nested) reader.accept(element);
+  diagnostics.length = 0;
+  reader.report(diagnostics, location, container);
+  reader.report(diagnostics, location, group);
+  deepStrictEqual(diagnostics.map(item => item.location.element), ["future", "ignored"]);
+  for (const element of reader.readAll("future", true)) reader.accept(element);
+  diagnostics.length = 0;
+  reader.report(diagnostics, location, container);
+  deepStrictEqual(diagnostics.map(item => item.location.element), ["ignored"]);
+});
+
+test("MusicXML diagnoses omitted percussion with original XML location", () => {
+  const result = importMusicXml(`<score-partwise><part-list><score-part id="P2"><midi-instrument id="D"><midi-channel>10</midi-channel></midi-instrument></score-part></part-list><part id="P2"><measure number="pickup"><attributes><divisions>1</divisions></attributes><note><unpitched><display-step>C</display-step><display-octave>2</display-octave></unpitched><duration>1</duration><voice>3</voice><staff>2</staff></note></measure></part></score-partwise>`);
+  deepStrictEqual(result.diagnostics, [{
+    code: "W_MUSICXML_PERCUSSION_SKIPPED",
+    severity: "warning",
+    message: "MIDI channel 10 percussion note was omitted.",
+    location: { element: "note", partId: "P2", measureIndex: 1, measureNumber: "pickup", staff: "2", voice: "3" },
+  }]);
+  assert(!result.script.includes("C2"), "percussion must remain omitted");
+});
+
 test("MusicXML unequal-duration and cross-staff chords preserve every onset", () => {
   for (const [duration, staff] of [[1, 1], [2, 2], [1, 2]]) {
     const source = musicXmlToJpFun(`<score-partwise><part-list><score-part id="P1"><part-name>Chord</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><staves>2</staves></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><staff>1</staff></note><note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>${duration}</duration><voice>1</voice><staff>${staff}</staff></note></measure></part></score-partwise>`);
@@ -63,6 +117,191 @@ test("MusicXML unequal-duration and cross-staff chords preserve every onset", ()
   }
 });
 
+test("MusicXML diagnoses only discarded children of supported musical containers", () => {
+  const xml = SCORE.replace("<note><pitch>", `<harmony><root><root-step>C</root-step></root><kind>major</kind></harmony><direction><direction-type><dynamics><p/><sfz/><f/></dynamics><pedal type="start"/></direction-type></direction><note><notations><fermata/><articulations><accent/><staccato/></articulations><ornaments><trill-mark/><tremolo>3</tremolo></ornaments><slur type="start"/></notations><pitch>`);
+  const result = importMusicXml(xml);
+  deepStrictEqual(result.diagnostics.map(item => item.location.element).sort(),
+    ["f", "harmony", "pedal", "sfz", "slur", "staccato", "tremolo"]);
+  assert(result.diagnostics.every(item => item.code === "W_MUSICXML_UNSUPPORTED_ELEMENT"),
+    "only discarded semantics should be diagnosed");
+  assert(result.script.includes("$fermata") && result.script.includes("$accent")
+    && result.script.includes("$tr") && result.script.includes("$p"), "supported siblings must still be preserved");
+  deepStrictEqual(importMusicXml(xml), result);
+  deepStrictEqual(importMusicXml(SCORE).diagnostics, []);
+});
+
+test("MusicXML reads and diagnoses every notations container", () => {
+  for (const containers of [
+    '<notations><slur type="start"/><fermata/></notations><notations><articulations><accent/></articulations></notations>',
+    '<notations><fermata/></notations><notations><slur type="start"/><articulations><accent/></articulations></notations>',
+  ]) {
+    const result = importMusicXml(SCORE.replace("<note><pitch>", `<note>${containers}<pitch>`));
+    deepStrictEqual(result.diagnostics.map(item => item.location.element), ["slur"]);
+    assert(result.script.includes("$fermata") && result.script.includes("$accent"),
+      "supported siblings in later containers must be retained");
+  }
+  const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1"><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><notations/><notations><tied type="start"/></notations></note><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><notations/><notations><tied type="stop"/></notations></note></measure></part></score-partwise>`);
+  assert(result.script.includes("@tie("), "ties in later containers must participate in relation matching");
+  deepStrictEqual(result.diagnostics, []);
+});
+
+test("MusicXML reports end-of-score controls that have no generated position", () => {
+  const note = `<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>`;
+  const direction = `<direction><direction-type><dynamics><p/></dynamics><metronome><beat-unit>quarter</beat-unit><per-minute>88</per-minute></metronome></direction-type></direction>`;
+  for (const trailingNote of ["", note]) {
+    const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1">${note}${direction}${trailingNote}</measure></part></score-partwise>`);
+    if (trailingNote) {
+      assert(result.script.includes("$p") && result.script.includes("@tempo(88)"), "interior controls must remain represented");
+      deepStrictEqual(result.diagnostics, []);
+    } else {
+      assert(!result.script.includes("$p") && !result.script.includes("@tempo(88)"), "terminal controls must not extend the score");
+      deepStrictEqual(result.diagnostics.map(item => item.location.element).sort(), ["dynamics", "metronome"]);
+      assert(result.diagnostics.every(item => item.code === "W_MUSICXML_UNATTACHED_CONTENT"
+        && item.location.partId === "P1" && item.location.measureNumber === "1"), "omitted controls must retain their original locations");
+    }
+  }
+});
+
+test("MusicXML reports terminal controls once across voices and without lanes", () => {
+  const note = (voice: number) => `<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>${voice}</voice></note>`;
+  const direction = `<direction><direction-type><dynamics><p/></dynamics></direction-type><sound tempo="88"/></direction>`;
+  for (const body of [note(1) + "<backup><duration>1</duration></backup>" + note(2), "<forward><duration>1</duration></forward>"]) {
+    const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1">${body}${direction}</measure></part></score-partwise>`);
+    deepStrictEqual(result.diagnostics.map(item => item.location.element).sort(), ["dynamics", "sound"]);
+    assert(!result.script.includes("$p") && !result.script.includes("@tempo(88)"), "omitted controls must not be reported as preserved");
+  }
+});
+
+test("MusicXML confirms controls rendered inside tuplets but reports terminal ones", () => {
+  const notes = ["C", "D", "E"].map(step => `<note><pitch><step>${step}</step><octave>4</octave></pitch><duration>2</duration><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification></note>`).join("");
+  const mark = (dynamic: string, tempo: number, offset: number) => `<direction><direction-type><dynamics><${dynamic}/></dynamics><metronome><beat-unit>quarter</beat-unit><per-minute>${tempo}</per-minute></metronome></direction-type><offset>${offset}</offset></direction>`;
+  const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1"><attributes><divisions>6</divisions></attributes>${mark("p", 88, 1)}${notes}${mark("f", 96, 0)}</measure></part></score-partwise>`);
+  assert(result.script.includes("$p") && result.script.includes("@tempo(88)"), "interior tuplet controls must be emitted");
+  assert(!result.script.includes("$f") && !result.script.includes("@tempo(96)"), "terminal tuplet controls must remain omitted");
+  deepStrictEqual(result.diagnostics.map(item => item.location.element).sort(), ["dynamics", "metronome"]);
+});
+
+test("MusicXML reports arpeggios lost after cross-staff chord splitting", () => {
+  for (const staff of ["1", "2"]) {
+    const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1"><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><staff>1</staff><notations><arpeggiate/></notations></note><note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><staff>${staff}</staff><notations><arpeggiate/></notations></note></measure></part></score-partwise>`);
+    if (staff === "1") {
+      assert(result.script.includes("@arp("), "ordinary chord arpeggios must survive");
+      deepStrictEqual(result.diagnostics, []);
+    } else {
+      assert(!result.script.includes("@arp("), "cross-staff grouping remains unsupported");
+      deepStrictEqual(result.diagnostics.map(item => [item.code, item.location.element, item.location.staff]), [
+        ["W_MUSICXML_UNSUPPORTED_ELEMENT", "arpeggiate", "1"],
+        ["W_MUSICXML_UNSUPPORTED_ELEMENT", "arpeggiate", "2"],
+      ]);
+      assert(playedNotes(compilePlayback(lower(result.script))).length === 2, "both pitches must still be retained");
+    }
+  }
+});
+
+test("MusicXML reports a sliced single-note arpeggio only once", () => {
+  const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1"><direction><offset>2</offset><sound tempo="88"/></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><notations/><notations><arpeggiate direction="down"/></notations></note></measure></part></score-partwise>`);
+  deepStrictEqual(result.diagnostics.map(item => item.location.element), ["arpeggiate"]);
+  assert(result.script.includes("@tempo(88)") && !result.script.includes("@arp("), "slicing must retain the tempo but not invent a chord");
+});
+
+test("MusicXML reports tuplet markers that never enter the event rhythm", () => {
+  const note = `<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>`;
+  const marked = `<note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><notations><tuplet type="start"/></notations></note>`;
+  for (const body of [marked, note + marked.replace("<note>", "<note><chord/>")]) {
+    const xml = `<score-partwise><part id="P1"><measure number="1">${body}</measure></part></score-partwise>`;
+    const result = importMusicXml(xml);
+    assert(result.script === musicXmlToJpFun(xml.replace('<notations><tuplet type="start"/></notations>', "")),
+      "unrepresented markers must not change the generated rhythm");
+    deepStrictEqual(result.diagnostics.map(item => [item.code, item.location.element]),
+      [["W_MUSICXML_UNSUPPORTED_ELEMENT", "tuplet"]]);
+  }
+});
+
+test("MusicXML accepts equivalent tuplet markers on merged chord members", () => {
+  const modification = `<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>`;
+  const note = (step: string, chord: boolean, boundary: string) => `<note>${chord ? "<chord/>" : ""}<pitch><step>${step}</step><octave>4</octave></pitch><duration>2</duration>${modification}<notations>${boundary ? `<tuplet type="${boundary}"/>` : ""}</notations></note>`;
+  const body = note("C", false, "start") + note("E", true, "start") + note("D", false, "") + note("E", false, "stop");
+  const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1"><attributes><divisions>6</divisions></attributes>${body}</measure></part></score-partwise>`);
+  assert(result.script.includes("@tuplet("), "the shared event rhythm must remain represented");
+  deepStrictEqual(result.diagnostics, []);
+});
+
+test("MusicXML reports display-pitch approximation and preserves its existing script", () => {
+  const pitched = "<pitch><step>G</step><octave>4</octave></pitch>";
+  const xml = SCORE.replace(pitched, "<unpitched><display-step>G</display-step><display-octave>4</display-octave></unpitched>");
+  const result = importMusicXml(xml);
+  assert(result.script === musicXmlToJpFun(SCORE), "display-pitch conversion must remain unchanged");
+  deepStrictEqual(result.diagnostics.map(item => [item.code, item.location.element]),
+    [["W_MUSICXML_APPROXIMATED", "unpitched"]]);
+});
+
+test("MusicXML reports unattached directions and grace notes", () => {
+  const direction = importMusicXml(`<score-partwise><part id="P1"><measure number="A"><direction><direction-type><words>Solo</words><dynamics><p/></dynamics></direction-type></direction></measure></part></score-partwise>`);
+  const grace = importMusicXml(`<score-partwise><part id="P1"><measure number="A"><note><grace/><pitch><step>C</step><octave>4</octave></pitch></note><note><grace/><rest/></note></measure></part></score-partwise>`);
+  const diagnostics = [...direction.diagnostics, ...grace.diagnostics];
+  deepStrictEqual(diagnostics.map(item => item.location.element).sort(), ["dynamics", "grace", "grace", "words"]);
+  assert(diagnostics.every(item => item.code === "W_MUSICXML_UNATTACHED_CONTENT"),
+    "content without a preserved host must not disappear silently");
+});
+
+test("MusicXML does not diagnose dynamics retained on generated rests", () => {
+  const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1"><direction><direction-type><dynamics><p/></dynamics></direction-type></direction><note><grace/><pitch><step>C</step><octave>4</octave></pitch></note><forward><duration>1</duration></forward></measure></part></score-partwise>`);
+  assert(result.script.includes("$p"), "generated rests must still carry the dynamic");
+  assert(!result.diagnostics.some(item => item.location.element === "dynamics"), "preserved dynamics must not be reported");
+});
+
+test("MusicXML never redirects missing direction targets to another staff or voice", () => {
+  for (const target of ["<staff>2</staff><voice>9</voice>", "<staff>1</staff><voice>9</voice>", "<staff>2</staff>"]) {
+    const xml = `<score-partwise><part id="P1"><measure number="1"><direction><direction-type><words>lost</words><dynamics><p/></dynamics><wedge type="crescendo"/></direction-type>${target}</direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><staff>1</staff><voice>1</voice></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><staff>1</staff><voice>1</voice></note><direction><direction-type><wedge type="stop"/></direction-type>${target}</direction></measure></part></score-partwise>`;
+    const result = importMusicXml(xml);
+    assert(!result.script.includes("$p") && !result.script.includes('"lost"') && !result.script.includes("@dyn("),
+      "missing targets must not alter another voice");
+    deepStrictEqual(result.diagnostics.map(item => [item.code, item.location.element]), [
+      ["W_MUSICXML_UNATTACHED_CONTENT", "dynamics"],
+      ["W_MUSICXML_UNATTACHED_CONTENT", "words"],
+      ["W_MUSICXML_UNRESOLVED_RELATION", "wedge"],
+    ]);
+    assert(playedNotes(compilePlayback(lower(result.script))).every(note => note.velocity === 80),
+      "unrelated notes must retain their original dynamic");
+  }
+});
+
+test("MusicXML diagnoses lost and approximated wedge relations", () => {
+  const note = `<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>`;
+  const wedge = (type: string) => `<direction><direction-type><wedge type="${type}"/></direction-type></direction>`;
+  for (const [body, codes] of [
+    [wedge("stop") + note, ["W_MUSICXML_UNRESOLVED_RELATION"]],
+    [wedge("crescendo") + note, ["W_MUSICXML_UNRESOLVED_RELATION"]],
+    [wedge("crescendo") + wedge("diminuendo") + note + note + wedge("stop"),
+      ["W_MUSICXML_UNRESOLVED_RELATION", "W_MUSICXML_APPROXIMATED"]],
+    [wedge("crescendo") + note + wedge("stop"), ["W_MUSICXML_UNRESOLVED_RELATION"]],
+    [wedge("crescendo") + wedge("stop") + note, ["W_MUSICXML_UNRESOLVED_RELATION"]],
+    [wedge("crescendo") + note + note + wedge("stop"), ["W_MUSICXML_APPROXIMATED"]],
+  ] as const) {
+    const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1">${body}</measure></part></score-partwise>`);
+    deepStrictEqual(result.diagnostics.map(item => item.code), codes);
+    assert(result.diagnostics.every(item => item.location.element === "wedge"), "diagnostics must name the original relation");
+    assert(result.script.includes("@dyn(") === codes.some(code => code === "W_MUSICXML_APPROXIMATED"),
+      "only an emitted wedge should be diagnosed as an approximation");
+  }
+});
+
+test("MusicXML diagnoses unmatched ties and endings without changing output", () => {
+  const note = (type: string) => `<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><tie type="${type}"/></note>`;
+  const ending = (type: string) => `<barline location="middle"><ending type="${type}" number="1"/></barline>`;
+  for (const [body, count] of [
+    [note("start"), 1], [note("stop"), 1], [note("start") + note("start") + note("stop"), 1],
+    [note("start") + note("stop"), 0],
+    [ending("stop"), 1], [ending("start"), 1],
+    [ending("start") + ending("stop"), 1],
+    [ending("start") + note("start") + ending("start") + note("stop") + ending("stop"), 1],
+  ] as const) {
+    const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1">${body}</measure></part></score-partwise>`);
+    assert(result.diagnostics.length === count, `expected ${count} unresolved relations: ${JSON.stringify(result.diagnostics)}`);
+    assert(result.diagnostics.every(item => item.code === "W_MUSICXML_UNRESOLVED_RELATION"), "relations must have a stable diagnostic code");
+  }
+});
+
 test("MusicXML transpose follows staff and time in both pitch modes", () => {
   const xml = `<score-partwise><part-list><score-part id="P1"><part-name>Transpose</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><transpose number="1"><diatonic>-1</diatonic><chromatic>-2</chromatic><octave-change>-1</octave-change></transpose></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><staff>1</staff></note><attributes><transpose number="1"><chromatic>0</chromatic></transpose></attributes><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><staff>1</staff></note><backup><duration>2</duration></backup><note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><staff>2</staff></note></measure></part></score-partwise>`;
   for (const pitchMode of ["absolute", "relative"] as const) {
@@ -72,6 +311,85 @@ test("MusicXML transpose follows staff and time in both pitch modes", () => {
     assert(notes.some(note => note.midi === 62 && note.start.equals(1)), "later reset must apply only from its time");
     assert(notes.some(note => note.midi === 64 && note.start.equals(0)), "staff 2 must remain untransposed");
   }
+});
+
+test("MusicXML diagnostics retain namespaced timewise locations and do not mutate input", () => {
+  const xml = `<mx:score-timewise xmlns:mx="urn:musicxml"><mx:measure number="pickup"><mx:part id="P1"><mx:note><mx:pitch><mx:step>C</mx:step><mx:octave>4</mx:octave></mx:pitch><mx:duration>1</mx:duration><mx:voice>2</mx:voice><mx:staff>3</mx:staff><mx:notations><mx:articulations><mx:staccato/></mx:articulations></mx:notations></mx:note></mx:part></mx:measure><mx:measure number="2b"><mx:part id="P1"><mx:note><mx:pitch><mx:step>D</mx:step><mx:octave>4</mx:octave></mx:pitch><mx:duration>1</mx:duration><mx:voice>2</mx:voice><mx:staff>3</mx:staff><mx:notations><mx:slur type="stop"/></mx:notations></mx:note></mx:part></mx:measure></mx:score-timewise>`;
+  const document = new DOMParser().parseFromString(xml, "application/xml");
+  const before = document.toString();
+  for (const pitchMode of ["absolute", "relative"] as const) {
+    const options = Object.freeze({ pitchMode });
+    const result = convertMusicXmlElement(document.documentElement!, options);
+    deepStrictEqual(result.diagnostics.map(item => item.location), [
+      { element: "staccato", partId: "P1", measureIndex: 1, measureNumber: "pickup", staff: "3", voice: "2" },
+      { element: "slur", partId: "P1", measureIndex: 2, measureNumber: "2b", staff: "3", voice: "2" },
+    ]);
+    deepStrictEqual(convertMusicXmlElement(document.documentElement!, options), result);
+    assert(document.toString() === before, "conversion must not mutate the caller's DOM");
+    deepStrictEqual(playedNotes(compilePlayback(lower(result.script))).map(note => note.midi), [60, 62]);
+    result.diagnostics.length = 0;
+    assert(convertMusicXmlElement(document.documentElement!, options).diagnostics.length === 2,
+      "diagnostics must be owned by each conversion");
+  }
+});
+
+test("MusicXML diagnoses overwritten tempos but accepts equivalent declarations", () => {
+  const note = '<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>';
+  for (const structure of ["partwise", "timewise"]) for (const middle of [false, true]) {
+    for (const crossPart of [false, true]) for (const element of ["metronome", "sound"]) {
+      const original = element === "sound" ? '<sound tempo="88"/>'
+        : '<direction><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>88</per-minute></metronome></direction-type></direction>';
+      for (const finalBpm of [88, 96]) {
+        const replacement = `<direction><sound tempo="${finalBpm}"/></direction>`;
+        const prefix = middle ? note : "";
+        const bodies = crossPart ? [prefix + original + note, prefix + replacement + note]
+          : [prefix + original + replacement + note];
+        const parts = bodies.map((body, index) => `<part id="P${index + 1}">${structure === "partwise"
+          ? `<measure number="pickup">${body}</measure>` : body}</part>`).join("");
+        const xml = `<score-${structure}>${structure === "timewise" ? `<measure number="pickup">${parts}</measure>` : parts}</score-${structure}>`;
+        for (const pitchMode of ["absolute", "relative"] as const) {
+          const result = importMusicXml(xml, { pitchMode });
+          assert(result.script === musicXmlToJpFun(xml.replace(original, ""), { pitchMode }),
+            "the later declaration must still determine the generated tempo");
+          assert(result.script.includes(middle ? `@tempo(${finalBpm})` : `H.tempo: ${finalBpm}`),
+            "the winning tempo must be represented at the original time");
+          if (finalBpm === 88) deepStrictEqual(result.diagnostics, []);
+          else {
+            deepStrictEqual(result.diagnostics.map(item => ({ code: item.code, location: item.location })), [{
+              code: "W_MUSICXML_UNATTACHED_CONTENT",
+              location: { element, partId: "P1", measureIndex: 1, measureNumber: "pickup" },
+            }]);
+            assert(result.diagnostics[0].message.includes("88"), "the warning must identify the discarded BPM");
+          }
+        }
+      }
+    }
+  }
+});
+
+test("MusicXML preserves equivalent metronome and sound tempo without warning", () => {
+  const xml = SCORE.replace("<note><pitch>", `<direction><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>120</per-minute></metronome></direction-type><sound tempo="120"/></direction><note><pitch>`);
+  deepStrictEqual(importMusicXml(xml).diagnostics, []);
+  const conflict = importMusicXml(xml.replace('tempo="120"', 'tempo="90"'));
+  assert(conflict.script.includes("H.tempo: 90"), "sound tempo must retain precedence");
+  deepStrictEqual(conflict.diagnostics.map(item => item.location.element), ["metronome"]);
+  const unsupported = importMusicXml(xml.replace('<sound tempo="120"/>', "").replace("<beat-unit>quarter</beat-unit>", "<beat-unit>unsupported</beat-unit>"));
+  deepStrictEqual(unsupported.diagnostics.map(item => item.location.element), ["metronome"]);
+});
+
+test("MusicXML percussion warnings do not cascade or alter chord and grace timing", () => {
+  const result = importMusicXml(`<score-partwise><part-list><score-part id="P1"><midi-instrument id="D"><midi-channel>10</midi-channel></midi-instrument><midi-instrument id="M"><midi-channel>1</midi-channel></midi-instrument></score-part></part-list><part id="P1"><measure number="1"><note><instrument id="D"/><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><notations><articulations><staccato/></articulations></notations></note><note><chord/><instrument id="M"/><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration></note><note><chord/><instrument id="D"/><pitch><step>G</step><octave>4</octave></pitch><duration>1</duration></note><note><grace/><instrument id="D"/><unpitched><display-step>C</display-step><display-octave>2</display-octave></unpitched></note><note><instrument id="M"/><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note></measure></part></score-partwise>`);
+  deepStrictEqual(result.diagnostics.map(item => item.code), new Array(3).fill("W_MUSICXML_PERCUSSION_SKIPPED"));
+  deepStrictEqual(playedNotes(compilePlayback(lower(result.script))).map(note => [note.midi, note.start.toString()]), [[64, "0"], [62, "1"]]);
+  throws(() => importMusicXml(`<score-partwise><part-list><score-part id="P1"><midi-instrument><midi-channel>10</midi-channel></midi-instrument></score-part></part-list><part id="P1"><measure><note><unpitched/><duration>1</duration></note></measure></part></score-partwise>`), RangeError);
+});
+
+test("MusicXML diagnoses after-grace fallback without changing its converted host", () => {
+  const xml = `<score-partwise><part id="P1"><measure number="1"><note><grace steal-time-previous="10"/><pitch><step>D</step><octave>4</octave></pitch></note><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note></measure></part></score-partwise>`;
+  const result = importMusicXml(xml);
+  deepStrictEqual(result.diagnostics.map(item => [item.code, item.location.element]), [["W_MUSICXML_APPROXIMATED", "grace"]]);
+  assert(result.script === musicXmlToJpFun(xml.replace(' steal-time-previous="10"', "")),
+    "the existing before-grace fallback must be retained");
 });
 
 test("MusicXML sound instrument changes honor direction offsets", () => {
@@ -558,7 +876,7 @@ test("MusicXML first/second ending 生成 volta 并控制反复顺序", () => {
   });
 
   test("替代 ending 的 tie stop 共享房子外 tie start", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
+    const { script: source, diagnostics } = importMusicXml(`<?xml version="1.0"?>
   <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Branch Tie</part-name></score-part></part-list><part id="P1">
     <measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><tie type="start"/></note></measure>
     <measure number="2"><barline location="left"><ending number="1" type="start"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><tie type="stop"/></note><barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline></measure>
@@ -566,6 +884,7 @@ test("MusicXML first/second ending 生成 volta 并控制反复顺序", () => {
   </part></score-partwise>`);
     assert((source.match(/@tie\(/g) ?? []).length === 2,
       `两个替代房子都应连接共同 tie start：${source}`);
+    deepStrictEqual(diagnostics, []);
     assert(compilePlayback(lower(source)).diagnostics.length === 0, `替代房子 tie 应无诊断：${source}`);
   });
 

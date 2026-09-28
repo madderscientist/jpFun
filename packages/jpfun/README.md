@@ -139,10 +139,28 @@ const xml = await file.text();
 const document = new DOMParser().parseFromString(xml, "application/xml");
 if (document.querySelector("parsererror")) throw new SyntaxError("Invalid MusicXML");
 
-const source = musicXmlToJpFun(document.documentElement, {
+const { script, diagnostics } = musicXmlToJpFun(document.documentElement, {
   barsPerLine: 4,
 });
 ```
+
+The result contains the generated `script` and a `MusicXmlDiagnostic[]`. Callers that previously used the return value as a string must now read `.script`. Each diagnostic is a plain object with `code`, `severity: "warning"`, `message`, and `location`; no diagnostics means an empty array. Conversion failures still throw instead of returning partial output.
+
+| Code | Reported loss |
+| --- | --- |
+| `W_MUSICXML_PERCUSSION_SKIPPED` | Channel 10 notes omitted |
+| `W_MUSICXML_APPROXIMATED` | Display pitches used for unpitched notes, after-grace fallback, or wedges mapped to note onsets with a fixed velocity change |
+| `W_MUSICXML_UNSUPPORTED_ELEMENT` | Harmony and discarded children of supported notation or direction containers, including pedal, slur, unsupported articulations, ornaments, and dynamics |
+| `W_MUSICXML_UNATTACHED_CONTENT` | Grace notes, text, or dynamics with no target |
+| `W_MUSICXML_UNRESOLVED_RELATION` | Unmatched, replaced, unclosed, or unrenderable ties, wedges, and endings |
+
+`location.element` is the XML tag name without its namespace prefix. Available context includes `partId`, `measureIndex` (1-based within the part), `measureNumber` (the original string), `staff`, and `voice`. These refer to the imported score, not offsets in `script`; XML line/column information is not available through the minimal DOM interface. Reports follow deterministic processing order, not necessarily XML document order.
+
+Diagnostics cover the cases above, not the entire MusicXML specification. Empty diagnostics do not guarantee lossless conversion. Ordinary defaults and detailed engraving coordinates do not produce warnings. Diagnostic messages describe the loss; use `code` for programmatic classification.
+
+Text, dynamics, and wedges target the matching part and staff. With no voice specified, dynamics and wedges apply to matching voices on that staff, while text is attached only once. Missing targets produce diagnostics instead of redirecting the marking to another staff or voice. Tuplet markers are confirmed only when the resulting event rhythm retains their boundaries, including equivalent declarations on chord members.
+
+All `notations` containers on a note are inspected. Tempo and dynamic marks that never reach the generated script, including terminal marks, produce unattached-content warnings. Arpeggios that cannot be emitted after chord merging and voice splitting, such as cross-staff groups reduced to single-note events, produce unsupported-element warnings.
 
 Supports partwise/timewise scores, multiple voices, rhythm, lyrics, dynamics, repeats, and basic layout metadata. `pitchMode` defaults to `"absolute"`; `"relative"` uses the active MusicXML key.
 

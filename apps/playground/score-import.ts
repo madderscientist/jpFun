@@ -27,7 +27,7 @@ export async function importScoreFile(file: File) {
     if (extension === "musicxml") {
         const { musicXmlToJpFun } = await import("jpfun/converter/musicxml");
         return {
-            source: musicXmlToJpFun(parseMusicXml(await file.text())),
+            source: musicXmlToJpFun(parseMusicXml(await file.text())).script,
             fileName: jpFunName(file.name),
             linked: false,
         };

@@ -11,15 +11,16 @@
 import { Fraction } from "../../fraction.js";
 import { NoteNameMap } from "../../parser/parse-utils/note-utils.js";
 import {
-    child, children, descendant, nameOf, number, text,
+    child, children, nameOf, number, text,
     type MusicXmlElement,
 } from "./dom.js";
 import {
-    directionDynamic, directionTexts, endingPasses, metronomeBpm,
+    MusicXmlReader, acceptTuplets, directionDynamic, directionTexts, endingPasses, metronomeBpm,
     mergeArpeggio, noteArpeggio, noteLyrics, noteModifiers, parsePitch,
-    parseTimeSignature, partMeasures, timeModification, transposePitch,
+    parseTimeSignature, partMeasures, readInstrument, reportDiagnostic, scoreMetadata, timeModification, transposePitch,
 } from "./features.js";
 import type {
+    MusicXmlDiagnostic,
     MusicXmlDirectionPoint as DirectionPoint,
     MusicXmlEndingPoint as EndingPoint,
     MusicXmlEndingSpan as EndingSpan,
@@ -30,11 +31,12 @@ import type {
     ParsedMusicXmlScore as ParsedScore,
     MusicXmlPitch as Pitch,
     MusicXmlWedgePoint as WedgePoint,
-    MusicXmlWedgeSpan as WedgeSpan,
 } from "./model.js";
 import { attachAbove, quote, renderHead, renderPitch, renderSystems, type PitchMode } from "../source.js";
+import { matchingLanes, resolveRelations, resolveVoices } from "./resolve.js";
 
 export type { MusicXmlElement, MusicXmlNode } from "./dom.js";
+export type { MusicXmlDiagnostic } from "./model.js";
 
 export interface MusicXmlToJpFunOptions {
     pitchMode?: PitchMode;
@@ -57,6 +59,13 @@ interface RenderMetadata {
     labels: Map<Pitch | MusicEvent, string>;
     afterSources: Map<MusicEvent, string[]>;
     labelEnding(fragment: { source: string; tailDuration: Fraction }, end: Fraction): string;
+}
+
+interface RenderAdjustment {
+    at: Fraction;
+    sources: string[];
+    below?: string[];
+    pendingLocations: MusicXmlDiagnostic["location"][];
 }
 
 const MAJOR_KEYS = ["Cb", "Gb", "Db", "Ab", "Eb", "Bb", "F", "C", "G", "D", "A", "E", "B", "F#", "C#"];
@@ -125,25 +134,9 @@ function setBar(bars: Map<string, string>, at: Fraction, token: string) {
  * 每个 part 独立推进游标，第一 part 的小节长度作为多 part 对齐基准
  * backup/forward 只移动当前小节游标，不直接产生可见音符
  */
-function parseScore(root: MusicXmlElement): ParsedScore {
+function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): ParsedScore {
     const partNames = new Map<string, string>();
-    type Instrument = { channel?: number; program?: number };
-    const readInstrument = (midi: MusicXmlElement): Instrument => {
-        const instrument: Instrument = {};
-        if (child(midi, "midi-channel")) {
-            instrument.channel = number(midi, "midi-channel");
-            if (!Number.isSafeInteger(instrument.channel) || instrument.channel < 1 || instrument.channel > 16) {
-                throw new RangeError("MusicXML midi-channel must be an integer in 1..16");
-            }
-        }
-        if (child(midi, "midi-program")) {
-            instrument.program = number(midi, "midi-program") - 1;
-            if (!Number.isSafeInteger(instrument.program) || instrument.program < 0 || instrument.program > 127) {
-                throw new RangeError("MusicXML midi-program must be an integer in 1..128");
-            }
-        }
-        return instrument;
-    };
+    type Instrument = ReturnType<typeof readInstrument>;
     const instrumentsByPart = new Map<string, { fallback?: Instrument; byId: Map<string, Instrument> }>();
     const partList = child(root, "part-list");
     if (partList) {
@@ -162,52 +155,13 @@ function parseScore(root: MusicXmlElement): ParsedScore {
             instrumentsByPart.set(partId, { fallback, byId });
         }
     }
-    // 标题作者等文档级元数据不进入时间线
-    const credits = children(root, "credit");
-    const credit = (type: string) => {
-        const item = credits.find(value => text(value, "credit-type") === type);
-        return item ? text(item, "credit-words") : "";
-    };
-    const workTitle = text(child(root, "work"), "work-title");
-    // 优先采用语义明确的标题字段，并过滤 MuseScore 的默认占位标题
-    const title = text(root, "movement-title")
-        || (workTitle !== "Untitled Score" && workTitle !== "未命名乐谱" ? workTitle : "")
-        || credit("title");
-    const subtitle = credit("subtitle");
-    const creator = credit("composer") || (() => {
-        const identification = child(root, "identification");
-        const creators = identification ? children(identification, "creator") : [];
-        return text(creators.find(item => item.getAttribute("type") === "composer") ?? creators[0]);
-    })();
-    // 页面配置只有在 scaling 和完整尺寸同时存在时才接管 jpFun 默认值
-    let page: ParsedScore["page"];
-    const defaults = child(root, "defaults");
-    const scaling = defaults && child(defaults, "scaling");
-    const pageLayout = defaults && child(defaults, "page-layout");
-    if (scaling && pageLayout && child(pageLayout, "page-width") && child(pageLayout, "page-height")) {
-        // MusicXML 的 tenths 经毫米标尺换算成 CSS 像素
-        const millimeters = number(scaling, "millimeters");
-        const tenths = number(scaling, "tenths");
-        const pixelsPerTenth = millimeters / tenths * 96 / 25.4;
-        const marginList = children(pageLayout, "page-margins");
-        const margins = marginList.find(item => item.getAttribute("type") === "odd") ?? marginList[0];
-        if (Number.isFinite(pixelsPerTenth) && pixelsPerTenth > 0) {
-            page = {
-                width: number(pageLayout, "page-width") * pixelsPerTenth,
-                height: number(pageLayout, "page-height") * pixelsPerTenth,
-                top: margins ? number(margins, "top-margin", 48 / pixelsPerTenth) * pixelsPerTenth : 48,
-                bottom: margins ? number(margins, "bottom-margin", 48 / pixelsPerTenth) * pixelsPerTenth : 48,
-                left: margins ? number(margins, "left-margin", 40 / pixelsPerTenth) * pixelsPerTenth : 40,
-                right: margins ? number(margins, "right-margin", 40 / pixelsPerTenth) * pixelsPerTenth : 40,
-            };
-        }
-    }
+    const metadata = scoreMetadata(root);
 
     // 先收集按时间定位的原始语义；关系端点在所有 part 解析完后统一配对
     const lanes = new Map<string, Lane>();
     const meters = new Map<string, MeterPoint>();
     const keys = new Map<string, KeyPoint>();
-    const tempos = new Map<string, { at: Fraction; bpm: number }>();
+    const tempos = new Map<string, ParsedScore["tempos"][number]>();
     const directions: DirectionPoint[] = [];
     const wedgePoints: WedgePoint[] = [];
     const endingPoints = new Map<string, EndingPoint>();
@@ -232,7 +186,7 @@ function parseScore(root: MusicXmlElement): ParsedScore {
         const lastEvent = new Map<string, MusicEvent>();
         const pendingGraces = new Map<string, Pitch[][]>();
         const transpositions: { at: Fraction; staff: string; chromatic: number; diatonic?: number; octaves: number }[] = [];
-        const pitches: { pitch: Pitch; staff: string; at: Fraction }[] = [];
+        const pitches: { pitch: Pitch; at: Fraction }[] = [];
         const instrumentChanges: { at: Fraction; id: string; instrument: Instrument }[] = [];
         const eventInstruments = new Map<MusicEvent, string>();
         const instrumentAt = (id: string, at: Fraction): Instrument => {
@@ -245,6 +199,10 @@ function parseScore(root: MusicXmlElement): ParsedScore {
         // 小节游标从零开始，partTime 保存当前小节在全谱中的绝对起点
         for (let measureIndex = 0; measureIndex < measures.length; measureIndex++) {
             const { body: measure, container: measureContainer } = measures[measureIndex];
+            const measureLocation = {
+                partId, measureIndex: measureIndex + 1,
+                measureNumber: measureContainer.getAttribute("number") ?? undefined,
+            };
             let cursor = new Fraction();
             let measureEnd = new Fraction();
             let chordStart: Fraction | undefined;
@@ -274,6 +232,7 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                 if (ending && (endingType === "start" || endingType === "stop" || endingType === "discontinue")) {
                     const passes = endingPasses(ending.getAttribute("number") ?? "");
                     if (passes.length > 0) endingPoints.set(`${keyOf(at)}\0${endingType}\0${passes.join(",")}`, {
+                        location: { ...measureLocation, element: "ending" },
                         at: at.clone(),
                         type: endingType,
                         passes,
@@ -338,34 +297,50 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                         instrumentChanges.sort((left, right) => left.at.compare(right.at));
                     }
                     const tempo = sound?.getAttribute("tempo");
-                    const bpm = tempo ? Number(tempo) : tag === "direction" ? metronomeBpm(item) : undefined;
+                    const reader = tag === "direction" ? new MusicXmlReader([item]) : undefined;
+                    const metronome = reader?.read("metronome", true);
+                    const markedBpm = metronomeBpm(metronome);
+                    const bpm = tempo ? Number(tempo) : markedBpm;
                     if (bpm !== undefined) {
                         if (!Number.isFinite(bpm) || bpm <= 0) throw new RangeError("MusicXML tempo must be positive and finite");
-                        tempos.set(keyOf(at), { at, bpm });
+                        const timeKey = keyOf(at);
+                        const previous = tempos.get(timeKey);
+                        if (previous?.location && previous.bpm !== bpm) {
+                            reportDiagnostic(diagnostics, "tempoReplaced", previous.location, previous.bpm);
+                        }
+                        tempos.set(timeKey, { at, bpm, location: {
+                            ...measureLocation, element: metronome && markedBpm === bpm ? "metronome" : "sound",
+                        } });
                     }
-                    if (tag === "sound") continue;
-                    const dynamic = directionDynamic(item);
-                    const texts = directionTexts(item);
+                    if (!reader) continue;
+                    if (bpm !== undefined && markedBpm === bpm) reader.accept(metronome);
+                    const staff = text(item, "staff") || "1";
+                    const voice = text(item, "voice");
+                    const location = { ...measureLocation, element: tag, staff, voice: voice || undefined };
+                    const dynamics = reader.read("dynamics", true);
+                    const dynamic = directionDynamic(dynamics, diagnostics, location);
+                    reader.accept(dynamics);
+                    const texts = directionTexts(reader);
                     if (dynamic || texts.length > 0) directions.push({
+                        location,
                         at,
-                        partId,
-                        staff: text(item, "staff") || "1",
-                        voice: text(item, "voice") || "",
                         placement: item.getAttribute("placement") === "below" ? "below" : "above",
                         dynamic,
                         texts,
                     });
-                    const wedge = descendant(item, "wedge");
+                    const wedge = reader.read("wedge", true);
                     const wedgeType = wedge?.getAttribute("type");
                     if (wedgeType === "crescendo" || wedgeType === "diminuendo" || wedgeType === "stop") {
                         wedgePoints.push({
+                            location: { ...location, element: "wedge" },
                             at,
-                            partId,
-                            staff: text(item, "staff") || "1",
-                            voice: text(item, "voice") || "",
                             number: wedge?.getAttribute("number") || "1",
                             type: wedgeType,
                         });
+                        reader.accept(wedge);
+                    }
+                    for (const directionType of children(item, "direction-type")) {
+                        reader.report(diagnostics, location, directionType);
                     }
                     continue;
                 }
@@ -373,15 +348,21 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                     recordBarline(item, add(partTime, cursor));
                     continue;
                 }
-                if (tag !== "note") continue;
+                if (tag !== "note") {
+                    if (tag === "harmony") reportDiagnostic(diagnostics, "unsupported", { ...measureLocation, element: tag }, tag);
+                    continue;
+                }
 
                 // note 先确定 lane 与 instrument，再区分打击乐、倚音、和弦成员和普通起音
                 const voice = text(item, "voice") || "1";
                 const staff = text(item, "staff") || "1";
+                const location = { ...measureLocation, element: "note", staff, voice };
                 const laneKey = `${partId}\0${staff}\0${voice}`;
                 const instrumentId = child(item, "instrument")?.getAttribute("id")
                     || partInstruments?.byId.keys().next().value || "";
-                const pitch = parsePitch(item);
+                const notationElements = children(item, "notations");
+                const notations = notationElements.length ? new MusicXmlReader(notationElements) : undefined;
+                const pitch = parsePitch(item, location, notations);
                 const rest = child(item, "rest") !== undefined;
                 if (!pitch && !rest) {
                     throw new TypeError("MusicXML note must contain pitch, unpitched, or rest");
@@ -390,9 +371,10 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                 const grace = child(item, "grace");
                 const start = chord && chordStart ? chordStart.clone() : add(partTime, cursor);
                 if (!chord && !grace) chordStart = start.clone();
-                if (pitch && child(item, "pitch")) pitches.push({ pitch, staff, at: start });
+                if (pitch && child(item, "pitch")) pitches.push({ pitch, at: start });
                 // 打击乐尚未建模，但普通音符仍须推进游标以保持后续事件位置
                 if (instrumentAt(instrumentId, start).channel === 10) {
+                    reportDiagnostic(diagnostics, "percussion", location);
                     if (grace) continue;
                     const duration = new Fraction(number(item, "duration"), divisions);
                     if (duration.compare(0) <= 0) throw new RangeError("MusicXML non-grace notes require a positive duration");
@@ -400,6 +382,8 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                     if (measureEnd.compare(cursor) < 0) measureEnd = cursor.clone();
                     continue;
                 }
+                if (pitch && !child(item, "pitch")) reportDiagnostic(diagnostics, "displayPitch",
+                    { ...location, element: "unpitched" });
                 // lane 在首次遇到可保留事件时创建，纯打击乐轨不会留下空 lane
                 let lane = lanes.get(laneKey);
                 if (!lane) {
@@ -414,7 +398,11 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                 }
                 const previousEvent = lastEvent.get(laneKey);
                 if (grace) {
-                    if (!pitch) continue;
+                    if (!pitch) {
+                        reportDiagnostic(diagnostics, "gracePitch", { ...location, element: "grace" });
+                        continue;
+                    }
+                    notations?.report(diagnostics, location);
                     // 后倚音挂到前一事件，前倚音暂存到下一次真实起音
                     const stealTimePrevious = grace.getAttribute("steal-time-previous");
                     if (stealTimePrevious !== null && stealTimePrevious !== "" && previousEvent) {
@@ -422,6 +410,9 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                         if (chord && groups.length > 0) groups.at(-1)!.push(pitch);
                         else groups.push([pitch]);
                     } else {
+                        if (stealTimePrevious !== null && stealTimePrevious !== "") {
+                            reportDiagnostic(diagnostics, "afterGrace", { ...location, element: "grace" });
+                        }
                         const groups = pendingGraces.get(laneKey) ?? [];
                         if (chord && groups.length > 0) groups.at(-1)!.push(pitch);
                         else groups.push([pitch]);
@@ -434,8 +425,9 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                 if (duration.compare(0) <= 0) throw new RangeError("MusicXML non-grace notes require a positive duration");
                 let event = chord ? previousEvent : undefined;
                 const lyrics = noteLyrics(item);
-                const modifiers = noteModifiers(item);
-                const arpeggio = noteArpeggio(item);
+                const modifiers = noteModifiers(notations, diagnostics, location);
+                const arpeggio = noteArpeggio(notations, location);
+                const tuplets = notations?.readAll("tuplet");
                 // chord 成员只有起点和时值都一致时才合并到前一事件
                 if (!event || !event.start.equals(start) || !event.duration.equals(duration) || event.rest) {
                     event = {
@@ -450,7 +442,7 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                         postGraces: [],
                         lyrics,
                         arpeggio,
-                        timeModification: timeModification(item),
+                        timeModification: timeModification(item, tuplets),
                     };
                     pendingGraces.delete(laneKey);
                     lane.events.push(event);
@@ -464,6 +456,8 @@ function parseScore(root: MusicXmlElement): ParsedScore {
                         }
                     }
                 }
+                acceptTuplets(notations, tuplets, event.timeModification);
+                notations?.report(diagnostics, location);
                 if (pitch) event.pitches.push(pitch);
                 for (const [verse, words] of lyrics) {
                     if (words && !event.lyrics.has(verse)) event.lyrics.set(verse, words);
@@ -496,9 +490,12 @@ function parseScore(root: MusicXmlElement): ParsedScore {
             partTime.add(length);
             if (scoreEnd.compare(partTime) < 0) scoreEnd = partTime.clone();
         }
+        for (const groups of pendingGraces.values()) for (const group of groups) for (const pitch of group) {
+            reportDiagnostic(diagnostics, "graceHost", { ...pitch.location, element: "grace" });
+        }
         transpositions.sort((left, right) => left.at.compare(right.at)).reverse();
-        for (const { pitch, staff, at } of pitches) {
-            const change = transpositions.find(item => (!item.staff || item.staff === staff) && item.at.compare(at) <= 0);
+        for (const { pitch, at } of pitches) {
+            const change = transpositions.find(item => (!item.staff || item.staff === pitch.location.staff) && item.at.compare(at) <= 0);
             if (change) transposePitch(pitch, change.chromatic, change.diatonic, change.octaves);
         }
         for (const [event, id] of eventInstruments) event.program = instrumentAt(id, event.start).program;
@@ -506,29 +503,7 @@ function parseScore(root: MusicXmlElement): ParsedScore {
     }
 
     const laneList = [...lanes.values()];
-    // 将 start/stop 形式的范围标记配对，渲染阶段只消费完整区间
-    const wedges: WedgeSpan[] = [];
-    const activeWedges = new Map<string, WedgePoint>();
-    // wedge 按 part staff voice 和 number 配对，允许多个楔形线并行存在
-    for (const point of wedgePoints.sort((left, right) => left.at.compare(right.at))) {
-        const key = `${point.partId}\0${point.staff}\0${point.voice}\0${point.number}`;
-        if (point.type === "stop") {
-            const from = activeWedges.get(key);
-            if (from) wedges.push({ from, end: point.at });
-            activeWedges.delete(key);
-        } else activeWedges.set(key, point);
-    }
-
-    const endings: EndingSpan[] = [];
-    let activeEnding: EndingPoint | undefined;
-    // ending 沿全谱时间顺序配对，起点持有适用遍数
-    for (const point of [...endingPoints.values()].sort((left, right) => left.at.compare(right.at))) {
-        if (point.type === "start") activeEnding = point;
-        else if (activeEnding) {
-            endings.push({ from: activeEnding, end: point.at });
-            activeEnding = undefined;
-        }
-    }
+    const { wedges, endings } = resolveRelations(wedgePoints, [...endingPoints.values()], diagnostics);
     // 只有房子没有音符时也要保留一条 lane 承载生成的端点
     if (endings.length > 0 && laneList.length === 0 && controlPartId !== undefined) {
         laneList.push({
@@ -539,95 +514,10 @@ function parseScore(root: MusicXmlElement): ParsedScore {
             events: [],
         });
     }
-    const topLane = laneList[0];
-    // 为没有真实起音的房子补休止端点，保证 volta 始终能绑定可见事件
-    if (topLane) for (const ending of endings) {
-        if (ending.from.at.compare(ending.end) >= 0) continue;
-        const direction = directions.find(item => item.at.compare(ending.from.at) >= 0
-            && item.at.compare(ending.end) < 0);
-        const hostPartId = direction?.partId ?? topLane.partId;
-        const hostStaff = direction?.staff ?? topLane.staff;
-        const hostLanes = laneList.filter(lane => lane.partId === hostPartId && lane.staff === hostStaff);
-        const hasEndpoint = hostLanes.some(lane => lane.events.some(event =>
-            event.start.compare(ending.from.at) >= 0 && event.start.compare(ending.end) < 0));
-        if (!hasEndpoint) {
-            // 空房子需要一个不可冲突的休止事件作为 volta 标签端点
-            let hostLane = hostLanes.find(lane => !lane.events.some(event =>
-            event.start.compare(ending.end) < 0
-                && add(event.start, event.duration).compare(ending.from.at) > 0));
-            if (!hostLane) {
-                const voices = hostLanes.map(lane => Number(lane.voice)).filter(Number.isFinite);
-                hostLane = {
-                    partId: hostPartId,
-                    partName: partNames.get(hostPartId) ?? hostPartId,
-                    staff: hostStaff,
-                    voice: String(Math.max(0, ...voices) + 1),
-                    events: [],
-                };
-                laneList.push(hostLane);
-            }
-            hostLane.events.push({
-                start: ending.from.at.clone(),
-                duration: ending.end.clone().sub(ending.from.at),
-                pitches: [],
-                rest: true,
-                order: order++,
-                modifiers: [],
-                annotations: [],
-                preGraces: [],
-                postGraces: [],
-                lyrics: new Map(),
-            });
-            hostLane.events.sort((left, right) => left.start.compare(right.start) || left.order - right.order);
-        }
-    }
-
-    // direction 没有明确 voice 时作用于同 staff 的所有 lane；文字只显示一次
-    for (const direction of directions) {
-        const candidates = laneList.filter(lane =>
-            lane.partId === direction.partId && lane.staff === direction.staff
-            && (!direction.voice || lane.voice === direction.voice));
-        const targets = candidates.length > 0
-            ? candidates
-            : laneList.filter(item => item.partId === direction.partId).slice(0, 1);
-        for (const lane of targets) {
-            if (direction.dynamic) (lane.dynamics ??= []).push({
-                at: direction.at,
-                name: direction.dynamic,
-                placement: direction.placement,
-            });
-        }
-        if (direction.texts.length > 0) {
-            const events = targets.flatMap(lane => lane.events);
-            const textTarget = events.find(event => event.start.compare(direction.at) < 0
-                && add(event.start, event.duration).compare(direction.at) > 0)
-                ?? events.filter(event => event.start.compare(direction.at) >= 0)
-                    .sort((left, right) => left.start.compare(right.start) || left.order - right.order)[0]
-                ?? events.at(-1);
-            textTarget?.annotations.push(...direction.texts.map(text => ({
-                ...text,
-                placement: direction.placement,
-            })));
-        }
-    }
     // 输出顺序保持原 part 次序，再按 staff 和 voice 排列
     return {
-        title,
-        subtitle,
-        creator,
-        page,
-        lanes: laneList.flatMap(lane => {
-            const parallel: Lane[] = [];
-            for (const event of [...lane.events].sort((left, right) => left.start.compare(right.start) || left.order - right.order)) {
-                const target = parallel.find(candidate => {
-                    const previous = candidate.events.at(-1)!;
-                    return add(previous.start, previous.duration).compare(event.start) <= 0;
-                });
-                if (target) target.events.push(event);
-                else parallel.push({ ...lane, events: [event] });
-            }
-            return parallel.length ? parallel : [lane];
-        }).sort((left, right) =>
+        ...metadata,
+        lanes: resolveVoices(laneList, endings, directions, order, partNames, diagnostics).sort((left, right) =>
             partOrder.get(left.partId)! - partOrder.get(right.partId)!
             || Number(left.staff) - Number(right.staff)
             || Number(left.voice) - Number(right.voice)),
@@ -708,6 +598,7 @@ function eventSource(
     mode: PitchMode,
     key: KeyPoint,
     metadata: RenderMetadata,
+    diagnostics: MusicXmlDiagnostic[],
     suffix = "",
 ) {
     let source: string;
@@ -715,10 +606,12 @@ function eventSource(
     else if (event.pitches.length === 1) source = pitchSource(event.pitches[0], mode, key, metadata, suffix);
     else source = `{${event.pitches.map((pitch, index) => pitchSource(pitch, mode, key, metadata, index === 0 ? suffix : "")).join(" ^ ")}}`;
 
-    if (event.arpeggio && event.pitches.length >= 2) {
-        source = event.arpeggio === "none"
-            ? `@arp(${source})`
-            : `@arp(${source}, direction=${event.arpeggio})`;
+    if (event.arpeggio) {
+        if (event.pitches.length >= 2) {
+            source = event.arpeggio.direction === "none"
+                ? `@arp(${source})`
+                : `@arp(${source}, direction=${event.arpeggio.direction})`;
+        } else reportDiagnostic(diagnostics, "arpeggioOutput", event.arpeggio.location);
     }
 
     const graceSource = (groups: Pitch[][]) => groups.map(group => group.length === 1
@@ -742,9 +635,10 @@ function powerOfTwo(value: number) {
     return value > 0 && Number.isInteger(Math.log2(value));
 }
 
-function attachAdjustment(source: string, adjustment?: { sources: readonly string[]; below?: readonly string[] }) {
+function attachAdjustment(source: string, adjustment?: RenderAdjustment) {
     source = attachAbove(source, adjustment?.sources ?? []);
     for (const below of adjustment?.below ?? []) source = `{${source} _ ${below}}`;
+    if (adjustment) adjustment.pendingLocations.length = 0;
     return source;
 }
 
@@ -818,9 +712,10 @@ function renderBlocks(
     pitchMode: PitchMode,
     score: ParsedScore,
     keys: readonly KeyPoint[],
-    adjustments: ReadonlyMap<string, { at: Fraction; sources: readonly string[]; below?: readonly string[] }>,
+    adjustments: ReadonlyMap<string, RenderAdjustment>,
     programs: ReadonlyMap<string, number>,
     metadata: RenderMetadata,
+    diagnostics: MusicXmlDiagnostic[],
 ) {
     const blocks: RenderBlock[] = [];
     const adjustmentPoints = [...adjustments.values()]
@@ -893,7 +788,7 @@ function renderBlocks(
                 const changes = adjustments.get(keyOf(at));
                 const head = pointIndex === 0 || changes
                     ? (suffix: string) => attachAdjustment(
-                        pointIndex === 0 ? eventSource(item, pitchMode, key, metadata, suffix) : `${continuation}${suffix}`,
+                        pointIndex === 0 ? eventSource(item, pitchMode, key, metadata, diagnostics, suffix) : `${continuation}${suffix}`,
                         changes,
                     )
                     : continuation;
@@ -921,7 +816,7 @@ function renderBlocks(
  * 为 tie、wedge 和 ending 找到实际音符端点，并生成稳定标签。
  * tie 紧跟它的 stop 事件；dyn/volta 是完整区间关系，放在文档末尾。
  */
-function labelRelations(score: ParsedScore) {
+function labelRelations(score: ParsedScore, diagnostics: MusicXmlDiagnostic[]) {
     let labelIndex = 0;
     const relations: (() => string)[] = [];
     const endingLabels = new Map<string, { at: Fraction; label: string }>();
@@ -938,12 +833,13 @@ function labelRelations(score: ParsedScore) {
             return `${source}@${endpoint.label}`;
         },
     };
-    const pitchLabel = (pitch: Pitch) => {
-        const label = metadata.labels.get(pitch) ?? `mx${labelIndex++}`;
-        metadata.labels.set(pitch, label);
+    const labelOf = (target: Pitch | MusicEvent) => {
+        const label = metadata.labels.get(target) ?? `mx${labelIndex++}`;
+        metadata.labels.set(target, label);
         return label;
     };
     const active = new Map<string, Pitch>();
+    const unmatchedTies = new Set<Pitch>();
     const endingActive = new Map<EndingSpan, Map<string, Pitch>>();
     const endings = [...score.endings].sort((left, right) => left.from.at.compare(right.from.at));
     // 房子内维护独立 tie 状态，避免某一遍的端点污染房子外的主时间流
@@ -968,27 +864,29 @@ function labelRelations(score: ParsedScore) {
                 const key = `${lane.partId}\0${lane.staff}\0${lane.voice}\0${pitch.step}\0${pitch.alter}\0${pitch.octave}`;
                 const previous = localActive.get(key) ?? (ending ? active.get(key) : undefined);
                 if (pitch.tieStop && previous) {
+                    unmatchedTies.delete(previous);
                     const after = metadata.afterSources.get(event) ?? [];
-                    after.push(`@tie(${pitchLabel(previous)}, ${pitchLabel(pitch)})`);
+                    after.push(`@tie(${labelOf(previous)}, ${labelOf(pitch)})`);
                     metadata.afterSources.set(event, after);
+                } else if (pitch.tieStop) {
+                    reportDiagnostic(diagnostics, "tieStart", pitch.location);
                 }
-                if (pitch.tieStart) localActive.set(key, pitch);
+                if (pitch.tieStart) {
+                    localActive.set(key, pitch);
+                    unmatchedTies.add(pitch);
+                }
                 else if (pitch.tieStop) localActive.delete(key);
             }
         }
     }
-    const eventLabel = (event: MusicEvent) => {
-        if (event.pitches.length === 1) return pitchLabel(event.pitches[0]);
-        const label = metadata.labels.get(event) ?? `mx${labelIndex++}`;
-        metadata.labels.set(event, label);
-        return label;
-    };
+    for (const pitch of unmatchedTies) reportDiagnostic(diagnostics, "tieStop", pitch.location);
+    const eventLabel = (event: MusicEvent) => labelOf(event.pitches.length === 1 ? event.pitches[0] : event);
     for (const wedge of score.wedges) {
         // 连续楔形区间落到实际起音端点后再输出离散的 dyn 关系
-        const lanes = score.lanes.filter(item => item.partId === wedge.from.partId && item.staff === wedge.from.staff
-            && (!wedge.from.voice || item.voice === wedge.from.voice));
-        const targets = lanes.length > 0 ? lanes : score.lanes.filter(item => item.partId === wedge.from.partId).slice(0, 1);
+        const targets = matchingLanes(score.lanes, wedge.from.location);
+        if (targets.length === 0) reportDiagnostic(diagnostics, "wedgeVoice", wedge.from.location);
         for (const lane of targets) {
+            const location = { ...wedge.from.location, staff: lane.staff, voice: lane.voice };
             const sounding = lane.events.filter(event => !event.rest && event.pitches.length > 0);
             const from = sounding.find(event => event.start.compare(wedge.from.at) <= 0
                 && add(event.start, event.duration).compare(wedge.from.at) > 0)
@@ -998,8 +896,12 @@ function labelRelations(score: ParsedScore) {
                 if (event.start.compare(wedge.end) >= 0) break;
                 to = event;
             }
-            if (!from || !to || from.start.compare(to.start) >= 0) continue;
+            if (!from || !to || from.start.compare(to.start) >= 0) {
+                reportDiagnostic(diagnostics, "wedgeEndpoints", location);
+                continue;
+            }
             const delta = wedge.from.type === "crescendo" ? 24 : -24;
+            reportDiagnostic(diagnostics, "wedge", location, delta);
             const source = `@dyn(${eventLabel(from)}, ${eventLabel(to)}, ${delta})`;
             relations.push(() => source);
         }
@@ -1009,7 +911,10 @@ function labelRelations(score: ParsedScore) {
     for (const ending of endings) {
         const fromIndex = lowerBoundAt(events, ending.from.at, event => event.start);
         const toIndex = lowerBoundAt(events, ending.end, event => event.start);
-        if (fromIndex >= toIndex) continue;
+        if (fromIndex >= toIndex) {
+            reportDiagnostic(diagnostics, "endingEndpoints", ending.from.location);
+            continue;
+        }
         const from = events[fromIndex];
         const to = events[toIndex - 1];
         const fromLabel = eventLabel(from);
@@ -1021,7 +926,7 @@ function labelRelations(score: ParsedScore) {
 }
 
 /** 将完整 ParsedScore 序列化为 jpFun 源码 */
-function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions) {
+function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagnostics: MusicXmlDiagnostic[]) {
     const pitchMode = options.pitchMode ?? "absolute";
     if (pitchMode !== "relative" && pitchMode !== "absolute") throw new TypeError("pitchMode must be relative or absolute");
     const barsPerLine = options.barsPerLine ?? 4;
@@ -1039,24 +944,23 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions) {
         : score.tempos;
 
     // 初始状态进入 head；中途状态作为精确时间点只写在最上方 lane
-    const scoreAdjustments = new Map<string, { at: Fraction; sources: string[]; below?: string[] }>();
-    const addAdjustment = (at: Fraction, source: string) => {
+    const scoreAdjustments = new Map<string, RenderAdjustment>();
+    const addAdjustment = (adjustments: typeof scoreAdjustments, at: Fraction, source: string,
+        location?: MusicXmlDiagnostic["location"], placement: "above" | "below" = "above") => {
         const key = keyOf(at);
-        const point = scoreAdjustments.get(key) ?? { at, sources: [] };
-        point.sources.push(source);
-        scoreAdjustments.set(key, point);
+        const point = adjustments.get(key) ?? { at, sources: [], pendingLocations: [] };
+        if (placement === "below") (point.below ??= []).push(source);
+        else point.sources.push(source);
+        if (location) point.pendingLocations.push(location);
+        adjustments.set(key, point);
     };
-    for (const item of keys.slice(1)) addAdjustment(item.at, `@1(${tonicName(item)}4)`);
-    for (const item of meters.slice(1)) addAdjustment(item.at, `@meter(${item.numerator}, ${item.denominator})`);
-    for (const item of tempos.slice(1)) addAdjustment(item.at, `@tempo(${item.bpm})`);
+    for (const item of keys.slice(1)) addAdjustment(scoreAdjustments, item.at, `@1(${tonicName(item)}4)`);
+    for (const item of meters.slice(1)) addAdjustment(scoreAdjustments, item.at, `@meter(${item.numerator}, ${item.denominator})`);
+    for (const item of tempos.slice(1)) addAdjustment(scoreAdjustments, item.at, `@tempo(${item.bpm})`, item.location);
     const adjustmentsByLane = score.lanes.map((lane, index) => {
         const adjustments: typeof scoreAdjustments = index === 0 ? scoreAdjustments : new Map();
         for (const dynamic of lane.dynamics ?? []) {
-            const key = keyOf(dynamic.at);
-            const point = adjustments.get(key) ?? { at: dynamic.at, sources: [] };
-            if (dynamic.placement === "below") (point.below ??= []).push(`$${dynamic.name}`);
-            else point.sources.push(`$${dynamic.name}`);
-            adjustments.set(key, point);
+            addAdjustment(adjustments, dynamic.at, `$${dynamic.name}`, dynamic.location, dynamic.placement);
         }
         return adjustments;
     });
@@ -1074,7 +978,7 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions) {
     });
 
     // 关系先分配标签，随后 eventSource 才能把标签写进正确音符
-    const { relations, metadata } = labelRelations(score);
+    const { relations, metadata } = labelRelations(score, diagnostics);
     const barTimes = [...score.bars.keys()].map(fractionFromKey)
         .sort((left, right) => left.compare(right));
     const measureBars = [...score.measureBoundaries].map(fractionFromKey)
@@ -1089,9 +993,6 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions) {
         }
     }
 
-    const initialKey = keys[0];
-    const initialMeter = meters[0];
-    const initialTempo = tempos[0];
     const page = score.page
         ? `@page(width=${score.page.width}px, height=${score.page.height}px, top=${score.page.top}px, bottom=${score.page.bottom}px, left=${score.page.left}px, right=${score.page.right}px)\n`
         : "";
@@ -1105,6 +1006,7 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions) {
         adjustmentsByLane[index],
         programsByLane[index],
         metadata,
+        diagnostics,
     ));
     const tupletSpans = blocksByLane.flatMap(blocks => blocks
         .filter(block => block.source)
@@ -1193,7 +1095,7 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions) {
                 // 中途状态挂到 continuation，起音片段则重新生成完整事件源码
                 const head = start || changes
                     ? (suffix: string) => attachAdjustment(
-                        start ? eventSource(event, pitchMode, key, metadata, suffix) : `${continuation}${suffix}`,
+                        start ? eventSource(event, pitchMode, key, metadata, diagnostics, suffix) : `${continuation}${suffix}`,
                         changes,
                     )
                     : continuation;
@@ -1222,20 +1124,30 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions) {
         });
     });
 
+    const omitted = new Set<MusicXmlDiagnostic["location"]>();
+    for (const adjustments of [scoreAdjustments, ...adjustmentsByLane]) {
+        for (const point of adjustments.values()) {
+            for (const location of point.pendingLocations) omitted.add(location);
+        }
+    }
+    for (const location of omitted) reportDiagnostic(diagnostics, "directionOutput", location);
+
     const head = renderHead({
         title: score.title,
         subtitle: score.subtitle,
         author: score.creator,
-        key: `${tonicName(initialKey)}4`,
-        meter: [initialMeter.numerator, initialMeter.denominator],
-        tempo: initialTempo.bpm,
+        key: `${tonicName(keys[0])}4`,
+        meter: [meters[0].numerator, meters[0].denominator],
+        tempo: tempos[0].bpm,
     });
     const body = renderSystems(voices);
     return `${page}${head}\n\n${body}${relations.length > 0 ? `\n${relations.map(source => source()).join(" ")}` : ""}`;
 }
 
-/** 将解析好的 MusicXML 根元素同步转换为可重新解析的 jpFun 源码 */
+/** 将解析好的 MusicXML 根元素同步转换为 jpFun 源码，并报告未保留或近似转换的语义 */
 export function musicXmlToJpFun(root: MusicXmlElement, options: MusicXmlToJpFunOptions = {}) {
     if (!root || root.nodeType !== 1) throw new TypeError("MusicXML root must be an element");
-    return renderScore(parseScore(root), options);
+    const diagnostics: MusicXmlDiagnostic[] = [];
+    const script = renderScore(parseScore(root, diagnostics), options, diagnostics);
+    return { script, diagnostics };
 }

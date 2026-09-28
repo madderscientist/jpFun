@@ -65,12 +65,18 @@ test("from-musicxml registers independently and survives later full load", async
       <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
       <part id="P1"><measure number="1">
         <attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
-        <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note>
+        <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><notations><articulations><staccato/></articulations></notations></note>
       </measure></part>
     </score-partwise>
   `, "application/xml");
-  assert.match(target.jpfun.musicXmlToJpFun(document.documentElement), /C4/);
+  const result = target.jpfun.musicXmlToJpFun(document.documentElement);
+  assert.match(result.script, /C4/);
+  assert.equal(result.diagnostics.length, 1);
+  assert.equal(result.diagnostics[0].code, "W_MUSICXML_UNSUPPORTED_ELEMENT");
+  assert.equal(result.diagnostics[0].severity, "warning");
+  assert.equal(result.diagnostics[0].location.element, "staccato");
   await load(target, "jpfun.min.js");
   assert.equal(typeof target.jpfun.compileScore, "function");
   assert.equal(typeof target.jpfun.musicXmlToJpFun, "function");
+  assert.equal(JSON.stringify(target.jpfun.musicXmlToJpFun(document.documentElement)), JSON.stringify(result));
 });
