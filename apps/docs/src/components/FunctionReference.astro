@@ -32,7 +32,7 @@ function defaultValue(value: FunctionArgDef["default"]): string {
       {definition.args.length > 0 && <div class="table-scroll"><table>
         <thead><tr><th>位置</th><th>参数</th><th>类型</th><th>默认值</th><th>说明</th></tr></thead>
         <tbody>{definition.args.map((argument, argumentIndex) => <tr>
-          <td>{argumentIndex + 1}</td>
+          <td>{argument.namedOnly ? "仅命名参数" : definition.args.filter(item => !item.namedOnly).indexOf(argument) + 1}</td>
           <td><code>{argument.name ?? "仅位置参数"}</code></td>
           <td>{argument.type}</td><td><code>{defaultValue(argument.default)}</code></td>
           <td class="argument-description" set:html={argumentDescriptions[index][argumentIndex]} />

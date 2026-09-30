@@ -134,6 +134,8 @@ export class ASTBraceNode extends ASTNodeBase {
 
 export interface FunctionArgDef {
     name?: string;  // 参数名 (可选，位置参数可以没有)
+    /** 仅接受命名传参，不占用位置参数序号 */
+    namedOnly?: boolean;
     description?: string;
     type: paramType;// 参数类型
     /** 参数默认值 null表示必填 否则报错 */
@@ -149,10 +151,22 @@ export interface FunctionDef {
     args: FunctionArgDef[]; // 参数定义列表
 }
 
+/** 按名称或位置查找参数，位置查找跳过仅命名参数 */
+export function resolveArgDef(def: FunctionDef, name: string | undefined, index: number): FunctionArgDef | undefined {
+    if (name) {
+        const key = name.toLowerCase();
+        return def.args.find(arg => arg.name?.toLowerCase() === key);
+    }
+    for (const arg of def.args) {
+        if (!arg.namedOnly && index-- === 0) return arg;
+    }
+    return undefined;
+}
+
 /** 参数名 -> 类型的规则：命名参数只认 def.args，位置参数可回落到 extraArgType */
 export function resolveArgType(def: FunctionDef, name: string | undefined, index: number): paramType | undefined {
-    if (name) return def.args.find(arg => arg.name?.toLowerCase() === name)?.type;
-    return def.args[index]?.type ?? (def.allowExtraArgs ? def.extraArgType : undefined);
+    return resolveArgDef(def, name, index)?.type
+        ?? (!name && def.allowExtraArgs ? def.extraArgType : undefined);
 }
 
 /** 别名里的第一个是主名；`@set` 的 key 和 `getArgValue` 的前缀必须用同一个 */
@@ -192,21 +206,21 @@ export class ASTFunctionNode extends ASTNodeBase {
     static deSugarRelation: deSugarRelationFunction = () => null;
     get deSugarRelation(): deSugarRelationFunction { return (this.constructor as typeof ASTFunctionNode).deSugarRelation; }
 
-    // 通用的参数提取方法 从定义找传参
+    // 按声明顺序取值，位置编号独立于仅命名参数
     getArgValue(args: FunctionArgs, ctx: ParserContext): paramValue[] {
         const def = this.def;
         if (!def) return [];
-        const defArgs: FunctionArgDef[] = def.args;
         const prefix = primaryName(def);
-        return defArgs.map((argDef, index) => {
-            let argNameL = argDef.name ? argDef.name.toLowerCase() : null; // 统一小写处理
-            // 先查询是否传递
-            let argValue = (argNameL ? args.get(argNameL) : null)
-                ?? args.get(index) // 优先使用命名参数，否则使用位置参数
-                ?? (argNameL ? ctx.variables[`${prefix}.${argNameL}`.toLowerCase()] : null)
+        let position = 0;
+        return def.args.map((argDef, declaredIndex) => {
+            const index = argDef.namedOnly ? undefined : position++;
+            const name = argDef.name?.toLowerCase();
+            const value = (name ? args.get(name) : undefined)
+                ?? (index === undefined ? undefined : args.get(index))
+                ?? (name ? ctx.variables[`${prefix}.${name}`.toLowerCase()] : undefined)
                 ?? argDef.default;
-            if (argValue === null) throw Diagnostic.error.MissingArg(prefix, argDef.name || index, this.sourceSpan);
-            return argValue; // 假设解析器已经保证了类型正确
+            if (value === null) throw Diagnostic.error.MissingArg(prefix, argDef.name || (index ?? declaredIndex), this.sourceSpan);
+            return value;
         });
     }
 

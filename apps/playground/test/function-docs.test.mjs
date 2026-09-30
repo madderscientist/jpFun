@@ -56,6 +56,21 @@ test("parameter docs handle extras and disappear outside calls or selections", (
     assert.equal(parameterDocAt(state.update({ selection: { anchor: 8, head: 9 } }).state), null);
 });
 
+test("tie height is named-only while endpoint parameters remain labels", () => {
+    for (const [source, position] of [["@tie(|)", 1], ["@tie(a, |)", 2], ["@tie(a,b, |)", 3]]) {
+        const info = parameterDocAt(stateAt(source));
+        assert.ok(info.doc.includes(`**${position}. 额外位置参数** · \`label\``), source);
+        assert.ok(!info.doc.includes("height"), source);
+    }
+    const info = parameterDocAt(stateAt("@tie(a,b,height=|)"));
+    assert.ok(info.doc.includes("**height** · 仅命名参数 · `length` · 默认 `0.5em`"));
+    const state = stateAt("1@a 2@b @tie(a, |)");
+    const [complete] = state.languageDataAt("autocomplete", state.selection.main.head);
+    const result = complete(new CompletionContext(state, state.selection.main.head, true));
+    assert.ok(result.options.some(option => option.label === "height" && option.type === "parameter" && option.detail === "length"));
+    assert.ok(result.options.some(option => option.label === "b" && option.type === "variable"));
+});
+
 test("parameter completions sort by declared position", () => {
     const state = stateAt("@note(|)");
     const [source] = state.languageDataAt("autocomplete", state.selection.main.head);

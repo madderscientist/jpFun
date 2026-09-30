@@ -1,4 +1,4 @@
-import { ok } from "node:assert/strict";
+import { deepStrictEqual, ok } from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,7 +13,7 @@ import type { PlacedAttachment } from "../src/layout/types.js";
 import { LoweringContext } from "../src/lowering/loweringContext.js";
 import { ParserContext } from "../src/parser/parserContext.js";
 import { preprocessSource } from "../src/parser/preprocess.js";
-import { compileScore } from "../src/pipeline.js";
+import { compileScore, type CompileScoreOptions } from "../src/pipeline.js";
 import type {
     PlaybackNoteOffEvent,
     PlaybackNoteOnEvent,
@@ -31,7 +31,14 @@ export function nearly(a: number, b: number) {
 }
 
 // ---- 流水线入口 ----
-// 需要 parser / lowering 中间结果时直接用 compileScore，下面只是各阶段的短写法
+// 需要完整结果时，无诊断场景用 compileValid，否则直接用 compileScore
+
+/** 成功场景统一检查诊断，避免只验证结果而漏掉警告 */
+export function compileValid(source: string, options?: CompileScoreOptions) {
+    const result = compileScore(source, options);
+    deepStrictEqual(result.diagnostics, [], source);
+    return result;
+}
 
 export function createParser(source: string) {
     const parser = new ParserContext({ source });

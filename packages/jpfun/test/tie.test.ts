@@ -1,9 +1,11 @@
 import { test } from "node:test";
+import { deepStrictEqual, strictEqual } from "node:assert/strict";
 
+import { compileScore } from "../src/pipeline.js";
 import type { PlacedAttachment } from "../src/layout/types.js";
 import type { PathCommand } from "../src/render/types.js";
 import { compilePlayback } from "../src/playback/compile.js";
-import { assert, attachmentCommands, commandsOfKind, layoutOf, lower, nearly, playedNotes } from "./helpers.js";
+import { assert, attachmentCommands, commandsOfKind, compileValid, layoutOf, lower, nearly, playedNotes, recordCommands } from "./helpers.js";
 
 /** 两个控制点同高的三次贝塞尔，实际弧高是抬高的 3/4 */
 function tieApexHeight(path: { commands: readonly PathCommand[] }) {
@@ -72,6 +74,41 @@ test("连音线弧高随字号缩放，也接受显式长度", () => {
 
     const explicitHeightPath = commandsOfKind(`1@a 2@b @tie(a,b,height=10px)`, "path")[0];
     assert(nearly(tieApexHeight(explicitHeightPath), 10), "tie height must honor its fixed length argument");
+});
+
+test("tie height defaults follow scope and call-site fontsize with explicit overrides", () => {
+    const source = `@set(fontsize=20, tie.height=2em)
+1@a 2@b @tie(a,b)
+{ @set(fontsize=30) 3@c 4@d @tie(c,d) }
+{ @set(tie.height=7px) 5@e 6@f @tie(e,f) }
+1@g 2@h @tie(g,h)
+3@i 4@j @tie(i,j,height=0px)
+5@k 6@l @tie(k,l,height=-8px)`;
+    const paths = recordCommands(compileValid(source).layout).filter(command => command.kind === "path");
+    const heights = [40, 60, 7, 40, 0, 0];
+    strictEqual(paths.length, heights.length);
+    paths.forEach((path, index) => assert(nearly(tieApexHeight(path), heights[index]), `tie ${index} must honor its height`));
+});
+
+test("named-only height leaves all positional labels and implicit endpoints intact", () => {
+    const explicit = compileValid("1@a 2@height 3@b @tie(a,height,b,height=7px)");
+    const paths = recordCommands(explicit.layout).filter(command => command.kind === "path");
+    strictEqual(paths.length, 2);
+    assert(paths.every(path => nearly(tieApexHeight(path), 7)), "all endpoint pairs must retain the configured height");
+    const implicit = compileValid("@set(tie.height=9px) 1 2 @tie()");
+    const [path] = recordCommands(implicit.layout).filter(command => command.kind === "path");
+    assert(nearly(tieApexHeight(path), 9), "implicit endpoints must also use the configured height");
+});
+
+test("tie serialization freezes inherited height and invalid lengths remain diagnosed", () => {
+    const source = "@set(tie.height=2em) 1@a 2@b @tie(a,b)";
+    const result = compileValid(source);
+    const serialized = result.ast.content.at(-1)!.toString(source);
+    strictEqual(serialized, "@tie(a, b, height=44px)");
+    deepStrictEqual(recordCommands(compileValid(`1@a 2@b ${serialized}`).layout), recordCommands(result.layout));
+    const invalid = compileScore("1@a 2@b @tie(a,b,height=bad)");
+    assert(invalid.diagnostics.some(diagnostic => diagnostic.code === "W_INVALID_LENGTH"),
+        "invalid height must retain the standard length diagnostic");
 });
 
 test("up 成员标签连接该成员，整体标签连接整个 up", () => {

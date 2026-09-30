@@ -3,7 +3,7 @@ import MarkdownIt from "markdown-it";
 import { insertNewlineAndIndent } from "@codemirror/commands";
 import { EditorSelection, EditorState, RangeSetBuilder, StateEffect, StateField, type ChangeSpec, type StateCommand } from "@codemirror/state";
 import { activateHover, closeHoverTooltips, Decoration, EditorView, hoverTooltip, keymap, showTooltip, ViewPlugin, type DecorationSet, type Tooltip } from "@codemirror/view";
-import { analyzeScoreSyntax, ASTFunctionNode, ASTLabelNode, ASTNodeBase, defaultFunctions, resolveArgType, type CallInfo, type FunctionArgDef, type FunctionDef, type SourceSpan, type SyntaxAnalysis, type SyntaxToken, type SyntaxTokenKind } from "jpfun";
+import { analyzeScoreSyntax, ASTFunctionNode, ASTLabelNode, ASTNodeBase, defaultFunctions, resolveArgDef, resolveArgType, type CallInfo, type FunctionArgDef, type FunctionDef, type SourceSpan, type SyntaxAnalysis, type SyntaxToken, type SyntaxTokenKind } from "jpfun";
 
 const syntaxClasses: Record<SyntaxTokenKind, string> = {
     comment: "cm-jpfun-comment",
@@ -100,11 +100,14 @@ for (const fnClass of defaultFunctions) {
 
 const markdown = new MarkdownIt({ html: false });
 
-function argumentDoc(argument: FunctionArgDef, index: number): string {
+function argumentDoc(def: FunctionDef, argument: FunctionArgDef): string {
     const value = argument.default;
     const defaultValue = value !== null && typeof value === "object" && "unit" in value
         ? `${value.value}${value.unit}` : JSON.stringify(value);
-    return `**${index + 1}. ${argument.name ?? "位置参数"}** · \`${argument.type}\` · ${value === null ? "必填" : `默认 \`${defaultValue}\``}`
+    const title = argument.namedOnly
+        ? `**${argument.name}** · 仅命名参数`
+        : `**${def.args.filter(item => !item.namedOnly).indexOf(argument) + 1}. ${argument.name ?? "位置参数"}**`;
+    return `${title} · \`${argument.type}\` · ${value === null ? "必填" : `默认 \`${defaultValue}\``}`
         + (argument.description ? `\n\n${argument.description}` : "");
 }
 
@@ -114,7 +117,7 @@ export function functionDoc(def: FunctionDef): string {
         `**@${names[0]}** · ${def.description}`,
         names.length > 1 ? `别名：${names.slice(1).map(name => `\`@${name}\``).join("、")}` : "",
         def.details,
-        def.args.length ? def.args.map((argument, index) => argumentDoc(argument, index)).join("\n\n") : "无固定参数",
+        def.args.length ? def.args.map(argument => argumentDoc(def, argument)).join("\n\n") : "无固定参数",
         def.allowExtraArgs ? `支持额外参数${def.extraArgType ? `，额外位置参数类型为 \`${def.extraArgType}\`` : "，由函数解析"}` : "不接受额外参数",
     ].filter(Boolean).join("\n\n");
 }
@@ -274,9 +277,8 @@ export function parameterDocAt(state: EditorState): { pos: number; doc: string }
     const supplied = call.args[suppliedIndex];
     const name = supplied?.nameSpan && state.sliceDoc(supplied.nameSpan.start, supplied.nameSpan.end).toLowerCase();
     const position = suppliedIndex < 0 ? call.args.length : suppliedIndex;
-    const index = name ? def.args.findIndex(argument => argument.name?.toLowerCase() === name) : position;
-    const argument = def.args[index];
-    if (argument) return { pos, doc: `\`@${call.name}\`\n\n${argumentDoc(argument, index)}` };
+    const argument = resolveArgDef(def, name, position);
+    if (argument) return { pos, doc: `\`@${call.name}\`\n\n${argumentDoc(def, argument)}` };
     if (!def.allowExtraArgs) return null;
     const type = name ? "动态类型" : def.extraArgType ?? "动态类型";
     return { pos, doc: `\`@${call.name}\`\n\n**${position + 1}. ${name || "额外位置参数"}** · \`${type}\`\n\n此参数由函数处理，具体用法见函数说明` };
@@ -333,7 +335,7 @@ function complete(context: CompletionContext): CompletionResult | null {
             type: "parameter",
             detail: item.type,
             sortText: String(index).padStart(String(def.args.length).length, "0"),
-            info: () => renderFunctionDoc(argumentDoc(item, index)),
+            info: () => renderFunctionDoc(argumentDoc(def, item)),
             apply: item.name + "=",
         }] : []);
     if (type === "label") {

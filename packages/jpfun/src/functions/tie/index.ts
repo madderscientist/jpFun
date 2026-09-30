@@ -34,12 +34,18 @@ class TieFunction extends ASTFunctionNode {
 1@a 2 3@b @tie(a, b, height=0.5em)
 ~~~
 - **位置参数**：端点标签，可传多个，按顺序连接；省略时查找最近的可标记对象，包括增时线
-- **height**：弧线高度，默认 \`0.5em\`
+- **height**：仅命名的弧线高度参数，默认 \`0.5em\`；可用 \`@set(tie.height=0.8em)\` 设置局部默认值，显式传参优先
 
 同行端点用一条弧线连接，跨行时自动拆成多段。同轨同音且时间连续的音段建立播放连接，各段保留自己的装饰，例如 \`1 ^ $tr 1 @tie()\` 的后一音段不继承颤音。涉及增时线的连接仅绘制，不合并播放音符。`,
         allowExtraArgs: true,
         extraArgType: "label" as const,
-        args: []
+        args: [{
+            name: "height",
+            namedOnly: true,
+            description: "弧线高度，支持 px/em；em 相对调用处字号，负值按 0 处理",
+            type: "length" as const,
+            default: { value: 0.5, unit: "em" as const },
+        }]
     };
 
     endPoints: ASTNodeBase[] = [];
@@ -47,16 +53,10 @@ class TieFunction extends ASTFunctionNode {
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
-        let height = ctx.variables.fontsize * 0.5;
+        // 命名选项统一解析默认值，位置参数仍全部作为端点
+        const [height] = this.getArgValue(args, ctx) as [LengthValue];
         for (const [key, value] of args) {
-            if (key === "height") {
-                const length = ctx.parseArgWithType(
-                    (value as CallArgumentInfo).valueSpan,
-                    "length", sourceSpan.start
-                ) as LengthValue | null;
-                if (length) height = Math.max(0, ctx.length2px(length));
-                continue;
-            }
+            if (key === "height") continue;
             const v = value instanceof ASTFunctionNode
                 ? value
                 : ctx.parseArgWithType((value as CallArgumentInfo).valueSpan, "label", sourceSpan.start);
@@ -70,7 +70,7 @@ class TieFunction extends ASTFunctionNode {
             this.endPoints.unshift(candidate);
         }
         if (this.endPoints.length < 2) throw new ErrorDiagnostic("E_NOT_ENOUGH_ARGS", "@tie 连音线需要至少两个端点", sourceSpan);
-        this.height = height;
+        this.height = Math.max(0, ctx.length2px(height));
     }
 
     /**

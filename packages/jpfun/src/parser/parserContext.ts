@@ -412,7 +412,7 @@ export class ParserContext {
                     if (!def.allowExtraArgs) {
                         this.diagnostics.push(
                             Diagnostic.warning.TooManyPosArgs(
-                                callNode.name, defArgs.length, i + 1, arg.valueSpan
+                                callNode.name, defArgs.filter(arg => !arg.namedOnly).length, i + 1, arg.valueSpan
                             )
                         );
                     } else args.set(key, arg);

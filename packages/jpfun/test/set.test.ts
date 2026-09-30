@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import { deepStrictEqual } from "node:assert";
 
-import { ASTFunctionNode, type FunctionArgs, type FunctionDef, type paramValue } from "../src/functions/ASTtypes.js";
+import { ASTFunctionNode, resolveArgType, type FunctionArgs, type FunctionDef, type paramValue } from "../src/functions/ASTtypes.js";
 import { ParserContext } from "../src/parser/parserContext.js";
 import { compileScore } from "../src/pipeline.js";
-import { assert, commandsOfKind, createParser, layoutOf, nearly } from "./helpers.js";
+import { assert, commandsOfKind, createParser, expectDiagnostic, layoutOf, nearly } from "./helpers.js";
 
 test("system variable declarations share types and reset defaults", () => {
     for (const [name, type, input, expected] of [
@@ -57,6 +57,47 @@ test("默认值按目标参数的声明类型固化", () => {
     // 旧实现把值一律存成 raw text，length 类型的默认值到不了 length2px
     const size = layoutOf(`@set(text.size=2em) @text(A)`).objects[0].ast.size;
     assert(nearly(size, 44), `expected 2em to freeze to 44px, got ${size}`);
+});
+
+test("named-only defaults do not consume positional or variadic arguments", () => {
+    class OptionsFunction extends ASTFunctionNode {
+        static override def: FunctionDef = {
+            name: "options", description: "", details: "", allowExtraArgs: true, extraArgType: "content",
+            args: [
+                { name: "style", type: "string", default: "[-]", namedOnly: true },
+                { name: "count", type: "number", default: 1 },
+            ],
+        };
+    }
+    const node = new OptionsFunction({ start: 0, end: 0 });
+    const context = new ParserContext({ source: "" });
+    context.variables["options.style"] = "";
+    const args: FunctionArgs = new Map<string | number, paramValue>([[0, 7], [1, "extra"]]);
+    deepStrictEqual(node.getArgValue(args, context), ["", 7]);
+    args.set("style", "{-}");
+    deepStrictEqual(node.getArgValue(args, context), ["{-}", 7]);
+    deepStrictEqual([
+        resolveArgType(OptionsFunction.def, undefined, 0),
+        resolveArgType(OptionsFunction.def, undefined, 1),
+        resolveArgType(OptionsFunction.def, "style", -1),
+        resolveArgType(OptionsFunction.def, "unknown", -1),
+    ], ["number", "content", "string", undefined]);
+});
+
+test("missing positional arguments are numbered independently of named-only options", () => {
+    class RequiredFunction extends ASTFunctionNode {
+        static override def: FunctionDef = {
+            name: "required", description: "", details: "", allowExtraArgs: false,
+            args: [
+                { name: "style", type: "string", default: "", namedOnly: true },
+                { type: "content", default: null },
+            ],
+        };
+    }
+    const context = new ParserContext({ source: "" });
+    const node = new RequiredFunction({ start: 0, end: 0 });
+    const error = expectDiagnostic(() => node.getArgValue(new Map(), context), "E_MISSING_REQUIRED_ARG");
+    deepStrictEqual(error.message, "函数@required 缺少必需的参数 [0]");
 });
 
 test("别名写法归一到主名", () => {

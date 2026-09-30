@@ -70,6 +70,8 @@ static override def = {
 
 这里的别名 `/` 对应带 `@` 的显式调用。裸写在音符后面的 `/`，由后文的语法糖钩子识别。
 
+参数声明还可以设置 `namedOnly: true`，表示只接受命名传参，不占位置编号。例如 `@tie` 的 `height` 声明为仅命名的 `length`，所有位置参数仍按 `extraArgType: "label"` 解析为端点。普通参数不设置此标记，保持原有位置和命名绑定方式。
+
 ### 一次调用如何变成节点
 
 现在继续处理 `@div(1, n=2.8)`。`parseGrammar` 已经给出了参数区间，`parseCallNode` 根据 `def` 确定类型，再调用 `parseArgWithType`：内容 `1` 交给子解析器，得到音符节点；文本 `2.8` 按 `number` 转成数字。得到的 `FunctionArgs` 是一份映射，其中有 `0 → 音符节点` 和 `"n" → 2.8`。解析器将这份映射、整个调用的源码区间和当前 `ParserContext` 一起交给 `DivFunction` 构造函数。
@@ -77,6 +79,8 @@ static override def = {
 构造函数首先要把参数取齐。它调用基类的 [`getArgValue(args, ctx)`](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/functions/ASTtypes.ts)，按声明顺序取值。以省略的 `autobeam` 为例：没有显式传参，就去当前上下文查找 `div.autobeam`；如果也没有设置，才使用默认值 `true`。因此，在调用前写下 `@set(div.autobeam=false)`，就会让这个节点保存 `autoBeamEnabled = false`。
 
 完整的取值顺序是：**显式命名参数 → 显式位置参数 → 上下文中的 `函数主名.参数名` → 声明默认值**。第一个内容参数没有名称，只查位置参数和默认值；如果最终仍得到 `null`，就报告缺少必填参数。
+
+`getArgValue` 按声明顺序返回值，但仅命名参数跳过位置查找，也不消耗位置索引。`@set(tie.height=0.8em)` 沿用现有的类型查询、别名归一化和作用域规则，不需要另设设置通道。
 
 接下来轮到函数自身的规则。解析器已经把 `2.8` 转成了数字，而减时线数量需要是非负整数。`DivFunction` 构造函数执行 `Math.max(0, Math.trunc(this.n))`，把它修正为 `2`，并记录 `W_DIV_INVALID_N` 警告。构造函数还会保存内容节点，将其 `parent` 指向自己，并保存本次取到的自动连线设置。
 
@@ -168,7 +172,7 @@ interface SyntaxAnalysis {
 给新函数添加语法糖时，还可以通过 `GrammarNodeBase.syntaxKind` 指定它的着色角色。语法糖节点和 typed 调用默认使用 `operator`；像普通音符这样独立成元素的原子简写，可以标为 `atom`。解析器读取这个字段后，就能为新简写生成对应的 token。
 
 ## 参数类型如何复用
-前面用 `def.args` 告诉解析器，div 的第一个参数是内容、`n` 是数字。这份类型声明也供高亮和补全使用：AST 构建、高亮和补全都会通过 `resolveArgType(def, name, index)` 查找参数类型。遇到 `content` 就继续递归分析，其他参数则按对应类型着色。
+前面用 `def.args` 告诉解析器，div 的第一个参数是内容、`n` 是数字。这份声明也供高亮和补全使用：`resolveArgDef(def, name, index)` 按名称查找参数，或遍历非仅命名参数来确定位置；`resolveArgType` 委托它取得类型，再处理额外位置参数的回退。编辑器提示同样复用 `resolveArgDef`，不直接用 `def.args[index]` 推断绑定。遇到 `content` 就继续递归分析，其他参数则按对应类型着色。
 
 有些函数允许数量不定的位置参数，可以在允许额外参数的同时声明 `extraArgType`，为这些位置统一指定类型。例如 `@tie` 使用 `label`，`@up` 使用 `content`。这样，即使参数超出了 `args` 的固定列表，`parseCallNode` 仍知道怎样读取它，编辑器也知道怎样分析它。这个规则只覆盖额外的**位置参数**；命名参数仍按名称查找 `args` 中的声明。
 
