@@ -249,13 +249,19 @@ test("full docs label named-only arguments without shifting positional numbering
     const mixed = functionDoc({
         ...def,
         args: [
+            { name: "leading", type: "boolean", default: false, namedOnly: true },
             { name: "first", type: "number", default: 1 },
             ...def.args,
             { name: "second", type: "number", default: 2 },
+            { name: "trailing", type: "boolean", default: false, namedOnly: true },
         ],
     });
     assert.ok(mixed.includes("**1. first**"));
     assert.ok(mixed.includes("**2. second**"));
+    for (const name of ["leading", "connect", "trailing"]) {
+        assert.ok(mixed.includes(`**${name}** · 仅命名参数`));
+        assert.doesNotMatch(mixed, new RegExp(`\\*\\*\\d+\\. ${name}\\*\\*`));
+    }
 });
 
 test("every fixed argument has a nonempty description included in function docs", () => {

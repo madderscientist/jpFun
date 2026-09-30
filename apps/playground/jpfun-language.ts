@@ -100,24 +100,32 @@ for (const fnClass of defaultFunctions) {
 
 const markdown = new MarkdownIt({ html: false });
 
-function argumentDoc(def: FunctionDef, argument: FunctionArgDef): string {
+function argumentDoc(def: FunctionDef, argument: FunctionArgDef, position?: number): string {
+    if (!argument.namedOnly && position === undefined) {
+        position = 0;
+        for (const item of def.args) {
+            if (!item.namedOnly) position++;
+            if (item === argument) break;
+        }
+    }
     const value = argument.default;
     const defaultValue = value !== null && typeof value === "object" && "unit" in value
         ? `${value.value}${value.unit}` : JSON.stringify(value);
     const title = argument.namedOnly
         ? `**${argument.name}** · 仅命名参数`
-        : `**${def.args.filter(item => !item.namedOnly).indexOf(argument) + 1}. ${argument.name ?? "位置参数"}**`;
+        : `**${position}. ${argument.name ?? "位置参数"}**`;
     return `${title} · \`${argument.type}\` · ${value === null ? "必填" : `默认 \`${defaultValue}\``}`
         + (argument.description ? `\n\n${argument.description}` : "");
 }
 
 export function functionDoc(def: FunctionDef): string {
     const names = Array.isArray(def.name) ? def.name : [def.name];
+    let position = 0;
     return [
         `**@${names[0]}** · ${def.description}`,
         names.length > 1 ? `别名：${names.slice(1).map(name => `\`@${name}\``).join("、")}` : "",
         def.details,
-        def.args.length ? def.args.map(argument => argumentDoc(def, argument)).join("\n\n") : "无固定参数",
+        def.args.length ? def.args.map(argument => argumentDoc(def, argument, argument.namedOnly ? undefined : ++position)).join("\n\n") : "无固定参数",
         def.allowExtraArgs ? `支持额外参数${def.extraArgType ? `，额外位置参数类型为 \`${def.extraArgType}\`` : "，由函数解析"}` : "不接受额外参数",
     ].filter(Boolean).join("\n\n");
 }
@@ -338,13 +346,15 @@ function complete(context: CompletionContext): CompletionResult | null {
     const inValue = arg?.equalsSpan !== undefined && context.pos > arg.equalsSpan.start;
     const position = argIndex < 0 ? call.args.length : argIndex;
     const type = resolveArgType(def, inValue ? named(arg?.nameSpan) : undefined, position);
-    const parameterStart = (position > 0 ? call.args[position - 1].commaSpan?.end : undefined) ?? call.openParenSpan.end;
-    const atParameterName = !inValue
-        && /^\s*$/.test(source.slice(parameterStart, word.from))
-        && (!arg || arg.nameSpan !== undefined || context.pos >= arg.span.end)
-        && !tokens.some(token => token.kind === "atom" && token.span.start === word.from && token.span.end === context.pos);
-    // content 只在参数起点补全仅命名选项，不能把音符或内容块当成参数名
-    if (type === "content" && !atParameterName) return null;
+    if (type === "content") {
+        const parameterStart = (position > 0 ? call.args[position - 1].commaSpan?.end : undefined) ?? call.openParenSpan.end;
+        const atParameterName = !inValue
+            && /^\s*$/.test(source.slice(parameterStart, word.from))
+            && (!arg || arg.nameSpan !== undefined || context.pos >= arg.span.end)
+            && !tokens.some(token => token.kind === "atom" && token.span.start === word.from && token.span.end === context.pos);
+        // content 只在参数起点补全仅命名选项，不能把音符或内容块当成参数名
+        if (!atParameterName) return null;
+    }
 
     const used = new Set(call.args.filter(item => item !== arg).map(item => named(item.nameSpan)));
     const options: Completion[] = inValue ? [] : def.args.flatMap((item, index) =>

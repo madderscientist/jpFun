@@ -92,7 +92,7 @@ playground 在执行前确认编译结果未过期，候选源码编译成功后
 | `operator` | `--syntax-keyword` | `operator` |
 | `punctuation` | `--syntax-comment` | 无标准类型，可省略 |
 
-offset 对应原始源码位置。`preprocessSource` 将注释和续行转义等长替换为空格，因此 span 可直接用于原文，无需额外的位置映射。
+offset 对应原始源码位置。`preprocessSource` 将注释、续行转义和字符串外 CRLF 中的 CR 等长替换为空格，因此 span 可直接用于原文，无需额外的位置映射。
 
 VS Code 的 semantic tokens 异步提供，首次打开文档时可能短暂没有颜色。可用一份只识别 `%` 注释和 `@name` 的最小 TextMate 语法提供初始高亮。完整高亮仍使用词法结果，以免重复维护语法定义。
 

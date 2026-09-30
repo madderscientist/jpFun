@@ -54,6 +54,33 @@ test("续行与注释掩码保持源码长度和行首偏移", () => {
     ].join("\n"));
 });
 
+test("CRLF preprocessing masks CR outside strings without shifting source spans", () => {
+    for (const [source, expected] of [
+        ["1\r\n2", "1 \n2"],
+        ["1\r\n\r\n2", "1 \n \n2"],
+        ['"a\r\n% b"\r\n2', '"a\r\n% b" \n2'],
+        ["1\\\r\n2", "1   2"],
+        ["1\\\\\r\n2", "1 \\ \n2"],
+        ["1\r2", "1\r2"],
+    ]) {
+        const result = preprocessSource(source);
+        deepStrictEqual(result.maskedSource, expected);
+        deepStrictEqual(result.maskedSource.length, source.length);
+        deepStrictEqual(result.lineStarts, [
+            0, ...[...source.matchAll(/\r\n|\r|\n/g)].map(match => match.index + match[0].length),
+        ]);
+        deepStrictEqual(result.commentSpans, []);
+    }
+    const source = '1 % comment\r\n@div(1, nope)';
+    const result = preprocessSource(source);
+    deepStrictEqual(result.commentSpans, [{ start: source.indexOf("%"), end: source.indexOf("\r") }]);
+    deepStrictEqual(result.maskedSource, `1${" ".repeat(source.indexOf("\n") - 1)}\n@div(1, nope)`);
+    const { syntax } = analyzeScoreSyntax(source);
+    deepStrictEqual(syntax.calls[0].span.start, source.indexOf("@div"));
+    const diagnostic = compileScore(source).diagnostics.find(item => item.code === "W_INVALID_NUMBER")!;
+    deepStrictEqual(diagnostic.span, { start: source.indexOf("nope"), end: source.indexOf("nope") + 4 });
+});
+
 test("引号必须配对才算字符串", () => {
     const paired = preprocessSource(`"100% in string" % comment`);
     assert(paired.commentSpans.length === 1, "配对引号内的 % 不是注释");

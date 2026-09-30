@@ -9,6 +9,7 @@ import { findClosingQuote } from "./parse-utils/string-utils.js";
  *    - 设行尾连续 `\` 个数为 n；
  *    - 第 1/3/5... 个 `\` 替换为空格，第 2/4/6... 个保留；
  *    - 若 n 为奇数，则该行换行符也替换为空格（续行）
+ * 4. 字符串外 CRLF 中的 CR 等长替换为空格，词法层只消费 LF
  */
 const CHAR_LF = 10;
 const CHAR_CR = 13;
@@ -130,6 +131,7 @@ export function preprocessSource(source: string): {
                 pendingCommentStart = -1;
             }
             if (isOddBackslashRun) pushReplaceRange(i, i + newlineWidth);
+            else if (inQuote === 0 && newlineWidth === 2) pushReplaceRange(i, i + 1);
 
             // 新行重置行内状态
             lastSignificantIndex = -1;

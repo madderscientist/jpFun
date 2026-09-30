@@ -67,7 +67,7 @@ compileScore(source, options?): CompileScoreResult
 | 字段 | 内容 | 常见用途 |
 | --- | --- | --- |
 | `lineStarts` | 每个逻辑行在源码中的起始偏移 | 把诊断位置换算成行列号 |
-| `maskedSource` | 注释和续行符经等长空格替换后的源码 | 按原始偏移检查有效源码字符 |
+| `maskedSource` | 注释、续行符和字符串外 CRLF 中的 CR 经等长空格替换后的源码 | 按原始偏移检查有效源码字符 |
 | `diagnostics` | 解析、固化和布局阶段共享的诊断 | 展示语法、参数和排版问题 |
 | `ast` | 完整 AST 根节点 | 源码工具、自定义分析 |
 | `lowering` | 音乐时间、轨道和关系对象 | 播放、MIDI 或时间分析 |

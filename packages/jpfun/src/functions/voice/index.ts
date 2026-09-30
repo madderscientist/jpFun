@@ -563,12 +563,11 @@ N(女低): 1 2 3
         }
         const args: FunctionArgs = new Map();
         members.forEach((member, index) => args.set(index, member));
-        args.set("connect", "");
+        args.set("connect", serializeConnections(connections));
         const voices = new VoicesFunction({
             start: mergePrevious ? previous.sourceSpan.start : first.span.start,
             end: members.at(-1)!.sourceSpan.end,
         }, args, ctx);
-        voices.connectionSpecs = connections;
         voices.createdBySugar = true;
         if (mergePrevious) ctx.nodes.length = previousIndex;
         ctx.pushNode(voices);
@@ -580,7 +579,11 @@ N(女低): 1 2 3
     readonly size: number;              // parse 期冻结的字号，px
     /** 声部名右侧为大括号预留的横向空间 */
     readonly braceSpace: number;
-    private connectionSpecs: ConnectionSpec[];
+    private readonly connect: string;
+    // 收集阶段只冻结配置，避免提前校验随后会被 V 声明覆盖的默认值。
+    private get connectionSpecs(): ConnectionSpec[] {
+        return parseConnections(this.connect, this.sourceSpan);
+    }
     /** 闭包捕获 parse 期冻结的字号，用来决定空声部槽位的默认高度（1em） */
     private readonly measure: MeasureFn;
     override get children() { return this.voices; }
@@ -621,8 +624,7 @@ N(女低): 1 2 3
         this.braceSpace = Math.max(ctx.variables.fontsize,
             (MIN_CONNECTOR_STEM * (BRACKET_HOOK_REACH + 0.5) + 0.5) / (1 - CONNECTOR_LABEL_GAP_RATIO));
         this.measure = makeVoicesMeasure(ctx.variables.fontsize);
-        const [connect] = this.getArgValue(args, ctx) as [string];
-        this.connectionSpecs = parseConnections(connect, span);
+        [this.connect] = this.getArgValue(args, ctx) as [string];
         for (const [key, value] of args) {
             if (key === "connect") continue;
             const valueSpan = value instanceof ASTNodeBase ? value.sourceSpan : (value as CallArgumentInfo).valueSpan;

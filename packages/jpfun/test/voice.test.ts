@@ -434,6 +434,23 @@ test("V declarations replace presets locally, stop at blank lines and preserve e
     assert(result.lowering.duration.equals(4), "only blank-line-separated blocks advance the sequence");
 });
 
+test("V declarations override unused invalid defaults after a bare N prefix", () => {
+    for (const preset of ["bad", "[2-1]", "[1-9]"]) {
+        for (const [marker, connect] of [["V|:", ""], ["V{}:", "{3-4}"], ["V[]:", "[3-4]"]]) {
+            const source = `@set(voices.connect=${quote(preset)})\nN:1\nN:2\n${marker}\nN:3\nN:4`;
+            const result = compileValid(source, { variables: { strict: true } });
+            const expected = compileValid(`@voices(@voice(1), @voice(2), @voice(3), @voice(4), connect=${quote(connect)})`);
+            assert(result.lowering.duration.equals(1), "all members must remain simultaneous");
+            deepStrictEqual(recordCommands(result.layout), recordCommands(expected.layout));
+            const serialized = result.ast.toString(source);
+            assert(serialized.includes(`connect=${quote(connect)}`), serialized);
+            deepStrictEqual(recordCommands(compileValid(serialized).layout), recordCommands(result.layout));
+        }
+        expectCompileError(`@set(voices.connect=${quote(preset)})\nN:1\nN:2`, "E_VOICES_CONNECT");
+        expectCompileError(`@set(voices.connect=${quote(preset)})\nV|:\nN:1\nN:2\n\nN:3\nN:4`, "E_VOICES_CONNECT");
+    }
+});
+
 test("V groups require members and do not borrow lyrics from the preceding group", () => {
     for (const source of ["V{}:", "V{}:\n\nN: 1", "V{}:\nV[]:\nN: 1", "V{}:V[]:N:1"]) {
         expectCompileError(source, "E_VOICES_GROUP_EMPTY");
@@ -492,6 +509,22 @@ test("V declarations handle scoped multiline voices, CRLF, comments and followin
     assert(result.lowering.duration.equals(3), "ordinary content after the scoped group must remain sequential");
     const serialized = parse(source).toString(source);
     deepStrictEqual(recordCommands(compileValid(serialized).layout), recordCommands(result.layout));
+});
+
+test("CRLF and LF keep quoted lyrics, V groups and blank-line boundaries equivalent", () => {
+    for (const lf of [
+        'V{}:\nN:1\nL:"la"\nN:2',
+        'V{}:\nN:1\nL:"la"\nV[]:\nN:2\nN:3',
+        'N:1\nL:"la" % lyric\nN:2\n\nV|:\nN:3\nL(row):"so"\nN:4',
+        '{\nV{}:\nN:1\nL:"la"\nN:2\n\nN:3\nN:4\n}',
+    ]) {
+        const source = lf.replaceAll("\n", "\r\n");
+        const expected = compileValid(lf, { variables: { strict: true } });
+        const result = compileValid(source, { variables: { strict: true } });
+        assert(result.lowering.duration.equals(expected.lowering.duration), "CRLF must not split simultaneous voices");
+        deepStrictEqual(recordCommands(result.layout), recordCommands(expected.layout));
+        deepStrictEqual(recordCommands(compileValid(result.ast.toString(source)).layout), recordCommands(result.layout));
+    }
 });
 
 test("V collection preserves lyric rows and labels used inside and after the block", () => {
