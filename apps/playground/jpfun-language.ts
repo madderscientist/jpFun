@@ -1,4 +1,4 @@
-import { snippetCompletion, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import { insertCompletionText, pickedCompletion, snippetCompletion, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import MarkdownIt from "markdown-it";
 import { insertNewlineAndIndent } from "@codemirror/commands";
 import { EditorSelection, EditorState, RangeSetBuilder, StateEffect, StateField, type ChangeSpec, type StateCommand } from "@codemirror/state";
@@ -309,6 +309,17 @@ const parameterField = StateField.define<Tooltip | null>({
     provide: field => showTooltip.from(field),
 });
 
+/** 过滤仍按光标前缀，接受时用最新名称范围替换，保留已有等号和值 */
+function applyParameterCompletion(view: EditorView, completion: Completion, from: number, to: number): void {
+    const state = view.state;
+    const call = callAt(state.field(syntaxField).analysis.calls, to);
+    const name = call && call.args[argumentIndexAt(call, to)]?.nameSpan;
+    view.dispatch({
+        ...insertCompletionText(state, completion.label + (name ? "" : "="), name?.start ?? from, name?.end ?? to),
+        annotations: pickedCompletion.of(completion),
+    });
+}
+
 function complete(context: CompletionContext): CompletionResult | null {
     const word = context.matchBefore(/[@\w./-]*/)!;
     const source = context.state.doc.toString();
@@ -344,9 +355,9 @@ function complete(context: CompletionContext): CompletionResult | null {
             detail: item.type,
             sortText: String(index).padStart(String(def.args.length).length, "0"),
             info: () => renderFunctionDoc(argumentDoc(def, item)),
-            apply: item.name + "=",
+            apply: applyParameterCompletion,
         }] : []);
-    if (type === "label") {
+    if (type === "label" && (inValue || !arg?.nameSpan)) {
         // `@x` 形式的才是声明，函数参数里的裸标签是引用
         const declared = tokens.filter(token => token.kind === "label" && source[token.span.start] === "@");
         for (const name of new Set(declared.map(token => source.slice(token.span.start + 1, token.span.end)))) {

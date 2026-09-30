@@ -98,7 +98,7 @@ VS Code 的 semantic tokens 异步提供，首次打开文档时可能短暂没�
 
 ## 补全
 
-playground 的补全由 [jpfun-language.ts](https://github.com/madderscientist/jpFun/blob/HEAD/apps/playground/jpfun-language.ts) 中的 `complete()` 实现。它先确定光标所在的调用和参数角色，再生成候选。
+playground 的补全由 [jpfun-language.ts](https://github.com/madderscientist/jpFun/blob/HEAD/apps/playground/jpfun-language.ts) 中的 `complete()` 实现。它先确定光标所在的调用和参数角色，再生成候选；接受参数候选时则重新读取当前语法区间。候选过滤范围与实际替换范围不必相同。
 
 ### 调用定位与参数提示
 
@@ -114,7 +114,7 @@ playground 的补全由 [jpfun-language.ts](https://github.com/madderscientist/j
 
 1. **函数名**：当前前缀以 `@` 开头时列出函数，通过 `snippetCompletion` 插入 `@name()`，把光标放进括号。VS Code 可使用 `SnippetString("name($0)")` 和 `triggerCharacters: ["@"]`。
 2. **参数名**：在可输入参数名的位置，从 `def.args` 中列出其他参数尚未使用的具名选项。编辑已有名称时不把当前参数排除，进入等号右侧后则停止提供参数名。
-3. **标签值**：当前参数类型为 `label` 时，加入文档中已声明的标签。`@x` 形式的 `label` token 是声明，`@tie(x)` 中的 `x` 是引用。
+3. **标签值**：只有当前参数类型为 `label`，且光标处于位置参数或具名参数的值中，才加入文档中已声明的标签。`@x` 形式的 `label` token 是声明，`@tie(x)` 中的 `x` 是引用；编辑参数名本身时不混入标签候选。
 
 `content` 需要额外区分“开始输入一个参数”与“正在输入内容”：仅在参数起点的空白或名称前缀处，提供匹配的**仅命名选项**。已经输入音符、内容块或其他内容时，外层参数名补全返回 `null`，不能把内容误当成名字。`@` 前缀和嵌套调用仍走各自的补全逻辑。
 
@@ -127,8 +127,18 @@ playground 的补全由 [jpfun-language.ts](https://github.com/madderscientist/j
 | `@voices(@voice(1), connect=▮)` | 已进入字符串值，不再提供参数名 |
 | `@voices(@voice(@n(▮)))` | 根据最内层 `@n` 的声明提供候选 |
 | `1@a 2@b @tie(a, ▮)` | 保留标签候选，也可选择尚未使用的 `height` 参数 |
+| `1@a 2@b @tie(a, b, hei▮ght=1em)` | 只提供匹配的参数名，不加入标签候选 |
 
-参数名候选插入 `name=`。内容位置的候选不设置可复用的 `validFor`，以便继续输入时重新判断是否仍处于参数名边界。
+### 接受补全与区间映射
+
+候选始终按**光标前的前缀**过滤，而不是按整个待替换名称过滤。所有参数候选共用一个 `applyParameterCompletion` 回调；接受时，它从最新的 `syntaxField` 重新查找调用和 `nameSpan`，不捕获生成候选时的旧区间：
+
+- 新参数还没有 `nameSpan`，就在补全区间插入 `name=`。
+- 已有命名参数则替换完整 `nameSpan`，保留原来的等号、两侧空白和值。
+
+例如在 `@voices(@voice(1), con▮nect  =  "[-]")` 中选择 `connect`，只规范化整个名称，保留 `  =  "[-]"`，不会留下名称后缀或再插入等号。在名称前、名称中或名称末尾接受补全，都遵循相同规则。
+
+回调使用 CodeMirror 的 `insertCompletionText` 构造事务，并添加 `pickedCompletion` 标记，而不是手写单光标替换。这样既支持匹配的多光标编辑，也能在候选被缓存、输入导致位置映射后，按最新名称范围完成替换。内容位置的候选不设置可复用的 `validFor`，以便继续输入时重新判断是否仍处于参数名边界。
 
 ## 自动格式化
 

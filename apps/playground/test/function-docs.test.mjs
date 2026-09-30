@@ -1,22 +1,52 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CompletionContext } from "@codemirror/autocomplete";
+import { CompletionContext, insertCompletionText, pickedCompletion } from "@codemirror/autocomplete";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { defaultFunctions } from "jpfun";
 import { functionDoc, jpFunLanguage, parameterDocAt } from "../jpfun-language.ts";
 
 function stateAt(source) {
+    const ranges = [];
+    const doc = source.replace(/\|/g, (_, offset) => {
+        // 偏移扣掉此前已删除的光标标记
+        ranges.push(EditorSelection.cursor(offset - ranges.length));
+        return "";
+    });
+    assert.ok(ranges.length, "source must mark its cursor positions");
     return EditorState.create({
-        doc: source.replace("|", ""),
-        selection: EditorSelection.cursor(source.indexOf("|")),
-        extensions: [jpFunLanguage],
+        doc,
+        selection: EditorSelection.create(ranges, 0),
+        extensions: [jpFunLanguage, EditorState.allowMultipleSelections.of(true)],
     });
 }
 
 function completionsAt(source) {
-    const state = stateAt(source);
+    const state = typeof source === "string" ? stateAt(source) : source;
     const [complete] = state.languageDataAt("autocomplete", state.selection.main.head);
     return complete(new CompletionContext(state, state.selection.main.head, true));
+}
+
+function acceptSuggestion(state, label, type = "parameter", result = completionsAt(state)) {
+    const option = result?.options.find(option => option.label === label && option.type === type);
+    assert.ok(option, `missing ${type} completion: ${label}`);
+    let transaction;
+    const view = {
+        state,
+        dispatch(spec) {
+            assert.equal(transaction, undefined, "completion must dispatch once");
+            transaction = state.update(spec);
+        },
+    };
+    const to = result.to ?? state.selection.main.head;
+    if (typeof option.apply === "function") option.apply(view, option, result.from, to);
+    else view.dispatch({
+        ...insertCompletionText(state, option.apply ?? option.label, result.from, to),
+        annotations: pickedCompletion.of(option),
+    });
+    assert.ok(transaction);
+    assert.equal(transaction.annotation(pickedCompletion), option);
+    assert.ok(transaction.isUserEvent("input.complete"));
+    return transaction.state;
 }
 
 test("parameter docs follow positional, empty, named and nested arguments", () => {
@@ -141,6 +171,58 @@ test("voices complete connect only at a parameter-name position", () => {
     }
     assert.ok(completionsAt("@voices(@voice(@n(|)))").options.some(option => option.label === "octave"));
     assert.ok(completionsAt("@voices(@vo|)").options.some(option => option.label === "@voice"));
+});
+
+test("accepting parameter completions preserves existing equals signs, values and spacing", () => {
+    for (const [source, label, expected] of [
+        ["@voices(con|)", "connect", "@voices(connect=)"],
+        ["@note(1, col|)", "color", "@note(1, color=)"],
+        ['@voices(@voice(1), connect|="[-]")', "connect", '@voices(@voice(1), connect="[-]")'],
+        ['@voices(@voice(1), con|nect="[1-2]{3-}")', "connect", '@voices(@voice(1), connect="[1-2]{3-}")'],
+        ['@vs(@voice(1), CON|NECT="")', "connect", '@vs(@voice(1), connect="")'],
+        ['@voices(@voice(1), |connect  =  "{-}")', "connect", '@voices(@voice(1), connect  =  "{-}")'],
+        ['@note(1, co|lor = "#f00")', "color", '@note(1, color = "#f00")'],
+        ["1@a 2@b @tie(a,b,hei|ght=1em)", "height", "1@a 2@b @tie(a,b,height=1em)"],
+        ["1@a 2@b @tie(a,b,height | = 1em)", "height", "1@a 2@b @tie(a,b,height  = 1em)"],
+        ["@adjust(@text(A, si|ze=2em), dx=1px)", "size", "@adjust(@text(A, size=2em), dx=1px)"],
+    ]) {
+        const state = acceptSuggestion(stateAt(source), label);
+        assert.equal(state.doc.toString(), expected, source);
+    }
+});
+
+test("parameter names do not offer labels, but label arguments still complete normally", () => {
+    const name = completionsAt("1@a 2@b @tie(a,b,hei|ght=1em)");
+    assert.deepEqual(name.options.map(option => option.label), ["height"]);
+    for (const [source, expected] of [
+        ["1@a 2@b @tie(a, |)", "1@a 2@b @tie(a, b)"],
+        ["1@a 2@b @dyn(from=a|,to=b,dv=3)", "1@a 2@b @dyn(from=b,to=b,dv=3)"],
+    ]) {
+        const state = acceptSuggestion(stateAt(source), "b", "variable");
+        assert.equal(state.doc.toString(), expected);
+    }
+});
+
+test("parameter completion replaces matching names at multiple cursors", () => {
+    const state = stateAt('@note(1, co|LOR="#f00")\n@note(2, co|LOR="#0f0")');
+    const updated = acceptSuggestion(state, "color");
+    assert.equal(updated.doc.toString(), '@note(1, color="#f00")\n@note(2, color="#0f0")');
+    assert.equal(updated.selection.ranges.length, 2);
+});
+
+test("cached parameter completions use the current name span after typing", () => {
+    const source = '@note(1, co|lor="#f00")';
+    const state = stateAt(source);
+    const result = completionsAt(state);
+    const pos = state.selection.main.head;
+    const edit = state.update({ changes: { from: pos, insert: "L" }, selection: { anchor: pos + 1 } });
+    const mapped = {
+        ...result,
+        from: edit.changes.mapPos(result.from),
+        to: edit.changes.mapPos(result.to ?? pos, 1),
+    };
+    const updated = acceptSuggestion(edit.state, "color", "parameter", mapped);
+    assert.equal(updated.doc.toString(), '@note(1, color="#f00")');
 });
 
 test("full function docs include aliases, parameter metadata and examples", () => {
