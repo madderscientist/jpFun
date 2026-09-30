@@ -87,6 +87,27 @@ test("Enter preserves indentation and formats only the line just left", () => {
     assert.equal(middle.state.doc.toString(), "6 #3\n12");
 });
 
+test("Enter preserves voice declarations, comments and connector strings", () => {
+    for (const [source, expected] of [
+        ...["V{}:", "V[]:", "V|:"].flatMap(marker => [
+            [marker, `${marker}\n`],
+            [`  ${marker}`, `  ${marker}\n  `],
+            [`  ${marker} % 6#3`, `  ${marker} % 6#3\n  `],
+            [`${marker}N:123`, `${marker} N: 1 2 3\n`],
+        ]),
+        ['@voices(@voice(1),@voice(2),connect="[1-2]{-}")', '@voices(@voice(1), @voice(2), connect="[1-2]{-}")\n'],
+        ['@vs(@voice(1),@voice(2),connect="")', '@vs(@voice(1), @voice(2), connect="")\n'],
+        ['@set(voices.connect="[-4] { 3 - }")', '@set(voices.connect="[-4] { 3 - }")\n'],
+        ['@set(vs.connect="[-]{-}")', '@set(vs.connect="[-]{-}")\n'],
+    ]) {
+        const editor = editorFor(source);
+        insertFormattedNewline(editor);
+        assert.equal(editor.state.doc.toString(), expected);
+        assert.equal(undo(editor), true);
+        assert.equal(editor.state.doc.toString(), source);
+    }
+});
+
 test("Enter handles multiple cursors in one transaction", () => {
     const editor = editorFor("6#3\n1,,2", [3, 8]);
     insertFormattedNewline(editor);

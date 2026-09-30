@@ -122,6 +122,27 @@ test("变长内容暴露嵌套的 atom 与语法糖运算符", () => {
     assert(nested.tokens.some(token => token.kind === "operator"), "variadic content must expose sugar operators");
 });
 
+test("voice connection declarations are complete operator tokens, not notes or bars", () => {
+    for (const marker of ["V{}:", "V[]:", "V|:"]) {
+        for (const source of [`  ${marker} % group\nN: 1\nN: 2`, `1 ${marker}N:1 N:2`, `{${marker} N:1 N:2}`]) {
+            const { syntax, diagnostics } = analyzeScoreSyntax(source);
+            deepStrictEqual(diagnostics, []);
+            const start = source.indexOf(marker);
+            const end = start + marker.length;
+            deepStrictEqual(syntax.tokens.filter(token => token.span.start >= start && token.span.start < end),
+                [{ kind: "operator", span: { start, end } }], `${marker} must be a single complete operator`);
+        }
+    }
+    for (const incomplete of ["V", "V{", "V{}", "V[", "V[]", "V|"]) {
+        analyzeScoreSyntax(incomplete);
+    }
+    for (const source of ['"V{}: V[]: V|:"', "N:1\nL: V{}: V[]: V|:", "% V{}: V[]: V|:"]) {
+        const { syntax } = analyzeScoreSyntax(source);
+        assert(!syntax.tokens.some(token => token.kind === "operator" && /^V/.test(source.slice(token.span.start, token.span.end))),
+            "strings, lyrics and comments must not start connection groups");
+    }
+});
+
 test("嵌套的未闭合调用同时保留可见性和错误", () => {
     const boundedResult = analyzeScoreSyntax(`{@page(width=1}`);
     assert(boundedResult.syntax.calls.some(call => call.name === "page"), "an incomplete nested call must remain visible");

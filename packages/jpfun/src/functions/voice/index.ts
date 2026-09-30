@@ -19,9 +19,17 @@ import type {
     LayoutPrepareContext,
     LayoutRegion,
 } from "../../layout/types.js";
-import type { Painter, PathCommand, TextStyle } from "../../render/types.js";
+import type { Painter, PathCommand, PathTransform, TextStyle } from "../../render/types.js";
+import {
+    BRACKET_HOOK_COMMANDS, BRACKET_HOOK_DROP, BRACKET_HOOK_REACH,
+    CURVED_BRACE_BOUNDS, CURVED_BRACE_COMMANDS,
+    parseConnections, resolveConnections, serializeConnections,
+    type ConnectionSpec, type VoiceConnection,
+} from "./connections.js";
 
 const WHITEPACE_RE = /\s/;
+const MIN_CONNECTOR_STEM = 2.5;
+const CONNECTOR_LABEL_GAP_RATIO = 0.3;
 // 分词跟后面的标点
 const LYRIC_OPENING_PUNCTUATION = new Set("（([［｛〈《「『【〔〖〘〚‘“");
 // 不发声的标点；位于歌词槽首尾时只渲染，不占位，也不参与对齐中心计算
@@ -155,7 +163,7 @@ L: la la la
         }
     }
 
-    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
+    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number, members?: VoiceFunction[]) {
         const n = nodes[at++] as GrammarSugarNode;
         if (n.data?.class !== VoiceFunction) return null;
         if (n.data?.lyric !== void 0) {
@@ -190,7 +198,7 @@ L: la la la
             if (at < nodes.length && typeof nodes[at] === "number" && ctx.source[nodes[at] as number] === '\n') at++;
             return at;
         }
-        // 音符 向后找到第一个 \n 或下一个 voice 组件
+        // 当前层的换行或 N/L/V 声明结束音符内容，不能把下一组吞进声部
         let breakAt = at;
         let endWithBr = 0;
         for (; breakAt < nodes.length; breakAt++) {
@@ -201,7 +209,8 @@ L: la la la
                     endWithBr = 1;
                     break;
                 }
-            } else if (n.kind === "sugar" && n.data?.class === VoiceFunction) break;
+            } else if (n.kind === "sugar"
+                && (n.data?.class === VoiceFunction || n.data?.class === VoicesFunction)) break;
         }
         // 解析后面的内容 得到 VoiceFunction
         const newCtx = new ParserContext(ctx);
@@ -218,6 +227,13 @@ L: la la la
         else argMap.set(0, new ASTBraceNode({ ...span }, newCtx.nodes));
         argMap.set("name", n.data.name);
         const newVoice = new VoiceFunction(span, argMap, ctx, null);
+
+        // V 声明直接收集成员，最后统一组装，避免创建临时 voices
+        if (members) {
+            ctx.pushNode(newVoice);
+            members.push(newVoice);
+            return breakAt;
+        }
 
         // 如果前面紧挨着 VoicesFunction | VoiceFunction 则直接加入
         let voicesNode: VoicesFunction | null = null;
@@ -452,6 +468,11 @@ class VoicesFunction extends ASTFunctionNode {
 
 接受多个声部作为位置参数，将它们按时间对齐、分行排布；声部名称和歌词由各自的 \`@voice\` 提供
 
+**视觉连接**：仅命名参数 \`connect\` 使用字符串，如 \`connect="[1-4]{5-7}"\`。
+\`[]\` 是现有括线，\`{}\` 是弯曲大括号；编号从 1 开始，省略起点/终点表示首/末声部。
+默认 \`"[-]"\` 连接全部声部；\`""\` 只保留公共细连谱线。未指定的声部仍有细线，范围可以重叠，不改变声部或播放关系。
+用 \`@set(voices.connect="{1-2}[3-]")\` 设置后续多声部块的默认方案，显式参数写在所有声部之后。
+
 **简写**：连续声明多个 \`N:\` 声部及其 \`L:\` 歌词，会自动组成 \`voices\`
 
 ~~~jpfun
@@ -459,17 +480,107 @@ N(钢琴): 1 2 3
 L(男): ha ha ha
 N: 3 4 5
 L: la la la
+~~~
+
+连接声明 \`V{}:\`、\`V[]:\`、\`V|:\` 分别指定后续声部的弯曲大括号、现有括线和仅细线，后面的 \`N:\` 可以同行，也可以换行。
+到下一条 V 声明或当前块末尾结束，组间不空行；空行结束整个多声部块。
+出现 V 声明时，当前块完整替换默认连接方案，不影响后面的块。V 不创建音轨，L 仍属于前面的 N。
+
+~~~jpfun
+V{}: N(右手): 1 2 3
+N(左手): 5 6 7
+V[]: N(女高): 6 6 5
+L: 啊 啊 啊
+N(女低): 1 2 3
 ~~~`,
         allowExtraArgs: true,
         extraArgType: "content" as const,
-        args: []
+        args: [{
+            name: "connect",
+            namedOnly: true,
+            type: "string" as const,
+            default: "[-]",
+            description: '视觉连接：[1-4] 为现有括线，{5-7} 为弯曲大括号；省略端点表示首/末声部，空字符串只保留公共连谱线。',
+        }]
     };
+
+    static override deSugarAtom(source: string, start: number, end: number) {
+        if (source[start] !== "V") return null;
+        const match = /^V(\{\}|\[\]|\|):/.exec(source.slice(start, end));
+        if (!match) return null;
+        const next = start + match[0].length;
+        const node: GrammarSugarNode = {
+            kind: "sugar",
+            data: {
+                class: VoicesFunction,
+                kind: match[1] === "{}" ? "brace" : match[1] === "[]" ? "bracket" : "line",
+            },
+            span: { start, end: next },
+        };
+        return { next, node };
+    }
+
+    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
+        const first = nodes[at];
+        if (typeof first === "number" || first.kind !== "sugar" || first.data?.class !== VoicesFunction) return null;
+
+        let previousIndex = ctx.nodes.length - 1;
+        while (previousIndex >= 0 && ctx.nodes[previousIndex] instanceof ASTTextNode) {
+            const { sourceSpan } = ctx.nodes[previousIndex];
+            const text = ctx.source.slice(sourceSpan.start, sourceSpan.end);
+            if (text.includes("\n") || text.trim()) break;
+            previousIndex--;
+        }
+        const previous = ctx.nodes[previousIndex];
+        const members = previous instanceof VoiceFunction ? [previous]
+            : previous instanceof VoicesFunction && previous.createdBySugar ? [...previous.voices] : [];
+        const mergePrevious = members.length > 0;
+        const connections: ConnectionSpec[] = [];
+        let cursor = at;
+        while (cursor < nodes.length) {
+            const marker = nodes[cursor];
+            if (typeof marker === "number" || marker.kind !== "sugar" || marker.data?.class !== VoicesFunction) break;
+            cursor++;
+            const carriageReturn = nodes[cursor];
+            if (typeof carriageReturn === "number" && ctx.source[carriageReturn] === "\r") cursor++;
+            const newline = nodes[cursor];
+            if (typeof newline === "number" && ctx.source[newline] === "\n") cursor++;
+
+            // 每段单独解析 N/L，防止歌词越过 V 声明附着到上一段
+            const section = new ParserContext(ctx);
+            const from = members.length + 1;
+            while (cursor < nodes.length) {
+                const node = nodes[cursor];
+                if (typeof node === "number" || node.kind !== "sugar" || node.data?.class !== VoiceFunction) break;
+                cursor = VoiceFunction.deSugarRelation(section, nodes, cursor, members)!;
+            }
+            if (members.length < from) {
+                throw new ErrorDiagnostic("E_VOICES_GROUP_EMPTY", "V 声部分组必须至少包含一条 N: 声部声明", marker.span);
+            }
+            if (marker.data.kind === "brace" || marker.data.kind === "bracket") {
+                connections.push({ kind: marker.data.kind, from, to: members.length });
+            }
+        }
+        const args: FunctionArgs = new Map();
+        members.forEach((member, index) => args.set(index, member));
+        args.set("connect", "");
+        const voices = new VoicesFunction({
+            start: mergePrevious ? previous.sourceSpan.start : first.span.start,
+            end: members.at(-1)!.sourceSpan.end,
+        }, args, ctx);
+        voices.connectionSpecs = connections;
+        voices.createdBySugar = true;
+        if (mergePrevious) ctx.nodes.length = previousIndex;
+        ctx.pushNode(voices);
+        return cursor;
+    }
 
     voices: VoiceFunction[];
     createdBySugar: boolean = false;    // 不同创建方式的不能合并
     readonly size: number;              // parse 期冻结的字号，px
     /** 声部名右侧为大括号预留的横向空间 */
     readonly braceSpace: number;
+    private connectionSpecs: ConnectionSpec[];
     /** 闭包捕获 parse 期冻结的字号，用来决定空声部槽位的默认高度（1em） */
     private readonly measure: MeasureFn;
     override get children() { return this.voices; }
@@ -489,7 +600,7 @@ L: la la la
     override loweringEnter(ctx: LoweringContext) {
         const names: VoiceNameTemporal[] = [];
         ctx.beginLoweringGroup(this, {
-            attachment: new VoicesBraceAttachment(names, this),
+            attachment: new VoicesBraceAttachment(names, this, resolveConnections(this.connectionSpecs, this.voices.length, this.sourceSpan)),
             onTemporal: node => {
                 if (node instanceof VoiceNameTemporal && node.ast.parent === this) names.push(node);
             },
@@ -506,29 +617,24 @@ L: la la la
         super(span, parent);
         this.voices = [];
         this.size = ctx.variables.fontsize;
-        this.braceSpace = ctx.variables.fontsize;
+        // 端钩有最小线宽，极小字号也要给它保留足够的横向空间
+        this.braceSpace = Math.max(ctx.variables.fontsize,
+            (MIN_CONNECTOR_STEM * (BRACKET_HOOK_REACH + 0.5) + 0.5) / (1 - CONNECTOR_LABEL_GAP_RATIO));
         this.measure = makeVoicesMeasure(ctx.variables.fontsize);
-        for (const [, value] of args) {
-            if (value instanceof ASTNodeBase) {
-                if (value instanceof VoiceFunction) this.addVoice(value);
-                else {
-                    throw new ErrorDiagnostic(
-                        "E_VOICES_INVALID_CHILD",
-                        `@voices 的参数必须是 @voice 函数，但发现了其他类型 ${value.constructor.name}`,
-                        value instanceof ASTNodeBase ? value.sourceSpan : span
-                    );
-                } continue;
-            }
-            const arg = value as CallArgumentInfo;
-            const v = ctx.parseArgWithType(arg.valueSpan, "content", span.start);
-            if (v instanceof VoiceFunction) this.addVoice(v);
-            else {
+        const [connect] = this.getArgValue(args, ctx) as [string];
+        this.connectionSpecs = parseConnections(connect, span);
+        for (const [key, value] of args) {
+            if (key === "connect") continue;
+            const valueSpan = value instanceof ASTNodeBase ? value.sourceSpan : (value as CallArgumentInfo).valueSpan;
+            const voice = value instanceof ASTNodeBase ? value : ctx.parseArgWithType(valueSpan, "content", span.start);
+            if (!(voice instanceof VoiceFunction)) {
                 throw new ErrorDiagnostic(
                     "E_VOICES_INVALID_CHILD",
-                    `@voices 的参数必须是 @voice 函数，但发现了其他类型 ${v?.constructor.name}`,
-                    arg.valueSpan
+                    `@voices 的参数必须是 @voice 函数，但发现了其他类型 ${voice?.constructor.name}`,
+                    valueSpan
                 );
             }
+            this.addVoice(voice);
         }
         if (this.voices.length === 0) {
             throw new ErrorDiagnostic(
@@ -547,12 +653,9 @@ L: la la la
     }
 
     toString(source: string) {
-        const voicelines = Array<string>(this.voices.length);
-        for (let i = 0; i < this.voices.length; i++) {
-            const part = `\t${this.voices[i].toString(source)}`;
-            voicelines[i] = part;
-        }
-        return `@voices(\n${voicelines.join(",\n")}\n)`;
+        const parameters = this.voices.map(voice => `\t${voice.toString(source)}`);
+        parameters.push(`\tconnect=${quote(serializeConnections(this.connectionSpecs))}`);
+        return `@voices(\n${parameters.join(",\n")}\n)`;
     }
 }
 
@@ -637,35 +740,12 @@ class VoiceNameTemporal extends TemporalNodeBase {
     }
 }
 
-/** 括线端头的小钩；单位尺寸，绘制时按粗竖线宽度缩放并上下镜像 */
-const BRACE_HOOK_REACH = 2.33;
-const BRACE_HOOK_DROP = 1.17;
-const BRACE_HOOK_BASE = 0.34;
-const BRACE_HOOK_COMMANDS: readonly PathCommand[] = [
-    { op: "M", x: 0, y: 0 },
-    { op: "L", x: 0, y: -BRACE_HOOK_BASE },
-    {
-        op: "C",
-        cx1: BRACE_HOOK_REACH * 0.421, cy1: -BRACE_HOOK_BASE + BRACE_HOOK_DROP * 0.077,
-        cx2: BRACE_HOOK_REACH * 0.733, cy2: -BRACE_HOOK_BASE + BRACE_HOOK_DROP * 0.346,
-        x: BRACE_HOOK_REACH, y: -BRACE_HOOK_BASE + BRACE_HOOK_DROP,
-    },
-    { op: "L", x: BRACE_HOOK_REACH * 0.929, y: -BRACE_HOOK_BASE + BRACE_HOOK_DROP },
-    {
-        op: "C",
-        cx1: BRACE_HOOK_REACH * 0.696, cy1: -BRACE_HOOK_BASE + BRACE_HOOK_DROP * 0.535,
-        cx2: BRACE_HOOK_REACH * 0.328, cy2: -BRACE_HOOK_BASE + BRACE_HOOK_DROP * 0.352,
-        x: 0, y: 0,
-    },
-    { op: "Z" },
-];
-
 /**
  * 画在声部名与音符之间的多声部括线
  *
- * 由一条粗竖线、一条略向内收的细竖线和两端的小钩组成。
+ * 共享一条细竖线，按连接范围添加粗括线或弯曲大括号
  * 纵向跨度直接取首末声部名事件的视觉轴（无名声部的占位盒高度为 0，其 y 就是轨道视觉轴），
- * 因此不需要反查任何轨道信息。
+ * 因此不需要反查任何轨道信息
  */
 class VoicesBraceAttachment implements LayoutAttachment {
     layer = "background" as const;
@@ -674,7 +754,7 @@ class VoicesBraceAttachment implements LayoutAttachment {
     private readonly ast: VoicesFunction;
     get sourceSpan() { return this.ast.sourceSpan; }
 
-    constructor(names: VoiceNameTemporal[], ast: VoicesFunction) {
+    constructor(names: VoiceNameTemporal[], ast: VoicesFunction, private readonly connections: VoiceConnection[]) {
         this.names = names;
         this.ast = ast;
     }
@@ -690,44 +770,61 @@ class VoicesBraceAttachment implements LayoutAttachment {
         if (bottom - top < 1e-6) return { regions: [], paint() {} };
 
         // 各部分尺寸都以粗竖线宽度为单位，比例取自常见简谱软件的括线
-        const stem = Math.max(2.5, em * 0.19);
-        const reach = stem * BRACE_HOOK_REACH;
-        const drop = stem * BRACE_HOOK_DROP;
-        const x = first.x + first.anchor + this.ast.braceSpace * 0.3 + stem / 2;
+        const stem = Math.max(MIN_CONNECTOR_STEM, em * 0.19);
+        const reach = stem * BRACKET_HOOK_REACH;
+        const drop = stem * BRACKET_HOOK_DROP;
+        const x = first.x + first.anchor + this.ast.braceSpace * CONNECTOR_LABEL_GAP_RATIO + stem / 2;
 
-        const bars = [
-            { x: x - stem / 2, y: top, w: stem, h: bottom - top },
-            {
-                x: x + stem * 1.33 - stem * 0.165,
-                y: top + stem * 0.67,
-                w: stem * 0.33,
-                h: bottom - top - stem * 1.34,
-            },
-        ];
-        const hooks: { x: number; y: number; scale: number; dir: -1 | 1 }[] = [
-            { x, y: top, scale: stem, dir: -1 },
-            { x, y: bottom, scale: stem, dir: 1 },
-        ];
-
-        // 括线画在声部名左侧的空白里，只参与画布边界，不抢任何轨道的纵向空间
-        const regions = [{
-            x: x - stem / 2,
-            y: top - drop,
-            w: reach + stem / 2,
-            h: bottom - top + drop * 2,
-        }];
+        const inset = Math.min(stem * 0.67, em * 0.25);
+        const line = {
+            x: x + stem * 1.33 - stem * 0.165,
+            y: top + inset,
+            w: stem * 0.33,
+            h: bottom - top - inset * 2,
+        };
+        const bars: LayoutRegion[] = [];
+        const paths: { commands: readonly PathCommand[]; transform: PathTransform }[] = [];
+        const regions: LayoutRegion[] = [line];
+        for (const connection of this.connections) {
+            const first = this.names[connection.from - 1].box;
+            const last = this.names[connection.to - 1].box;
+            const groupTop = first.y + first.visualAxis - em * 0.5;
+            const groupBottom = last.y + last.visualAxis + em * 0.5;
+            if (connection.kind === "bracket") {
+                bars.push({ x: x - stem / 2, y: groupTop, w: stem, h: groupBottom - groupTop });
+                paths.push(
+                    { commands: BRACKET_HOOK_COMMANDS, transform: { x, y: groupTop, scaleX: stem, scaleY: -stem } },
+                    { commands: BRACKET_HOOK_COMMANDS, transform: { x, y: groupBottom, scaleX: stem, scaleY: stem } },
+                );
+                regions.push({
+                    x: x - stem / 2, y: groupTop - drop,
+                    w: reach + stem / 2, h: groupBottom - groupTop + drop * 2,
+                });
+            } else {
+                const width = em * 0.35;
+                const left = line.x - em * 0.12 - width;
+                const scaleX = width / CURVED_BRACE_BOUNDS.w;
+                const scaleY = (groupBottom - groupTop) / CURVED_BRACE_BOUNDS.h;
+                paths.push({
+                    commands: CURVED_BRACE_COMMANDS,
+                    transform: {
+                        x: left - CURVED_BRACE_BOUNDS.x * scaleX,
+                        y: groupTop - CURVED_BRACE_BOUNDS.y * scaleY,
+                        scaleX, scaleY,
+                    },
+                });
+                regions.push({ x: left, y: groupTop, w: width, h: groupBottom - groupTop });
+            }
+        }
+        bars.push(line);
         return {
             regions,
             paint(painter: Painter) {
                 for (const bar of bars) {
                     painter.drawRect(bar.x, bar.y, bar.w, bar.h, { fill: "#000" });
                 }
-                for (const hook of hooks) {
-                    painter.drawPath(
-                        BRACE_HOOK_COMMANDS,
-                        { fill: "#000" },
-                        { x: hook.x, y: hook.y, scaleX: hook.scale, scaleY: hook.scale * hook.dir },
-                    );
+                for (const path of paths) {
+                    painter.drawPath(path.commands, { fill: "#000" }, path.transform);
                 }
             },
         };

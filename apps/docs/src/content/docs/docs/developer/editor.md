@@ -11,7 +11,7 @@ sidebar:
 
 ## 分析路径与结果有效期
 
-编辑器功能分为词法层和语义层，分别使用解析器的两个入口，详见 [解析](../parser/)：
+编辑器功能分为词法层和语义层，分别使用解析器的两个入口，详见 [解析](../parser/)。两条路径共用核心语法和函数声明，应用层只负责消费结果，不另写一套参数绑定或简写识别规则：
 
 | | 词法层 | 语义层 |
 | --- | --- | --- |
@@ -42,8 +42,9 @@ sidebar:
 | --- | --- | --- |
 | 语法着色 | `syntax.tokens` | `DocumentSemanticTokensProvider` |
 | 函数名补全 | `defaultFunctions` 的 `def` | `CompletionItemProvider`（触发字符 `@`） |
-| 参数名补全 | `syntax.calls` + `resolveArgType` | 同上 |
-| 标签补全 | `syntax.tokens` 里的 `label` | 同上 |
+| 参数名补全 | `syntax.calls` + `def.args` + `resolveArgType` | 同上 |
+| 当前参数提示 | `syntax.calls` + `resolveArgDef` | `SignatureHelpProvider` |
+| 标签补全 | 参数类型 + `syntax.tokens` 里的 `label` | 同上 |
 | 回车自动格式化 | `syntax.tokens` | `OnTypeFormattingEditProvider`（触发字符 `\n`） |
 | 函数文档悬浮 | `syntax.calls` + `def` | `HoverProvider` |
 | 去糖写法悬浮 | `compileScore().ast` | 同上 |
@@ -97,13 +98,37 @@ VS Code 的 semantic tokens 异步提供，首次打开文档时可能短暂没�
 
 ## 补全
 
-playground 的补全由 [jpfun-language.ts](https://github.com/madderscientist/jpFun/blob/HEAD/apps/playground/jpfun-language.ts) 中的 `complete()` 实现，分为三种情况：
+playground 的补全由 [jpfun-language.ts](https://github.com/madderscientist/jpFun/blob/HEAD/apps/playground/jpfun-language.ts) 中的 `complete()` 实现。它先确定光标所在的调用和参数角色，再生成候选。
 
-1. **光标前是 `@`**：列出所有函数，通过 `snippetCompletion` 插入 `@name()`，并将光标放进括号。VS Code 可使用 `SnippetString("name($0)")` 和 `triggerCharacters: ["@"]`。
-2. **光标在调用括号内的参数名位置**：列出该函数尚未使用的具名参数，`apply` 为 `name=`。`callAt(calls, pos)` 用于定位调用。由于 `calls` 按起点升序排列，且同级调用不重叠，从前往后扫描时最后一个命中的调用就是最内层调用。
-3. **光标在 `label` 类型的参数值位置**：列出文档中已声明的标签。声明与引用通过 token 在源码中是否以 `@` 开头区分：`@x` 是声明，`@tie(x)` 中的 `x` 是引用。
+### 调用定位与参数提示
 
-参数类型通过 `resolveArgType(def, name, index)` 查询，与 AST 解析使用相同的参数名到类型解析规则。光标位于 `content` 类型的参数中时，补全返回 `null`，避免在输入音符时反复弹出候选项。
+`callAt(calls, pos)` 从当前 `syntax.calls` 找到最内层调用：这些调用按起点升序排列，且同级不重叠，所以最后一个命中的就是目标。再由 `argumentIndexAt` 和参数的 `nameSpan`、`equalsSpan`、`valueSpan` 区分参数位置、名字和值。
+
+当前参数提示 `parameterDocAt` 用共享的 `resolveArgDef(def, name, index)` 取得完整声明，补全用 `resolveArgType(def, name, index)` 查询类型，均不直接以 `def.args[index]` 推断绑定。`namedOnly: true` 的声明不占位置编号，因此 `@voices` / `@vs` 的位置参数都是 `content`，`@tie` 的位置参数都是 `label`；它们不会被误判成 `connect` 字符串或 `height` 长度。
+
+提示按同一份声明展示类型、必填状态和默认值。普通参数显示位置编号，额外位置参数显示 `extraArgType`；仅命名参数明确标为“仅命名参数”，没有位置序号。当前参数提示、完整函数文档、候选文档和文档站函数参数表遵循同一规则。
+
+### 按光标位置生成候选
+
+`complete()` 区分三类候选：
+
+1. **函数名**：当前前缀以 `@` 开头时列出函数，通过 `snippetCompletion` 插入 `@name()`，把光标放进括号。VS Code 可使用 `SnippetString("name($0)")` 和 `triggerCharacters: ["@"]`。
+2. **参数名**：在可输入参数名的位置，从 `def.args` 中列出其他参数尚未使用的具名选项。编辑已有名称时不把当前参数排除，进入等号右侧后则停止提供参数名。
+3. **标签值**：当前参数类型为 `label` 时，加入文档中已声明的标签。`@x` 形式的 `label` token 是声明，`@tie(x)` 中的 `x` 是引用。
+
+`content` 需要额外区分“开始输入一个参数”与“正在输入内容”：仅在参数起点的空白或名称前缀处，提供匹配的**仅命名选项**。已经输入音符、内容块或其他内容时，外层参数名补全返回 `null`，不能把内容误当成名字。`@` 前缀和嵌套调用仍走各自的补全逻辑。
+
+下表中的 `▮` 表示光标，不是源码的一部分：
+
+| 光标位置 | 候选行为 |
+| --- | --- |
+| `@voices(@voice(1), con▮)` | 提供仅命名参数 `connect` |
+| `@voices(1 ▮)`、`@voices({▮})` | 不提供外层参数名 |
+| `@voices(@voice(1), connect=▮)` | 已进入字符串值，不再提供参数名 |
+| `@voices(@voice(@n(▮)))` | 根据最内层 `@n` 的声明提供候选 |
+| `1@a 2@b @tie(a, ▮)` | 保留标签候选，也可选择尚未使用的 `height` 参数 |
+
+参数名候选插入 `name=`。内容位置的候选不设置可复用的 `validFor`，以便继续输入时重新判断是否仍处于参数名边界。
 
 ## 自动格式化
 
@@ -120,10 +145,14 @@ playground 的补全由 [jpfun-language.ts](https://github.com/madderscientist/j
 | `@up(1,3)` | `@up(1, 3)`（参数逗号只在后面补空格） |
 | `@div(6#3,1)` | `@div(6 #3, 1)`（内容参数内同样处理） |
 | `@tempo(120)` | 不变（函数名、括号保持紧凑） |
+| `V{}:`、`V[]:`、`V\|:` | 不变（完整声明 token 不拆开） |
+| `@set(voices.connect="[1-2]{3-}")` | 不变（字符串中的括号和范围不格式化） |
 
 实现位于 playground 的 `insertFormattedNewline`，复用 `syntaxField` 中已缓存的 `syntax.tokens`：按源码顺序扫描相邻的 `atom` / `operator` 边界及参数逗号 `punctuation`，不另写词法规则，也不依赖 AST 或修改 core。CodeMirror 的 `insertNewlineAndIndent` 负责换行、缩进和多光标；补空格与换行合并为一次 transaction，因此一次撤销即可还原。无需补空格时直接提交原换行 transaction，避免重复更新状态。
 
 ## 悬浮
+
+### 定位文档与语法糖节点
 
 悬浮内容按以下顺序查找：
 
@@ -141,7 +170,15 @@ playground 的补全由 [jpfun-language.ts](https://github.com/madderscientist/j
 
 仅检查源码切片是否以 `@name` 开头无法区分这两种情况：语法糖可能扩展 span，例如 `@note(1) ^ @note(3)` 产生的 UpFunction 切片仍以 `@note` 开头。
 
-去糖行单独显示，使用 `--syntax-function` 颜色和等宽字体。行尾的「替换」按钮将 `node.sourceSpan` 区间替换为去糖写法。等价写法不截断、不折行，超长内容在行内横向滚动。悬浮框整体有最大宽高限制，正文过长时由外层滚动；「替换」按钮在滚动时保持可见。
+### 替换范围与生效配置
+
+去糖替换使用命中节点的 `node.sourceSpan` 和 `node.toString(source)`，不是只替换鼠标下的 token。对 `V{}:`、`V[]:`、`V|:`，核心词法结果将整个声明标记识别为一个 `operator`，后接的 `N:` 无论同行还是换行都继续独立着色；语义结果则让这些声明落在同一个 voices 节点的源码范围内。因此悬浮在声明上会显示整个连续声部块的去糖结果，替换也覆盖声明及成员，而非单独的 `V` 标记。
+
+`VoicesFunction.toString` 将生效的连接设置显式写为末尾的 `connect` 参数：继承的预设被固定到输出中，局部声明输出自己的范围，只有 `V|:` 时也保留 `connect=""`。这些范围只影响视觉连接，输出仍是一个含全部直接声部的 `@voices`，不会生成分组函数或新音轨层级。编辑器不重新计算范围，也不依赖替换位置仍有原来的 `@set` 连接设置。
+
+高亮和回车格式化只需要核心 token，不必等待这个语义节点出现；去糖悬浮则必须等待当前版本的 AST。用户尚未完成 `V` 声明或后续声部时，继续使用词法容错结果，不拿旧块执行替换。
+
+去糖行单独显示，使用 `--syntax-function` 颜色和等宽字体；行尾提供「替换」按钮。等价写法不截断、不折行，超长内容在行内横向滚动。悬浮框整体有最大宽高限制，正文过长时由外层滚动；「替换」按钮在滚动时保持可见。
 
 playground 自行控制 CodeMirror 悬浮框的关闭时机：悬浮框优先放在当前行上方，保留 4px 间距；鼠标离开 token 后延迟 250ms 关闭，进入悬浮框或其外扩 8px 区域时取消关闭。点击编辑器后，在鼠标再次移动前不会原地弹出悬浮框。这些数值由 playground 的交互设置决定。
 

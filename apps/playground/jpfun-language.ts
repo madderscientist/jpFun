@@ -325,12 +325,20 @@ function complete(context: CompletionContext): CompletionResult | null {
     const arg = argIndex < 0 ? undefined : call.args[argIndex];
     const named = (span?: SourceSpan) => span && source.slice(span.start, span.end).toLowerCase();
     const inValue = arg?.equalsSpan !== undefined && context.pos > arg.equalsSpan.start;
-    const type = resolveArgType(def, inValue ? named(arg?.nameSpan) : undefined, argIndex < 0 ? call.args.length : argIndex);
-    if (type === "content") return null; // 光标在内容里，该由内容自己的语法补全
+    const position = argIndex < 0 ? call.args.length : argIndex;
+    const type = resolveArgType(def, inValue ? named(arg?.nameSpan) : undefined, position);
+    const parameterStart = (position > 0 ? call.args[position - 1].commaSpan?.end : undefined) ?? call.openParenSpan.end;
+    const atParameterName = !inValue
+        && /^\s*$/.test(source.slice(parameterStart, word.from))
+        && (!arg || arg.nameSpan !== undefined || context.pos >= arg.span.end)
+        && !tokens.some(token => token.kind === "atom" && token.span.start === word.from && token.span.end === context.pos);
+    // content 只在参数起点补全仅命名选项，不能把音符或内容块当成参数名
+    if (type === "content" && !atParameterName) return null;
 
     const used = new Set(call.args.filter(item => item !== arg).map(item => named(item.nameSpan)));
     const options: Completion[] = inValue ? [] : def.args.flatMap((item, index) =>
-        item.name && !used.has(item.name.toLowerCase()) ? [{
+        item.name && !used.has(item.name.toLowerCase())
+            && (type !== "content" || item.namedOnly && item.name.toLowerCase().startsWith(word.text.toLowerCase())) ? [{
             label: item.name!,
             type: "parameter",
             detail: item.type,
@@ -345,7 +353,7 @@ function complete(context: CompletionContext): CompletionResult | null {
             options.push({ label: name, type: "variable" });
         }
     }
-    return options.length ? { from: word.from, options, validFor: /^[\w.-]*$/ } : null;
+    return options.length ? { from: word.from, options, validFor: type === "content" ? undefined : /^[\w.-]*$/ } : null;
 }
 
 //====== 标签导航与重命名 ======//

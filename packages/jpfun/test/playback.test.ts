@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { deepStrictEqual } from "node:assert/strict";
 
 import { ErrorDiagnostic } from "../src/diagnostic.js";
 import type { LoweringAttachment } from "../src/lowering/types.js";
@@ -28,6 +29,32 @@ function lowerWithModifier(source: string, emitPlayback: (emitter: PlaybackEmitt
     chord.members[1].emitPlayback = emitPlayback;
     return lowering;
 }
+
+test("voice connection configuration and V declarations do not change playback", () => {
+    const voices = "@voice({1 2}, A), @voice({3/ 4/ 5}, B), @voice({6 -}, C), @voice({7}, D)";
+    const sources = [
+        `@voices(${voices})`,
+        `@voices(${voices}, connect="")`,
+        `@voices(${voices}, connect="[-]{-}")`,
+        '@set(voices.connect="{1-2}[3-]")\nN(A): 1 2\nN(B): 3/ 4/ 5\nN(C): 6 -\nN(D): 7',
+        "V{}:\nN(A): 1 2\nN(B): 3/ 4/ 5\nV[]:\nN(C): 6 -\nN(D): 7",
+        "V{}:N(A): 1 2 N(B): 3/ 4/ 5 V[]:N(C): 6 - N(D): 7",
+    ];
+    const summary = (source: string) => {
+        const plan = compilePlayback(lower(source));
+        deepStrictEqual(plan.diagnostics, []);
+        return {
+            duration: plan.durationSeconds,
+            tracks: plan.tracks.length,
+            notes: playedNotes(plan).map(note => ({
+                track: note.track, start: note.start.toString(), duration: note.duration.toString(),
+                midi: note.midi, velocity: note.velocity,
+            })),
+        };
+    };
+    const expected = summary(sources[0]);
+    for (const source of sources.slice(1)) deepStrictEqual(summary(source), expected);
+});
 
 test("playback 从已固化 lowering 生成音符与速度计划", () => {
     const plan = compilePlayback(lower(`@tempo(90) @1(D4) 1 0 8 9`));

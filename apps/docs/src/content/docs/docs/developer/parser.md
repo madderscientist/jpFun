@@ -36,7 +36,7 @@ flowchart TB
 ```
 
 解析是递归进行的；每次解析都是在当前“层”进行的：
-1. 预处理负责删除注释和处理换行的转义。
+1. 预处理负责等长屏蔽注释和处理换行的转义，保留与原文一致的源码偏移。
 2. `parseGrammar` 负责解析当前层中源码的 jpFun 基本语法，包括内容块 `{}`、函数调用 `@fn(...)`、标签 `@label`：
     - 如果遇到空格等，直接跳过。
     - 如果遇到 `{` 则开始内容块区间的识别，直接找到对应的 `}` 结束位置。
@@ -52,7 +52,7 @@ flowchart TB
 
 ## 函数定义
 
-解析器怎样知道 `1` 要当作内容，而 `2.8` 要当作数字？答案在函数类的静态 `def` 中。函数类注册后，解析器便能根据调用名找到这份声明。[DivFunction](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/functions/div/index.ts) 与参数解析有关的定义如下，这里省略了 `description`、`example` 等文档元数据：
+解析器怎样知道 `1` 要当作内容，而 `2.8` 要当作数字？答案在函数类的静态 `def` 中。函数类注册后，解析器便能根据调用名找到这份声明。[DivFunction](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/functions/div/index.ts) 与参数解析有关的定义如下，这里省略了 `description`、`details` 等文档元数据：
 
 ```ts
 static override def = {
@@ -66,21 +66,55 @@ static override def = {
 };
 ```
 
-读这份声明时，可以先看 `name`：`@div(...)` 和 `@/(...)` 都会找到这个类。再看 `args`，第一个参数没有名称，只能按位置传入，类型是 `content`；`default: null` 表示它是必填项。后面的 `n` 和 `autobeam` 可以按位置或名称传入，分别接受数字和布尔值。省略它们时，构造阶段会结合上下文设置和默认值补齐。`allowExtraArgs: false` 则让解析器对额外参数给出诊断并跳过。
+`name` 决定调用名和别名：`@div(...)` 和 `@/(...)` 都会找到这个类。这里的 `/` 是带 `@` 的显式调用名；裸写在音符后面的 `/`，由后文的语法糖钩子识别。
 
-这里的别名 `/` 对应带 `@` 的显式调用。裸写在音符后面的 `/`，由后文的语法糖钩子识别。
+`args` 决定参数的绑定方式、类型和默认值。每项声明中的 `FunctionArgDef.namedOnly?: boolean` 默认为 `false`，与 `name` 一起区分三种绑定方式：
 
-参数声明还可以设置 `namedOnly: true`，表示只接受命名传参，不占位置编号。例如 `@tie` 的 `height` 声明为仅命名的 `length`，所有位置参数仍按 `extraArgType: "label"` 解析为端点。普通参数不设置此标记，保持原有位置和命名绑定方式。
+- **没有名称**：只能按位置传入，例如 div 的第一个 `content` 参数。
+- **有名称，且不是仅命名参数**：可以按位置或名称传入，例如 `n` 和 `autobeam`。
+- **`namedOnly: true`**：只接受命名传入，不占位置编号，例如 `voices.connect` 和 `tie.height`。
+
+因此，**声明顺序与位置编号是两回事**：构造函数按声明顺序取回固定参数，但位置索引只计算未标记 `namedOnly` 的项。`default: null` 表示必填；其他值则在未显式传参、也没有作用域默认值时使用。`allowExtraArgs: false` 让解析器对额外参数给出诊断并跳过。
+
+多声部函数没有固定的位置参数，相关声明如下：
+
+```ts
+args: [
+    { name: "connect", type: "string", default: "[-]", namedOnly: true },
+],
+allowExtraArgs: true,
+extraArgType: "content",
+```
+
+在 `@voices(@voice(1), @voice(2), connect="{-}")` 中，两个位置参数都按额外 `content` 解析，`connect=` 才绑定到连接设置。`@tie(a, b, height=0.5em)` 同理：位置参数始终是端点标签，弧高只能具名传入。仅命名参数没有改变其他函数的固定位置前缀：`@voice` 仍先接收内容和声部名，再接收歌词；`@volta` 仍先接收 `from`、`to`、`pass`，再接收更多遍数。
+
+### 参数类型如何复用
+
+参数绑定通过 [ASTtypes.ts](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/functions/ASTtypes.ts) 中的两个共享函数完成，AST 解析、语法着色和编辑器提示都沿用它们：
+
+- `resolveArgDef(def, name, index)` 返回完整声明。有名称时忽略大小写查找；没有名称时顺序遍历 `args`，跳过仅命名参数，只在其余项上递减零基位置索引。因此不能直接用 `def.args[index]` 代替它。
+- `resolveArgType(def, name, index)` 委托前者读取类型。只有查询未命中、没有参数名且 `allowExtraArgs` 为真时，才回退到 `extraArgType`；未声明的命名参数不使用这项回退。
+
+`extraArgType` 为数量不定的位置参数提供统一类型：`@tie` 使用 `label`，`@up` 和 `@voices` 使用 `content`，`@voice` 的额外位置歌词使用 `string`，`@volta` 的额外遍数使用 `number`。固定位置前缀仍优先按各自声明解析。
+
+这份类型信息也决定语法分析是否递归：遇到 `content` 就分析内部调用和简写，其他参数按对应类型着色。`connect` 是字符串，因此其中的范围括号不会被当成音符内容。
+
+若函数允许额外参数，但声明仍无法确定某项的类型，AST 路径会保留整条 `CallArgumentInfo`，将名字和值的源码区间交给构造函数。例如 `@set` 的动态命名参数需要由构造函数查询目标设置；`@voice` 的具名歌词也需要自行解析。词法路径不执行构造函数，而是尝试用 `Number()`、`parseLength()` 判断字面量类型；`@set(fontsize=30)` 和未知函数的参数都可通过这条路径着色。复用实际的解析函数，可以让 `-3`、`.5em` 等写法的着色与解析行为保持一致。
 
 ### 一次调用如何变成节点
 
 现在继续处理 `@div(1, n=2.8)`。`parseGrammar` 已经给出了参数区间，`parseCallNode` 根据 `def` 确定类型，再调用 `parseArgWithType`：内容 `1` 交给子解析器，得到音符节点；文本 `2.8` 按 `number` 转成数字。得到的 `FunctionArgs` 是一份映射，其中有 `0 → 音符节点` 和 `"n" → 2.8`。解析器将这份映射、整个调用的源码区间和当前 `ParserContext` 一起交给 `DivFunction` 构造函数。
 
-构造函数首先要把参数取齐。它调用基类的 [`getArgValue(args, ctx)`](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/functions/ASTtypes.ts)，按声明顺序取值。以省略的 `autobeam` 为例：没有显式传参，就去当前上下文查找 `div.autobeam`；如果也没有设置，才使用默认值 `true`。因此，在调用前写下 `@set(div.autobeam=false)`，就会让这个节点保存 `autoBeamEnabled = false`。
+构造函数首先调用基类的 [`getArgValue(args, ctx)`](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/functions/ASTtypes.ts)，**按声明顺序**取齐固定参数。每项的优先级依次为：
 
-完整的取值顺序是：**显式命名参数 → 显式位置参数 → 上下文中的 `函数主名.参数名` → 声明默认值**。第一个内容参数没有名称，只查位置参数和默认值；如果最终仍得到 `null`，就报告缺少必填参数。
+1. 显式命名参数。
+2. 显式位置参数；仅命名参数跳过这一步，也不消耗位置索引。
+3. 当前作用域中的 `函数主名.参数名` 设置。
+4. 声明默认值。
 
-`getArgValue` 按声明顺序返回值，但仅命名参数跳过位置查找，也不消耗位置索引。`@set(tie.height=0.8em)` 沿用现有的类型查询、别名归一化和作用域规则，不需要另设设置通道。
+没有名称的参数只查位置值和声明默认值；最终仍为 `null` 时报告缺少必填参数。回退使用空值合并，而非假值判断，所以 `0`、`false` 和空字符串都能保留。例如 `connect=""` 是明确的连接设置，不能回退成默认 `"[-]"`。
+
+以省略的 `autobeam` 为例：没有显式传参，就去当前上下文查找 `div.autobeam`；没有设置才使用默认值 `true`。在调用前写下 `@set(div.autobeam=false)`，就会让该节点保存 `autoBeamEnabled = false`。`@set` 的构造函数本来就会查询目标参数的声明类型，并把函数别名归一化为主名；因此 `@set(vs.connect="{-}")` 与 `@set(voices.connect="{-}")` 使用同一份作用域设置，不需要为仅命名参数另设通道。
 
 接下来轮到函数自身的规则。解析器已经把 `2.8` 转成了数字，而减时线数量需要是非负整数。`DivFunction` 构造函数执行 `Math.max(0, Math.trunc(this.n))`，把它修正为 `2`，并记录 `W_DIV_INVALID_N` 警告。构造函数还会保存内容节点，将其 `parent` 指向自己，并保存本次取到的自动连线设置。
 
@@ -131,7 +165,45 @@ static override def = {
 
 处理 `N:` 时，第一轮先记录声部起点和名称。第二轮从标记之后向后查找，遇到换行或下一个声部组件标记就确定内容终点；如果一直没有遇到终止符，就取到当前序列末尾。然后将这段中间节点交给子上下文的 `makeNodes`，用得到的内容创建 voice 节点。
 
+`L:` 则先收集歌词文本，第二轮把歌词附加到最近的 voice。连续的 `N:` 及其 `L:` 可以自动组成一个 voices 节点；歌词不新增声部，也不占声部编号。
+
 设计一种新简写时，可以先判断它需要哪类信息：只读自身文本、结合前方对象，还是读取后方区间。这样就容易决定第一轮要记录什么、第二轮再完成什么。同一个函数也可以按具体写法提供不同的处理方式。
+
+### 多声部块与视觉连接
+
+声部简写还展示了一个重要边界：**成员决定内容和时间关系，连接设置只决定图形**。一个 voices 节点的直接 voice 成员同时开始；`connect` 指定这些成员左侧的连接范围，不创建语义分组、自动嵌套或额外音轨层级。
+
+`connect` 的字符串由范围拼接而成，例如 `"[1-4]{5-7}"`。`[]` 表示带端钩的旧式括线，`{}` 表示弯曲大括号；编号从 1 开始，包含首尾，只计算当前 voices 的直接成员。省略起点表示第一个声部，省略终点表示最后一个声部，所以可以写 `"[-4]"`、`"{3-}"`、`"[-]"` 或 `"{-}"`。默认值为 `"[-]"`。
+
+多声部块始终保留贯穿全部成员的公共细连谱线；范围只叠加括线或大括号，可以重叠，未覆盖的声部也仍有细线。空字符串 `""` 表示不叠加任何范围图形，而不是取消公共细线。
+
+连接声明 `V{}:`、`V[]:`、`V|:` 将同一套连接设置引入 `N:` / `L:` 简写，成员可以接在同一行或下一行：
+
+```jpfun
+@set(voices.connect="[-]")
+V{}: N(右手): 1 2
+N(左手): 3 4
+V[]: N(上声部): 5 6
+L: 啦 啦
+N(下声部): 7 1
+
+N: 2 3
+N: 4 5
+```
+
+第一块仍是一个含四个同时开始的声部的 voices，局部连接为 `"{1-2}[3-4]"`，不是两个先后演奏或嵌套的分组。空行结束该块，后面的两声部块重新继承 `@set` 的 `"[-]"`。
+
+实现位于 [voice/index.ts](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/functions/voice/index.ts)，仍然遵循先识别、再建关系的流程：
+
+1. `VoicesFunction.deSugarAtom` 只消费完整的 `V{}:`、`V[]:` 或 `V|:` 标记，冒号必需，不检查行首或行末。它记录连接种类，把后续内容留给原有词法过程，不在此时读取声部或校验范围上界。
+2. `deSugarRelation` 为每条声明后的区段建立子上下文，调用 N/L 共用的 `VoiceFunction.deSugarRelation`，把直接 `VoiceFunction` 成员收集到同一个列表。`N:` 在当前层的换行或下一条 N/L/V 声明处结束，不会把同行的 `V` 吞入声部内容。`L:` 只附加到本区段已有的声部，不能跨过 `V` 声明寻找前一个 `N:`；每条声明后至少要有一条 `N:`。
+3. 下一条 `V` 声明结束当前区段，但继续收集同一块。括号声明记下该区段的成员范围，`V|:` 则不增加范围图形。空行、作用域末尾或当前层的非成员内容结束收集，随后一次性构造最终 voices；不先创建临时 voices 再展平。
+
+只要块中出现 `V` 声明，局部范围就**整体替换**该块的预设，而非追加到 `@set` 上。第一条声明前若有连续的裸 `N:`，它们仍是同一块的成员，但只保留公共细线；只有 `V|:` 的块也必须保留显式 `connect=""`。这个覆盖不写回作用域变量，后续块和嵌套内容仍按各自作用域取默认值。`V` 没有对应的公开分组函数。
+
+连接字符串的解析与端点补全也分开处理：[connections.ts](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/functions/voice/connections.ts) 的 `parseConnections` 检查字符串格式和显式端点，`resolveConnections` 到 Lowering 入口才按最终成员数补全开放端点、检查上界。这样逐步收集声部时不会提前把合法的终点判为越界，词法分析也不需要等待成员齐全。
+
+最终节点的 `sourceSpan` 覆盖声明及成员；`toString(source)` 输出一个 `@voices(...声部, connect="...")`，显式保存生效的连接设置，包括空字符串。编辑器因此可以用整个节点完成悬浮和去糖替换，输出也不再依赖原来的 `@set` 连接预设。
 
 ## 编辑器语法视图
 编辑器里，用户可能刚输入 `@div(1, n=`，就需要参数提示和高亮。这时调用还没写完，语法分析仍然可以识别函数名、参数名和已有的边界。为此，解析器提供了 `SyntaxAnalysis`，将这些信息交给高亮、补全和函数文档悬浮使用。它的主要结构如下，完整定义见 [grammarType.ts](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/parser/grammarType.ts)：
@@ -171,14 +243,7 @@ interface SyntaxAnalysis {
 ### 声明着色角色
 给新函数添加语法糖时，还可以通过 `GrammarNodeBase.syntaxKind` 指定它的着色角色。语法糖节点和 typed 调用默认使用 `operator`；像普通音符这样独立成元素的原子简写，可以标为 `atom`。解析器读取这个字段后，就能为新简写生成对应的 token。
 
-## 参数类型如何复用
-前面用 `def.args` 告诉解析器，div 的第一个参数是内容、`n` 是数字。这份声明也供高亮和补全使用：`resolveArgDef(def, name, index)` 按名称查找参数，或遍历非仅命名参数来确定位置；`resolveArgType` 委托它取得类型，再处理额外位置参数的回退。编辑器提示同样复用 `resolveArgDef`，不直接用 `def.args[index]` 推断绑定。遇到 `content` 就继续递归分析，其他参数则按对应类型着色。
-
-有些函数允许数量不定的位置参数，可以在允许额外参数的同时声明 `extraArgType`，为这些位置统一指定类型。例如 `@tie` 使用 `label`，`@up` 使用 `content`。这样，即使参数超出了 `args` 的固定列表，`parseCallNode` 仍知道怎样读取它，编辑器也知道怎样分析它。这个规则只覆盖额外的**位置参数**；命名参数仍按名称查找 `args` 中的声明。
-
-再看 `@set(fontsize=30)`：`fontsize` 这样的动态命名参数没有固定声明，源码分析会尝试用 `Number()`、`parseLength()` 判断字面量类型。未知函数的参数也会采用这条路径。复用实际的解析函数，可以让 `-3`、`.5em` 等写法的着色与解析行为保持一致。
-
-在 AST 路径中，如果函数允许额外参数，而某个参数又无法从声明中确定类型，解析器会保留它的 `CallArgumentInfo`，将名字和值的源码区间一起交给构造函数。实现 `@tie`、`@voice` 这类函数时，就需要区分已经解析的值和仍待自行解析的参数。
+前面的 `V{}:`、`V[]:`、`V|:` 就使用默认的 `operator` 角色。一次匹配覆盖整个声明标记，内部括号或竖线不会另作内容块、八度或小节线；缩进和行尾注释仍按各自规则处理。用户只输入到 `V{`、`V[]` 或 `V|` 时，完整声明尚未匹配，词法入口仍须容错并返回已有信息，不能因缺少冒号、括号或后续成员而抛出语义错误。
 
 ## 为两条路径分别创建上下文
 如果同时需要曲谱和编辑器信息，分别调用两个入口即可。接入时很容易想到让它们复用一次扫描结果，但当前实现中的中间节点带有可变状态，需要先留意它们的生命周期。

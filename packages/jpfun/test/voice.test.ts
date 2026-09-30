@@ -2,9 +2,11 @@ import { test } from "node:test";
 import { deepStrictEqual, strictEqual } from "node:assert";
 
 import { compileScore } from "../src/pipeline.js";
-import { ASTNodeBase } from "../src/functions/ASTtypes.js";
+import { pathBounds } from "../src/layout/path.js";
+import { ASTFunctionNode, ASTNodeBase } from "../src/functions/ASTtypes.js";
+import { parseConnections } from "../src/functions/voice/connections.js";
 import { quote, removeQuote } from "../src/parser/parse-utils/string-utils.js";
-import { assert, attachmentCommands, commandsOfKind, expectSnapshot, layoutContext, layoutOf, nearly, parse, recordCommands } from "./helpers.js";
+import { assert, attachmentCommands, commandsOfKind, compileValid, expectCompileError, expectDiagnostic, expectSnapshot, layoutContext, layoutOf, nearly, parse, recordCommands } from "./helpers.js";
 
 const axisOf = (object: { box: { y: number; visualAxis: number } }) => object.box.y + object.box.visualAxis;
 /** 无名声部的名称占位盒只为括线预留横向空间，高度为 0；纵向断言只关心真正可见的对象 */
@@ -320,4 +322,192 @@ test("多声部括线画在声部名与音符之间，纵向跨足首末声部",
         "the bracket must sit between the voice names and the notes");
     assert(layoutOf(`@voices(@voice({1}, 上))`).attachments.every(item => item.box.h === 0),
         "a single-voice block must not draw a bracket");
+});
+
+const fourVoices = '@voice({1 2}, A), @voice({3 4}, B), @voice({5 6}, C), @voice({7 1}, D)';
+const connectionSpecsOf = (source: string) => parseConnections(source, { start: 0, end: source.length });
+
+test("voice connections preserve variadic voices and serialize frozen defaults", () => {
+    for (const connect of ["[-]", "{1-2}[3-]", "", "[1-3]{2-4}", "[-]{-}", " [ - 2 ] { 3 - } "]) {
+        const source = `@set(vs.connect=${quote(connect)}) @vs(${fourVoices})`;
+        const result = compileValid(source);
+        const voices = result.ast.children!.at(-1)!;
+        strictEqual(voices.children!.length, 4);
+        const serialized = voices.toString(source);
+        assert(serialized.includes("connect="), "desugaring must freeze the inherited configuration");
+        deepStrictEqual(recordCommands(compileValid(serialized).layout), recordCommands(result.layout));
+    }
+});
+
+test("connection ranges reject invalid values but not overlaps", () => {
+    for (const connect of ["[]", "{}", "[0-2]", "[2-1]", "[1-5]", "{1.5-2}", "[1-2}", "[1-2]oops", "[1-2];{3-4}"]) {
+        expectDiagnostic(() => compileScore(`@voices(${fourVoices}, connect=${quote(connect)})`, {
+            variables: { strict: true },
+        }), "E_VOICES_CONNECT");
+    }
+    compileValid(`@voices(${fourVoices}, connect="[1-3]{2-4}[1-3]")`);
+});
+
+test("connection whitespace stays separate from optional endpoint digits", () => {
+    for (const gap of ["", " ", "\t", "\r\n", "\u00a0", "\u3000"]) {
+        const source = `[${gap}-${gap}]${gap}{${gap}1${gap}-${gap}4${gap}}`;
+        deepStrictEqual(connectionSpecsOf(source), [
+            { kind: "bracket", from: undefined, to: undefined },
+            { kind: "brace", from: 1, to: 4 },
+        ]);
+    }
+    for (const source of ["[1 2-3]", "[1-2 3]", "[1--2]", "[1-+2]", "[-1.0]"]) {
+        expectDiagnostic(() => connectionSpecsOf(source), "E_VOICES_CONNECT");
+    }
+});
+
+test("malformed connection ranges do not backtrack across long whitespace", () => {
+    const gap = " ".repeat(100_000);
+    const sources = [`[${gap}x]`, `[-${gap}x]`];
+    const start = performance.now();
+    for (const source of sources) {
+        expectDiagnostic(() => connectionSpecsOf(source), "E_VOICES_CONNECT");
+    }
+    const elapsed = performance.now() - start;
+    // 留出远大于正常匹配耗时的余量，只拦截回溯退化
+    assert(elapsed < 1000, `malformed ranges took ${elapsed.toFixed(1)}ms; expected under 1000ms`);
+});
+
+test("empty voice connections retain exactly one shared thin line", () => {
+    const result = layoutOf(`@voices(${fourVoices}, connect="")`);
+    const connector = result.attachments.find(attachment => attachment.layer === "background")!;
+    const commands = attachmentCommands(connector);
+    strictEqual(commands.length, 1);
+    strictEqual(commands[0].kind, "rect");
+    const notes = result.objects.filter(object => !object.T.isZero());
+    assert(connector.box.y < axisOf(notes[0])
+        && connector.box.y + connector.box.h > axisOf(notes.at(-1)!),
+    "the shared line must cover the entire block even without brackets");
+});
+
+test("V declarations keep four simultaneous voices and desugar without nesting", () => {
+    const source = "V{}:\nN(A): 1 2\nN(B): 3 4\nV[]:\nN(C): 5 6\nL: la la\nN(D): 7 1";
+    const result = compileValid(source);
+    strictEqual(result.ast.content.length, 1);
+    strictEqual(result.ast.content[0].children!.length, 4);
+    assert(result.lowering.duration.equals(2), "group markers must not sequence voice groups");
+    const serialized = result.ast.content[0].toString(source);
+    assert(serialized.includes('connect="{1-2}[3-4]"'), serialized);
+    deepStrictEqual(recordCommands(compileValid(serialized).layout), recordCommands(result.layout));
+});
+
+test("V declarations accept inline members and end the preceding N content", () => {
+    for (const marker of ["V{}:", "V[]:", "V|:"]) {
+        const expected = compileValid(`${marker}\nN: 1 2 3\nN:123`);
+        for (const source of [`${marker} N: 1 2 3\nN:123`, `${marker}N:123 N:123`]) {
+            const result = compileValid(source, { variables: { strict: true } });
+            strictEqual(result.ast.content[0].children!.length, 2, source);
+            assert(result.lowering.duration.equals(3), "inline members must start together");
+            deepStrictEqual(recordCommands(result.layout), recordCommands(expected.layout), source);
+        }
+    }
+    for (const [source, expanded] of [
+        ["1 V{}: N:2 N:3", '1 @voices(@voice(2), @voice(3), connect="{1-2}")'],
+        ["{V{}:N:1 N:2}", '{@voices(@voice(1), @voice(2), connect="{1-2}")}'],
+        ["N:1 V[]:N:2 N:3", '@voices(@voice(1), @voice(2), @voice(3), connect="[2-3]")'],
+        ["V{}:N:1 N:2 V[]:N:3 N:4 V|:N:5",
+            '@voices(@voice(1), @voice(2), @voice(3), @voice(4), @voice(5), connect="{1-2}[3-4]")'],
+    ]) {
+        const result = compileValid(source, { variables: { strict: true } });
+        deepStrictEqual(recordCommands(result.layout), recordCommands(compileValid(expanded).layout), source);
+        deepStrictEqual(recordCommands(compileValid(result.ast.toString(source)).layout), recordCommands(result.layout));
+    }
+});
+
+test("V declarations replace presets locally, stop at blank lines and preserve empty overrides", () => {
+    const source = [
+        '@set(voices.connect="[-]")',
+        "V|:", "N: 1", "N: 2", "",
+        "N: 3", "N: 4", "",
+        "N: 5", "V{}:", "N: 6", "N: 7", "V|:", "N: 1", "",
+        "V{}:", "N: 2", "N: 3", "V{}:", "N: 4", "N: 5",
+    ].join("\n");
+    const result = compileValid(source);
+    const blocks = result.ast.content.filter(node => node instanceof ASTFunctionNode && node.callName === "voices");
+    deepStrictEqual(blocks.map(node => node.toString(source).match(/connect="([^"]*)"/)![1]),
+        ["", "[-]", "{2-3}", "{1-2}{3-4}"]);
+    assert(result.lowering.duration.equals(4), "only blank-line-separated blocks advance the sequence");
+});
+
+test("V groups require members and do not borrow lyrics from the preceding group", () => {
+    for (const source of ["V{}:", "V{}:\n\nN: 1", "V{}:\nV[]:\nN: 1", "V{}:V[]:N:1"]) {
+        expectCompileError(source, "E_VOICES_GROUP_EMPTY");
+    }
+    expectCompileError("N: 1\nV{}:\nL: la\nN: 2", "E_LYRICS_WITHOUT_VOICE_NOTES");
+});
+
+test("partial braces cover only their range while the shared line spans every voice", () => {
+    const members = Array.from({ length: 7 }, (_, i) => `@voice({${i + 1}}, Voice${i + 1})`).join(",");
+    for (const size of [1, 2, 8, 12, 22, 40]) {
+        const result = layoutOf(`@voices(${members}, connect="{3-5}")`, size);
+        const connector = result.attachments.find(attachment => attachment.layer === "background")!;
+        const commands = attachmentCommands(connector);
+        const bars = commands.filter(command => command.kind === "rect");
+        const curves = commands.filter(command => command.kind === "path");
+        strictEqual(bars.length, 1);
+        strictEqual(curves.length, 1);
+        const notes = result.objects.filter(object => !object.T.isZero());
+        const curveBounds = pathBounds(curves[0].commands);
+        assert(nearly(curveBounds.y, axisOf(notes[2]) - size / 2),
+            "brace must begin at voice 3");
+        assert(nearly(curveBounds.y + curveBounds.h, axisOf(notes[4]) + size / 2),
+            "brace must end at voice 5");
+        assert(bars[0].y < axisOf(notes[0]) && bars[0].y + bars[0].h > axisOf(notes[6]),
+            "unconfigured voices must remain connected by the shared line");
+        const names = result.objects.filter(object => object.T.isZero());
+        const labelRight = Math.max(...names.map(name => name.box.x + name.box.anchor));
+        assert(connector.box.x > labelRight && connector.box.x + connector.box.w < notes[0].box.x,
+            "all connection geometry must fit between labels and notes");
+    }
+});
+
+test("overlapping connectors do not duplicate the common line or add tracks", () => {
+    const result = compileValid(`@voices(${fourVoices}, connect="[-]{-}[-]")`);
+    const connector = result.layout.attachments.find(attachment => attachment.layer === "background")!;
+    const commands = attachmentCommands(connector);
+    const bars = commands.filter(command => command.kind === "rect");
+    strictEqual(bars.length, 3);
+    strictEqual(bars.filter(bar => nearly(bar.w, 22 * 0.19 * 0.33)).length, 1);
+    strictEqual(commands.filter(command => command.kind === "path").length, 5);
+    strictEqual(new Set(result.layout.objects.filter(object => !object.T.isZero()).map(object => object.track)).size, 4);
+});
+
+test("local V connections do not leak into nested content defaults", () => {
+    const source = '@set(voices.connect="{-}")\nV[]:\nN(A): {\nN(X): 1\nN(Y): 2\n}\nN(B): 3';
+    const result = compileValid(source);
+    const outer = result.ast.content.find(node => node instanceof ASTFunctionNode && node.callName === "voices")!;
+    const serialized = outer.toString(source);
+    assert(serialized.includes('connect="{-}"'), "nested voices must still inherit the user's default");
+    assert(serialized.includes('connect="[1-2]"'), "V declarations override only their own block");
+});
+
+test("V declarations handle scoped multiline voices, CRLF, comments and following ordinary content", () => {
+    const source = "{\r\n  V{}: % group\r\n  N: {1\r\n2}\r\n  N: 3\r\n}\r\n4";
+    const result = compileValid(source);
+    assert(result.lowering.duration.equals(3), "ordinary content after the scoped group must remain sequential");
+    const serialized = parse(source).toString(source);
+    deepStrictEqual(recordCommands(compileValid(serialized).layout), recordCommands(result.layout));
+});
+
+test("V collection preserves lyric rows and labels used inside and after the block", () => {
+    const source = `V{}:
+N(A): {1@a 2@b @tie(a,b)}
+L: la la
+N(B): 3 4
+V|:
+N(C): {5@c 6@d}
+L(row): so la
+@tie(c,d) 7`;
+    const result = compileValid(source, { variables: { strict: true } });
+    const voices = result.ast.content[0];
+    strictEqual(voices.children!.length, 3);
+    assert(voices.children!.every(voice => voice.parent === voices), "every collected voice must have the final block as its parent");
+    assert(result.lowering.duration.equals(3), "following ordinary content must remain outside the group");
+    const restored = compileValid(result.ast.toString(source), { variables: { strict: true } });
+    deepStrictEqual(recordCommands(restored.layout), recordCommands(result.layout));
 });

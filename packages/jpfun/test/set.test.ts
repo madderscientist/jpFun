@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import { deepStrictEqual } from "node:assert";
 
-import { ASTFunctionNode, resolveArgType, type FunctionArgs, type FunctionDef, type paramValue } from "../src/functions/ASTtypes.js";
+import { ASTFunctionNode, type ASTNodeBase, resolveArgType, type FunctionArgs, type FunctionDef, type paramValue } from "../src/functions/ASTtypes.js";
 import { ParserContext } from "../src/parser/parserContext.js";
 import { compileScore } from "../src/pipeline.js";
-import { assert, commandsOfKind, createParser, expectDiagnostic, layoutOf, nearly } from "./helpers.js";
+import { assert, commandsOfKind, compileValid, createParser, expectDiagnostic, layoutOf, nearly } from "./helpers.js";
 
 test("system variable declarations share types and reset defaults", () => {
     for (const [name, type, input, expected] of [
@@ -126,4 +126,24 @@ test("目标参数不存在时报警而不是静默无效", () => {
             [["W_SET_UNKNOWN_TARGET", target]]);
         assert(!Object.hasOwn(parser.variables, target), "unknown target must not be stored");
     }
+});
+
+test("voice connection defaults preserve empty strings, scopes and final block arity", () => {
+    const source = [
+        '@set(vs.connect="[-2]{3-}")',
+        "N: 1", "N: 2", "N: 3", "N: 4", "",
+        "{", '@set(voices.connect="")', "N: 5", "N: 6", "}", "",
+        "N: 1", "N: 2", "N: 3", "",
+        'V|:', "N: 1", "N: 2",
+    ].join("\n");
+    const result = compileValid(source);
+    const values: string[] = [];
+    const visit = (node: ASTNodeBase) => {
+        if (node instanceof ASTFunctionNode && node.callName === "voices") {
+            values.push([...node.toString(source).matchAll(/connect="([^"]*)"/g)].at(-1)![1]);
+        }
+        for (const child of node.children ?? []) visit(child);
+    };
+    visit(result.ast);
+    deepStrictEqual(values, ["[-2]{3-}", "", "[-2]{3-}", ""]);
 });
