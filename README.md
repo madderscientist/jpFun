@@ -83,3 +83,4 @@ pnpm run test:update       # 重写测试快照基线
 
 ## todo
 - [ ] VSCode 插件
+- [ ] box 的高度
