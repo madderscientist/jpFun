@@ -144,11 +144,10 @@ class DivFunction extends ASTFunctionNode {
         let firstLine = 0;
 
         return {
-            // 减时线声明为靠近主体的下方项
-            // 引擎只按通用 order 排列，不识别 @div
             below: {
                 order: 0,
-                gap: -host.ast.size * 0.08,
+                // 画线沿用正文盒基准，间距换算到装饰排列起点。
+                gap: host.box.h - (host.ports["decoration.below"]?.y ?? host.box.h) - host.ast.size * 0.08,
                 height: lineBlockHeight,
                 place(y) {
                     lineLeft = host.ports["body.left"]?.x ?? 0;

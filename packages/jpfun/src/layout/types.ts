@@ -156,6 +156,10 @@ export interface AttachmentLayoutContext extends LayoutPrepareContext {
 export interface LayoutHost extends TimeLineEvent {
     box: LayoutBox;
     springConfig: HorizontalSpringConfig;
+    /**
+     * 内置端口：body.left / body.right、decoration.below、shoulder、tie.top、
+     * div.{level}.left / div.{level}.right、dot、lyric；用途与缺省值见 {@link TemporalNodeBase.ports}。
+     */
     ports: Record<string, LayoutPoint>;
     readonly mergeKey: number;  // 为了识别 ANCHOR 而留的
     readonly layoutLine: number;
@@ -183,7 +187,7 @@ export interface HorizontalLineView {
 
 /**
  * 相对于对象 LayoutBox 左上角的局部坐标
- * tie、beam 等关系函数通过命名端口获取几何位置
+ * 装饰布局与 tie、beam 等关系函数通过命名端口获取几何位置
  */
 export interface LayoutPoint {
     x: number;          // 相对于所属 LayoutBox 左边界的横坐标

@@ -375,14 +375,16 @@ function arrangeDecorations(node: VisualTemporalNode) {
         const above = side === "above";
         const decorations = node.decorations.length === 1 ? node.decorations : node.decorations.filter(item => item[side]);
         if (decorations.length > 1) decorations.sort((left, right) => left[side]!.order - right[side]!.order);
-        // 两侧从正文各自出发，负间距越过正文也不会改变另一侧的起点
-        let cursor = above ? 0 : node.box.h;
+        // 下方可覆盖起点，避免把字体盒的留白当成可见正文；两侧仍独立排列
+        let cursor = above ? 0 : (node.ports["decoration.below"]?.y ?? node.box.h);
         let sideBottom = above ? -Infinity : node.box.h;
         let sideContentBottom = sideBottom;
         for (const decoration of decorations) {
             const item = decoration[side];
             if (!item) continue;
             const height = Math.max(0, item.height ?? 0);
+            // 纯留白包围完整内容，不能被正文盒内的装饰起点吞掉
+            if (!above && !decoration.paint) cursor = Math.max(cursor, sideContentBottom);
             const y = above ? cursor - (item.gap ?? 0) - height : cursor + (item.gap ?? 0);
             item.place?.(y);
             cursor = above ? y : y + height;

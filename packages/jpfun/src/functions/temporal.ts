@@ -100,8 +100,18 @@ export class TemporalNodeBase implements TimeLineEvent {
     springConfig!: HorizontalSpringConfig;
 
     /**
-     * 关系函数可使用的命名局部坐标
-     * prepareLayout 每次执行时由具体节点和装饰函数重新生成
+     * 装饰与关系函数使用的命名局部坐标，相对 box 左上角，每轮布局重建。
+     *
+     * 当前内置端口：
+     * - body.left / body.right：主体核心左右边界，供 div、tuplet、volta 使用；缺省为盒左右边界。
+     * - decoration.below：下方装饰排列起点（只读 y）；缺省为正文 box.h。
+     * - shoulder：倚音的纵向定位基准（只读 y）；音符提供数字顶边，缺省为盒顶。
+     * - tie.top：连音线端点；缺省为 anchor 与内容上沿，up 提供最上层成员的端点。
+     * - div.{level}.left / div.{level}.right：从 0 编号的减时线端点，由 div.place 发布，供 beam 接管。
+     * - dot：附点起点；缺省为盒右边界与 visualAxis，音符覆盖为字形附近的位置。
+     * - lyric：歌词对齐点（voice 只读 x）；未提供则不作为歌词目标，note 在 finalizeLayout 发布。
+     *
+     * up、grace、arpeggio 转发宿主端口并换算局部坐标；端口不表达装饰是否存在。
      */
     ports!: Record<string, LayoutPoint>;
 

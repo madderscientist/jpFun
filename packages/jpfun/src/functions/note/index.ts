@@ -249,6 +249,8 @@ class NoteTemporalNode extends TemporalNodeBase {
         this.ports["body.left"] = { x: this.box.anchor - mainMetrics.w / 2, y: this.box.visualAxis };
         this.ports["body.right"] = { x: this.box.anchor + mainMetrics.w / 2, y: this.box.visualAxis };
         this.ports["shoulder"] = { x: this.box.anchor, y: 0 };
+        // 下方装饰从数字基线附近起排，不把 em 盒底部的留白算作可见正文。
+        this.ports["decoration.below"] = { x: this.box.anchor, y: this.numberY + size * 0.04 };
 
         // 覆盖 dot 的默认“右边界 + 视觉轴”，让附点贴合数字字形的视觉位置
         this.ports["dot"] = {
