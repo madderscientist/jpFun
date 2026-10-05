@@ -208,11 +208,6 @@ class NoteTemporalNode extends TemporalNodeBase {
     /** 字号和颜色在解析时已经固化，样式随之不再变 */
     private readonly numberStyle: TextStyle;
 
-    /** 上八度点属于主体，下八度点通过通用装饰流排在其他下方符号之后 */
-    private upperOctaveDotY: number[] = [];
-    private lowerOctaveDotY: number[] = [];
-
-    private octaveDotRadius = 0;
     private numberY = 0;
 
     constructor(ast: NoteFunction) {
@@ -234,21 +229,10 @@ class NoteTemporalNode extends TemporalNodeBase {
     }
 
     override prepareLayout(context: LayoutPrepareContext) {
-        this.upperOctaveDotY.length = 0;
-        this.lowerOctaveDotY.length = 0;
-
         const { size, color } = this.ast;
         const mainMetrics = context.textMeasurer.measureText("0", this.numberStyle);
 
-        const dotCount = Math.abs(this.octave);
-        this.octaveDotRadius = size * 0.075;
-        const dotGap = size * 0.08;
-        const dotStep = this.octaveDotRadius * 2 + dotGap;
-        const octaveSpace = dotCount === 0
-            ? 0
-            : dotCount * this.octaveDotRadius * 2 + (dotCount - 1) * dotGap + dotGap;
-        const mainY = this.octave > 0 ? octaveSpace : 0;
-        this.numberY = mainY + mainMetrics.baseline;
+        this.numberY = mainMetrics.baseline;
 
         // 升降号贴近数字左上角，按同一 baseline 排在数字左侧；
         // 缩小右侧间隔会在全局 anchor 不变时把升降号向右移动
@@ -257,59 +241,53 @@ class NoteTemporalNode extends TemporalNodeBase {
         this.accidentals = placed;
 
         this.box.w = mainX + mainMetrics.w;
-        this.box.h = mainY + mainMetrics.h;
+        this.box.h = mainMetrics.h;
         this.box.anchor = mainX + mainMetrics.w / 2;
-        this.box.visualAxis = mainY + mainMetrics.h / 2;
+        this.box.visualAxis = mainMetrics.h / 2;
 
         // 升降号和附点参与完整盒布局，但不计入数字主体范围，减时线因此只画在数字下
         this.ports["body.left"] = { x: this.box.anchor - mainMetrics.w / 2, y: this.box.visualAxis };
         this.ports["body.right"] = { x: this.box.anchor + mainMetrics.w / 2, y: this.box.visualAxis };
-        this.ports["shoulder"] = { x: this.box.anchor, y: mainY };
+        this.ports["shoulder"] = { x: this.box.anchor, y: 0 };
 
         // 覆盖 dot 的默认“右边界 + 视觉轴”，让附点贴合数字字形的视觉位置
         this.ports["dot"] = {
             x: this.box.w,
-            y: mainY + mainMetrics.h * 0.64,
+            y: mainMetrics.h * 0.64,
         };
 
-        if (this.octave > 0) {
-            // 上八度点从靠近数字的位置向上依次排列
-            for (let i = 0; i < dotCount; i++) {
-                this.upperOctaveDotY.push(mainY - dotGap - this.octaveDotRadius - i * dotStep);
-            }
-            return;
-        }
-
-        if (this.octave >= 0) return;
-
-        const lowerDotHeight = dotCount * this.octaveDotRadius * 2 + (dotCount - 1) * dotGap;
-        const lowerDots: LayoutDecoration = {
-            below: {
+        const dotCount = Math.abs(this.octave);
+        if (dotCount === 0) return;
+        const above = this.octave > 0;
+        const dotRadius = size * 0.075;
+        const dotGap = size * 0.08;
+        const dotStep = dotRadius * 2 + dotGap;
+        const dotStyle = { fill: color };
+        let dotY = 0;
+        const height = dotCount * dotRadius * 2 + (dotCount - 1) * dotGap;
+        const dots: LayoutDecoration = {
+            [above ? "above" : "below"]: {
                 // order 只表达通用的由近到远顺序
                 // 时值类装饰可以选择较小 order，下八度点选择较大 order
                 order: 100,
                 gap: dotGap,
-                height: lowerDotHeight,
-                place: y => {
-                    // 下八度点从引擎分配的外层区域顶部向下排列
-                    for (let i = 0; i < dotCount; i++) {
-                        this.lowerOctaveDotY.push(y + this.octaveDotRadius + i * dotStep);
-                    }
-                },
+                height,
+                place: (y: number) => { dotY = y; },
             },
             paint: painter => {
-                // 下八度点读取已经冻结的局部圆心位置
-                for (const y of this.lowerOctaveDotY) {
+                // 每列八度点共用一个装饰，上方从靠近数字的位置向外绘制
+                for (let i = 0; i < dotCount; i++) {
+                    const y = above ? dotY + height - dotRadius - i * dotStep : dotY + dotRadius + i * dotStep;
                     painter.drawCircle(
                         this.box.x + this.box.anchor,
                         this.box.y + y,
-                        this.octaveDotRadius,
-                        { fill: color },
+                        dotRadius,
+                        dotStyle,
                     );
                 }
             },
         };
-        this.decorations.push(lowerDots);
+        this.decorations.push(dots);
     }
 
     override finalizeLayout() {
@@ -327,16 +305,6 @@ class NoteTemporalNode extends TemporalNodeBase {
                 this.box.x + this.box.anchor,
                 this.box.y + this.numberY,
                 this.numberStyle,
-            );
-        }
-
-        // 上八度点属于主体绘制，不参与下方装饰流
-        for (const y of this.upperOctaveDotY) {
-            painter.drawCircle(
-                this.box.x + this.box.anchor,
-                this.box.y + y,
-                this.octaveDotRadius,
-                { fill: color },
             );
         }
     }

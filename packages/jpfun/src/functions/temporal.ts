@@ -90,6 +90,8 @@ export class TemporalNodeBase implements TimeLineEvent {
 
     /** 不可见状态事件保持 undefined */
     box?: LayoutBox;
+    /** 显式微调时才创建后置平移，折叠成员还会继承外层对象的平移 */
+    declare placementOffset?: LayoutPoint;
 
     /**
      * 横向弹簧布局参数
@@ -113,8 +115,8 @@ export class TemporalNodeBase implements TimeLineEvent {
      * 1. layout 的 prepareLayoutHost 开始时创建或清空数组；
      * 2. Temporal.prepareLayout 可先加入节点自身的装饰，例如下八度点；
      * 3. 引擎再通过 addon 对应的 layoutDecorationHandler 加入函数装饰；
-     * 4. arrangeBelowDecorations 按 below.order 分配主体下方空间并调用 below.place；
-     * 5. 最终 paintLayout 在主体 paint 后依次调用 decoration.paint。
+     * 4. 引擎分别按 above/below.order 分配空间并调用 place
+     * 5. 最终 paintLayout 在主体 paint 后调用可选的 decoration.paint
      *
      * 数组必须保留到绘制结束，因为 decoration 通常以闭包保存本次测量得到的几何。它只属于当前 layout pass，不能跨 pass 复用。
      * prepare 阶段生成、place 后冻结、paint 后失效

@@ -7,6 +7,7 @@
 import {
     ASTFunctionNode,
     isVisualTemporalNode,
+    getLayoutBounds,
     type ASTNodeBase,
     type CompileScoreResult,
     type Rect,
@@ -99,8 +100,9 @@ export function createPreviewNavigationMap(compiled: CompileScoreResult): Previe
     const lineBottoms = new Array<number>(compiled.layout.lineCount).fill(-Infinity);
     for (const object of objects) {
         const line = object.layoutLine;
-        lineTops[line] = Math.min(lineTops[line], object.box.y);
-        lineBottoms[line] = Math.max(lineBottoms[line], object.box.y + object.box.h);
+        const bounds = getLayoutBounds(object);
+        lineTops[line] = Math.min(lineTops[line], bounds.y);
+        lineBottoms[line] = Math.max(lineBottoms[line], bounds.y + bounds.h);
     }
 
     // grace/up 等折叠成员不在 layout.objects，但布局完成后仍保留最终 box。
@@ -149,13 +151,15 @@ export function createPreviewNavigationMap(compiled: CompileScoreResult): Previe
     }
 
     for (const object of objects) {
+        let bounds: Rect | undefined;
         // 无可见 Temporal 的包装器（如 div/dot）仍可把自己的源码范围映射到唯一后代
         for (let node = object.ast.parent; node; node = node.parent) {
             if (!(node instanceof ASTFunctionNode)) continue;
             if (visualAsts.has(node)) continue;
             const regions = ancestorRegions.get(node);
-            if (regions) regions.push(object.box);
-            else ancestorRegions.set(node, [object.box]);
+            bounds ??= getLayoutBounds(object, true);
+            if (regions) regions.push(bounds);
+            else ancestorRegions.set(node, [bounds]);
         }
     }
 
@@ -171,7 +175,7 @@ export function createPreviewNavigationMap(compiled: CompileScoreResult): Previe
         }
         hitTargets.push({
             span,
-            regions: [object.box],
+            regions: [getLayoutBounds(object, true)],
             kind: "object",
             scoreTime: playbackScoreTime(object),
         });

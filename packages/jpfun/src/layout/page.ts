@@ -9,16 +9,13 @@ export interface DocumentLayoutPage {
 
 /** 单条谱面行高于页面内容区时传给 engine 的结构化信号 */
 export class PageLayoutError extends Error {
-    readonly line: number;
-    readonly requiredHeight: number;
-    readonly availableHeight: number;
-
-    constructor(line: number, requiredHeight: number, availableHeight: number) {
+    constructor(
+        readonly line: number,
+        readonly requiredHeight: number,
+        readonly availableHeight: number,
+    ) {
         super(`Page cannot fit layout line ${line}: requires ${requiredHeight}px, available ${availableHeight}px`);
         this.name = "PageLayoutError";
-        this.line = line;
-        this.requiredHeight = requiredHeight;
-        this.availableHeight = availableHeight;
     }
 }
 

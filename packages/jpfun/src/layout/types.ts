@@ -24,7 +24,7 @@ export interface Extent {
 }
 
 /**
- * 一个排版对象的完整矩形和两个对齐基准
+ * 一个排版对象的定位矩形和两个对齐基准
  *
  * prepareLayout 负责填写 w、h、anchor、visualAxis
  * layout 负责原地修改 x、y
@@ -105,6 +105,8 @@ export type LayoutRange = readonly [from: number, to: number]
 
 /** attachment 根据当前视觉轴生成几何时需要的完整页面信息 */
 export interface AttachmentLayoutContext extends LayoutPrepareContext {
+    /** 占用测量使用布局位置，最终绘制才应用后置平移 */
+    readonly layoutOnly?: boolean;
     width: number;      // 整篇可用的内容宽（页宽减左右边距），与行无关
     originX: number;    // 内容区的左边界，即页面左边距
     pages: readonly Rect[]; // 本轮分页得到的纸张边界 page函数用于获取页码内容和位置
@@ -135,6 +137,8 @@ export interface AttachmentLayoutContext extends LayoutPrepareContext {
     ): Readonly<Extent> | undefined;
     /** 读取本轮已完成的 attachment 边界；分组在 endLoweringGroup 才注册，因而组内对象必然排在分组之前 */
     getAttachmentBox(attachment: LayoutAttachment): Readonly<Rect>;
+    /** 读取已测附件的有效占用，保留显式空数组；尚未测量时返回 undefined */
+    getAttachmentOccupancy(attachment: LayoutAttachment): readonly LayoutRegion[] | undefined;
     /** 内容的实际几何并集；只包含作用域内主体与此前已测附件，不代表撑行占用 */
     getContentBounds(content: LoweringContent): Readonly<Rect> | undefined;
 }
@@ -198,59 +202,34 @@ export type LayoutDecorationHandler = (
  *
  * 实例有两种来源：Temporal.prepareLayout 可以直接加入；addon 对应的 LayoutDecorationHandler 也可以在主体 prepareLayout 后创建
  * 两者都在创建时就拿到了宿主，因此回调不再重复传入它；实例可以在返回前调整 host.box，例如 dot 先扩张主体宽度
- * 被 arrangeBelowDecorations 使用
+ * 由引擎统一分配上下空间，place 的坐标相对主体定位矩形
  *
- * 通用部分只有 paint：主体绘制完成后，引擎调用它绘制当前装饰。
- *
- * below 是可选的“主体下方空间”子协议，只向下扩张 box.h，不管理主体上方空间
- * 上方内容若会改变主体 visualAxis 或内部绘制坐标，应由具体 Temporal 在 prepareLayout 中处理。
+ * paint 可省略，此时只预留空间，不进入内容边界
  *
  * 当前内置示例：
  * - dot：handler 生成只负责横向扩宽和绘制的装饰，不声明 below；
  * - div：handler 生成减时线装饰，使用 order=0，排在主体下方最内层；
- * - note 下八度点：prepareLayout 直接加入装饰，使用 order=100，排在减时线之后；
- * - note 上八度点不使用 LayoutDecoration，而是主体 prepareLayout 的一部分。
+ * - note 八度点：prepareLayout 直接加入装饰，使用 order=100
  *
  * LayoutDecoration 不是 addon 语义本身。实例可以用闭包保存本次测量参数和 place 结果，因此必须由 Temporal.decorations 持有到当前 paint 结束。
  */
 export interface LayoutDecoration {
-    paint(painter: Painter): void; // 只读取冻结几何
+    paint?(painter: Painter): void; // 只读取冻结几何
+    above?: LayoutDecorationSpace;
+    below?: LayoutDecorationSpace;
+}
 
-    /** 声明后进入主体下方空间管理，引擎只理解这四个字段，不知道空间来自哪个函数 */
-    below?: {
-        order: number;      // 越小越靠近主体，相同值保持注册顺序
-        gap?: number;       // 与主体或前一个下方装饰的间隔，可以为负数
-        height?: number;    // 下方区域占用高度，布局时强制为非负数
-        /**
-         * 引擎分配好本装饰的下方区域后调用一次，y 是该区域 **顶边到 host.box 顶部** 的距离
-         *
-         * 该做的：把这一刻才确定的局部几何存进闭包供 paint 使用（note 存下八度点的 y），
-         * 以及发布依赖这个位置的端口（div 在这里建 div.N.left/right）。只占位不绘制时可以不实现。
-         *
-         * 不该做的：改 box.h（引擎会按 height 统一扩张）、读 box.y 或 box.h （前者尚未求解、后者正在向下累加）。
-         * 此时只有 box.w/anchor 和 ports 是最终值，因此一律记录相对盒顶的局部坐标，绘制时再加 host.box.x / host.box.y。
-         *
-         * 例（一条减时线）：
-         * ```ts
-         * let lineY = 0;   // 闭包保存本轮测量结果
-         * return {
-         *     below: {
-         *         order: 0,
-         *         height: strokeWidth,
-         *         place(y) {
-         *             lineY = y + strokeWidth / 2;
-         *             host.ports["div.0.left"] = { x: 0, y: lineY };
-         *         },
-         *     },
-         *     paint(painter) {
-         *         const y = host.box.y + lineY;    // 此时 box.y 才有意义
-         *         painter.drawLine(host.box.x, y, host.box.x + host.box.w, y, { stroke: "#000", strokeWidth });
-         *     },
-         * };
-         * ```
-         */
-        place?(y: number): void;
-    };
+/** 上下装饰共用由内向外的排列协议 */
+export interface LayoutDecorationSpace {
+    order: number;      // 越小越靠近主体，相同值保持注册顺序
+    gap?: number;       // 与主体或前一个装饰的间隔，可以为负数
+    height?: number;    // 区域占用高度，布局时强制为非负数
+    /**
+     * y 是区域顶边相对 host.box 顶部的坐标，上方区域通常为负数
+     * 只保存局部几何并发布端口，不读写正在排列的 box.h 或尚未放置的 box.y
+     * 绘制时再加 host.box.x/y，纯留白可以省略 place
+     */
+    place?(y: number): void;
 }
 
 /**
@@ -272,6 +251,8 @@ export interface AttachmentGeometry {
  * 实例只保存语义输入和一次横向准备状态，不保存最终 box、regions 或绘制几何。
  */
 export interface LayoutAttachment extends LoweringAttachment {
+    /** 后置平移仅影响绘制，不参与占用求解 */
+    placementOffset?: LayoutPoint;
     /** 几何端点；端点全部落在同一子域的成员上时，附件属于该子域。不表示内容包含或播放端点投影 */
     readonly endPoints?: readonly TemporalNodeBase[];
     /** 相对于 Temporal 主体的绘制层；background 比内容先绘制 */

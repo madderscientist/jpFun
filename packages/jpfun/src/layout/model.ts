@@ -81,7 +81,7 @@ function fillPlaceholders(columns: LayoutElement[][], F: number = DEFAULT_F): {
     mat: LayoutElement[][]; // 二维矩阵，第一维为列，第二维为行，包含占位元素
     rows: number;           // 行数 不一定等于 colums[0].length，因为可能一个声部有多个
 } {
-    const idOrderMap = new Map<any, number>();
+    const idOrderMap = new Map<TimeLineEvent["track"], number>();
     let rows = 0;
     for (const col of columns) {
         for (const el of col) {
@@ -105,7 +105,7 @@ function fillPlaceholders(columns: LayoutElement[][], F: number = DEFAULT_F): {
         for (const el of col) {
             if (el.WL > maxLeft) maxLeft = el.WL;
             if (el.WR > maxRight) maxRight = el.WR;
-            const rIdx = idOrderMap.get(el.time.track) as number;
+            const rIdx = idOrderMap.get(el.time.track)!;
             if (sortedCol[rIdx]) {
                 // 出现了同一行同一时刻的多个元素，则优先时长更大的
                 // 重复的元素放到最后，不参与后续的元素比较
@@ -126,15 +126,14 @@ function fillPlaceholders(columns: LayoutElement[][], F: number = DEFAULT_F): {
             if (!sortedCol[rIdx]) {
                 // 保证 margin_L = mexLeft, margin_R = maxRight, 实际宽度为0
                 const elPlaceholder = layoutElement({
-                    anchor: 0,
                     alpha_L: maxLeft,
                     alpha_R: maxRight,
-                } as HorizontalSpringConfig, {
+                }, {
                     x: 0, w: 0, anchor: 0
-                } as _LayoutBox, {
+                }, {
                     // 后面不会修改，所以直接引用
                     t: colTime, T: new Fraction(1), track: rowId[0]
-                } as TimeLineEvent, F);
+                }, F);
                 elPlaceholder.fake = true;
                 sortedCol[rIdx] = elPlaceholder;
             }
@@ -246,8 +245,6 @@ function solveHorizontal(
 ): boolean {
     const { damping, maxIter, eps, crossPunish } = options;
     const numCols = mat.length;
-    // if (numCols === 0 || rows === 0) return false; layoutHorizontalRegion 已经判断过了
-
     // 预排列（仅用前 rows 个元素建立无约束时的位置）
     const row_x = new Float64Array(rows);
     for (let c = 0; c < numCols; c++) {

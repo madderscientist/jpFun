@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { DIV_ADDON_KEY } from "../src/functions/div/index.js";
 import { GraceTemporal } from "../src/functions/grace/index.js";
-import { layoutDocument } from "../src/layout/engine.js";
+import { getLayoutBounds, layoutDocument } from "../src/layout/engine.js";
 import { isLayoutAttachment, type Extent, type LayoutAttachment } from "../src/layout/types.js";
 import { isVisualTemporalNode } from "../src/functions/temporal.js";
 import { compileScore } from "../src/pipeline.js";
@@ -304,9 +304,9 @@ test("综合样例的每个 LayoutBox 都有效且保持横向顺序", () => {
     }
 
     const decoratedNote = result.objects[1];
-    assert(decoratedNote.decorations.length === 2, "dot and div must create two independent decorations");
+    assert(decoratedNote.decorations.length === 3, "octave dots, dot and div must create independent decorations");
     assert(decoratedNote.box.w > decoratedNote.ast.size * 0.62, "dot must extend the note width");
-    assert(decoratedNote.box.h > decoratedNote.ast.size, "div or octave dots must extend the note height");
+    assert(getLayoutBounds(decoratedNote).h > decoratedNote.ast.size, "div or octave dots must extend occupied height");
 
     expectSnapshot("layout-metrics",
         `objects=${result.objects.length} width=${result.bounds.w.toFixed(2)} height=${result.bounds.h.toFixed(2)}`);

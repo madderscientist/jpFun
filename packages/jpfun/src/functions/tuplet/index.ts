@@ -109,7 +109,7 @@ class TupletFunction extends ASTFunctionNode {
             writtenTotal.add(event.T);
         }
 
-        const units = writtenTotal.clone().div(shortest);
+        const units = writtenTotal.div(shortest);
         const actual = units.numerator;
         if (units.denominator !== 1 || actual < 2 || !Number.isSafeInteger(actual)) {
             throw new ErrorDiagnostic(

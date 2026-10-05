@@ -15,7 +15,7 @@ export function paintLayout(result: DocumentLayoutResult, painter: Painter) {
     }
     for (const node of result.objects) {
         node.paint(painter);
-        for (const decoration of node.decorations) decoration.paint(painter);
+        for (const decoration of node.decorations) decoration.paint?.(painter);
     }
     for (const attachment of result.attachments) {
         if (attachment.layer === "foreground") attachment.paint(painter);

@@ -231,18 +231,8 @@ function createAdjacentBeams(
             const activeStart = measureStart.compare(lineStart) >= 0 ? measureStart : lineStart;
             const beat = beatAt(beatTime.copyFrom(node.t).sub(activeStart));
             const current = groups.get(node.track);
-            if (!current) {
-                groups.set(node.track, {
-                    nodes: [node],
-                    line: node.layoutLine,
-                    beat,
-                    endTime: node.t.clone().add(node.T),
-                });
-                continue;
-            }
-
-            const isContinuous = node.t.equals(current.endTime);
-            if (node.layoutLine !== current.line || beat !== current.beat || !isContinuous) {
+            const isContinuous = current && node.t.equals(current.endTime);
+            if (!current || node.layoutLine !== current.line || beat !== current.beat || !isContinuous) {
                 flush(node.track);
                 groups.set(node.track, {
                     nodes: [node],

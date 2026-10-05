@@ -2,15 +2,11 @@ import type { PaintStyle, Painter, PathCommand, PathTransform, TextStyle } from 
 
 /** Painter 没有变换栈，整体平移的几何只能逐条命令平移 */
 export class TranslatingPainter implements Painter {
-    private readonly target: Painter;
-    private readonly dx: number;
-    private readonly dy: number;
-
-    constructor(target: Painter, dx: number, dy: number) {
-        this.target = target;
-        this.dx = dx;
-        this.dy = dy;
-    }
+    constructor(
+        private readonly target: Painter,
+        private readonly dx: number,
+        private readonly dy: number,
+    ) {}
 
     drawText(text: string, x: number, y: number, style: TextStyle) {
         this.target.drawText(text, x + this.dx, y + this.dy, style);

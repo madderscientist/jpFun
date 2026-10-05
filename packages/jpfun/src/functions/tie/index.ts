@@ -7,6 +7,7 @@ import {
     type VisualTemporalNode,
 } from "../temporal.js";
 import { pathBounds } from "../../layout/path.js";
+import { getLayoutBounds } from "../../layout/engine.js";
 import type {
     AttachmentLayoutContext,
     LayoutAttachment,
@@ -195,7 +196,7 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
 
         return {
             x: node.box.x + node.box.anchor,
-            y: node.box.y,
+            y: getLayoutBounds(node, true).y,
         };
     }
 

@@ -78,8 +78,10 @@ const compiled = compileScore(source, { textMeasurer });
 ## 绘制顺序
 `paintLayout` 按以下顺序绘制，后画的内容覆盖在前面的内容之上：
 1. `background` attachment，例如 box。
-2. Temporal 对象及 dot/div 装饰。
+2. Temporal 对象及其装饰，例如附点、减时线和上下八度点。
 3. `foreground` attachment，例如 tie、beam 和歌词。
+
+装饰按 `decorations` 的注册顺序绘制，不按上下空间的 `order` 重新排序。省略 `paint` 的装饰只预留布局空间，不产生绘制命令；外框留白和实际边框的绘制职责分别由装饰空间与 background attachment 承担。
 
 `up` 会在自己的 `paint` 中依次绘制堆叠成员及其装饰。这些成员不在 `DocumentLayoutResult.objects` 中，所以引擎不会再画一遍。
 

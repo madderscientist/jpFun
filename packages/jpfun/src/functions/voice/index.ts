@@ -5,6 +5,8 @@ import { findClosingQuote, quote, removeQuote } from "../../parser/parse-utils/s
 import { GrammarNode, GrammarSugarNode, type CallArgumentInfo } from "../../parser/grammarType.js";
 import { ParserContext, skipSpaces } from "../../parser/parserContext.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
+import { isLayoutAttachment } from "../../layout/types.js";
+import { getLayoutBounds } from "../../layout/engine.js";
 import {
     isVisualTemporalNode,
     TemporalNodeBase,
@@ -310,11 +312,13 @@ L: la la la
 
         // 收集范围内的
         const temporalMembers: TemporalNodeBase[] = [];
+        const frames: LayoutAttachment[] = [];
         ctx.beginLoweringGroup(this, {
-            attachment: new VoiceLyricsAttachment(temporalMembers, nameHost),
-                onTemporal(node) {
-                    temporalMembers.push(node);
-                },
+            attachment: new VoiceLyricsAttachment(temporalMembers, nameHost, frames),
+            onAttachment(attachment) {
+                if (isLayoutAttachment(attachment) && attachment.layer === "background") frames.push(attachment);
+            },
+            onTemporal(node) { temporalMembers.push(node); },
         });
 
         return [nameHost];
@@ -843,16 +847,14 @@ type PreparedLyricText = LayoutRegion & {
 class VoiceLyricsAttachment implements LayoutAttachment {
     layer = "foreground" as const;
 
-    /** lowering 会持续向这个数组加入 voice 内容产生的 temporal */
-    private temporalMembers: TemporalNodeBase[];
-    /** 同一个 voice 的声部名事件，歌词行名称向它的对齐点右对齐 */
-    private nameHost: VoiceNameTemporal;
     get sourceSpan() { return this.nameHost.ast.sourceSpan; }
 
-    constructor(temporalMembers: TemporalNodeBase[], nameHost: VoiceNameTemporal) {
-        this.temporalMembers = temporalMembers;
-        this.nameHost = nameHost;
-    }
+    /** lowering 持续填入成员与内层框，布局阶段再读取 */
+    constructor(
+        private readonly temporalMembers: readonly TemporalNodeBase[],
+        private readonly nameHost: VoiceNameTemporal,
+        private readonly frames: readonly LayoutAttachment[],
+    ) {}
 
     prepareHorizontal(lines: HorizontalLineView[], context: LayoutPrepareContext) {
         const targets = this.temporalMembers
@@ -906,14 +908,31 @@ class VoiceLyricsAttachment implements LayoutAttachment {
             .filter(node => node.ports?.["lyric"]);
         if (targets.length === 0 || lyrics.length === 0) return preparedText;
 
-        // 每个 system+track 的歌词共用一条基线
-        // 装饰高度先汇总为下边界，不进入单个 token 的 y 计算
-        const contentBottom = new Map<number, Map<Track, number>>();
+        // 同一行、原始轨共用下沿，跨轨框外的占用可归属另一条轨
+        const baselines = new Map<number, Map<Track, { bottom: number; owner: Track }>>();
         for (const target of targets) {
-            let byTrack = contentBottom.get(target.layoutLine);
-            if (!byTrack) contentBottom.set(target.layoutLine, byTrack = new Map());
-            const bottom = target.box.y + target.box.h;
-            byTrack.set(target.track, Math.max(byTrack.get(target.track) ?? bottom, bottom));
+            let byTrack = baselines.get(target.layoutLine);
+            if (!byTrack) baselines.set(target.layoutLine, byTrack = new Map());
+            const baseline = byTrack.get(target.track) ?? { bottom: -Infinity, owner: target.track };
+            const bounds = getLayoutBounds(target);
+            let bottom = bounds.y + bounds.h;
+            let owner = target.track;
+            for (const frame of this.frames) {
+                const box = context.getAttachmentBox(frame);
+                if (box.x + box.w < bounds.x || box.x > bounds.x + bounds.w || box.y + box.h <= bottom) continue;
+                const regions = context.getAttachmentOccupancy(frame);
+                if (!regions) throw new Error("Layout attachment dependency has not been measured");
+                const tracks = regions.filter(region => region.line === target.layoutLine);
+                if (regions.some(region => region.line !== undefined) && tracks.length === 0) continue;
+                bottom = box.y + box.h;
+                for (const region of tracks) {
+                    if (region.line !== undefined && context.getVisualAxis(region.line, region.track)
+                        > context.getVisualAxis(target.layoutLine, owner)) owner = region.track;
+                }
+            }
+            if (bottom >= baseline.bottom) baseline.owner = owner;
+            baseline.bottom = Math.max(baseline.bottom, bottom);
+            byTrack.set(target.track, baseline);
         }
 
         const fontSize = size * LYRIC_SIZE_RATIO;
@@ -923,10 +942,21 @@ class VoiceLyricsAttachment implements LayoutAttachment {
         const nameStyle = lyricNameStyle(size, this.nameHost.ast.font);
         const baselineOffset = context.textMeasurer.measureText("M", lyricStyle).baseline + firstRowGap;
         const baselineOf = (bottom: number, row: number) => bottom + baselineOffset + row * (fontSize + rowGap);
+        // 跨轨框外的歌词由最下轨承担占用，各原始轨的歌词行依次排列
+        if (this.frames.length) for (const [line, byTrack] of baselines) {
+            if (byTrack.size < 2) continue;
+            const rows = new Map<Track, number>();
+            for (const [, baseline] of [...byTrack].sort(([left], [right]) =>
+                context.getVisualAxis(line, left) - context.getVisualAxis(line, right))) {
+                const row = rows.get(baseline.owner) ?? 0;
+                baseline.bottom += row * lyrics.length * (fontSize + rowGap);
+                rows.set(baseline.owner, row + 1);
+            }
+        }
 
         // 歌词行名称与声部名共用左侧那一列，因此只出现在声部名所在的那一行
         const { box: labelBox, layoutLine: labelLine, track: labelTrack } = this.nameHost;
-        const labelBottom = contentBottom.get(labelLine)?.get(labelTrack);
+        const labelBaseline = baselines.get(labelLine)?.get(labelTrack);
 
         for (let row = 0; row < lyrics.length; row++) {
             const lyric = lyrics[row];
@@ -934,8 +964,8 @@ class VoiceLyricsAttachment implements LayoutAttachment {
             for (let i = 0; i < lyric.tokens.length && i < targets.length; i++) {
                 const text = lyric.tokens[i];
                 const target = targets[i];
-                const bottom = contentBottom.get(target.layoutLine)?.get(target.track);
-                if (!text || bottom === undefined) continue;
+                const baseline = baselines.get(target.layoutLine)?.get(target.track);
+                if (!text || !baseline) continue;
 
                 const metrics = context.textMeasurer.measureText(text, lyricStyle);
                 const { prefix, body } = splitLyricText(text);
@@ -946,15 +976,15 @@ class VoiceLyricsAttachment implements LayoutAttachment {
                     style: lyricStyle,
                     textBaselineY: metrics.baseline,
                     x: target.box.x + target.ports["lyric"].x - bodyWidth / 2 - prefixWidth,
-                    y: baselineOf(bottom, row) - metrics.baseline,
+                    y: baselineOf(baseline.bottom, row) - metrics.baseline,
                     w: metrics.w,
                     h: metrics.h,
                     line: target.layoutLine,
-                    track: target.track,
+                    track: baseline.owner,
                 });
             }
 
-            if (!lyric.name || !labelBox || labelBottom === undefined) continue;
+            if (!lyric.name || !labelBox || !labelBaseline) continue;
 
             const metrics = context.textMeasurer.measureText(lyric.name, nameStyle);
             preparedText.push({
@@ -962,11 +992,11 @@ class VoiceLyricsAttachment implements LayoutAttachment {
                 style: nameStyle,
                 textBaselineY: metrics.baseline,
                 x: labelBox.x + labelBox.anchor - metrics.w,
-                y: baselineOf(labelBottom, row) - metrics.baseline,
+                y: baselineOf(labelBaseline.bottom, row) - metrics.baseline,
                 w: metrics.w,
                 h: metrics.h,
                 line: labelLine,
-                track: labelTrack,
+                track: labelBaseline.owner,
             });
         }
         return preparedText;

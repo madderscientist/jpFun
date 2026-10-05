@@ -4,7 +4,8 @@ import type { LoweringContent, LoweringGroup } from "../../lowering/types.js";
 import { isVisualTemporalNode, type VisualTemporalNode } from "../temporal.js";
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import { layoutHorizontalRegion } from "../../layout/model.js";
-import type { AttachmentLayoutContext, HorizontalLineView, LayoutAttachment } from "../../layout/types.js";
+import { isLayoutAttachment, type AttachmentLayoutContext, type HorizontalLineView, type LayoutAttachment, type LayoutRegion } from "../../layout/types.js";
+import type { Track } from "../../lowering/track.js";
 import type { Painter } from "../../render/types.js";
 
 type BoxContent = LoweringContent & { nodes: VisualTemporalNode[] };
@@ -88,6 +89,14 @@ class BoxFunction extends ASTFunctionNode {
         ctx.addAttachment(attachment);
         const first = content.nodes[0];
         if (first) {
+            if (attachment.reservedHost) {
+                const prepareLayout = first.prepareLayout;
+                first.prepareLayout = context => {
+                    prepareLayout.call(first, context);
+                    const space = { order: Infinity, height: Math.max(0, this.padding + this.stroke / 2) };
+                    first.decorations.push({ above: space, below: space });
+                };
+            }
             const prepare = first.prepareHorizontal;
             first.prepareHorizontal = line => {
                 prepare?.call(first, line);
@@ -116,6 +125,7 @@ export const BoxNode: ASTFunctionClass = BoxFunction;
 
 class BoxLayoutAttachment implements LayoutAttachment {
     layer = "background" as const;
+    readonly reservedHost?: VisualTemporalNode;
 
     private fixedStart: VisualTemporalNode | null = null;
     private wallOffset = 0;
@@ -124,7 +134,14 @@ class BoxLayoutAttachment implements LayoutAttachment {
     constructor(
         private readonly content: BoxContent,
         private readonly owner: BoxFunction,
-    ) {}
+    ) {
+        const [host] = content.nodes;
+        // 后测关系可能超出主体，只有已内含的嵌套框能提前预留完整空间
+        if (content.nodes.length === 1 && content.attachments.every(attachment =>
+            attachment instanceof BoxLayoutAttachment && attachment.reservedHost === host)) {
+            this.reservedHost = host;
+        }
+    }
 
     /** 只在完整包含成员的视图注册；留白和定宽共用同一个由内向外执行的 hook */
     registerHorizontal(line: HorizontalLineView) {
@@ -217,7 +234,7 @@ class BoxLayoutAttachment implements LayoutAttachment {
         }
 
         const inset = padding + stroke / 2;
-        // 边框不抢轨道纵向空间，只参与画布边界
+        // 单主体已提前预留空间，范围框在最终测量时申报外围占用
         const fixedX = this.fixedStart
             ? this.fixedStart.box.x + this.fixedStart.box.anchor + this.wallOffset
             : rect.x;
@@ -236,6 +253,7 @@ class BoxLayoutAttachment implements LayoutAttachment {
         }
         return {
             regions: [region],
+            occupancy: this.reservedHost ? [] : this.occupancy(context, region),
             paint(painter: Painter) {
                 const strokeInset = stroke / 2;
                 painter.drawRect(
@@ -250,5 +268,36 @@ class BoxLayoutAttachment implements LayoutAttachment {
                 );
             },
         };
+    }
+
+    private occupancy(context: AttachmentLayoutContext, region: LayoutRegion): LayoutRegion[] {
+        const owners = new Set<Track>();
+        let line: number | undefined;
+        const include = (index: number, track: Track) => {
+            if (line !== undefined && line !== index) {
+                throw new ErrorDiagnostic("E_BOX_CROSS_LINE", "@box 的内容不能跨越谱面行", this.owner.sourceSpan);
+            }
+            line = index;
+            owners.add(track);
+        };
+        for (const node of this.content.nodes) include(node.layoutLine, node.track);
+        for (const attachment of this.content.attachments) {
+            if (!isLayoutAttachment(attachment)) continue;
+            const occupancy = context.getAttachmentOccupancy(attachment);
+            if (!occupancy) continue;
+            for (const point of attachment.endPoints ?? []) include(point.layoutLine, point.track);
+            for (const part of occupancy) {
+                if (part.line !== undefined) include(part.line, part.track);
+            }
+        }
+        if (line === undefined) return [];
+        const index = line;
+        const sorted = [...owners].sort((left, right) =>
+            context.getVisualAxis(index, left) - context.getVisualAxis(index, right));
+        // 整框只申报外围上下沿，不能把内部轨距重复计入每条轨道
+        return [
+            { ...region, h: 0, line: index, track: sorted[0] },
+            { ...region, y: region.y + region.h, h: 0, line: index, track: sorted.at(-1)! },
+        ];
     }
 }

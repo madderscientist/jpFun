@@ -1,5 +1,5 @@
 import { ErrorDiagnostic } from "../../diagnostic.js";
-import { layoutLocalSequence } from "../../layout/engine.js";
+import { getLayoutBounds, layoutLocalSequence } from "../../layout/engine.js";
 import type { LayoutBox, LayoutPoint, LayoutPrepareContext } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { LoweringAttachment } from "../../lowering/types.js";
@@ -499,7 +499,8 @@ export class GraceTemporal extends TemporalNodeBase {
         // 肩线由它转发上来，所以两侧倚音会落在同一高度而不是层层叠高
         const shoulder = this.host.ports[SHOULDER_PORT]?.y ?? 0;
         const graceTop = shoulder - rise - block.height;
-        const lift = Math.max(0, -graceTop);
+        const hostBounds = getLayoutBounds(this.host);
+        const lift = Math.max(0, -graceTop, -hostBounds.y);
         const graceX = this.side === "pre" ? 0 : hostWidth + sideGap;
         this.hostOffset = {
             x: this.host.box.x + (this.side === "pre" ? block.width + sideGap : 0),
@@ -511,7 +512,7 @@ export class GraceTemporal extends TemporalNodeBase {
         }));
 
         this.box.w = hostWidth + sideGap + block.width;
-        this.box.h = lift + this.host.box.h;
+        this.box.h = lift + hostBounds.y + hostBounds.h;
         this.box.anchor = this.hostOffset.x + this.host.box.anchor;
         this.box.visualAxis = lift + this.host.box.visualAxis;
 
@@ -552,7 +553,7 @@ export class GraceTemporal extends TemporalNodeBase {
     override paint(painter: Painter) {
         for (const member of [this.host, ...this.graces]) {
             member.paint(painter);
-            for (const decoration of member.decorations) decoration.paint(painter);
+            for (const decoration of member.decorations) decoration.paint?.(painter);
         }
 
         if (!this.hookOrigin) return;

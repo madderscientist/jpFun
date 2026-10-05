@@ -87,7 +87,6 @@ export function preprocessSource(source: string): {
      * - inQuote：0=不在字符串；其他值为当前引号字符码
      * - escaped：仅在字符串内有效，表示上一个字符是 `\`
      * - pendingCommentStart：>=0 表示已遇到 `%`，等待到行尾/EOF 收口注释
-     * - lastSignificantIndex：当前行最后一个“非换行空白”字符位置
      * - tailBackslashRunStart/tailBackslashRunCount：
      *   当前行末尾候选连续 `\` 片段（允许后面跟空白），用于换行处一次性判定
      */
@@ -95,23 +94,20 @@ export function preprocessSource(source: string): {
     let noPairedQuoteAfter: boolean = false;
     let escaped: boolean = false;
     let pendingCommentStart: number = -1;
-    let lastSignificantIndex: number = -1;
     let tailBackslashRunStart: number = -1;
     let tailBackslashRunCount: number = 0;
 
     const updateLineTailState = (index: number, ch: number): void => {
         if (ch === CHAR_BACKSLASH) {
-            if (tailBackslashRunCount > 0 && lastSignificantIndex + 1 === index) tailBackslashRunCount++;
+            if (tailBackslashRunCount > 0 && tailBackslashRunStart + tailBackslashRunCount === index) tailBackslashRunCount++;
             else {
                 tailBackslashRunStart = index;
                 tailBackslashRunCount = 1;
             }
-            lastSignificantIndex = index;
             return;
         }
         tailBackslashRunStart = -1;
         tailBackslashRunCount = 0;
-        lastSignificantIndex = index;
     };
 
     for (let i = 0; i < sourceLength;) {
@@ -134,7 +130,6 @@ export function preprocessSource(source: string): {
             else if (inQuote === 0 && newlineWidth === 2) pushReplaceRange(i, i + 1);
 
             // 新行重置行内状态
-            lastSignificantIndex = -1;
             tailBackslashRunStart = -1;
             tailBackslashRunCount = 0;
             escaped = false;

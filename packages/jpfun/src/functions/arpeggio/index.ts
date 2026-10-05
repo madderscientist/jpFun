@@ -1,6 +1,6 @@
 import { ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { Fraction } from "../../fraction.js";
-import { prepareLayoutHost } from "../../layout/engine.js";
+import { getLayoutBounds, prepareLayoutHost } from "../../layout/engine.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { Track } from "../../lowering/track.js";
@@ -83,8 +83,7 @@ class ArpeggioFunction extends ASTFunctionNode {
     }
 
     override loweringEnter(ctx: LoweringContext, track: Track) {
-        let host: VisualTemporalNode | null = null;
-        ctx.isolateFromLoweringGroups(() => {
+        const host = ctx.isolateFromLoweringGroups(() => {
             const events = ctx.trackedEvents(this.content, new Fraction(), track).flat();
             if (events.length !== 1 || !events[0].box) {
                 throw new ErrorDiagnostic(
@@ -93,10 +92,10 @@ class ArpeggioFunction extends ASTFunctionNode {
                     this.content.sourceSpan,
                 );
             }
-            host = events[0] as VisualTemporalNode;
+            return events[0] as VisualTemporalNode;
         });
 
-        const fold = readFold(host!);
+        const fold = readFold(host);
         if (!fold || fold.members.length < 2 || fold.members.some(member => member.track !== track)) {
             throw new ErrorDiagnostic(
                 "E_ARPEGGIO_INVALID_CONTENT",
@@ -161,23 +160,25 @@ class ArpeggioTemporal extends TemporalNodeBase {
 
         const em = this.ast.size;
         const gap = em * 0.16;
-        const { commands, bounds: markBounds } = prepareArpeggioShape(this.host.box.h, em, this.ast.direction);
+        const contentBounds = getLayoutBounds(this.host, true);
+        const bounds = getLayoutBounds(this.host);
+        const { commands, bounds: markBounds } = prepareArpeggioShape(contentBounds.h, em, this.ast.direction);
         this.markCommands = commands;
         this.markX = -markBounds.x;
         this.hostX = markBounds.w + gap;
         this.box.w = this.hostX + this.host.box.w;
-        this.box.h = this.host.box.h;
+        this.box.h = bounds.h;
         this.box.anchor = this.hostX + this.host.box.anchor;
-        this.box.visualAxis = this.host.box.visualAxis;
+        this.box.visualAxis = this.host.box.visualAxis - bounds.y;
         for (const name in this.host.ports) {
             const port = this.host.ports[name];
-            this.ports[name] = { x: this.hostX + port.x, y: port.y };
+            this.ports[name] = { x: this.hostX + port.x, y: port.y - bounds.y };
         }
     }
 
     override onPlaced() {
         this.host.box.x = this.box.x + this.hostX;
-        this.host.box.y = this.box.y;
+        this.host.box.y = this.box.y - (getLayoutBounds(this.host).y - this.host.box.y);
         this.host.onPlaced?.();
     }
 
@@ -224,11 +225,11 @@ class ArpeggioTemporal extends TemporalNodeBase {
 
     override paint(painter: Painter) {
         const originX = this.box.x;
-        const originY = this.box.y;
+        const originY = getLayoutBounds(this.host, true).y;
         painter.drawPath(this.markCommands, { fill: "#000" }, {
             x: originX + this.markX, y: originY, scaleX: 1, scaleY: 1,
         });
         this.host.paint(painter);
-        for (const decoration of this.host.decorations) decoration.paint(painter);
+        for (const decoration of this.host.decorations) decoration.paint?.(painter);
     }
 }

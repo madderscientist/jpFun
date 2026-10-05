@@ -134,6 +134,9 @@ interface AdjustTargets {
 function offsetTemporal(node: VisualTemporalNode, owner: AdjustFunction) {
     const { dx, dy, dw, dh } = owner;
     if (dx === 0 && dy === 0 && dw === 0 && dh === 0) return;
+    if (dx !== 0 || dy !== 0) {
+        node.placementOffset = { x: (node.placementOffset?.x ?? 0) + dx, y: (node.placementOffset?.y ?? 0) + dy };
+    }
 
     let placedX: number | undefined;
     let placedY: number | undefined;
@@ -167,11 +170,12 @@ function offsetAttachment(
     dx: number,
     dy: number,
 ) {
-    if (dx === 0 && dy === 0) return;
+    if (targets.temporal > 0 || (dx === 0 && dy === 0)) return;
+    attachment.placementOffset = { x: (attachment.placementOffset?.x ?? 0) + dx, y: (attachment.placementOffset?.y ?? 0) + dy };
     const createGeometry = attachment.createGeometry;
     attachment.createGeometry = (context: AttachmentLayoutContext) => {
         const geometry = createGeometry.call(attachment, context);
-        if (targets.temporal > 0) return geometry;
+        if (targets.temporal > 0 || context.layoutOnly) return geometry;
 
         const shift = (region: LayoutRegion): LayoutRegion => region.line === void 0
             ? { x: region.x + dx, y: region.y + dy, w: region.w, h: region.h }

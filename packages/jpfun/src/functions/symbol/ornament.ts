@@ -39,7 +39,7 @@ export function ornament(pattern: OrnamentPattern): PlaybackTransform {
             // 用 Fraction 等分最终区间，保证首尾边界准确且不会积累浮点时间误差。
             for (let index = 0; index < steps.length; index++) {
                 const offset = steps[index];
-                const start = note.start.clone().add(step.clone().mul(index));
+                const start = step.clone().mul(index).add(note.start);
                 result.push({
                     ...note,
                     start,

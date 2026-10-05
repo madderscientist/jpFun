@@ -13,7 +13,7 @@ import {
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import { Fraction } from "../../fraction.js";
 import type { Track } from "../../lowering/track.js";
-import { layoutLocalSequence } from "../../layout/engine.js";
+import { getLayoutBounds, layoutLocalSequence } from "../../layout/engine.js";
 import type { HorizontalLineView, LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";
 import type { PlaybackEmitter } from "../../playback/types.js";
@@ -391,16 +391,18 @@ class FoldTemporal extends TemporalNodeBase {
         this.verticalOffsets.fill(0);
 
         // 以宿主盒顶为 0，向上得到负坐标、向下得到正坐标，最后整体下移
-        let top = 0;
+        const firstBounds = getLayoutBounds(first);
+        let top = firstBounds.y;
         for (let i = 1; i < this.aboveCount; i++) {
-            top -= gap + this.members[i].box.h;
-            this.verticalOffsets[i] = top;
+            const bounds = getLayoutBounds(this.members[i]);
+            this.verticalOffsets[i] = top - gap - bounds.y - bounds.h;
+            top -= gap + bounds.h;
         }
-        let bottom = first.box.h;
+        let bottom = firstBounds.y + firstBounds.h;
         for (let i = this.aboveCount; i < this.members.length; i++) {
-            bottom += gap;
-            this.verticalOffsets[i] = bottom;
-            bottom += this.members[i].box.h;
+            const bounds = getLayoutBounds(this.members[i]);
+            this.verticalOffsets[i] = bottom + gap - bounds.y;
+            bottom += gap + bounds.h;
         }
         for (let i = 0; i < this.verticalOffsets.length; i++) this.verticalOffsets[i] -= top;
 
@@ -426,7 +428,7 @@ class FoldTemporal extends TemporalNodeBase {
         const topOffset = this.verticalOffsets[topIndex];
         this.ports["tie.top"] = {
             x: anchor,
-            y: topOffset + (this.members[topIndex].ports["tie.top"]?.y ?? 0),
+            y: topOffset + (this.members[topIndex].ports["tie.top"]?.y ?? getLayoutBounds(this.members[topIndex], true).y),
         };
     }
 
@@ -443,7 +445,7 @@ class FoldTemporal extends TemporalNodeBase {
     override paint(painter: Painter) {
         for (const member of this.members) {
             member.paint(painter);
-            for (const decoration of member.decorations) decoration.paint(painter);
+            for (const decoration of member.decorations) decoration.paint?.(painter);
         }
     }
 }

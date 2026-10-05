@@ -448,9 +448,8 @@ export class ParserContext {
                     ); return null;
                 } return num;
             case "boolean":
-                const boolText = text;
-                if (BOOL_RE.test(boolText)) {
-                    return boolText === "true";
+                if (BOOL_RE.test(text)) {
+                    return text === "true";
                 } else {
                     this.diagnostics.push(
                         Diagnostic.warning.InvalidBoolean(text, r)
@@ -503,10 +502,8 @@ export class ParserContext {
                 } return l;
             // 其他类型一律视为string
             default:
-                // 去除首尾引号（单引号或双引号），如果存在
-                let result: string | null = text;
-                return removeQuote(result);
-        } return null;
+                return removeQuote(text);
+        }
     }
 
     length2px(length: LengthValue): number {

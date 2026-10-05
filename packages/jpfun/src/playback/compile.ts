@@ -570,7 +570,7 @@ export function compilePlayback(
     }
 
     // 稳定排序后，由统一出口检查配对、压实轨道编号并剥离编译期字段
-    const finalEvents = events.filter(event => !removed.has(event)).sort(comparePlaybackDraftEvents);
+    const finalEvents = (removed.size ? events.filter(event => !removed.has(event)) : events).sort(comparePlaybackDraftEvents);
     const output = finalizePlaybackEvents(finalEvents, lowering.tracks);
     const eventEnd = finalEvents.at(-1)?.at;
     if (eventEnd && eventEnd.compare(performanceEnd) > 0) performanceEnd.copyFrom(eventEnd);
