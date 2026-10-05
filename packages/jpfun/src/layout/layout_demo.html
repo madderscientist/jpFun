@@ -266,23 +266,13 @@
             this.T = T; // 固有时长
             this.X = X; // 时刻
             // 下面的量是算法要用的
-            this._force = 0;
-            this._column_idx = -1;
             this._row_idx = -1;
         }
         // 无约束是弹簧原长
         margin0() {
             return this.T * Element.alpha;
         }
-        // 给出压缩量算力
-        force(dl) {
-            if (dl <= 0) return 0;
-            const m0 = this.margin0();
-            if (dl <= m0) return Element.beta * dl / this.T;
-            return Element.alpha * Element.beta + Element.mu * (dl - m0);
-        }
         // 给出两个元素和它们的距离，算出相对作用力和两个元素的margin
-        // 公式从 force 中可以推导
         margin_calc(e, dis) {
             let my_m0 = this.margin0();
             let e_m0 = e.margin0();
@@ -296,136 +286,18 @@
             return [(Element.alpha - k) * Element.beta, k * this.T, k * e.T];
         }
     }
-
-    /** 核心算法：给定行元素，迭代求解平衡位置
-     * rows: 二维数组，每行是一个元素数组，元素包含W、T、X属性
-     * limit: 布局宽度限制
-     * lr: 学习率，控制每次迭代移动的距离
-     * maxIter: 最大迭代次数
-     * eps: 收敛阈值，当最大梯度小于该值时停止迭代
-     * crossPunish: 穿墙惩罚系数，当元素被压到边界外时增加的惩罚力度，减少穿墙程度
-     */
-    function calc_base(rows, limit, lr = 2, maxIter = 300, eps = 1e-2, crossPunish = 32) {
-        rows = [...rows];
-        // 形成列
-        let columns = {};
-        for (let i = 0; i < rows.length; i++) {
-            const row = rows[i];
-            for (let j = 0; j < row.length; j++) {
-                const element = row[j];
-                element._row_idx = i;
-                if (!columns[element.X]) columns[element.X] = [];
-                columns[element.X].push(element);
-            }
-        }
-
-        // 如果某列没有所有行的元素，插入占位元素
-        for (const colX in columns) {
-            const col = columns[colX];
-            const rowSet = new Set(col.map(e => e._row_idx));
-            const meanhalfW = col.reduce((s, e) => Math.max(s, e.W), 0) * 0.5;
-            for (let i = 0; i < rows.length; i++) {
-                if (!rowSet.has(i)) {
-                    // 用margin代替width更符合简谱排版
-                    const placeholder = new Element(0, meanhalfW / Element.alpha, parseFloat(colX));
-                    placeholder._row_idx = i;
-                    placeholder._fake = true;
-                    col.push(placeholder);
-                    rows[i].push(placeholder);
-                }
-            }
-        }
-        for (const r of rows) r.sort((a, b) => a.X - b.X);
-
-        // 预排列
-        // 无约束排列
-        const row_x = new Float32Array(rows.length);
-        columns = Object.values(columns).sort((a, b) => a[0].X - b[0].X).map((column, idx) => {
-            const halfW = new Float32Array(column.length);
-            let x = 0;
-            for (let i = 0; i < column.length; i++) {
-                halfW[i] = column[i].W / 2 + column[i].margin0();
-                x = Math.max(x, row_x[column[i]._row_idx] + halfW[i]);
-            }
-            for (let i = 0; i < column.length; i++) {
-                row_x[column[i]._row_idx] = x + halfW[i];
-                column[i]._column_idx = idx;
-            }
-            return {
-                elements: column,
-                X: x,   // 要确定的横坐标
-            };
-        });
-        let x0 = row_x.reduce((a, b) => Math.max(a, b), 0);
-        if (x0 > limit) {
-            // 压缩到中间，减少迭代次数
-            const r = limit / x0;
-            for (const column of columns) column.X *= r;
-        } else {
-            maxIter = -1;   // 不用迭代
-        }
-
-        // 迭代求解平衡位置
-        let turn = 0, f_max = 0;
-        for (; turn < maxIter; turn++) {
-            // 由于力只有横向有，因此每一行算每个元素的力
-            for (const r of rows) {
-                for (const _ of r) _._force = 0;
-                for (let i = 0; i <= r.length; i++) {   // 遍历每个空隙
-                    if (i == 0) {   // 最左边和墙壁
-                        let dis = columns[r[i]._column_idx].X - r[i].W / 2;
-                        if (dis < 0) dis *= crossPunish; // 减少穿墙 在这里乘保持连续性
-                        let force = r[i].force(r[i].margin0() - dis);
-                        r[i]._force += force;
-                    } else if (i == r.length) { // 最右边和墙壁
-                        let dis = limit - (columns[r[i - 1]._column_idx].X + r[i - 1].W / 2);
-                        if (dis < 0) dis *= crossPunish;
-                        let force = r[i - 1].force(r[i - 1].margin0() - dis);
-                        r[i - 1]._force -= force;
-                    } else {
-                        const column_l = columns[r[i - 1]._column_idx];
-                        const column_r = columns[r[i]._column_idx];
-                        const dis = column_r.X - column_l.X;
-                        const [f, margin_l, margin_r] = r[i - 1].margin_calc(r[i], dis);
-                        r[i - 1]._force -= f;
-                        r[i]._force += f;
-                    }
-                }
-            }
-            // 梯度下降 力是能量的梯度
-            f_max = 0;
-            // let _lr = (1 - turn / maxIter) * lr;
-            let _lr = lr * (Math.cos(Math.PI * turn / maxIter) + 1) / 2; // 余弦更快
-            for (let i = 0; i < columns.length; i++) {
-                const column = columns[i];
-                let f = column.elements.reduce((f, element) => f + element._force, 0);  // 该列的总力
-                let absf = Math.abs(f);
-                f_max = Math.max(f_max, absf);
-                // 限制最大步长不超过_lr 数值容易爆炸
-                let step = f * _lr / (1 + absf);
-                column.X += step;
-            }
-            if (f_max < eps) break;
-        }
-        console.log(`迭代${turn}次，最大梯度${f_max.toExponential(2)}`);
-        // 返回元素位置映射
-        let res = new WeakMap();
-        for (const column of columns) {
-            for (const element of column.elements) res.set(element, column.X);
-        } return res;
-    }
 </script>
 <script>
-    /** 
-     * 核心算法：基于无矩阵共轭梯度牛顿法（Matrix-Free CG-Newton）与双向扫掠投影的排版求解器
-     * 【未优化，仅仅是思路】
-     * 
+    /**
+     * 核心算法：汇总各声部刚度，以三对角直接求解执行阻尼牛顿迭代。
+     * 示例使用对称宽度、统一弹簧参数，T 直接表示参与计算的时长。
+     *
      * rows: 二维数组，每行是一个元素数组，元素包含 W、T、X 属性
      * limit: 布局宽度限制
      * damping: 牛顿步衰减系数（相当于学习率，Newton法默认步长为1，0.6~0.8的阻尼能极好地稳定分段边界的突变）
      * maxIter: 最大迭代次数
      * eps: 收敛阈值，当最大梯度小于该值时停止迭代
-     * crossPunish: 穿墙惩罚系数（由于有投影兜底，此值不需要设得过大，1~5 即可保持良好的受力平衡）
+     * crossPunish: 穿墙惩罚系数；墙力为软约束，不执行边界投影
      */
     function calc(rows, limit, damping = 0.6, maxIter = 100, eps = 1e-2, crossPunish = 32) {
         rows = [...rows];
@@ -460,171 +332,93 @@
         for (const r of rows) r.sort((a, b) => a.X - b.X);
 
         // 3. 预排列
-        const row_x = new Float32Array(rows.length);
-        const sortedColumns = Object.values(columns).sort((a, b) => a[0].X - b[0].X).map((column, idx) => {
-            const halfW = new Float32Array(column.length);
+        const row_x = new Float64Array(rows.length);
+        const sortedColumns = Object.values(columns).sort((a, b) => a[0].X - b[0].X).map(column => {
+            const byRow = new Array(rows.length);
+            for (const el of column) {
+                const previous = byRow[el._row_idx];
+                if (!previous || el.T > previous.T) byRow[el._row_idx] = el;
+            }
+            // 同轨同列只让时长最大的元素参与求解，其余元素共享该列位置。
+            const halfW = Float64Array.from(byRow, el => el.W / 2 + el.margin0());
             let x = 0;
-            for (let i = 0; i < column.length; i++) {
-                halfW[i] = column[i].W / 2 + column[i].margin0();
-                x = Math.max(x, row_x[column[i]._row_idx] + halfW[i]);
-            }
-            for (let i = 0; i < column.length; i++) {
-                row_x[column[i]._row_idx] = x + halfW[i];
-                column[i]._column_idx = idx;
-            }
+            for (let r = 0; r < rows.length; r++) x = Math.max(x, row_x[r] + halfW[r]);
+            for (let r = 0; r < rows.length; r++) row_x[r] = x + halfW[r];
             return {
                 elements: column,
+                byRow,
                 X: x,   // 要确定的横坐标
             };
         });
 
-        let x0 = row_x.reduce((a, b) => Math.max(a, b), 0);
-        if (x0 > limit) {
-            // 压缩到中间，减少迭代次数
-            const r = limit / x0;
-            for (const column of sortedColumns) column.X *= r;
-        } else {
-            maxIter = -1; // 空间充足，无需迭代
+        function positions() {
+            const res = new WeakMap();
+            for (const column of sortedColumns) {
+                for (const el of column.elements) res.set(el, column.X);
+            }
+            return res;
         }
 
-        // 计算各列受到的合力
-        function computeForces(cols, limit) {
-            for (const r of rows) {
-                for (const el of r) el._force = 0;
-                for (let i = 0; i <= r.length; i++) {   // 遍历每个空隙
-                    if (i === 0) { // 最左边和墙壁
-                        let dis = cols[r[i]._column_idx].X - r[i].W / 2;
-                        if (dis < 0) dis *= crossPunish; // 减少穿墙 在这里乘保持连续性
-                        let force = r[i].force(r[i].margin0() - dis);
-                        r[i]._force += force;
-                    } else if (i === r.length) { // 最右边和墙壁
-                        let dis = limit - (cols[r[i - 1]._column_idx].X + r[i - 1].W / 2);
-                        if (dis < 0) dis *= crossPunish;
-                        let force = r[i - 1].force(r[i - 1].margin0() - dis);
-                        r[i - 1]._force -= force;
-                    } else { // 内部相邻弹簧
-                        const col_l = cols[r[i - 1]._column_idx];
-                        const col_r = cols[r[i]._column_idx];
-                        const dis = col_r.X - col_l.X;
-                        const [f, margin_l, margin_r] = r[i - 1].margin_calc(r[i], dis);
-                        r[i - 1]._force -= f;
-                        r[i]._force += f;
-                    }
-                }
-            }
+        const x0 = row_x.reduce((a, b) => Math.max(a, b), 0);
+        if (x0 <= limit) return positions();
+        for (const column of sortedColumns) column.X *= limit / x0;
 
-            // 汇总为每列的合力
-            const F = new Float32Array(cols.length);
-            for (let i = 0; i < cols.length; i++) {
-                F[i] = cols[i].elements.reduce((sum, el) => sum + el._force, 0);
-            }
-            return F;
+        const n = sortedColumns.length;
+        const F = new Float64Array(n);
+        const stiffness = new Float64Array(n + 1);
+        const diagonal = new Float64Array(n);
+        const dx = new Float64Array(n);
+
+        function addWall(el, column, gap, sign) {
+            const margin = el.margin0();
+            if (gap >= margin) return;
+            const k = gap < 0 ? Element.mu * crossPunish : Element.beta / el.T;
+            const force = gap < 0
+                ? Element.alpha * Element.beta - k * gap
+                : k * (margin - gap);
+            F[column] += sign * force;
+            stiffness[sign > 0 ? 0 : n] += k;
         }
 
-        // 无矩阵 Hessian 乘法器：计算 H * p 的值
-        function multiplyH(p, cols, limit) {
-            const Hp = new Float32Array(p.length);
-
-            // 1. 内部弹簧的二阶刚度贡献
-            for (const r of rows) {
-                for (let i = 1; i < r.length; i++) {
-                    const el_l = r[i - 1];
-                    const el_r = r[i];
-                    const col_l = el_l._column_idx;
-                    const col_r = el_r._column_idx;
-
-                    const x_l = cols[col_l].X;
-                    const x_r = cols[col_r].X;
-                    const dis_eff = (x_r - x_l) - (el_l.W + el_r.W) / 2;
-                    const m0_total = el_l.margin0() + el_r.margin0();
-
-                    let K = 0; // 局部切线劲度系数
-                    if (dis_eff <= 0) {
-                        K = Element.mu / 2; // 进入重叠区域，刚度为 mu/2
-                    } else if (dis_eff < m0_total) {
-                        K = Element.beta / (el_l.T + el_r.T); // 正常压缩区域
-                    }
-
-                    const dp = p[col_r] - p[col_l];
-                    Hp[col_l] -= K * dp;
-                    Hp[col_r] += K * dp;
+        function computeForces() {
+            F.fill(0);
+            stiffness.fill(0);
+            for (let r = 0; r < rows.length; r++) {
+                const first = sortedColumns[0].byRow[r];
+                addWall(first, 0, sortedColumns[0].X - first.W / 2, 1);
+                for (let c = 1; c < n; c++) {
+                    const left = sortedColumns[c - 1].byRow[r];
+                    const right = sortedColumns[c].byRow[r];
+                    const gap = sortedColumns[c].X - sortedColumns[c - 1].X - (left.W + right.W) / 2;
+                    const margin = left.margin0() + right.margin0();
+                    if (gap >= margin) continue;
+                    const normal = Element.beta / (left.T + right.T);
+                    const k = gap < 0 ? Element.mu / 2 : normal;
+                    const force = gap < 0 ? normal * margin - k * gap : normal * (margin - gap);
+                    F[c - 1] -= force;
+                    F[c] += force;
+                    stiffness[c] += k;
                 }
+                const last = sortedColumns[n - 1].byRow[r];
+                addWall(last, n - 1, limit - sortedColumns[n - 1].X - last.W / 2, -1);
             }
+        }
 
-            // 2. 边界墙壁的二阶刚度贡献
-            for (const r of rows) {
-                if (r.length === 0) continue;
-
-                // 左墙
-                const el_l = r[0];
-                const col_l = el_l._column_idx;
-                const dis_l = cols[col_l].X - el_l.W / 2;
-                let K_l = 0;
-                if (dis_l < 0) {
-                    K_l = Element.mu * crossPunish;
-                } else if (dis_l < el_l.margin0()) {
-                    K_l = Element.beta / el_l.T;
-                }
-                Hp[col_l] += K_l * p[col_l];
-
-                // 右墙
-                const el_r = r[r.length - 1];
-                const col_r = el_r._column_idx;
-                const dis_r = limit - (cols[col_r].X + el_r.W / 2);
-                let K_r = 0;
-                if (dis_r < 0) {
-                    K_r = Element.mu * crossPunish;
-                } else if (dis_r < el_r.margin0()) {
-                    K_r = Element.beta / el_r.T;
-                }
-                Hp[col_r] += K_r * p[col_r];
-            }
-
-            // 3. 阻尼正则项（Levenberg-Marquardt），保证矩阵严格正定，避免奇异性
+        function solveTridiagonal() {
+            // H[i,i] = K[i] + K[i+1] + lambda，H[i-1,i] = -K[i]。
             const lambda = 1e-4;
-            for (let i = 0; i < p.length; i++) {
-                Hp[i] += lambda * p[i];
+            for (let i = 0; i < n; i++) {
+                const factor = i === 0 ? 0 : stiffness[i] / diagonal[i - 1];
+                const pivot = stiffness[i] + stiffness[i + 1] + lambda - factor * stiffness[i];
+                if (!(pivot > 0) || !Number.isFinite(pivot)) {
+                    throw new Error("Horizontal spring stiffness must produce a finite positive definite system");
+                }
+                diagonal[i] = pivot;
+                dx[i] = F[i] + (i === 0 ? 0 : factor * dx[i - 1]);
             }
-
-            return Hp;
-        }
-
-        // 向量点积
-        function dot(a, b) {
-            let sum = 0;
-            for (let i = 0; i < a.length; i++) sum += a[i] * b[i];
-            return sum;
-        }
-
-        // 共轭梯度法（CG）求解器：在不显式存储大型矩阵的情况下计算 H * dx = F
-        function solveCG(cols, F, maxCGIter = 8) {
-            const n = F.length;
-            const dx = new Float32Array(n);
-            const r = new Float32Array(F); // 初始残差 r = F - H * dx = F
-            const p = new Float32Array(r);
-
-            let rsold = dot(r, r);
-            if (rsold < 1e-12) return dx;
-
-            for (let iter = 0; iter < maxCGIter; iter++) {
-                const Hp = multiplyH(p, cols, limit);
-                const p_Hp = dot(p, Hp);
-                if (Math.abs(p_Hp) < 1e-12) break;
-
-                const alpha = rsold / p_Hp;
-                for (let i = 0; i < n; i++) {
-                    dx[i] += alpha * p[i];
-                    r[i] -= alpha * Hp[i];
-                }
-
-                const rsnew = dot(r, r);
-                if (Math.sqrt(rsnew) < 1e-6) break;
-
-                const beta = rsnew / rsold;
-                for (let i = 0; i < n; i++) {
-                    p[i] = r[i] + beta * p[i];
-                }
-                rsold = rsnew;
+            dx[n - 1] /= diagonal[n - 1];
+            for (let i = n - 2; i >= 0; i--) {
+                dx[i] = (dx[i] + stiffness[i + 1] * dx[i + 1]) / diagonal[i];
             }
             return dx;
         }
@@ -633,7 +427,7 @@
         let turn = 0, f_max = 0;
         for (; turn < maxIter; turn++) {
             // 计算当前受力
-            const F = computeForces(sortedColumns, limit);
+            computeForces();
             // 检查收敛条件
             f_max = 0;
             for (let i = 0; i < F.length; i++) {
@@ -643,7 +437,7 @@
             if (f_max < eps) break;
 
             // 求解牛顿方向
-            const dx = solveCG(sortedColumns, F);
+            const dx = solveTridiagonal();
 
             // 应用阻尼更新位置
             for (let i = 0; i < sortedColumns.length; i++) {
@@ -651,13 +445,8 @@
             }
         }
 
-        console.log(`[Newton-CG] 迭代 ${turn} 次，最大梯度 ${f_max.toExponential(2)}`);
-
-        // 返回元素位置映射
-        let res = new WeakMap();
-        for (const column of sortedColumns) {
-            for (const element of column.elements) res.set(element, column.X);
-        } return res;
+        console.log(`[Newton-Tridiagonal] 迭代 ${turn} 次，最大梯度 ${f_max.toExponential(2)}`);
+        return positions();
     }
 </script>
 <script>

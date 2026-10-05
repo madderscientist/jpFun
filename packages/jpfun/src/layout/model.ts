@@ -144,7 +144,7 @@ function fillPlaceholders(columns: LayoutElement[][], F: number = DEFAULT_F): {
 //==== 物理模拟 ====
 interface ForceStiffnessResult {
     force: number;
-    stiffness: number;  // 等效弹簧的刚度，用于 CG 内部计算 是力的梯度
+    stiffness: number;  // 等效弹簧的刚度，是力的梯度
 }
 
 // 串联弹簧力学解析
@@ -266,19 +266,18 @@ function solveHorizontal(
     x0 = limit / x0;
     for (let c = 0; c < numCols; c++) X[c] *= x0;
 
-    // --- 预分配物理引擎所需的全部静态缓存空间，杜绝主循环内的 GC 损耗 ---
     const F_vec = new Float64Array(numCols);
-    const stiffnessCache = new Float32Array(rows * (numCols + 1));
-    // 计算全局合力，并就地填充刚度缓存
+    // 各声部共享列坐标，刚度按左墙、相邻列、右墙汇总。
+    const stiffness = new Float64Array(numCols + 1);
     function computeForces(cols_X: Float64Array): Float64Array {
         F_vec.fill(0);
+        stiffness.fill(0);
         for (let r = 0; r < rows; r++) {
-            const rowOffset = r * (numCols + 1);
             // 左墙
             const el_first = mat[0][r];
             const res_left = calcLeftWall(el_first, cols_X[0], crossPunish);
             F_vec[0] += res_left.force;
-            stiffnessCache[rowOffset] = res_left.stiffness; // 缓存左墙刚度
+            stiffness[0] += res_left.stiffness;
 
             // 内部链弹簧力传导
             for (let c = 1; c < numCols; c++) {
@@ -287,77 +286,36 @@ function solveHorizontal(
                 const res = calcPairForceAndStiffness(el_l, el_r, cols_X[c - 1], cols_X[c]);
                 F_vec[c - 1] -= res.force;
                 F_vec[c] += res.force;
-                stiffnessCache[rowOffset + c] = res.stiffness; // 缓存链弹簧刚度
+                stiffness[c] += res.stiffness;
             }
 
             // 右墙
             const el_last = mat[numCols - 1][r];
             const res_right = calcRightWall(el_last, cols_X[numCols - 1], limit, crossPunish);
             F_vec[numCols - 1] -= res_right.force;
-            stiffnessCache[rowOffset + numCols] = res_right.stiffness; // 缓存右墙刚度
+            stiffness[numCols] += res_right.stiffness;
         } return F_vec;
     }
 
-    const Hp = new Float64Array(numCols);
-    // Hessian 矩阵切向刚度乘以位移向量 p (精简参数，移除了无用的 cols_X)
-    function multiplyH(p: Float64Array): Float64Array {
-        Hp.fill(0);
-        for (let r = 0, rowOffset = 0; r < rows; r++, rowOffset += (numCols + 1)) {
-            // 左墙刚度
-            Hp[0] += stiffnessCache[rowOffset] * p[0];
-            // 链弹簧二阶切线刚度
-            for (let c = 1; c < numCols; c++) {
-                const Kdp = stiffnessCache[rowOffset + c] * (p[c] - p[c - 1]);
-                Hp[c - 1] -= Kdp;
-                Hp[c] += Kdp;
-            }
-            // 右墙刚度
-            Hp[numCols - 1] += stiffnessCache[rowOffset + numCols] * p[numCols - 1];
-        }
-        // L-M 正则阻尼，保证矩阵严格正定，避免奇异性
-        const lambda = 1e-4;
-        for (let i = 0; i < p.length; i++) Hp[i] += lambda * p[i];
-        return Hp;
-    }
-
-    function dot(a: Float64Array, b: Float64Array): number {
-        let sum = 0;
-        for (let i = 0; i < a.length; i++) sum += a[i] * b[i];
-        return sum;
-    }
-
-    // 必须用 Float64Array 不然影响收敛
+    const diagonal = new Float64Array(numCols);
     const dx = new Float64Array(numCols);
-    const R = new Float64Array(numCols);
-    const P = new Float64Array(numCols);
-    // 共轭梯度线性解算
-    function solveCG(F_vec: Float64Array, maxCGIter = 8): Float64Array {
-        dx.fill(0);
-        R.set(F_vec);
-        P.set(R);
-
-        let rsold = dot(R, R);
-        if (rsold < 1e-12) return dx;
-
-        for (let iter = 0; iter < maxCGIter; iter++) {
-            const Hp = multiplyH(P);
-            const p_Hp = dot(P, Hp);
-            if (Math.abs(p_Hp) < 1e-12) break;
-
-            const alpha = rsold / p_Hp;
-            for (let i = 0; i < numCols; i++) {
-                dx[i] += alpha * P[i];
-                R[i] -= alpha * Hp[i];
+    function solveTridiagonal(): Float64Array {
+        // H[i,i] = K[i] + K[i+1] + lambda，H[i-1,i] = -K[i]。
+        const lambda = 1e-4;
+        for (let i = 0; i < numCols; i++) {
+            const factor = i === 0 ? 0 : stiffness[i] / diagonal[i - 1];
+            const pivot = stiffness[i] + stiffness[i + 1] + lambda - factor * stiffness[i];
+            if (!(pivot > 0) || !Number.isFinite(pivot)) {
+                throw new Error("Horizontal spring stiffness must produce a finite positive definite system");
             }
-
-            const rsnew = dot(R, R);
-            if (Math.sqrt(rsnew) < 1e-6) break;
-
-            const beta = rsnew / rsold;
-            for (let i = 0; i < numCols; i++) {
-                P[i] = R[i] + beta * P[i];
-            } rsold = rsnew;
-        } return dx;
+            diagonal[i] = pivot;
+            dx[i] = F_vec[i] + (i === 0 ? 0 : factor * dx[i - 1]);
+        }
+        dx[numCols - 1] /= diagonal[numCols - 1];
+        for (let i = numCols - 2; i >= 0; i--) {
+            dx[i] = (dx[i] + stiffness[i + 1] * dx[i + 1]) / diagonal[i];
+        }
+        return dx;
     }
 
     // 主物理迭代牛顿步
@@ -370,7 +328,7 @@ function solveHorizontal(
             if (absf > f_max) f_max = absf;
         }
         if (f_max < eps) break;
-        const dx = solveCG(F_vec);
+        const dx = solveTridiagonal();
         for (let i = 0; i < numCols; i++) {
             X[i] += damping * dx[i];
         }
