@@ -22,7 +22,7 @@ import type { Painter } from "../render/types.js";
  * 沿记谱顺序流动的时间状态
  *
  * 速度、力度、调性、音色是系统级字段：有确定的类型和初值，任何时刻都能直接读，不用写兼容分支。
- * 其余键由具体函数自行约定，核心不认识。
+ * 拍号仅在显式设置后有值；其余自定义键由具体函数约定，核心不认识。
  *
  * velocity 和 program 按音轨各自流动，新音轨继承分叉处父轨的值；其余键整篇共享。
  */
@@ -31,6 +31,8 @@ export interface TimeState {
     velocity: number;
     keySignature: string;
     program: number;
+    /** 当前小节时长（QN）；尚无显式拍号时为 undefined */
+    meter?: Fraction;
     [key: string]: any;
 }
 export const DEFAULT_BPM = 120;
@@ -147,9 +149,9 @@ export class TemporalNodeBase implements TimeLineEvent {
 
     /**
      * 时间状态 修改&冻结 入口
-     * 调用时机在时间位置已经确定之后，处理“调性、速度、拍号”等时间信息的固化
+     * 当前列定位后固化状态；偏移仅支持非负值，整列取最大值累加到后续列
      */
-    onTimeState?(state: TimeState): void;
+    onTimeState?(state: TimeState): Fraction | void;
 
     /** 把已固化的音乐语义声明为播放事件；不执行实时播放 */
     emitPlayback?(emitter: PlaybackEmitter): void;

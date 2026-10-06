@@ -14,6 +14,7 @@ import { KeyNode } from "./key/index.js";
 import { MeterNode } from "./meter/index.js";
 import { BrNode } from "./br/index.js";
 import { NoteNode } from "./note/index.js";
+import { RestNode } from "./rest/index.js";
 import { UpNode, DownNode } from "./up/index.js";
 import { PageNode } from "./page/index.js";
 import { ProgramNode } from "./program/index.js";
@@ -28,7 +29,7 @@ import { TupletNode } from "./tuplet/index.js";
 import { VoiceNode, VoicesNode } from "./voice/index.js";
 
 export const defaultFunctions: ASTFunctionClass[] = [
-    NoteNode, DashNode, BarNode, // 有实体
+    NoteNode, DashNode, RestNode, BarNode,
     DivNode, DotNode, TupletNode,   // 装饰性
     VoiceNode, VoicesNode,  // 歌词和声部
     BrNode,     // 排版

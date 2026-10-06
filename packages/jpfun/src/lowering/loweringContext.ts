@@ -104,7 +104,7 @@ export class LoweringContext {
         const rootTrack = new Track();
         const duration = new Fraction();
         const columns = this.trackedEvents(node, duration, rootTrack);
-        this.solidifyColumns(columns);
+        this.solidifyColumns(columns, duration);
         return this.postprocessResult({
             diagnostics: this.diagnostics,
             columns,
@@ -118,9 +118,9 @@ export class LoweringContext {
     }
 
     /**
-     * 固化谱面行号并进行时间状态固化
+     * 固化谱面行号、时间状态和最终时长
      */
-    private solidifyColumns(columns: TimeColumn[]) {
+    private solidifyColumns(columns: TimeColumn[], duration: Fraction) {
         // 同时刻跨轨的 br 已经合成一列，所以取最大；同轨连写仍是多个列，因而累加
         let line = 0;
         for (const column of columns) {
@@ -147,13 +147,38 @@ export class LoweringContext {
             velocities.get(track) ?? (track.parent ? velocityOf(track.parent) : DEFAULT_VELOCITY);
         const programOf = (track: Track): number =>
             programs.get(track) ?? (track.parent ? programOf(track.parent) : DEFAULT_PROGRAM);
+        const timeOffset = new Fraction();
         for (const column of columns) {
+            if (!timeOffset.isZero()) column.shiftTime(timeOffset);
+            let insertion: Fraction | undefined;
             for (const node of column) {
                 state.velocity = velocityOf(node.track);
                 state.program = programOf(node.track);
-                node.onTimeState?.(state);
+                const offset = node.onTimeState?.(state);
+                if (offset && !offset.isZero() && (!insertion || offset.compare(insertion) > 0)) {
+                    (insertion ??= new Fraction()).copyFrom(offset);
+                }
                 velocities.set(node.track, state.velocity);
                 programs.set(node.track, state.program);
+            }
+            // 同列声部一起开始，只在整列固化后累加一次偏移
+            if (insertion) timeOffset.add(insertion);
+        }
+        if (timeOffset.isZero()) return;
+
+        // 偏移非负、同轨时序前进，只需各轨尾节点；programs 已记录全部全局轨道
+        const tracks = new Set(programs.keys());
+        const end = new Fraction();
+        duration.set(0);
+        for (let i = columns.length - 1; i >= 0 && tracks.size > 0; i--) {
+            const column = columns[i];
+            for (let j = column.length - 1; j >= 0; j--) {
+                const node = column[j];
+                if (!tracks.delete(node.track)) continue;
+                const T = node.T;
+                end.copyFrom(node.t);
+                if (!T.isZero()) end.add(T);
+                if (end.compare(duration) > 0) duration.copyFrom(end);
             }
         }
     }

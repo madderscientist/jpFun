@@ -1,6 +1,6 @@
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import { getLayoutBounds, layoutLocalSequence } from "../../layout/engine.js";
-import type { LayoutBox, LayoutPoint, LayoutPrepareContext } from "../../layout/types.js";
+import type { HorizontalLineView, LayoutBox, LayoutPoint, LayoutPrepareContext } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { LoweringAttachment } from "../../lowering/types.js";
 import { Fraction } from "../../fraction.js";
@@ -439,11 +439,21 @@ export class GraceTemporal extends TemporalNodeBase {
     override onTimeState(state: TimeState) {
         // 同步时间的修改。比如tuplet修改的是GraceTemporal.T，这里要把它传给成员
         this.host.T.copyFrom(this.T);
+        let offset: Fraction | void = undefined;
         for (const member of this.side === "pre" ? [...this.events, this.host] : [this.host, ...this.events]) {
             member.t.copyFrom(this.t);
             member.layoutLine = this.layoutLine;
-            member.onTimeState?.(state);
+            const result = member.onTimeState?.(state);
+            if (member === this.host) {
+                this.T.copyFrom(member.T);
+                offset = result;
+            }
         }
+        return offset;
+    }
+
+    override prepareHorizontal(line: HorizontalLineView) {
+        this.host.prepareHorizontal?.(line);
     }
 
     /**
@@ -490,6 +500,7 @@ export class GraceTemporal extends TemporalNodeBase {
         }
         const block = context.layoutSubdomain!(this, this.graceColumns, this.root, this.attachments);
         const hostWidth = layoutLocalSequence([this.host], context);
+        this.springConfig = { ...this.host.springConfig, ...this.springConfig };
 
         const graceEm = this.ast.size * GRACE_SCALE;
         const sideGap = graceEm * 0.2;

@@ -33,6 +33,9 @@ test("up 继承成员的锚点合并组，并拒绝非法子节点", () => {
     );
     expectLoweringError(`@up({1 2}, 3)`, "E_UP_INVALID_CHILD");
     expectLoweringError(`@up({@tempo(90) 1}, 3)`, "E_UP_INVALID_CHILD");
+    for (const source of ["@up(@stack(1,3),5)", "@up({},3)", "@up(@program(1),3)"]) {
+        expectLoweringError(source, "E_UP_INVALID_CHILD");
+    }
 });
 
 test("折叠小节线保留宿主的横向间距和防压缩规则", () => {

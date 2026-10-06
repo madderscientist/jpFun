@@ -49,6 +49,18 @@ function acceptSuggestion(state, label, type = "parameter", result = completions
     return transaction.state;
 }
 
+test("rest completion and parameter docs come from its ordinary function metadata", () => {
+    assert.ok(completionsAt("@re|").options.some(option => option.label === "@rest"));
+    for (const [source, name, type] of [
+        ["@rest(|)", "n", "number"],
+        ["@rest(2, |)", "width", "length"],
+        ["@rest(2,size=|)", "size", "length"],
+    ]) {
+        const info = parameterDocAt(stateAt(source));
+        assert.ok(info.doc.includes(name) && info.doc.includes(`\`${type}\``));
+    }
+});
+
 test("parameter docs follow positional, empty, named and nested arguments", () => {
     for (const [source, name, type, position] of [
         ["@adjust(|)", "\u4f4d\u7f6e\u53c2\u6570", "content", 1],

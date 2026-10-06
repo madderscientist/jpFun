@@ -294,7 +294,26 @@ test("head 内 attachment 进入全局布局", () => {
 });
 
 test("head 拒绝正时长内容", () => {
-    expectLoweringError(`@head(center={1})`, "E_HEAD_NONZERO_DURATION");
+    for (const source of [
+        "@head(center={1})",
+        "@head(left=@rest(2))",
+        "@head(center=@up(@rest(2), @text(X)))",
+        "@head(right=@grace(@rest(2), 1))",
+        "@head(center=@head(right=@rest(2)))",
+        "@stack({@head(left=@rest(2))}, {@text(X)})",
+    ]) {
+        expectLoweringError(`@meter(4,4) ${source}`, "E_HEAD_NONZERO_DURATION");
+    }
+});
+
+test("head 的末边界校验支持多个、嵌套和并行谱头", () => {
+    for (const source of [
+        "@head(left=@text(L)) @head(right=@text(R))",
+        "@head(center=@head(right=@text(R)))",
+        "@stack({@head(left=@text(L))}, {@head(right=@text(R))})",
+    ]) {
+        assert(lower(source).duration.isZero(), "zero-duration heads must remain valid");
+    }
 });
 
 test("H 声明合并并保持一次声明一行", () => {

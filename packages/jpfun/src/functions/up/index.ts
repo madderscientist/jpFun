@@ -44,6 +44,7 @@ type FoldSide = "above" | "below";
  *
  * `contents[0]` 是宿主，其余向上；`belows` 全部向下。两个方向共用一个容器，
  * 所以混写的 `^` / `_` 会全部绑到同一个宿主，不需要括号分组。
+ * 每个参数只能产生一个 VisualTemporalNode，外层统一承担对齐、时值和合列
  */
 class FoldFunction extends ASTFunctionNode {
     declare static readonly side: FoldSide;
@@ -96,14 +97,13 @@ class FoldFunction extends ASTFunctionNode {
 
     /** 参数复用普通 hook，并收敛为单个可见 Temporal 成员 */
     override loweringEnter(ctx: LoweringContext, track: Track) {
-
         const members: VisualTemporalNode[] = [];
         // 成员不是外层分组的成员，折叠体才是；否则 voice 的歌词会按下标错位
         ctx.isolateFromLoweringGroups(() => {
             for (const content of this.children) {
-                // 摊平所有时间列取全部事件，每个成员要求恰好一个
-                const [member, ...rest] = ctx.trackedEvents(content, new Fraction(), track).flat();
-                if (!member || rest.length > 0 || !isVisualTemporalNode(member)) {
+                const columns = ctx.trackedEvents(content, new Fraction(), track);
+                const member = columns.length === 1 && columns[0].length === 1 ? columns[0][0] : undefined;
+                if (!member || !isVisualTemporalNode(member)) {
                     throw new ErrorDiagnostic(
                         "E_UP_INVALID_CHILD",
                         "@up 的每个参数必须恰好产生一个可见 Temporal，且不能包含多声部结构",
@@ -307,21 +307,22 @@ class FoldTemporal extends TemporalNodeBase {
         // members 按 ast.children 构建，而 children 是 [...contents, ...belows]
         this.aboveCount = ast.contents.length;
 
-        // 节奏由第一个有时值的成员决定；否则 `$p ^ 1` 这类写法会把整个折叠体压成零时长
-        const lead = members.find(member => !member.T.isZero());
-        if (lead) this.T.copyFrom(lead.T);
-        this.mergeKey = DEFAULT_KEY;
+        const host = members[0];
+        this.mergeKey = host && host.mergeKey !== host.order ? host.mergeKey : DEFAULT_KEY;
+        // 普通组保留 `$p ^ 1` 的时值回退，专属组不借附属音符提前推进游标
+        const fallback = this.mergeKey === DEFAULT_KEY || this.mergeKey === ANCHOR_KEY;
+        if (!fallback && host) this.T.copyFrom(host.T);
         this.initLayoutBox();
 
         // 宿主决定折叠体的时值，它的修饰语义也随之成为整体的修饰，
         // 自动连梁等语义处理才能看到这个折叠体的节奏；
         // 随后外层 LoweringGroup 会在同一 addon 上继续累加
-        const leadAddon = members[0]?.addon;
-        if (leadAddon) this.addon = { ...leadAddon };
+        const addon = host?.addon;
+        if (addon) this.addon = { ...addon };
 
         for (const member of members) {
-            // 只有锚点需要传上来：`| ^ @text(A)` 得保持小节线语义；
-            // 成员不进全局 columns，它们自己的合并组对外没有意义
+            if (fallback && this.T.isZero()) this.T.copyFrom(member.T);
+            // 锚点仍优先：`| ^ @text(A)` 得保持小节线语义
             if (member.mergeKey === ANCHOR_KEY) this.mergeKey = ANCHOR_KEY;
             // 时间同步在 onTimeState 里做，避免成员的时间被提前固化（后续时间可能会变）
             // 修饰已经提升到折叠体上，成员不再单独绘制，
@@ -337,17 +338,31 @@ class FoldTemporal extends TemporalNodeBase {
      * 成员共享全局时间状态，从写在最后的成员开始固化
      */
     override onTimeState(state: TimeState) {
+        const duration = this.T.clone();
+        let offset: Fraction | void = undefined;
+        let durationChanged = false;
         // 宿主写在最前面，标记写在它后面；标记先写入状态，宿主才读得到
         for (let i = this.members.length - 1; i >= 0; i--) {
             const member = this.members[i];
             // 堆叠在一起的成员共享同一个时值，由第一个成员决定；
             // 本来就没有时长的成员（标注、小节线等）保持 0，不会被拉长
-            if (!member.T.isZero()) member.T.copyFrom(this.T);
+            if (!member.T.isZero() && !this.T.isZero()) member.T.copyFrom(this.T);
             member.t.copyFrom(this.t);
             member.track = this.track;
             member.layoutLine = this.layoutLine;
-            member.onTimeState?.(state);
+            offset = member.onTimeState?.(state);
+            durationChanged ||= !member.T.isZero() && !member.T.equals(duration);
         }
+        const host = this.members[0];
+        if (host && !host.T.isZero()) {
+            this.T.copyFrom(host.T);
+            if (durationChanged) {
+                for (const member of this.members) {
+                    if (!member.T.isZero()) member.T.copyFrom(this.T);
+                }
+            }
+        }
+        return offset;
     }
 
     override emitPlayback(emitter: PlaybackEmitter) {
@@ -363,7 +378,7 @@ class FoldTemporal extends TemporalNodeBase {
      * 宿主留在轨道基线上，其余成员按书写顺序向上或向下叠放
      *
      * 成员不进入全局 columns，因此它们的准备、定位和绘制都由本节点负责；
-    * 每个成员独立执行局部横排，宿主继承含框约束的占位，其余成员仍沿宿主锚点悬挂。
+     * 每个成员独立执行局部横排，宿主继承含框约束的占位，其余成员仍沿宿主锚点悬挂。
      */
     override prepareLayout(context: LayoutPrepareContext) {
         // lowering 期间修饰挂在折叠体上（augmenter 要看到整体节奏），渲染时交给宿主：
@@ -388,7 +403,7 @@ class FoldTemporal extends TemporalNodeBase {
         const anchor = first.box.x + first.box.anchor;
         const gap = this.ast.size * 0.12;
         this.verticalOffsets.length = this.members.length;
-        this.verticalOffsets.fill(0);
+        this.verticalOffsets[0] = 0;
 
         // 以宿主盒顶为 0，向上得到负坐标、向下得到正坐标，最后整体下移
         const firstBounds = getLayoutBounds(first);

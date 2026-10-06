@@ -1,7 +1,7 @@
 import { ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { Fraction } from "../../fraction.js";
 import { getLayoutBounds, prepareLayoutHost } from "../../layout/engine.js";
-import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
+import type { HorizontalLineView, LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { Track } from "../../lowering/track.js";
 import type { PlaybackEmitter, PlaybackOrigin } from "../../playback/types.js";
@@ -148,7 +148,13 @@ class ArpeggioTemporal extends TemporalNodeBase {
         this.host.T.copyFrom(this.T);
         this.host.track = this.track;
         this.host.layoutLine = this.layoutLine;
-        this.host.onTimeState?.(state);
+        const offset = this.host.onTimeState?.(state);
+        this.T.copyFrom(this.host.T);
+        return offset;
+    }
+
+    override prepareHorizontal(line: HorizontalLineView) {
+        this.host.prepareHorizontal?.(line);
     }
 
     override prepareLayout(context: LayoutPrepareContext) {
@@ -157,6 +163,7 @@ class ArpeggioTemporal extends TemporalNodeBase {
             this.addon = void 0;
         }
         prepareLayoutHost(this.host, context);
+        this.springConfig = { ...this.host.springConfig, ...this.springConfig };
 
         const em = this.ast.size;
         const gap = em * 0.16;

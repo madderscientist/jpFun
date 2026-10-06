@@ -127,6 +127,18 @@ class HeadBoundaryTemporal extends TemporalNodeBase {
         this.initLayoutBox();
     }
 
+    validateDuration() {
+        for (const node of this.members) {
+            if (!node.T.isZero()) {
+                throw new ErrorDiagnostic(
+                    "E_HEAD_NONZERO_DURATION",
+                    "@head 的内容必须全部为零时长",
+                    node.ast.sourceSpan,
+                );
+            }
+        }
+    }
+
     override prepareLayout() { this.box.w = this.box.h = this.box.anchor = this.box.visualAxis = 0; }
 
     override prepareHorizontal(line: HorizontalLineView) {
@@ -513,7 +525,7 @@ H.tempo: 94
     }
 
     override loweringEnter(ctx: LoweringContext) {
-        // 收集真实全局事件：退出时校验时值，放置后按 AST 行归属做横向对齐
+        // 收集真实全局事件，供末边界校验时值和放置后的横向对齐
         const group = {
             members: [] as TemporalNodeBase[],
             onTemporal(node: TemporalNodeBase) { this.members.push(node); },
@@ -530,14 +542,10 @@ H.tempo: 94
             const [start, end] = ctx.getTemporalNodes(ast) as readonly HeadBoundaryTemporal[];
             return { ast, start, end };
         });
+        // right.end 是整个 Head 的末边界，按三槽的 sequence 排在所有内容之后
+        // 此时 rest 等延迟时值已固化，只检查当前 Head 的成员，无须再扫描全谱索引
+        head.slots[2].end.onTimeState = () => head.validateDuration();
         for (const node of members) {
-            if (!node.T.isZero()) {
-                throw new ErrorDiagnostic(
-                    "E_HEAD_NONZERO_DURATION",
-                    "@head 的内容必须全部为零时长",
-                    node.ast.sourceSpan
-                );
-            }
             if (node.breakBefore > 0) {
                 throw new ErrorDiagnostic(
                     "E_HEAD_INTERNAL_BREAK",
