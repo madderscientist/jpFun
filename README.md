@@ -79,5 +79,3 @@ pnpm run test:update       # 重写测试快照基线
 
 ## todo
 - [ ] VSCode 插件
-- [ ] 散板符号
-- [ ] 绘制的path到底归谁？

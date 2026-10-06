@@ -31,7 +31,7 @@ export interface TimeState {
     velocity: number;
     keySignature: string;
     program: number;
-    /** 当前小节时长（QN）；尚无显式拍号时为 undefined */
+    /** 当前小节时长（QN）；尚无显式拍号或散板时为 undefined */
     meter?: Fraction;
     [key: string]: any;
 }

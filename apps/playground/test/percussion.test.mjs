@@ -217,6 +217,19 @@ async function exportedTracks(plan, settings = settingsFor(plan)) {
     return [...MidiTrackStub.exported];
 }
 
+test("MIDI exports free meter without zero-valued signatures and retains later fixed meters", async () => {
+    for (const meter of ["@meter(0,4)", "@meter(4,0)", "@meter(0,0)"]) {
+        const tracks = await exportedTracks(planOf(`@set(strict=true) ${meter} 1 2/ | @meter(3,4) 3 4 5 |`));
+        const signatures = tracks.flatMap(track => track.events).filter(event => event.code === 0xff58);
+        assert.deepEqual(signatures.map(event => [event.ticks, event.value]), [
+            [0, [4, 4]],
+            [720, [3, 4]],
+        ]);
+        assert.equal(tracks.flatMap(track => track.events)
+            .filter(event => event.code === 0x9 && event.value[1] > 0).length, 5);
+    }
+});
+
 test("MIDI routes both drum edges to channel 10 without changing source tracks", async () => {
     const plan = planOf("@program(24) 1 9 - 2");
     const before = JSON.stringify(plan.events);
