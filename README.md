@@ -38,6 +38,8 @@
 
 但是“函数式”其实也带来了一些设计的困难，比如“连音线”这种有跨度的多元素关系。具体怎么做的……看看[语法](./packages/jpfun/grammar.md)吧！
 
+## npm 包
+核心包位于 [`packages/jpfun`](./packages/jpfun/README.md)，使用 Apache-2.0 许可证。
 
 ## 开发
 项目使用 pnpm workspace：
@@ -65,22 +67,17 @@ pnpm run test:update       # 重写测试快照基线
 - `/examples/`：示例列表
 - `/playground/`：编辑器
 
-文档与编辑器共享同一来源，示例打开时的 localStorage 能直接互通，两边均支持热更新。编辑器内部端口自动分配，无需单独访问。若 4321 已占用，会自动选择下一个可用端口，以终端输出的地址为准；可用 `PORT`、`HOST` 环境变量指定统一入口的端口和监听地址。Ctrl+C 会一起关闭本次启动的服务和核心监听。
-
-三个命令都会先构建核心包。`dev:docs` 与 `dev:playground` 不启动另一个应用，因此单独使用 `dev:docs` 时 `/playground/` 不可用；需要完整跳转流程时使用 `pnpm dev`。修改核心源码需要持续联动时也使用 `pnpm dev`。
-
 ## 仓库结构
 - `packages/jpfun/`：可独立发布的 `jpfun` npm 包、源码与测试
 - `apps/playground/`：通过 `workspace:*` 使用公开包入口的 Vite 网页应用
 - `apps/docs/`：基于 Starlight 的文档网站，包含教程、函数速查和开发者文档
 - `scripts/`：仓库开发脚本
 
-## npm 包
-核心包位于 [`packages/jpfun`](./packages/jpfun/README.md)，使用 Apache-2.0 许可证
-
 ## 应用
-除了人工手写外，本项目的语法非常适合让大语言模型生成简谱内容。只要将 [grammar.md](./packages/jpfun/grammar.md) 交给大模型，就可以实现简谱图片转脚本、五线谱图片转脚本等功能。
+1. 人工手写外，本项目的语法非常适合让大语言模型生成简谱内容。只要将 [grammar.md](./packages/jpfun/grammar.md) 交给大模型，就可以实现简谱图片转脚本、五线谱图片转脚本等功能。
+2. 将简谱嵌入自己的网站！就像本项目的教程一样。
 
 ## todo
 - [ ] VSCode 插件
-- [ ] box 的高度
+- [ ] 散板符号
+- [ ] 绘制的path到底归谁？
