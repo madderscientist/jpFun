@@ -365,10 +365,10 @@ test("反复线落在指定线条的 anchor 上，adjust 扩位不移动墨迹",
         };
     };
 
-    for (const type of [2, 3, 4]) {
+    for (const type of [3, 4, 5]) {
         const base = geometry(`@bar(${type})`);
         const wider = geometry(`@adjust(@bar(${type}), dw=20px)`);
-        const anchorLine = base.lines.reduce((left, right) => type === 2
+        const anchorLine = base.lines.reduce((left, right) => type === 3
             ? (left.w > right.w ? left : right)
             : (left.w < right.w ? left : right));
         assert(nearly(anchorLine.x + anchorLine.w / 2, base.anchor),
@@ -391,9 +391,23 @@ test("反复线落在指定线条的 anchor 上，adjust 扩位不移动墨迹",
 test("三种反复线的圆点大小一致", () => {
     const radiusOf = (type: number) => recordCommands(layoutOf(`@bar(${type})`))
         .find(command => command.kind === "circle")?.r;
-    const radii = [2, 3, 4].map(radiusOf);
+    const radii = [3, 4, 5].map(radiusOf);
     assert(radii.every(radius => radius !== undefined && nearly(radius, radii[0]!)),
         `repeat bar dots must share one radius, got ${radii.join(", ")}`);
+});
+
+test("双竖线使用两条细线，三竖线使用原终止线样式", () => {
+    const linesOf = (source: string) => recordCommands(layoutOf(source))
+        .filter(command => command.kind === "rect");
+    const double = linesOf("||");
+    const final = linesOf("|||");
+
+    assert(double.length === 2 && nearly(double[0].w, double[1].w),
+        "|| must render as two equally thin lines");
+    assert(final.length === 2 && final[1].w > final[0].w,
+        "||| must render as a thin line followed by a thick final line");
+    assert(layoutOf("|||").objects.length === 1,
+        "||| must parse as one final bar rather than || followed by |");
 });
 
 test("不规范的调性先按音高归一化，读不懂才退回 C4，严格模式一律报错", () => {

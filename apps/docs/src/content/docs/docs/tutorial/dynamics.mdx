@@ -23,8 +23,8 @@ import ScoreExample from "../../../../components/ScoreExample.astro";
 
 没有指定力度时，默认播放力度为 `80`，与 `$mf` 相同。
 
-export const dynamicsSymbolsExample = `1^$p 2 3 4 | 5^$f 6 7 1' ||
-1^$ppp 2^$pp 3^$p 4^$mp | 5^$mf 6^$f 7^$ff 1'^$fff ||`;
+export const dynamicsSymbolsExample = `1^$p 2 3 4 | 5^$f 6 7 1' |||
+1^$ppp 2^$pp 3^$p 4^$mp | 5^$mf 6^$f 7^$ff 1'^$fff |||`;
 
 <ScoreExample title="从弱到强" source={dynamicsSymbolsExample} />
 
@@ -49,10 +49,10 @@ export const dynamicsSymbolsExample = `1^$p 2 3 4 | 5^$f 6 7 1' ||
 - `dv` 是数字，表示力度的**变化量**：正数表示渐强，负数表示渐弱。函数会在谱面上方画出相应的楔形记号，并按记谱时间线性改变各个音符的播放力度。
 
 export const dynamicsExample = `% 打标签的时候注意后面加一个空格，不然 ^ 和 _ 会被认为是标签的一部分！
-1@start 2/ 3. 4@peak | 5^$f 4@fall 3@end 2^$p ||
+1@start 2/ 3. 4@peak | 5^$f 4@fall 3@end 2^$p |||
 @dyn(start, peak, 48)
 @dyn(fall, end, -48)\n
-1@start ^$p 2/ 3. 4@peak ^$f | 5@fall _$f 4 3 2@end _$p ||
+1@start ^$p 2/ 3. 4@peak ^$f | 5@fall _$f 4 3 2@end _$p |||
 @dyn(start, peak, 48)
 @dyn(fall, end, -48)
 `;

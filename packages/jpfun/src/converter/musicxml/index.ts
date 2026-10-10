@@ -124,7 +124,7 @@ function setBar(bars: Map<string, string>, at: Fraction, token: string) {
         bars.set(key, token === ":|" ? ":|:" : `${token} |:`);
     } else if (token === "|:" && current.includes(":|")) {
         bars.set(key, current === ":|" ? ":|:" : `${current} |:`);
-    } else if (token === "||" && !current.includes("|:") && !current.includes(":|")) {
+    } else if (token === "|||" && !current.includes("|:") && !current.includes(":|")) {
         bars.set(key, token);
     }
 }
@@ -226,7 +226,7 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
                     const times = timesValue ? Number(timesValue) : 2;
                     if (!Number.isSafeInteger(times) || times < 2) throw new RangeError("MusicXML repeat times must be an integer of at least 2");
                     setBar(bars, at, new Array(times - 1).fill(":|").join(" "));
-                } else if (text(barline, "bar-style") === "light-heavy") setBar(bars, at, "||");
+                } else if (text(barline, "bar-style") === "light-heavy") setBar(bars, at, "|||");
                 const ending = child(barline, "ending");
                 const endingType = ending?.getAttribute("type");
                 if (ending && (endingType === "start" || endingType === "stop" || endingType === "discontinue")) {
@@ -499,7 +499,7 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
             if (change) transposePitch(pitch, change.chromatic, change.diatonic, change.octaves);
         }
         for (const [event, id] of eventInstruments) event.program = instrumentAt(id, event.start).program;
-        setBar(bars, partTime, "||");
+        setBar(bars, partTime, "|||");
     }
 
     const laneList = [...lanes.values()];

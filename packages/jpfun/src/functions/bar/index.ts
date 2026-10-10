@@ -16,9 +16,9 @@ class BarFunction extends ASTFunctionNode {
 有语法糖简写，见 type 参数的说明。`,
         allowExtraArgs: false,
         args: [
-            {   // 小节线样式类型，对应普通、终止和反复线
+            {   // 小节线样式类型，对应普通、双线、反复线和终止线
                 name: "type",
-                description: "0：普通线 `|`；1：终止线 `||`（左细右粗）；2：反复起点 `|:`；3：反复终点 `:|`；4：左右反复 `:|:`",
+                description: "0：普通线 `|`；1：双竖线 `||`；2：终止线 `|||`（左细右粗）；3：反复起点 `|:`；4：反复终点 `:|`；5：左右反复 `:|:`",
                 type: "number" as const,
                 default: 0,
             },
@@ -37,12 +37,14 @@ class BarFunction extends ASTFunctionNode {
     static deSugarAtom(source: string, start: number, _end: number) {
         let pos = start;
         let type = 0;
+        const slice3 = source.slice(pos, pos + 3);
         const slice2 = source.slice(pos, pos + 2);
-        if (slice2 === "||") type = 1, pos += 2;
-        else if (slice2 === "|:") type = 2, pos += 2;
+        if (slice3 === "|||") type = 2, pos += 3;
+        else if (slice2 === "||") type = 1, pos += 2;
+        else if (slice2 === "|:") type = 3, pos += 2;
         else if (slice2 === ":|") {
-            if (source[pos + 2] === ":") type = 4, pos += 3;
-            else type = 3, pos += 2;
+            if (source[pos + 2] === ":") type = 5, pos += 3;
+            else type = 4, pos += 2;
         } else if (source[pos] === "|") type = 0, pos += 1;
         else return null;
 
@@ -70,7 +72,9 @@ class BarFunction extends ASTFunctionNode {
     }
 
     override loweringEnter() {
-        return [this.type >= 2 ? new RepeatBarTemporalNode(this) : new BarTemporalNode(this)];
+        return [this.type >= 3 && this.type <= 5
+            ? new RepeatBarTemporalNode(this)
+            : new BarTemporalNode(this)];
     }
 
     override toString() {
@@ -146,16 +150,21 @@ class BarTemporalNode extends TemporalNodeBase {
         const gap = thin * 1.8;
         const dotRadius = thin * 0.8;
         const dotGap = gap + dotRadius;
-        const hasLeftDots = type === 3 || type === 4;
-        const hasRightDots = type === 2 || type === 4;
+        const hasLeftDots = type === 4 || type === 5;
+        const hasRightDots = type === 3 || type === 5;
         let x = hasLeftDots ? dotRadius * 2 + dotGap : 0;
 
-        if (type === 1 || type === 3 || type === 4) {
+        if (type === 1) {
+            this.lines.push({ x, w: thin });
+            x += thin + gap;
+            this.lines.push({ x, w: thin });
+            x += thin;
+        } else if (type === 2 || type === 4 || type === 5) {
             this.lines.push({ x, w: thin });
             x += thin + gap;
             this.lines.push({ x, w: thick });
             x += thick;
-        } else if (type === 2) {
+        } else if (type === 3) {
             this.lines.push({ x, w: thick });
             x += thick + gap;
             this.lines.push({ x, w: thin });
@@ -180,7 +189,7 @@ class BarTemporalNode extends TemporalNodeBase {
 
         this.box.w = x;
         this.box.h = h;
-        const anchorLine = type >= 2 ? this.lines[0] : undefined;
+        const anchorLine = type >= 3 && type <= 5 ? this.lines[0] : undefined;
         this.box.anchor = anchorLine ? anchorLine.x + anchorLine.w / 2 : x / 2;
         this.box.visualAxis = h / 2;
         for (const line of this.lines) line.x -= this.box.anchor;
@@ -225,14 +234,14 @@ export function repeatPass(cursor: PlaybackCursor, column: number): number {
 
 /** 只有反复线参与播放顺序；普通小节线太多，进控制流扫描是纯开销 */
 class RepeatBarTemporalNode extends BarTemporalNode implements PlaybackFlow {
-    /** 只在 type>=2 时创建，所以剩下的三种是：2 段首、3 段尾、4 两者都是 */
+    /** 只在 type 3–5 时创建，所以三种分别是：3 段首、4 段尾、5 两者都是 */
     playbackMarks(): readonly string[] {
-        return this.ast.type === 3 ? [] : [REPEAT_START];
+        return this.ast.type === 4 ? [] : [REPEAT_START];
     }
 
     /** 每条反复线只回跳一次，所以连写几条就是几遍 */
     playbackFlow(columnOf: PlaybackColumnOf): PlaybackFlowHook | undefined {
-        if (this.ast.type === 2) return;
+        if (this.ast.type === 3) return;
         const at = columnOf(this);
         if (at === undefined) return;
         return {

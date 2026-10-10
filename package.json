@@ -2,7 +2,7 @@
   "name": "jpfun-workspace",
   "private": true,
   "version": "1.0.0",
-  "packageManager": "pnpm@12.9.1",
+  "packageManager": "pnpm@12.10.1",
   "scripts": {
     "clean": "node scripts/clean.mjs",
     "build": "pnpm run clean && pnpm run build:core && pnpm run build:playground && pnpm run build:docs && node scripts/assemble-site.mjs",
@@ -15,7 +15,7 @@
     "predev": "pnpm run build:core",
     "dev": "node scripts/dev-server.mjs",
     "predev:playground": "pnpm run build:core",
-    "dev:playground": "pnpm --filter @jpfun/playground dev",
+    "dev:playground": "pnpm --dir apps/playground dev",
     "predev:docs": "pnpm run build:core",
     "dev:docs": "pnpm --filter @jpfun/docs dev"
   }

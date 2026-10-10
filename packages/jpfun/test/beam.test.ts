@@ -117,7 +117,7 @@ test("增时线可显式连梁，也参与最近两个端点的回退", () => {
 });
 
 test("显式 beam 跨小节线连接，保留小节线间距与自动分组边界", () => {
-    for (const barrier of ["|", "||", "|:", ":|", "| ^ @text(A)"]) {
+    for (const barrier of ["|", "||", "|||", "|:", ":|", "| ^ @text(A)"]) {
         const source = `1//@a ${barrier} 2//@b`;
         const automatic = layoutOf(source);
         const explicit = layoutOf(`${source} @beam(a,b)`);
