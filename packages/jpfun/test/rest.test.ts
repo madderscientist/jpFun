@@ -279,6 +279,24 @@ test("rest hosts propagate timing through all composite wrappers", () => {
     }
 });
 
+test("rest representatives retain the earliest same-track member at the execution position", () => {
+    for (const content of [
+        "@up(@rest(2),@rest(3))",
+        "@down(@rest(2),@rest(3))",
+        "@arp(@up(@rest(2),@rest(3)))",
+        "@grace(@up(@rest(2),@rest(3)),@rest(4),side=pre)",
+        "@grace(@up(@rest(2),@rest(3)),@rest(4),side=post)",
+    ]) {
+        const compiled = compileValid(`@set(strict=true) @meter(2,4) ${content}`);
+        assert(compiled.lowering.duration.equals(4), `${content}: the primary rest must determine duration`);
+        const boundaries = compiled.lowering.columns.flat().filter(node => node.mergeKey === ANCHOR_KEY);
+        deepStrictEqual(boundaries.map(node => node.t.toString()), ["2"], content);
+        assert(boundaries[0].ast.parent instanceof ASTFunctionNode
+            && boundaries[0].ast.parent.toString("") === "@rest(2)",
+            "the boundary must belong to the primary rest, not the last callback or private grace");
+    }
+});
+
 test("folded and plain rests merge once and still precede other voices' notes", () => {
     const compiled = compileValid('@set(strict=true) @meter(4,4)\nN: | @up(@rest(2), @text(X)) |\nN: | @rest(3) |');
     const column = compiled.lowering.columns.find(nodes => nodes.some(node => named(node, "up")))!;

@@ -17,6 +17,20 @@ import {
     type SourceSpan,
 } from "../ASTtypes.js";
 
+// 同一执行位置只关闭一次旧小节，保留最终拍号和最后源码边界。
+const changesByPosition = new WeakMap<TemporalNodeBase, {
+    start: number; end: number; meter: MeterFunction;
+}>();
+
+function recordMeasureChange(state: TimeState, node: TemporalNodeBase, meter: MeterFunction) {
+    const position = state.currentEvent ?? node;
+    const span = node.ast.sourceSpan;
+    let change = changesByPosition.get(position);
+    if (!change) changesByPosition.set(position, change = { start: span.start, end: span.end, meter });
+    change.end = span.end;
+    change.meter = meter;
+}
+
 class MeterFunction extends ASTFunctionNode {
     static override def = {
         name: ["meter"],
@@ -110,24 +124,15 @@ class MeterFunction extends ASTFunctionNode {
             measureStart.copyFrom(end);
         };
 
-        const metersByHost = new Map<TemporalNodeBase, MeterTemporal>();
-        for (const nodes of result.astToTemporal.values()) {
-            for (const node of nodes) {
-                if (!(node instanceof MeterTemporal)) continue;
-                let host: TemporalNodeBase = node;
-                while (host.foldedInto) host = host.foldedInto;
-                if (!metersByHost.has(host)) metersByHost.set(host, node);
-            }
-        }
         for (const column of result.columns) {
             const time = column[0].t;
-            const host = column.find(node => metersByHost.has(node));
-            const meter = host && metersByHost.get(host);
-            if (meter) {
-                closeMeasure(time, meter.ast.sourceSpan.start);
-                active = meter.ast;
+            for (const node of column) {
+                const change = changesByPosition.get(node);
+                if (!change) continue;
+                closeMeasure(time, change.start);
+                active = change.meter;
                 measureStart.copyFrom(time);
-                sourceStart = meter.ast.sourceSpan.end;
+                sourceStart = change.end;
             }
             const anchor = column.find(node => node.mergeKey === ANCHOR_KEY);
             if (anchor) {
@@ -174,6 +179,7 @@ class MeterTemporal extends TemporalNodeBase {
 
     override onTimeState(state: TimeState) {
         state.meter = this.ast.measureDuration;
+        recordMeasureChange(state, this, this.ast);
     }
 
     override emitPlayback(emitter: PlaybackEmitter) {

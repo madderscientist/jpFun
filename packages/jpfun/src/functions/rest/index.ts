@@ -80,24 +80,16 @@ class RestFunction extends ASTFunctionNode {
         const onsets = new Map<TemporalNodeBase, TemporalNodeBase>();
         // 扫描完整来源索引，纳入未直接出现在时间列中的折叠成员
         for (const nodes of result.astToTemporal.values()) {
-            // 为新增边界预留唯一 order，并记录各宿主的休止代表和最早音符
+            // 为新增边界预留唯一 order，并记录各宿主的最早音符
             for (const node of nodes) {
                 order = Math.max(order, node.order + 1);
-                if (!(node instanceof RestTemporal)
-                    && (!(node.ast instanceof ASTFunctionNode)
-                        || (node.ast.callName !== "note" && node.ast.callName !== "dash"))) continue;
+                if (!(node.ast instanceof ASTFunctionNode)
+                    || (node.ast.callName !== "note" && node.ast.callName !== "dash")) continue;
                 let host = node;
                 // 沿折叠链找到最外层宿主，将内部成员归到同一主体
                 while (host.foldedInto) host = host.foldedInto;
                 // 私有倚音属于独立轨道，不代表外层宿主的休止或起音
                 if (node.track !== host.track) continue;
-                if (node instanceof RestTemporal) {
-                    // 非宿主休止不接管外层时间列，同轨最早休止代表宿主
-                    if (host.mergeKey !== REST_KEY) continue;
-                    const rest = restsByHost.get(host);
-                    if (!rest || node.order < rest.order) restsByHost.set(host, node);
-                    continue;
-                }
                 const onset = onsets.get(host);
                 if (!onset || node.order < onset.order) onsets.set(host, node);
             }
@@ -173,6 +165,12 @@ class RestTemporal extends TemporalNodeBase {
         }
         this.measureDuration.copyFrom(measure);
         this.T.copyFrom(measure).mul(this.ast.count);
+        const host = state.currentEvent ?? this;
+        // 只登记全局休止宿主的同轨成员，私有倚音不接管宿主。
+        if (host.mergeKey === REST_KEY && this.track === host.track) {
+            const rest = restsByHost.get(host);
+            if (!rest || this.order < rest.order) restsByHost.set(host, this);
+        }
         this.playbackState = { bpm: state.bpm };
         return this.T;
     }

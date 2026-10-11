@@ -1,10 +1,11 @@
+import { deepStrictEqual } from "node:assert/strict";
 import { test } from "node:test";
 
 import type { Fraction } from "../src/fraction.js";
 import { compileScore } from "../src/pipeline.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import { pathBounds } from "../src/layout/path.js";
-import { assert, expectCompileError, layoutOf, lower, nearly, recordCommands } from "./helpers.js";
+import { assert, createLowering, expectCompileError, layoutOf, lower, nearly, parse, recordCommands } from "./helpers.js";
 
 type MeterAst = {
     numerator: number;
@@ -19,6 +20,74 @@ test("folded meters validate global measures", () => {
     }
     assert(compileScore("@set(strict=true) @up(1,{@up(@meter(0,0))}) | 2 | 3 4 5 6 7 |").diagnostics.length === 0,
         "folded free meters must suspend global measure validation");
+});
+
+test("folded meter validation follows actual callback order", () => {
+    for (const content of [
+        "@up(@meter(2,4),@meter(3,4))",
+        "@down(@meter(2,4),@meter(3,4))",
+        "@up(@meter(2,4),{@up(@meter(3,4))})",
+        "@grace(@meter(2,4),@meter(3,4),side=pre)",
+        "@grace(@meter(3,4),@meter(2,4),side=post)",
+        "@arp({@meter(2,4) ^ @meter(3,4)})",
+        "@arp({@meter(2,4) ^ @meter(3,4)},direction=down)",
+    ]) {
+        const result = compileScore(`@set(strict=true) ${content} @rest(2) |`);
+        deepStrictEqual(result.diagnostics, []);
+        deepStrictEqual(compilePlayback(result.lowering).events
+            .filter(event => event.kind === "time-signature").map(event => event.numerator), [3, 2]);
+        assert(result.lowering.duration.equals(4), "rest and validation must use the same final 2/4 meter");
+        expectCompileError(`@set(strict=true) ${content} | 1 |`, "E_METER_MISMATCH");
+    }
+});
+
+test("folded meter changes preserve the first closing and final opening source boundaries", () => {
+    const prefix = "@meter(4,4) | 1 2 ";
+    const content = "@up(@meter(2,4),@meter(3,4))";
+    const source = `${prefix}${content} | 1 |`;
+    const mismatches = compileScore(source).diagnostics.filter(item => item.code === "W_METER_MISMATCH");
+    deepStrictEqual(mismatches.map(item => item.span), [
+        { start: prefix.indexOf("|") + 1, end: source.indexOf("@meter(3,4)") },
+        { start: source.indexOf(content) + content.length + 2, end: source.length },
+    ]);
+    assert(mismatches[0].message.includes("4/4") && mismatches[1].message.includes("2/4"),
+        "the old and final meters must validate their own measures");
+    const withoutBar = `${prefix}${content} 1 |`;
+    const final = compileScore(withoutBar).diagnostics.filter(item => item.code === "W_METER_MISMATCH").at(-1)!;
+    deepStrictEqual(final.span, {
+        start: withoutBar.indexOf("@meter(2,4)") + "@meter(2,4)".length,
+        end: withoutBar.length,
+    }, "the last callback's source end, not the first indexed meter, must open the new measure");
+});
+
+test("a final folded free meter suspends validation, while a final fixed meter resumes it", () => {
+    for (const content of [
+        "@up(@meter(0,0),@meter(4,4))",
+        "@grace(@meter(0,0),@meter(4,4),side=pre)",
+        "@grace(@meter(4,4),@meter(0,0),side=post)",
+    ]) {
+        deepStrictEqual(compileScore(`@set(strict=true) ${content} | 1 | 2 3 4 5 6 |`).diagnostics, []);
+    }
+    for (const content of [
+        "@up(@meter(2,4),@meter(0,0))",
+        "@grace(@meter(0,0),@meter(2,4),side=post)",
+    ]) {
+        expectCompileError(`@set(strict=true) ${content} | 1 |`, "E_METER_MISMATCH");
+    }
+});
+
+test("folded meter records do not survive repeated lowering", () => {
+    const context = createLowering();
+    for (const source of [
+        "@set(strict=true) @grace(@meter(3,4),@meter(2,4),side=post) @rest(1) |",
+        "@set(strict=true) @meter(3,4) 1 2 3 | 1 2 3 |",
+        "@set(strict=true) 1 | 2 3 |",
+    ]) {
+        const ast = parse(source);
+        for (let repeat = 0; repeat < 2; repeat++) {
+            deepStrictEqual(context.lowerDocument(ast).diagnostics, []);
+        }
+    }
 });
 
 test("meter 固化任意正整数拍号且不改变音符时值", () => {

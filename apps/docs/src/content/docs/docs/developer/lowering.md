@@ -123,6 +123,8 @@ type TimeFlowModel =
 
 `up/down`、`grace` 与 `arpeggio` 透传宿主的最终时值、时间偏移和布局行为；非宿主成员不单独推进全局时间。
 
+`TimeState.currentEvent` 指向当前执行的全局 Temporal，折叠成员共用宿主位置。`meter` 据此记录最终拍号和校验区间；`rest` 登记最早同轨休止成员，排除私有倚音。
+
 `head` 在末边界的 `onTimeState` 中校验成员的最终时值，确保延迟确定时值的内容也遵守零时长约束。
 
 `rest` 要求显式拍号，按起点拍号确定时长，并独立于普通音符合列；其偏移使后续所有声部共同后移。在 `loweringFinalize` 中为同列最长休止补入 n−1 个普通不可见小节边界，供 `meter` 校验。注册时须保证 `rest` 的最终处理先于 `meter`。

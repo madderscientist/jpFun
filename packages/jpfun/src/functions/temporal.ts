@@ -33,6 +33,8 @@ export interface TimeState {
     program: number;
     /** 当前小节时长（QN）；尚无显式拍号或散板时为 undefined */
     meter?: Fraction;
+    /** 当前执行的全局事件；复合体内部回调共用该位置 */
+    currentEvent?: TemporalNodeBase;
     [key: string]: any;
 }
 export const DEFAULT_BPM = 120;
