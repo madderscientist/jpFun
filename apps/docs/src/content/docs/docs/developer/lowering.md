@@ -122,7 +122,7 @@ type TimeFlowModel =
 
 调用 `timeFlowModel(ctx)` 时，当前节点在 `loweringEnter` 中返回的事件已经加入索引，子节点尚未展开。此时可以用 `ctx.getTemporalNodes(ast)` 查询本轮事件，不必把事件暂存在 AST 上。
 
-`head` 就在这里为三个槽创建测量策略，并引用本轮的首边界 Temporal。策略中捕获的可变状态也属于本轮，不能在多次 Lowering 之间共享。
+`head` 的首边界收集本轮成员，并为三个槽创建测量策略。测量状态也属于本轮，不能在多次 Lowering 之间共享。
 
 ### 3. 固化行号和时间状态
 递归完成后，`solidifyColumns` 先处理 `addon.breakBefore` 请求并写入最终 `layoutLine`：同列取最大偏移，同轨连续列累加。随后按列调用 `onTimeState(state)`。

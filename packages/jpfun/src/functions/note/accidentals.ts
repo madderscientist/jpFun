@@ -72,21 +72,6 @@ const ACCIDENTALS: Partial<Record<string, AccidentalDefinition>> = {
     },
 };
 
-/** size 是数字字号，升降号自己决定缩小多少 */
-function prepareAccidental(symbol: string, size: number): PreparedAccidental | null {
-    const definition = ACCIDENTALS[symbol];
-    if (!definition) return null;
-
-    const glyphSize = size * GLYPH_SCALE;
-    return {
-        w: definition.w * glyphSize,
-        h: definition.h * glyphSize,
-        baseline: definition.baseline * glyphSize,
-        strokeWidth: size * STROKE_RATIO,
-        commands: definition.commands,
-    };
-}
-
 /**
  * 把升降号串按同一基线依次排在 x 右侧
  * @param size 宿主数字的字号
@@ -96,12 +81,20 @@ function prepareAccidental(symbol: string, size: number): PreparedAccidental | n
  */
 export function placeAccidentals(symbols: string, size: number, x: number, baselineY: number, gap: number) {
     const placed: PlacedAccidental[] = [];
+    const glyphSize = size * GLYPH_SCALE;
     const raise = size * RAISE_RATIO;
     let right = x;
     let top = 0;
     for (const symbol of symbols) {
-        const shape = prepareAccidental(symbol, size);
-        if (!shape) continue;
+        const definition = ACCIDENTALS[symbol];
+        if (!definition) continue;
+        const shape: PreparedAccidental = {
+            w: definition.w * glyphSize,
+            h: definition.h * glyphSize,
+            baseline: definition.baseline * glyphSize,
+            strokeWidth: size * STROKE_RATIO,
+            commands: definition.commands,
+        };
         const y = baselineY - shape.baseline - raise;
         placed.push({ shape, x: right, y });
         if (y < top) top = y;

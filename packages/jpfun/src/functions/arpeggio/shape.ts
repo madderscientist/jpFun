@@ -10,7 +10,7 @@ const ARROW_X = -27.4688;
 const ARROW_Y = -7.9375;
 const ARROW_BOTTOM = ARROW_Y + ARROW_HEIGHT;
 
-/** MuseScore 4.7.4 导出的琶音波形块，已旋转到自上而下的局部坐标。 */
+/** MuseScore 4.7.4 导出的琶音波形块，已旋转到自上而下的局部坐标 */
 const TILE: readonly PathCommand[] = [
     { op: "M", x: 28.1406, y: 86.06255 },
     { op: "C", cx1: 28.1406, cy1: 86.06255, cx2: 30.4531, cy2: 84.07815, x: 32.7656, y: 81.42185 },
@@ -69,15 +69,13 @@ const DOWN_ARROW: readonly PathCommand[] = [
 function appendShape(
     output: PathCommand[],
     shape: readonly PathCommand[],
-    width: number,
-    height: number,
     offsetX: number,
     offsetY: number,
     scale: number,
     reverse: boolean,
 ) {
-    const x = (value: number) => offsetX + (reverse ? width - value : value) * scale;
-    const y = (value: number) => offsetY + (reverse ? height - value : value) * scale;
+    const x = (value: number) => offsetX + (reverse ? TILE_WIDTH - value : value) * scale;
+    const y = (value: number) => offsetY + (reverse ? TILE_HEIGHT - value : value) * scale;
     for (const command of shape) {
         if (command.op === "Z") output.push(command);
         else if (command.op === "C") output.push({
@@ -95,7 +93,7 @@ function appendShape(
     }
 }
 
-/** 按 MuseScore 的原始重叠比例铺满指定高度，并一次性返回最终边界。 */
+/** 按 MuseScore 的原始重叠比例铺满指定高度，并一次性返回最终边界 */
 export function prepareArpeggioShape(
     height: number,
     em: number,
@@ -110,14 +108,12 @@ export function prepareArpeggioShape(
     const scale = height / naturalHeight;
     const commands: PathCommand[] = [];
     for (let index = 0; index < regularCount; index++) {
-        appendShape(commands, TILE, TILE_WIDTH, TILE_HEIGHT, 0, index * TILE_STEP * scale, scale, direction === "");
+        appendShape(commands, TILE, 0, index * TILE_STEP * scale, scale, direction === "");
     }
     if (arrow) {
         appendShape(
             commands,
             DOWN_ARROW,
-            113.5313,
-            ARROW_HEIGHT,
             ARROW_X * scale,
             (regularCount * TILE_STEP + ARROW_Y) * scale,
             scale,
@@ -126,21 +122,22 @@ export function prepareArpeggioShape(
     }
     const bounds = pathBounds(commands);
     if (direction !== "up") return { commands, bounds };
-    const rotated: PathCommand[] = commands.map(command => command.op === "Z" ? command : command.op === "C" ? {
-        op: "C",
-        cx1: bounds.x + bounds.w - (command.cx1 - bounds.x), cy1: height - command.cy1,
-        cx2: bounds.x + bounds.w - (command.cx2 - bounds.x), cy2: height - command.cy2,
-        x: bounds.x + bounds.w - (command.x - bounds.x), y: height - command.y,
-    } : command.op === "Q" ? {
-        op: "Q",
-        cx: bounds.x + bounds.w - (command.cx - bounds.x), cy: height - command.cy,
-        x: bounds.x + bounds.w - (command.x - bounds.x), y: height - command.y,
-    } : {
-        op: command.op,
-        x: bounds.x + bounds.w - (command.x - bounds.x), y: height - command.y,
-    });
+    const right = bounds.x + bounds.w;
+    const mirrorX = (value: number) => right - (value - bounds.x);
+    // 命令尚未发布，直接镜像，避免再分配整条路径及每个命令对象
+    for (const command of commands) {
+        if (command.op === "Z") continue;
+        if (command.op === "C") {
+            command.cx1 = mirrorX(command.cx1); command.cy1 = height - command.cy1;
+            command.cx2 = mirrorX(command.cx2); command.cy2 = height - command.cy2;
+        } else if (command.op === "Q") {
+            command.cx = mirrorX(command.cx); command.cy = height - command.cy;
+        }
+        command.x = mirrorX(command.x);
+        command.y = height - command.y;
+    }
     return {
-        commands: rotated,
+        commands,
         bounds: { x: bounds.x, y: height - bounds.y - bounds.h, w: bounds.w, h: bounds.h },
     };
 }

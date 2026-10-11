@@ -32,13 +32,21 @@ export function ornament(pattern: OrnamentPattern): PlaybackTransform {
                 continue;
             }
             const duration = note.end.clone().sub(note.start);
-            // 此处读取最终速度，结构延长和其他声部的速度效果都已计入。
-            const bpm = context.stateAt(note.start).effectiveBpm;
-            const steps = pattern.repeat ? repeatToFill(pattern.body, duration.toNumber(), bpm) : pattern.body;
-            const step = duration.div(steps.length);
+            let count = pattern.body.length;
+            if (pattern.repeat) {
+                // 此处读取最终速度，结构延长和其他声部的速度效果都已计入。
+                const bpm = context.stateAt(note.start).effectiveBpm;
+                // 名义密度与速度无关（秒数里的 bpm 与频率里的 bpm 恰好抵消），只在 bpm 越界时按比例修正
+                const ratio = Math.min(MAX_BPM, Math.max(MIN_BPM, bpm)) / bpm;
+                // 预算按完整音型计算，避免在达到子音上限时留下半个音型。
+                const limit = Math.floor(MAX_SUBNOTES / pattern.body.length);
+                const cycles = Math.min(limit, Math.max(1, Math.round(duration.toNumber() * NOMINAL_RATE * ratio / pattern.body.length)));
+                count *= cycles;
+            }
+            const step = duration.div(count);
             // 用 Fraction 等分最终区间，保证首尾边界准确且不会积累浮点时间误差。
-            for (let index = 0; index < steps.length; index++) {
-                const offset = steps[index];
+            for (let index = 0; index < count; index++) {
+                const offset = pattern.body[index % pattern.body.length];
                 const start = step.clone().mul(index).add(note.start);
                 result.push({
                     ...note,
@@ -53,17 +61,4 @@ export function ornament(pattern: OrnamentPattern): PlaybackTransform {
         }
         return result;
     };
-}
-
-/** 按最终速度计算完整音型的重复次数，并限制总子音数 */
-function repeatToFill(body: readonly number[], duration: number, bpm: number): number[] {
-    // 名义密度与速度无关（秒数里的 bpm 与频率里的 bpm 恰好抵消），只在 bpm 越界时按比例修正
-    const ratio = Math.min(MAX_BPM, Math.max(MIN_BPM, bpm)) / bpm;
-    // 预算按完整音型计算，避免在达到子音上限时留下半个音型。
-    const limit = Math.floor(MAX_SUBNOTES / body.length);
-    const cycles = Math.min(limit, Math.max(1, Math.round(duration * NOMINAL_RATE * ratio / body.length)));
-    const result: number[] = [];
-    // 先得到完整音级序列，调用方再按实际子音总数统一分配宿主时值。
-    for (let i = 0; i < cycles; i++) result.push(...body);
-    return result;
 }

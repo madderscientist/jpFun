@@ -49,7 +49,8 @@ export function createBeamLayoutAttachment(
 
 /** 显式 beam 连接同轨同谱面行中的相邻可见主体，忽略零时长小节线 */
 export function validateExplicitBeamAttachments(result: LoweringResult) {
-    const tracks = new Map<number, Map<Track, LayoutHost[]>>();
+    const tracks = new Map<number, Map<Track, number>>();
+    const positions = new Map<LayoutHost, { line: number; track: Track; index: number }>();
 
     for (const column of result.columns) {
         for (const node of column) {
@@ -60,18 +61,9 @@ export function validateExplicitBeamAttachments(result: LoweringResult) {
                 lineTracks = new Map();
                 tracks.set(node.layoutLine, lineTracks);
             }
-            const sequence = lineTracks.get(node.track);
-            if (sequence) sequence.push(node);
-            else lineTracks.set(node.track, [node]);
-        }
-    }
-
-    const positions = new Map<LayoutHost, { line: number; track: Track; index: number }>();
-    for (const [line, lineTracks] of tracks) {
-        for (const [track, sequence] of lineTracks) {
-            for (let index = 0; index < sequence.length; index++) {
-                positions.set(sequence[index], { line, track, index });
-            }
+            const index = lineTracks.get(node.track) ?? 0;
+            positions.set(node, { line: node.layoutLine, track: node.track, index });
+            lineTracks.set(node.track, index + 1);
         }
     }
 

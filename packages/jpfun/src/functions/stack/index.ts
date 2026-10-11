@@ -157,30 +157,22 @@ class StackFunction extends ASTFunctionNode {
         }
     }
 
-    /** 遇到另一个 stack 就展平；返回存活的那个，调用者必须改用返回值 */
+    /** 遇到另一个 stack 就展平；接收者存活，被吞并的成员列表最后清空 */
     addContent(node: ASTNodeBase): StackFunction {
-        if (node instanceof StackFunction) return this.combine(node);
-        this.contents.push(node);
-        node.parent = this;
+        const contents = node instanceof StackFunction ? node.contents : [node];
         const s = node.sourceSpan;
         this.sourceSpan.start = Math.min(this.sourceSpan.start, s.start);
         this.sourceSpan.end = Math.max(this.sourceSpan.end, s.end);
+        for (const c of contents) c.parent = this;
+        this.contents.push(...contents);
+        // stack 不实现 labelable、不进候选表，所以被吞并的空壳不会被 @tie() 取到，无需像 up 那样撤销登记
+        if (node instanceof StackFunction) node.contents.length = 0;
         return this;
     }
 
     override toString(source: string) {
         const contentStrs = this.contents.map(c => c.toString(source)).join(',\n');
         return `@stack(\n  ${contentStrs.split('\n').join('\n  ')}\n)`;
-    }
-
-    // stack 不实现 labelable、不进候选表，所以被吞并的空壳不会被 @tie() 取到，无需像 up 那样撤销登记
-    combine(ano: StackFunction): StackFunction {
-        this.sourceSpan.start = Math.min(this.sourceSpan.start, ano.sourceSpan.start);
-        this.sourceSpan.end = Math.max(this.sourceSpan.end, ano.sourceSpan.end);
-        for (const c of ano.contents) c.parent = this;
-        this.contents.push(...ano.contents);
-        ano.contents.length = 0;
-        return this;
     }
 }
 

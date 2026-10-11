@@ -2,8 +2,7 @@ import { ErrorDiagnostic } from "../../diagnostic.js";
 import { layoutHorizontalRegion, type HorizontalLayoutHookContext } from "../../layout/model.js";
 import type { HorizontalLineView, LayoutBox, Extent } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
-import type { TrackArrangement, TrackPlacement } from "../../lowering/track.js";
-import type { LoweringGroup } from "../../lowering/types.js";
+import type { TrackArrangement } from "../../lowering/track.js";
 import {
     isVisualTemporalNode,
     TemporalNodeBase,
@@ -89,37 +88,13 @@ function layoutHeadSlot(
     } else X[end] = X[start];
 }
 
-/** 行从上到下按 gap 排列；capture 让 Head 在同一遍测量里取得整组范围 */
-function measureRows(
-    members: readonly (Extent | null)[],
-    gap: number,
-    capture?: (extent: Extent | null) => void,
-): readonly (TrackPlacement | null)[] {
-    const placements: (TrackPlacement | null)[] = [];
-    let top: number | undefined;
-    let cursor: number | undefined;
-    for (const extent of members) {
-        if (!extent) {
-            placements.push(null);
-            continue;
-        }
-        const offset = cursor === void 0 ? 0 : cursor + gap - extent.top;
-        placements.push({ offset, extent });
-        top ??= offset + extent.top;
-        cursor = offset + extent.bottom;
-    }
-    capture?.(top === void 0 || cursor === void 0 ? null : { top, bottom: cursor });
-    return placements;
-}
-
 class HeadBoundaryTemporal extends TemporalNodeBase {
     declare ast: HeadSlotNode;
     declare box: LayoutBox;
     members: TemporalNodeBase[] = [];
     slots: { ast: HeadSlotNode; start: HeadBoundaryTemporal; end: HeadBoundaryTemporal }[] = [];
     private titleBottom = 0;
-    private leftExtent: Extent | null = null;
-    private rightExtent: Extent | null = null;
+    private sideExtents: Record<SideName, Extent | null> = { left: null, right: null };
 
     constructor(ast: HeadSlotNode) {
         super();
@@ -150,28 +125,37 @@ class HeadBoundaryTemporal extends TemporalNodeBase {
         if (this.slots.length > 0) this.alignHead();
     }
 
+    onTemporal(node: TemporalNodeBase) { this.members.push(node); }
+
     createTracks(slot: HeadSlotNode): TrackArrangement {
         const { name, owner } = slot;
         return {
             laneKey: `head/rows/${owner.sourceSpan.start}/${name}`,
             hostIndex: null,
             measure: members => {
-                if (name === "center") {
-                    const placements = measureRows(members, owner.gap);
-                    const first = placements.find(placement => placement !== null);
-                    this.titleBottom = first ? first.offset + first.extent.bottom : 0;
-                    return placements;
-                }
-                return measureRows(members, owner.gap, extent => {
-                    if (name === "left") this.leftExtent = extent;
-                    else this.rightExtent = extent;
+                // 行从上到下排列，同一遍取得标题首行底边和侧栏整组范围
+                let top: number | undefined;
+                let bottom: number | undefined;
+                if (name === "center") this.titleBottom = 0;
+                const placements = members.map(extent => {
+                    if (!extent) return null;
+                    const offset = bottom === void 0 ? 0 : bottom + owner.gap - extent.top;
+                    if (bottom === void 0 && name === "center") this.titleBottom = extent.bottom;
+                    top ??= offset + extent.top;
+                    bottom = offset + extent.bottom;
+                    return { offset, extent };
                 });
+                if (name !== "center") {
+                    this.sideExtents[name] = top === void 0 || bottom === void 0 ? null : { top, bottom };
+                }
+                return placements;
             },
             place: name === "center" ? undefined : () => {
-                const extent = name === "left" ? this.leftExtent : this.rightExtent;
+                const extent = this.sideExtents[name];
                 if (!extent) return this.titleBottom;
-                const leftHeight = this.leftExtent ? this.leftExtent.bottom - this.leftExtent.top : 0;
-                const rightHeight = this.rightExtent ? this.rightExtent.bottom - this.rightExtent.top : 0;
+                const { left, right } = this.sideExtents;
+                const leftHeight = left ? left.bottom - left.top : 0;
+                const rightHeight = right ? right.bottom - right.top : 0;
                 // 两侧共享底边；以较高侧定总高度，使它的顶部恰好贴标题底边
                 const targetBottom = this.titleBottom + Math.max(leftHeight, rightHeight);
                 return targetBottom - extent.bottom;
@@ -209,8 +193,8 @@ class HeadBoundaryTemporal extends TemporalNodeBase {
             else cells.set(cell, [member]);
         }
         const [left, , right] = this.slots;
-        this.packRows(left.ast, left.start.box.x, "left", cells);
-        this.packRows(right.ast, right.end.box.x, "right", cells);
+        this.packRows(left.ast, left.start.box.x, cells);
+        this.packRows(right.ast, right.end.box.x, cells);
     }
 
     private stretch(node: VisualTemporalNode, side: "L" | "R") {
@@ -224,11 +208,10 @@ class HeadBoundaryTemporal extends TemporalNodeBase {
     private packRows(
         slot: HeadSlotNode,
         target: number,
-        side: SideName,
         cells: ReadonlyMap<ASTNodeBase, VisualTemporalNode[]>,
     ) {
         const gap = this.ast.owner.size * ITEM_GAP_EM;
-        const fromLeft = side === "left";
+        const fromLeft = slot.name === "left";
         const direction = fromLeft ? 1 : -1;
         for (const row of slot.rows) {
             const rowCells = row instanceof ASTBraceNode ? row.content : [row];
@@ -299,8 +282,11 @@ class HeadSlotNode extends ASTNodeBase {
         };
     }
 
-    override loweringEnter() {
-        return [new HeadBoundaryTemporal(this)];
+    override loweringEnter(ctx: LoweringContext) {
+        const boundary = new HeadBoundaryTemporal(this);
+        // 首边界收集真实全局事件，供末边界校验和放置后的对齐
+        if (this.name === "left") ctx.beginLoweringGroup(this.owner, boundary);
+        return [boundary];
     }
 
     override loweringExit() {
@@ -458,7 +444,8 @@ H.tempo: 94
             ? previous
             : new HeadFunction(sugar.span, new Map(), ctx, null);
         head.createdBySugar = true;
-        head.addSugarRow(FIELD_SLOT[field], HeadFunction.parseSugarRow(ctx, field, span, text, parsed));
+        head.slots.find(slot => slot.name === FIELD_SLOT[field])!
+            .addRow(HeadFunction.parseSugarRow(ctx, field, span, text, parsed));
         head.sourceSpan.end = span.end;
         if (head !== previous) ctx.pushNode(head);
 
@@ -524,20 +511,8 @@ H.tempo: 94
         ];
     }
 
-    override loweringEnter(ctx: LoweringContext) {
-        // 收集真实全局事件，供末边界校验时值和放置后的横向对齐
-        const group = {
-            members: [] as TemporalNodeBase[],
-            onTemporal(node: TemporalNodeBase) { this.members.push(node); },
-        };
-        ctx.beginLoweringGroup(this, group);
-        return [];
-    }
-
     override loweringExit(ctx: LoweringContext) {
-        const { members } = ctx.endLoweringGroup(this) as LoweringGroup & { members: TemporalNodeBase[] };
-        const head = ctx.getTemporalNodes(this.slots[0])[0] as HeadBoundaryTemporal;
-        head.members = members;
+        const head = ctx.endLoweringGroup(this) as HeadBoundaryTemporal;
         head.slots = this.slots.map(ast => {
             const [start, end] = ctx.getTemporalNodes(ast) as readonly HeadBoundaryTemporal[];
             return { ast, start, end };
@@ -545,7 +520,7 @@ H.tempo: 94
         // right.end 是整个 Head 的末边界，按三槽的 sequence 排在所有内容之后
         // 此时 rest 等延迟时值已固化，只检查当前 Head 的成员，无须再扫描全谱索引
         head.slots[2].end.onTimeState = () => head.validateDuration();
-        for (const node of members) {
+        for (const node of head.members) {
             if ((node.addon?.breakBefore ?? 0) > 0) {
                 throw new ErrorDiagnostic(
                     "E_HEAD_INTERNAL_BREAK",
@@ -555,10 +530,6 @@ H.tempo: 94
             }
         }
         return [];
-    }
-
-    private addSugarRow(name: SlotName, row: ASTNodeBase) {
-        this.slots.find(slot => slot.name === name)!.addRow(row);
     }
 
     override toString(source: string) {
