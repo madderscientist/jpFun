@@ -17,6 +17,7 @@ import { NoteNode } from "./note/index.js";
 import { RestNode } from "./rest/index.js";
 import { UpNode, DownNode } from "./up/index.js";
 import { PageNode } from "./page/index.js";
+import { PageBreakNode } from "./pagebreak/index.js";
 import { ProgramNode } from "./program/index.js";
 import { StackNode } from "./stack/index.js";
 import { SymbolNode } from "./symbol/index.js";
@@ -32,7 +33,7 @@ export const defaultFunctions: ASTFunctionClass[] = [
     NoteNode, DashNode, RestNode, BarNode,
     DivNode, DotNode, TupletNode,   // 装饰性
     VoiceNode, VoicesNode,  // 歌词和声部
-    BrNode,     // 排版
+    BrNode, PageBreakNode,  // 排版
     PageNode, HeadNode,   // 文档页面与谱头
     StackNode,  // 时间同步
     UpNode, DownNode,

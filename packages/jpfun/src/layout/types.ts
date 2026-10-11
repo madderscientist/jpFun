@@ -57,7 +57,7 @@ export interface TimeLineEvent {
 /** 文档页面的固化尺寸，所有值均为 px */
 export interface PageConfig {
     width: number;       // 纸张总宽度
-    height: number;      // 纸张总高度；Infinity 表示不分页
+    height: number;      // 纸张总高度；Infinity 表示只按显式边界分页
     marginTop: number;
     marginBottom: number;
     marginLeft: number;

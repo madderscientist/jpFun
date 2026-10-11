@@ -78,7 +78,7 @@ export class PageFunction extends ASTFunctionNode {
         allowExtraArgs: false,
         args: [
             { name: "width", description: "页面宽度，须大于左右页边距之和", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.width) },
-            { name: "height", description: "页面高度，0 表示不分页、高度随内容增长；宽度为 `794px` 时，A4 对应高度约为 `1123px`", type: "length" as const, default: px(0) },
+            { name: "height", description: "页面高度，小于等于 0 表示不自动分页、高度随内容增长；宽度为 `794px` 时，A4 对应高度约为 `1123px`", type: "length" as const, default: px(0) },
             { name: "top", description: "页面上边距", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.marginTop) },
             { name: "bottom", description: "页面下边距，启用页码时至少为 `16px`", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.marginBottom) },
             { name: "left", description: "页面左边距", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.marginLeft) },
@@ -133,8 +133,8 @@ export class PageFunction extends ASTFunctionNode {
             (values as LengthValue[]).map(value => ctx.length2px(value));
         if (!Number.isFinite(width) || width <= 0)
             throw Diagnostic.error.InvalidPageConfig("@page 的 width 必须是正有限长度", sourceSpan);
-        if (!Number.isFinite(height) || height < 0)
-            throw Diagnostic.error.InvalidPageConfig("@page 的 height 必须是非负有限长度；0 表示不分页", sourceSpan);
+        if (!Number.isFinite(height))
+            throw Diagnostic.error.InvalidPageConfig("@page 的 height 必须是有限长度；小于等于 0 表示不自动分页", sourceSpan);
         if ([top, bottom, left, right, gap].some(value => !Number.isFinite(value) || value < 0))
             throw Diagnostic.error.InvalidPageConfig("@page 的边距和 gap 必须是非负有限长度", sourceSpan);
         if (left + right >= width)

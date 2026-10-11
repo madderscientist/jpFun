@@ -14,7 +14,7 @@ import {
     type ParserContext,
     type SourceSpan,
 } from "../ASTtypes.js";
-import { TemporalNodeBase, type TimeState, type VisualTemporalNode } from "../temporal.js";
+import { transferFunctionAddons, TemporalNodeBase, type TimeState, type VisualTemporalNode } from "../temporal.js";
 import { prepareArpeggioShape } from "./shape.js";
 
 type FoldShape = VisualTemporalNode & {
@@ -158,10 +158,7 @@ class ArpeggioTemporal extends TemporalNodeBase {
     }
 
     override prepareLayout(context: LayoutPrepareContext) {
-        if (this.addon) {
-            this.host.addon = this.addon;
-            this.addon = void 0;
-        }
+        transferFunctionAddons(this, this.host);
         prepareLayoutHost(this.host, context);
         this.springConfig = { ...this.host.springConfig, ...this.springConfig };
 

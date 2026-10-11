@@ -447,7 +447,7 @@ test("不规范的调性先按音高归一化，读不懂才退回 C4，严格�
 });
 
 test("tempo 与 key 自己上谱，set 纯词法，不可见事件不分配布局资源", () => {
-    const loweredState = lower(`@tempo(90) @1(D4) @set(note.color=#f00) 1 @br()`);
+    const loweredState = lower(`@tempo(90) @1(D4) @program(1) @set(note.color=#f00) 1 @br()`);
     const stateResult = layoutDocument(loweredState, layoutContext);
     const invisibleStateEvents = loweredState.columns
         .flat()
@@ -465,7 +465,8 @@ test("tempo 与 key 自己上谱，set 纯词法，不可见事件不分配布�
     assert(invisibleStateEvents.every(event => event.springConfig === undefined), "invisible state events must not allocate HorizontalSpringConfig");
     assert(invisibleStateEvents.every(event => event.ports === undefined), "invisible state events must not allocate layout ports");
     assert(invisibleStateEvents.every(event => event.decorations === undefined), "invisible state events must not allocate decorations");
-    assert(invisibleStateEvents.every(event => event.addon === undefined), "undecorated state events must not allocate addon");
+    strictAssert.deepEqual(invisibleStateEvents.map(event => event.addon), [undefined, { breakBefore: 1 }],
+        "only the boundary control needs addon; an ordinary program state event must not allocate it");
 });
 
 test("JE 谱括号按局部作用域调整八度", () => {

@@ -6,6 +6,7 @@ import type { LoweringAttachment } from "../../lowering/types.js";
 import { Fraction } from "../../fraction.js";
 import { Track } from "../../lowering/track.js";
 import {
+    transferFunctionAddons,
     isVisualTemporalNode,
     TemporalNodeBase,
     type TimeState,
@@ -298,7 +299,7 @@ class GraceFunction extends ASTFunctionNode {
             );
         }
         const events = columns.flat();
-        if (!events.some(isVisualTemporalNode) || events.some(event => event.breakBefore > 0)) {
+        if (!events.some(isVisualTemporalNode) || events.some(event => (event.addon?.breakBefore ?? 0) > 0)) {
             throw new ErrorDiagnostic(
                 "E_GRACE_INVALID_CONTENT",
                 "@grace 的倚音至少产生一个可见对象，且不能换行",
@@ -494,10 +495,7 @@ export class GraceTemporal extends TemporalNodeBase {
     override prepareLayout(context: LayoutPrepareContext) {
         // lowering 期间修饰挂在复合体上（augmenter 要看到整体节奏），渲染时交给宿主：
         // 减时线要落在宿主数字与下八度点之间，而不是压在整个倚音盒下面
-        if (this.addon) {
-            this.host.addon = this.addon;
-            this.addon = void 0;
-        }
+        transferFunctionAddons(this, this.host);
         const block = context.layoutSubdomain!(this, this.graceColumns, this.root, this.attachments);
         const hostWidth = layoutLocalSequence([this.host], context);
         this.springConfig = { ...this.host.springConfig, ...this.springConfig };

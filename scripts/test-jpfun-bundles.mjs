@@ -48,6 +48,25 @@ test("core bundle excludes converters", async () => {
   assert.equal(target.jpfun.musicXmlToJpFun, undefined);
 });
 
+test("pagebreak and pb preserve options through ESM and IIFE entry points", async () => {
+  const entries = [await import(new URL("../packages/jpfun/dist/index.js", import.meta.url))];
+  for (const name of ["jpfun.min.js", "jpfun.core.min.js"]) {
+    const target = context();
+    await load(target, name);
+    entries.push(target.jpfun);
+  }
+  for (const entry of entries) {
+    for (const name of ["pagebreak", "pb"]) {
+      const result = entry.compileScore(`1 @${name}(justify=false)`);
+      assert.equal(result.diagnostics.length, 0);
+      assert.equal(result.layout.pages.length, 2);
+      const control = result.lowering.columns.flat().find(node => node.addon?.pageBreakBefore !== undefined);
+      assert.equal(control?.addon?.pageBreakBefore, false);
+      assert.equal(control?.addon?.breakBefore, 1);
+    }
+  }
+});
+
 test("from-midi works alone for fixed and with core for automatic line breaks", async () => {
   const target = context();
   await load(target, "jpfun.from-midi.min.js");

@@ -546,10 +546,10 @@ H.tempo: 94
         // 此时 rest 等延迟时值已固化，只检查当前 Head 的成员，无须再扫描全谱索引
         head.slots[2].end.onTimeState = () => head.validateDuration();
         for (const node of members) {
-            if (node.breakBefore > 0) {
+            if ((node.addon?.breakBefore ?? 0) > 0) {
                 throw new ErrorDiagnostic(
                     "E_HEAD_INTERNAL_BREAK",
-                    "@head 的内部不能使用 @br；第一层内容已经表示视觉行",
+                    "@head 的内部不能换行或换页；第一层内容已经表示视觉行",
                     node.ast.sourceSpan
                 );
             }

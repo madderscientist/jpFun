@@ -52,13 +52,12 @@ class BrFunction extends ASTFunctionNode {
         const br = new TemporalNodeBase();
         br.ast = this;
         br.mergeKey = -1;
-        br.breakBefore = this.offset;
+        br.addon = { breakBefore: this.offset };
         return [br];
     }
 
     /**
-     * 检查换行是否切断了持续事件
-     * 换行会把整条时间线切开，因此跨越换行点的持续事件无法被完整绘制
+     * 换行与换页共享校验；边界会切开全谱，不能截断持续事件
      */
     static override loweringFinalize = (result: LoweringResult) => {
         const latestEnd = new Fraction();
@@ -66,10 +65,10 @@ class BrFunction extends ASTFunctionNode {
         let latestNode: TemporalNodeBase | null = null;
 
         for (const column of result.columns) {
-            if (latestNode && latestEnd.compare(column[0].t) > 0 && column.some(node => node.breakBefore > 0)) {
-                throw Diagnostic.error.BreakInsideEvent(latestNode!.ast.sourceSpan);
+            if (latestNode && latestEnd.compare(column[0].t) > 0 && column.some(node => (node.addon?.breakBefore ?? 0) > 0)) {
+                throw Diagnostic.error.BreakInsideEvent(latestNode.ast.sourceSpan);
             }
-    
+
             for (const node of column) {
                 if (node.T.isZero()) continue;
                 candidateEnd.copyFrom(node.t).add(node.T);

@@ -29,6 +29,20 @@ class TemporalNodeBase {
 
 函数通常只需给出事件自身的时长和行为。开始时间、音轨、创建顺序和来源 AST 由 `LoweringContext` 补齐。解析后的 AST 保持只读，这些本轮编译信息都保存在 Temporal 中。
 
+可选的语义声明统一放在 `addon?: TemporalAddon`，不再为每种控制函数增加基础节点字段：
+
+```ts
+interface TemporalAddon {
+    breakBefore?: number;    // 当前列之前的换行偏移，缺省为 0
+    pageBreakBefore?: boolean; // 当前行之前换页；布尔值指定上一页是否分配余白
+    [key: `@${string}`]: unknown;
+}
+```
+
+核心读取明确的通用字段；函数私有语义继续使用 `functionAddonKey` 生成的 `@主函数名`，读取时需收窄 `unknown`。`pageBreakBefore=false` 仍表示换页，必须用 `!== undefined` 判断是否存在。换页控制同时声明 `breakBefore=1`，以复用换行、合列和持续事件校验。
+
+复合节点在 Lowering 时接管宿主的语义；布局时通过 `transferFunctionAddons` 只向内部宿主转移 `@` 键，核心边界声明留在全局事件上。不能在折叠内部换行的成员，在清空或转交 addon 之前完成校验。
+
 ### Column：时间列
 布局根据 `columns` 确定横向对齐关系（简谱上哪些在同一列）。同一列中的事件共享横向位置，但开始时间相同的事件不一定在同一列：跨轨归并时，还要求它们的 `mergeKey` 相等。
 - `DEFAULT_KEY`（`Infinity`）：普通事件的公共组；并行音轨上同时发生时合列。
@@ -111,7 +125,7 @@ type TimeFlowModel =
 `head` 就在这里为三个槽创建测量策略，并引用本轮的首边界 Temporal。策略中捕获的可变状态也属于本轮，不能在多次 Lowering 之间共享。
 
 ### 3. 固化行号和时间状态
-递归完成后，`solidifyColumns` 先处理 `br` 请求并写入最终 `layoutLine`，再按列调用 `onTimeState(state)`。
+递归完成后，`solidifyColumns` 先处理 `addon.breakBefore` 请求并写入最终 `layoutLine`：同列取最大偏移，同轨连续列累加。随后按列调用 `onTimeState(state)`。
 
 这一步需要等到锚点归并完成，因为归并可能调整事件时间。调性、速度等依赖时间顺序的值，在 `onTimeState` 中从共享状态读取，并保存到 Temporal；AST 不参与这次状态更新。
 

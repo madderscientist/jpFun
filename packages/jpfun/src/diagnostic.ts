@@ -143,7 +143,7 @@ Diagnostic.error = {
     BreakInsideEvent: (span: SourceSpan) => {
         return new ErrorDiagnostic(
             "E_BREAK_INSIDE_EVENT",
-            `换行切断了一个仍在持续的事件；请把长音写成多个事件，或调整 @br 的位置`,
+            `换行或换页切断了一个仍在持续的事件；请把长音写成多个事件，或调整换行、换页的位置`,
             span
         );
     },

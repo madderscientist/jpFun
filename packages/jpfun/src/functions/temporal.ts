@@ -42,11 +42,20 @@ export const DEFAULT_VELOCITY = 80;
 export const DEFAULT_TONALITY = "C4";
 export const DEFAULT_PROGRAM = 0;
 
+/** 每个事件的可选语义声明；核心字段与函数私有的 @键分开 */
+export interface TemporalAddon {
+    /** 请求在当前时间列之前换几行，缺省为 0 */
+    breakBefore?: number;
+    /** 在所属行之前强制换页；配合 breakBefore 使用，布尔值控制上一页的余白分配 */
+    pageBreakBefore?: boolean;
+    [key: `@${string}`]: unknown;
+}
+
 /**
  * 事件的合并组：同一时刻 mergeKey 相等的事件归并成一列
  *
  * 缺省取事件自身的 order，因而互不相等、各自独占一列；需要合并的显式取相同的值。
- * 数值同时决定同时刻的列先后，越小越靠左。已占用的共享常量：-1 br，-2 声部名
+ * 数值同时决定同时刻的列先后，越小越靠左。已占用的共享常量：-1 换行/换页，-2 声部名
  */
 /** 时间对齐点（小节线）；必须是最小值，最先出队 */
 export const ANCHOR_KEY = -Infinity;
@@ -68,13 +77,13 @@ export class TemporalNodeBase implements TimeLineEvent {
 
     ast!: ASTNodeBase;  // 对应的 AST 节点
     order!: number;     // 事件创建序号，作为id。可用于区分同时发生的父子、排序同一时刻发生的事件
-    addon?: Record<string, any>; // 其他任意字段，仅在存在已固化的函数语义时创建，比如存储 div 和 dot 的数目
+    addon?: TemporalAddon; // 仅在存在语义声明时创建，比如换行或 div 和 dot 的数目
 
     /**
      * 时间列合并组：同一时刻 mergeKey 相等的事件归并成一列
      *
      * 缺省取事件自身的 order，因而互不相等、各自独占一列；需要合并的显式取相同的值。
-     * 数值同时决定同时刻的列先后，越小越靠左。已占用的共享常量：-1 br，-2 声部名
+     * 数值同时决定同时刻的列先后，越小越靠左。已占用的共享常量：-1 换行/换页，-2 声部名
      */
     mergeKey!: number;
 
@@ -85,9 +94,6 @@ export class TemporalNodeBase implements TimeLineEvent {
      * 按全局事件工作的消费者可以沿链上溯到宿主。
      */
     foldedInto?: TemporalNodeBase;
-
-    /** 请求在自己所在时间列之前换几行，默认 0 */
-    breakBefore = 0;
 
     /** 由 LoweringContext 在列归并后固化的谱面行号 */
     layoutLine = 0;
@@ -186,6 +192,17 @@ export class TemporalNodeBase implements TimeLineEvent {
 
     /** 只执行绘制，不允许在这里重新测量或改变 LayoutBox */
     paint(_painter: Painter): void {}
+}
+
+/** 复合体下放函数语义时，核心声明仍留在全局事件上 */
+export function transferFunctionAddons(source: TemporalNodeBase, target: TemporalNodeBase): void {
+    const addon = source.addon;
+    if (!addon) return;
+    for (const key of Object.keys(addon).filter((key): key is `@${string}` => key.startsWith("@"))) {
+        (target.addon ??= {})[key] = addon[key];
+        delete addon[key];
+    }
+    if (!Object.keys(addon).length) source.addon = undefined;
 }
 
 /** 可以进入视觉布局的 Temporal，同时满足 decoration 所需的 LayoutHost 协议 */

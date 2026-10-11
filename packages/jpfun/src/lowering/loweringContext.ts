@@ -78,7 +78,8 @@ export class LoweringContext {
         const finalizers: LoweringFinalizer[] = this.loweringFinalizers = [];
         for (const functionClass of functionClasses) {
             if (functionClass.loweringAugment) augmenters.push(functionClass.loweringAugment);
-            if (functionClass.loweringFinalize) finalizers.push(functionClass.loweringFinalize);
+            const finalize = functionClass.loweringFinalize;
+            if (finalize && !finalizers.includes(finalize)) finalizers.push(finalize);  // 判重是因为pb直接引用了br的实现
         }
     }
 
@@ -126,7 +127,8 @@ export class LoweringContext {
         for (const column of columns) {
             let offset = 0;
             for (const node of column) {
-                if (node.breakBefore > offset) offset = node.breakBefore;
+                const requested = node.addon?.breakBefore ?? 0;
+                if (requested > offset) offset = requested;
             }
             line += offset;
             // 换行列本身归属于换行之后的那一行
