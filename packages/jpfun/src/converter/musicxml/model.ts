@@ -141,5 +141,11 @@ export interface ParsedMusicXmlScore {
     bars: Map<string, string>;
     measureBoundaries: Set<string>;
     lineBreaks: Set<string>;
+    multipleRests: {
+        location: MusicXmlPartLocation;
+        start: Fraction;
+        end?: Fraction;
+        count: number;
+    }[];
     end: Fraction;
 }

@@ -59,6 +59,7 @@ interface RenderMetadata {
     labels: Map<Pitch | MusicEvent, string>;
     afterSources: Map<MusicEvent, string[]>;
     labelEnding(fragment: { source: string; tailDuration: Fraction }, end: Fraction): string;
+    labelRest(source: string, events: MusicEvent[], end: Fraction): string;
 }
 
 interface RenderAdjustment {
@@ -168,6 +169,7 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
     const bars = new Map<string, string>();
     const measureBoundaries = new Set<string>();
     const lineBreaks = new Set<string>();
+    const multipleRests: ParsedScore["multipleRests"] = [];
     let scoreEnd = new Fraction();
     let order = 0;
 
@@ -189,6 +191,8 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
         const pitches: { pitch: Pitch; at: Fraction }[] = [];
         const instrumentChanges: { at: Fraction; id: string; instrument: Instrument }[] = [];
         const eventInstruments = new Map<MusicEvent, string>();
+        const measureStarts: Fraction[] = [];
+        const firstRest = multipleRests.length;
         const instrumentAt = (id: string, at: Fraction): Instrument => {
             const value = { ...(partInstruments?.byId.get(id) ?? partInstruments?.fallback) };
             for (const change of instrumentChanges) {
@@ -198,6 +202,7 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
         };
         // 小节游标从零开始，partTime 保存当前小节在全谱中的绝对起点
         for (let measureIndex = 0; measureIndex < measures.length; measureIndex++) {
+            measureStarts.push(partTime.clone());
             const { body: measure, container: measureContainer } = measures[measureIndex];
             const measureLocation = {
                 partId, measureIndex: measureIndex + 1,
@@ -271,6 +276,19 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
                             at,
                             fifths,
                             mode: text(key, "mode") || "major",
+                        });
+                    }
+                    for (const style of children(item, "measure-style")) {
+                        if (!child(style, "multiple-rest")) continue;
+                        const count = number(style, "multiple-rest");
+                        if (!Number.isSafeInteger(count) || count <= 0 || count > 0xffffffff) {
+                            throw new RangeError("MusicXML multiple-rest must be a positive integer in 1..4294967295");
+                        }
+                        multipleRests.push({
+                            location: { ...measureLocation, element: "multiple-rest",
+                                staff: style.getAttribute("number") || undefined },
+                            start: at.clone(),
+                            count,
                         });
                     }
                     continue;
@@ -490,6 +508,10 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
             partTime.add(length);
             if (scoreEnd.compare(partTime) < 0) scoreEnd = partTime.clone();
         }
+        measureStarts.push(partTime.clone());
+        for (const rest of multipleRests.slice(firstRest)) {
+            rest.end = measureStarts[rest.location.measureIndex - 1 + rest.count];
+        }
         for (const groups of pendingGraces.values()) for (const group of groups) for (const pitch of group) {
             reportDiagnostic(diagnostics, "graceHost", { ...pitch.location, element: "grace" });
         }
@@ -529,6 +551,7 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
         bars,
         measureBoundaries,
         lineBreaks,
+        multipleRests,
         end: scoreEnd,
     };
 }
@@ -832,6 +855,15 @@ function labelRelations(score: ParsedScore, diagnostics: MusicXmlDiagnostic[]) {
             endpoint.label = `mx${labelIndex++}`;
             return `${source}@${endpoint.label}`;
         },
+        labelRest(source, events, end) {
+            const labeled = events.find(event => metadata.labels.has(event));
+            const endpoint = endingLabels.get(keyOf(end));
+            if (!labeled && !endpoint) return source;
+            const label = labelOf(labeled ?? events[0]);
+            for (const event of events) if (metadata.labels.has(event)) metadata.labels.set(event, label);
+            if (endpoint) { endpoint.at = events[0].start; endpoint.label = label; }
+            return `${source}@${label}`;
+        },
     };
     const labelOf = (target: Pitch | MusicEvent) => {
         const label = metadata.labels.get(target) ?? `mx${labelIndex++}`;
@@ -917,10 +949,10 @@ function labelRelations(score: ParsedScore, diagnostics: MusicXmlDiagnostic[]) {
         }
         const from = events[fromIndex];
         const to = events[toIndex - 1];
-        const fromLabel = eventLabel(from);
+        eventLabel(from);
         const endpoint = endingLabels.get(keyOf(ending.end)) ?? { at: to.start, label: eventLabel(to) };
         endingLabels.set(keyOf(ending.end), endpoint);
-        relations.push(() => `@volta(${fromLabel}, ${endpoint.label}, ${ending.from.passes.join(", ")})`);
+        relations.push(() => `@volta(${eventLabel(from)}, ${endpoint.label}, ${ending.from.passes.join(", ")})`);
     }
     return { relations, metadata };
 }
@@ -997,7 +1029,7 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagno
         ? `@page(width=${score.page.width}px, height=${score.page.height}px, top=${score.page.top}px, bottom=${score.page.bottom}px, left=${score.page.left}px, right=${score.page.right}px)\n`
         : "";
 
-    // 明确的 MusicXML 换行优先；若会切开 tuplet，则丢弃该断点以保持时值组完整
+    // 明确的 MusicXML 换行优先；若会切开 tuplet 或多小节休止，则保留完整块
     const blocksByLane = score.lanes.map((lane, index) => renderBlocks(
         lane,
         pitchMode,
@@ -1008,20 +1040,63 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagno
         metadata,
         diagnostics,
     ));
-    const tupletSpans = blocksByLane.flatMap(blocks => blocks
+    const acceptedRests = new Set<string>();
+    for (const rest of score.multipleRests) {
+        const { start, end, count } = rest;
+        const id = `${start}:${end}:${count}`;
+        if (acceptedRests.has(id)) continue;
+        const interior = (at: Fraction) => !!end && at.compare(start) > 0 && at.compare(end) < 0;
+        const meter = pointAt(meters, start);
+        const measureDuration = new Fraction(meter.numerator * 4, meter.denominator);
+        // @rest 是全局休止列，只有所有声部同步休止才不会把其他声部的起音推迟。
+        const covered = blocksByLane.map(blocks => blocks.slice(
+            lowerBoundAt(blocks, start, block => block.start),
+            lowerBoundAt(blocks, end ?? start, block => block.start),
+        ));
+        const safe = end && end.clone().sub(start).equals(measureDuration.clone().mul(count))
+            && !meters.some(point => interior(point.at))
+            && ![...score.bars].some(([at, bar]) => interior(fractionFromKey(at)) && bar !== "|")
+            && !score.endings.some(span => interior(span.from.at) || interior(span.end))
+            && adjustmentsByLane.every(points => ![...points.values()].some(point => interior(point.at)))
+            && programsByLane.every(points => ![...points.keys()].some(at => interior(fractionFromKey(at))))
+            && covered.length > 0 && covered.every(blocks => blocks.length === count
+                && blocks.every((block, index) => {
+                    const event = block.event;
+                    return event?.rest && event.pitches.length === 0 && !event.arpeggio
+                        && event.modifiers.length === 0 && event.annotations.length === 0
+                        && event.preGraces.length === 0 && event.postGraces.length === 0
+                        && event.lyrics.size === 0 && !metadata.afterSources.has(event)
+                        && block.start.equals(start.clone().add(measureDuration.clone().mul(index)))
+                        && block.end.clone().sub(block.start).equals(measureDuration);
+                }));
+        if (!safe || !end) {
+            reportDiagnostic(diagnostics, "multipleRest", rest.location);
+            continue;
+        }
+        acceptedRests.add(id);
+        for (const [lane, blocks] of blocksByLane.entries()) {
+            const program = programsByLane[lane].get(keyOf(start));
+            const events = covered[lane].map(block => block.event!);
+            const source = (program === undefined ? "" : `@program(${program}) `)
+                + attachAdjustment(metadata.labelRest(`@rest(${count})`, events, end),
+                    adjustmentsByLane[lane].get(keyOf(start)));
+            blocks.splice(lowerBoundAt(blocks, start, block => block.start), count, { start, end, source });
+        }
+    }
+    const atomicSpans = blocksByLane.flatMap(blocks => blocks
         .filter(block => block.source)
         .map(block => ({ start: block.start, end: block.end })))
         .sort((left, right) => left.start.compare(right.start) || left.end.compare(right.end));
-    const mergedTupletSpans: { start: Fraction; end: Fraction }[] = [];
-    for (const span of tupletSpans) {
-        const previous = mergedTupletSpans.at(-1);
+    const mergedAtomicSpans: { start: Fraction; end: Fraction }[] = [];
+    for (const span of atomicSpans) {
+        const previous = mergedAtomicSpans.at(-1);
         if (previous && span.start.compare(previous.end) < 0) {
             if (span.end.compare(previous.end) > 0) previous.end = span.end;
-        } else mergedTupletSpans.push(span);
+        } else mergedAtomicSpans.push(span);
     }
     const lineBreaks = new Map([...score.lineBreaks]
         .map(value => [value, fractionFromKey(value)] as const)
-        .filter(([, at]) => !insideSpan(mergedTupletSpans, at)));
+        .filter(([, at]) => !insideSpan(mergedAtomicSpans, at)));
 
     // 每条 lane 独立沿同一组时间点输出；最后再按系统转置成完整 N: 组
     const voices = score.lanes.map((lane, laneIndex) => {
@@ -1041,7 +1116,7 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagno
             }
         };
         const blocks = blocksByLane[laneIndex];
-        const tupletBlocks = blocks.filter(block => block.source);
+        const atomicBlocks = blocks.filter(block => block.source);
         // 所有事件边界与控制点汇成一条时间线，每个相邻点只输出一个连续片段
         const points = new Map<string, Fraction>();
         points.set("0", new Fraction());
@@ -1050,11 +1125,11 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagno
             points.set(keyOf(block.start), block.start);
             points.set(keyOf(block.end), block.end);
         }
-        for (const at of barTimes) if (!insideSpan(tupletBlocks, at)) points.set(keyOf(at), at);
+        for (const at of barTimes) if (!insideSpan(atomicBlocks, at)) points.set(keyOf(at), at);
         for (const [value, at] of lineBreaks) points.set(value, at);
         const adjustments = adjustmentsByLane[laneIndex];
         for (const [value, point] of adjustments) {
-            if (!insideSpan(tupletBlocks, point.at)) points.set(value, point.at);
+            if (!insideSpan(atomicBlocks, point.at)) points.set(value, point.at);
         }
         const timeline = [...points.values()].sort((left, right) => left.compare(right));
         let blockIndex = 0;
@@ -1077,7 +1152,7 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagno
             const block = blocks[blockIndex];
             if (block?.source) {
                 if (!block.start.equals(at) || !block.end.equals(next)) {
-                    throw new RangeError("MusicXML tuplet cannot cross a barline or state change");
+                    throw new RangeError("MusicXML atomic block cannot cross a barline or state change");
                 }
                 outputs.at(-1)!.push(block.source);
                 for (const item of block.lyricEvents ?? []) {

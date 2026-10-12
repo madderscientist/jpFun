@@ -12,6 +12,7 @@ import { comparePlaybackDraftEvents, finalizePlaybackEvents } from "./event.js";
 import { performanceTimeToSeconds } from "./time.js";
 import type {
     PlaybackControl,
+    PlaybackColumnOf,
     PlaybackCursor, PlaybackFlow,
     PlaybackFlowHook,
     PlaybackHook,
@@ -46,10 +47,17 @@ function linearizeColumns(lowering: LoweringResult, diagnostics: Diagnostic[], m
     }
     // 折叠成员不单独占列，沿 foldedInto 找到最近的已入列宿主
     // 标记和关系端点都使用这个映射，保持控制流与实际时间列一致
-    const resolveColumn = (node: TemporalNodeBase) => {
+    const resolveColumn: PlaybackColumnOf = (node, edge) => {
         for (let at: TemporalNodeBase | undefined = node; at; at = at.foldedInto) {
             const index = columnOf.get(at);
-            if (index !== void 0) return index;
+            if (index === undefined) continue;
+            if (edge !== "end" || at.T.compare(0) <= 0) return index;
+            // 一个被标签引用的事件，其完整时值覆盖了多个时间列；终点查询不包含结束时刻的列。
+            const finish = at.t.clone().add(at.T);
+            let end = index;
+            // 用顺序向后找而不是二分因为基本就在后一个(@rest除外)
+            while (end + 1 < columns.length && columns[end + 1][0].t.compare(finish) < 0) end++;
+            return end;
         } return void 0;
     };
 

@@ -26,6 +26,7 @@ const DIAGNOSTICS = {
     directionOutput: ["UNATTACHED_CONTENT", "Direction mark has no generated output position and was omitted."],
     tempoReplaced: ["UNATTACHED_CONTENT", "Tempo {value} was replaced by a different tempo at the same time and was omitted."],
     arpeggioOutput: ["UNSUPPORTED_ELEMENT", "Arpeggiate mark requires at least two pitches in one event and was omitted."],
+    multipleRest: ["APPROXIMATED", "Multiple-rest grouping could not be preserved without discarding musical content; individual rests were retained."],
     textHost: ["UNATTACHED_CONTENT", "Text {value} has no target event and was omitted."],
     wedgeStart: ["UNRESOLVED_RELATION", "Wedge stop has no matching start and was omitted."],
     wedgeReplaced: ["UNRESOLVED_RELATION", "Wedge start was replaced before a matching stop and was omitted."],

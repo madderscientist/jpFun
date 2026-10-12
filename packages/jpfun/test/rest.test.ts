@@ -216,16 +216,28 @@ test("rest supports ordinary wrappers and fresh repeated lowering", () => {
     assert(plain.duration.equals(2) && plain.columns[1][0].t.equals(1), "meter and offsets must reset");
 });
 
-test("rest rejects invalid arguments, labels and sustain", () => {
+test("rest rejects invalid arguments and sustain", () => {
     for (const count of ["0", "-1", "1.5", "9007199254740992"]) {
         expectCompileError(`@meter(4,4) @rest(${count})`, "E_REST_COUNT");
     }
     expectCompileError("@meter(4,4) @rest(2,size=0px)", "E_REST_SIZE");
-    assert(compileScore("@meter(4,4) @rest(2)@a").diagnostics.some(diagnostic => diagnostic.code === "W_LABEL_WITHOUT_TARGET"),
-        "labels must stop at rest and report the standard unbound-label warning");
     expectCompileError("@meter(4,4) | @rest(2) | -", "E_REST_SUSTAIN");
     expectCompileError("@meter(4,4) | @rest(2) | @up(-,1)", "E_REST_SUSTAIN");
     compileValid("@meter(2,4) | @rest(2) | @up(1,-) 2 |");
+});
+
+test("labeled rests preserve volta layout and skip every internal boundary", () => {
+    for (const count of [1, 4]) for (const content of [
+        `@rest(${count})@a`, `@box(@rest(${count}))@a`,
+    ]) {
+        const compiled = compileValid(`@meter(4,4) |: 1234 | ${content} :| 5671 | @volta(a,a,1)`);
+        const playback = compilePlayback(compiled.lowering);
+        assert(playback.performanceDuration.equals(12 + count * 4), "rest must play only on the first pass");
+        deepStrictEqual(playedNotes(playback).map(note => note.start.toString()),
+            Array.from({ length: 12 }, (_, index) => String(index < 4 ? index : index + count * 4)));
+        assert(recordCommands(compiled.layout).some(command => command.kind === "text" && command.text === "1."),
+            "volta must retain its visible rest endpoint");
+    }
 });
 
 test("rest sustain checks use the host onset, not private grace members", () => {

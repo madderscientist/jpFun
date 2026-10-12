@@ -35,8 +35,8 @@ export type PlaybackFlowAction =
     | { kind: "jump"; column: number }
     | { kind: "stop" };
 
-/** 把事件映射到它在播放时间流中的列；折叠成员会映射到宿主 */
-export type PlaybackColumnOf = (node: TemporalNodeBase) => number | undefined;
+/** 默认查询起点列；end 查询宿主时值内的最后一列，不包含结束时刻的列。折叠成员映射到宿主 */
+export type PlaybackColumnOf = (node: TemporalNodeBase, edge?: "start" | "end") => number | undefined;
 
 /** 控制流在编译开始时生成的执行声明；range 是运行的升序闭区间，缺省表示每列都运行 */
 export interface PlaybackFlowHook {

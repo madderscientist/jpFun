@@ -8,7 +8,7 @@ import {
   compileScore,
   musicXmlToJpFun as convertMusicXmlElement,
 } from "../src/index.js";
-import { assert, attachmentCommands, lower, nearly, playedNotes, recordCommands } from "./helpers.js";
+import { assert, attachmentCommands, compileValid, lower, nearly, playedNotes, recordCommands } from "./helpers.js";
 import { MusicXmlReader } from "../src/converter/musicxml/features.js";
 import type { MusicXmlDiagnostic } from "../src/index.js";
 
@@ -56,6 +56,126 @@ const SCORE = `<?xml version="1.0" encoding="UTF-8"?>
     </measure>
   </part>
 </score-partwise>`;
+
+function restScore(count: number, style = count, extra = "", meter = "4") {
+  return `<score-partwise><part-list><score-part id="P1"><part-name>Rest</part-name></score-part></part-list><part id="P1">${
+    Array.from({ length: count }, (_, index) => `<measure number="${index + 1}">
+      ${index === 0 ? `<attributes><divisions>1</divisions><time><beats>${meter}</beats><beat-type>4</beat-type></time><measure-style><multiple-rest>${style}</multiple-rest></measure-style></attributes>` : ""}
+      ${index === 1 ? extra : ""}
+      <note><rest measure="yes"/><duration>${meter}</duration><voice>1</voice></note>
+      </measure>`).join("")
+  }</part></score-partwise>`;
+}
+
+function compileMusicXml(xml: string, options?: Parameters<typeof convertMusicXmlElement>[1]) {
+  const imported = importMusicXml(xml, options);
+  deepStrictEqual(imported.diagnostics, []);
+  const compiled = compileValid(imported.script);
+  const playback = compilePlayback(compiled.lowering);
+  deepStrictEqual(playback.diagnostics, []);
+  return { ...compiled, script: imported.script, playback };
+}
+
+test("MusicXML explicit multiple rests retain one symbol, timing, and onset state", () => {
+  for (const [count, meter, extra] of [[1, "3", ""], [32, "4", ""], [32, "4", '<print new-system="yes"/>']] as const) {
+    const xml = restScore(count, count, extra, meter).replace('<measure number="1">',
+      '<measure number="1"><direction><direction-type><dynamics><p/></dynamics></direction-type><sound tempo="80"/></direction>');
+    const result = compileMusicXml(xml);
+    assert(result.script.includes(`@rest(${count})`) && result.script.includes("$p"), result.script);
+    const rests = [...result.lowering.astToTemporal.values()].flat().filter(node =>
+      node.ast instanceof ASTFunctionNode && node.ast.callName === "rest");
+    assert(rests.length === 1 && rests[0].T.equals(count * Number(meter)), "group must remain one event");
+    assert(recordCommands(result.layout).some(command => command.kind === "text" && command.text === String(count)),
+      "group count must be visible");
+    assert(result.playback.performanceDuration.equals(count * Number(meter))
+      && nearly(result.playback.durationSeconds, count * Number(meter) * 0.75), "silent time must retain onset tempo");
+    deepStrictEqual(playedNotes(result.playback), []);
+  }
+});
+
+test("MusicXML keeps rests as zeros without an explicit multiple-rest", () => {
+  for (const count of [1, 32]) for (const rest of ['rest measure="yes"', "rest"]) {
+    const xml = restScore(count, count, "", "3")
+      .replace(`<measure-style><multiple-rest>${count}</multiple-rest></measure-style>`, "")
+      .replaceAll('rest measure="yes"', rest);
+    const result = compileMusicXml(xml);
+    assert(!result.script.includes("@rest("), result.script);
+    assert(result.script.includes("0 0 0"), "each 3/4 measure must retain ordinary rests");
+    assert(result.lowering.duration.equals(count * 3), "rest timing must remain unchanged");
+  }
+});
+
+test("MusicXML rejects invalid counts and diagnoses unsafe or truncated rest groups", () => {
+  for (const count of [0, -1, 1.5]) throws(() => importMusicXml(restScore(1, count)), RangeError);
+  const changed = [
+    "<attributes><time><beats>2</beats><beat-type>2</beat-type></time></attributes>",
+    '<direction><sound tempo="80"/></direction>',
+    '<direction><direction-type><words>Keep me</words></direction-type></direction>',
+    '<barline location="left"><repeat direction="forward"/></barline>',
+  ].map(extra => restScore(3, 3, extra));
+  for (const xml of [...changed, restScore(2, 32)]) {
+    const result = importMusicXml(xml);
+    assert(!result.script.includes("@rest("), result.script);
+    assert(result.diagnostics.some(item => item.location.element === "multiple-rest"),
+      "unpreserved grouping must be diagnosed");
+    deepStrictEqual(compileScore(result.script).diagnostics, []);
+  }
+});
+
+test("MusicXML rest import preserves following notes, repeats, and explicit line breaks", () => {
+  const xml = restScore(32, 32, '<print new-system="yes"/>')
+    .replace('<measure number="1">', '<measure number="1"><barline location="left"><repeat direction="forward"/></barline>')
+    .replace("</part>", `<measure number="33"><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice></note><barline location="right"><repeat direction="backward"/></barline></measure></part>`);
+  const result = compileMusicXml(xml, { barsPerLine: 1 });
+  assert(result.script.includes("@rest(32)"), result.script);
+  deepStrictEqual(playedNotes(result.playback).map(note => note.start.toString()), ["128", "260"]);
+  assert(result.playback.performanceDuration.equals(264), "repeat must include the entire rest and following note");
+});
+
+test("MusicXML does not turn one voice's rest into a global pause over another voice", () => {
+  const xml = restScore(2).replace("</measure>", `<backup><duration>4</duration></backup>
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><voice>2</voice></note></measure>`);
+  const result = importMusicXml(xml);
+  assert(!result.script.includes("@rest("), result.script);
+  const compiled = compileScore(result.script);
+  deepStrictEqual(compiled.diagnostics, []);
+  deepStrictEqual(playedNotes(compilePlayback(compiled.lowering)).map(note => note.start.toString()), ["0"]);
+  assert(compiled.lowering.duration.equals(8), "the other voice must not extend the rest");
+});
+
+test("MusicXML multiple-rest at a first-ending endpoint retains grouping and playback", () => {
+  for (const count of [1, 4]) {
+    const xml = restScore(count).replace('rest measure="yes"', "rest")
+      .replace('<measure number="1">', '<measure number="1"><barline location="left"><repeat direction="forward"/><ending number="1" type="start"/></barline>')
+      .replace("</measure></part>", `<barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline></measure><measure number="${count + 1}">
+        <barline location="left"><ending number="2" type="start"/></barline>
+        <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice></note>
+        <barline location="right"><ending number="2" type="stop"/></barline></measure></part>`);
+    const result = compileMusicXml(xml);
+    assert(result.script.includes(`@rest(${count})@`), result.script);
+    assert(result.playback.performanceDuration.equals(count * 4 + 4), "first-ending rest must play once");
+    deepStrictEqual(playedNotes(result.playback).map(note => note.start.toString()), [String(count * 4)]);
+  }
+});
+
+test("MusicXML synchronized resting voices share one silent interval", () => {
+  const xml = restScore(2).replaceAll("</measure>", `<backup><duration>4</duration></backup>
+    <note><rest measure="yes"/><duration>4</duration><voice>2</voice></note></measure>`);
+  const result = compileMusicXml(xml);
+  assert(result.script.match(/@rest\(2\)/g)?.length === 2, result.script);
+  assert(result.lowering.duration.equals(8), "simultaneous rests must not double the duration");
+});
+
+test("MusicXML timewise and staff-numbered multiple rests retain grouping", () => {
+  const xml = `<score-timewise><part-list><score-part id="P1"><part-name>Rest</part-name></score-part></part-list>${
+    Array.from({ length: 2 }, (_, index) => `<measure number="${index + 1}"><part id="P1">
+      ${index === 0 ? '<attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time><measure-style number="1"><multiple-rest>2</multiple-rest></measure-style></attributes>' : ""}
+      <note><rest measure="yes"/><duration>4</duration><staff>1</staff></note></part></measure>`).join("")
+  }</score-timewise>`;
+  const result = compileMusicXml(xml);
+  assert(result.script.includes("@rest(2)"), result.script);
+  assert(result.lowering.duration.equals(8), "timewise rest must retain its length");
+});
 
 test("MusicXML returns a script and structured diagnostics", () => {
   const document = new DOMParser().parseFromString(SCORE, "application/xml");

@@ -67,7 +67,8 @@ class RestFunction extends ASTFunctionNode {
         this.font = ctx.variables.numberfont;
     }
 
-    override labelable() { return null; }
+    // 可以被 volta 这样的标记
+    override labelable() { return this; }
 
     override loweringEnter() {
         return [new RestTemporal(this)];

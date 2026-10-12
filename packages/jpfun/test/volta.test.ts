@@ -98,6 +98,28 @@ test("永久跳过的谱面区间定位到下一可达位置", () => {
         "从不可达区间定位后应反查到下一可达谱面位置");
 });
 
+test("房子按普通音符的完整时值覆盖内部时间列", () => {
+    const plan = compilePlayback(lower(
+        "@stack({|: 1.@a :| 2}, {|: 3/ 4/ 5/ :| 6}) @volta(a,a,1)"));
+    const notes = playedNotes(plan);
+    assert(plan.performanceDuration.equals(2.5), "second pass must skip all three half-beat columns");
+    assert(notes.map(note => `${note.midi}@${note.start}`).join(" ")
+        === "60@0 64@0 65@1/2 67@1 62@3/2 69@3/2",
+        "the following events at the endpoint's finish must remain outside the ending");
+    assert(notes[0].duration.equals(1.5), "the endpoint note must retain its full duration");
+});
+
+test("房子端点顺序不影响多小节区间且不吞掉结束反复线", () => {
+    for (const labels of ["a,b", "b,a"]) {
+        const plan = compilePlayback(lower(
+            `@meter(4,4) |: 1234 | @rest(1)@a | @rest(4)@b :| 5671 | @volta(${labels},1)`));
+        assert(plan.performanceDuration.equals(32), "the entire 20-beat ending must play once");
+        assert(playedNotes(plan).map(note => note.start.toString()).join(" ")
+            === "0 1 2 3 24 25 26 27 28 29 30 31",
+            "the repeat and following measure must still execute");
+    }
+});
+
 test("反复段起点是标记，写进和弦里一样找得到", () => {
     // `|:` 折叠进和弦后不在时间列里，游标要沿宿主上溯才能把它当成跳转目标
     assert(played(`1 @up(3, @bar(3)) 5 :|`) === "1@0 5@1 8@2 5@3 8@4",

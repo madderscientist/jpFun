@@ -2,6 +2,7 @@ import { test } from "node:test";
 import { deepStrictEqual } from "node:assert/strict";
 
 import { ErrorDiagnostic } from "../src/diagnostic.js";
+import { TemporalNodeBase } from "../src/functions/temporal.js";
 import type { LoweringAttachment } from "../src/lowering/types.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import type { PlaybackEmitter, PlaybackFlow, PlaybackRelation, PlaybackSpan, PlaybackTransform } from "../src/playback/types.js";
@@ -29,6 +30,41 @@ function lowerWithModifier(source: string, emitPlayback: (emitter: PlaybackEmitt
     chord.members[1].emitPlayback = emitPlayback;
     return lowering;
 }
+
+test("playback column queries support complete event intervals without changing onset queries", () => {
+    for (const [source, duration, endTime] of [
+        ["@stack({1. 2}, {3/ 4/ 5/ 6})", 1.5, "1"],
+        ["@meter(4,4) | @rest(4) | 1", 16, "12"],
+        ["@up(1.,3) 2", 1.5, "0"],
+    ] as const) {
+        const lowering = lower(source);
+        const host = lowering.columns.flat().find(node => node.T.equals(duration))!;
+        const members = [...lowering.astToTemporal.values()].flat().filter(node => node.foldedInto === host);
+        const start = lowering.columns.findIndex(column => column.includes(host));
+        const end = lowering.columns.findIndex(column => column[0].t.toString() === endTime);
+        assert(end >= start, "test must locate a valid final column");
+        let queried = 0;
+        const query: LoweringAttachment & PlaybackFlow = {
+            playbackFlow(columnOf) {
+                for (const node of [host, ...members]) {
+                    deepStrictEqual(columnOf(node), start);
+                    deepStrictEqual(columnOf(node, "start"), start);
+                    deepStrictEqual(columnOf(node, "end"), end);
+                }
+                const zero = lowering.columns.flat().find(node => node.T.isZero());
+                if (zero) deepStrictEqual(columnOf(zero, "end"), columnOf(zero));
+                deepStrictEqual(columnOf(new TemporalNodeBase(), "end"), undefined);
+                queried++;
+                return undefined;
+            },
+        };
+        lowering.attachments.push(query);
+        compilePlayback(lowering);
+        compilePlayback(lowering);
+        deepStrictEqual(queried, 2);
+        assert(host.T.equals(duration), "queries must not mutate the host duration");
+    }
+});
 
 test("voice connection configuration and V declarations do not change playback", () => {
     const voices = "@voice({1 2}, A), @voice({3/ 4/ 5}, B), @voice({6 -}, C), @voice({7}, D)";

@@ -35,7 +35,8 @@ class VoltaFunction extends ASTFunctionNode {
 ~~~
 - **额外位置参数**：更多遍数；例如 \`@volta(a, b, 1, 2)\` 让前两遍共用一个房子。遍数顺序不限，谱面按升序显示。
 
-本例第一遍演奏 \`a\` 到 \`b\`，第二遍演奏 \`c\` 到 \`d\`。`,
+本例第一遍演奏 \`a\` 到 \`b\`，第二遍演奏 \`c\` 到 \`d\`。
+播放区间包含终点事件的完整时值，但不包含其结束时刻的小节线或后续事件。`,
         allowExtraArgs: true,
         extraArgType: "number" as const,
         args: [
@@ -135,7 +136,10 @@ class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
         const to = columnOf(this.to);
         if (from === undefined || to === undefined) return;
         const start = Math.min(from, to);
-        const end = Math.max(from, to);
+        const tail = (this.from.t.compare(this.to.t) || this.from.T.compare(this.to.T)) > 0
+            ? this.from : this.to;
+        const end = columnOf(tail, "end");
+        if (end === undefined) return;
         return {
             range: [start, end],
             // 这里还是会和 bar 耦合。但只有bar有反复功能，不值得抽取为系统机制
