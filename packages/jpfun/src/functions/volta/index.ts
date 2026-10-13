@@ -66,7 +66,7 @@ class VoltaFunction extends ASTFunctionNode {
     readonly to: ASTNodeBase;
     /** 进入本房子的遍数，升序去重 */
     readonly passes: readonly number[];
-    /** 区间没有可见宿主时括线的尺寸基准 */
+    /** 调用时的字号，作为数字与括线的尺寸基准 */
     readonly size: number;
     readonly font: string;
 
@@ -169,17 +169,10 @@ class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
         const leftBar = barIn(from.view.columns[from.column - 1]);
         const rightBar = barIn(to.view.columns[to.column + 1]);
 
-        let span = 0;
-        // 括线盖住的是：首行从起点列向右、末行向左到终点列、中间行整行
-        for (let line = from.line; line <= to.line; line++) {
-            for (const column of context.getRangeColumns(line, [head, tail])) {
-                span = Math.max(span, column[0].ast.size);
-            }
-        }
         const firstLine = head.layoutLine;
         const lastLine = tail.layoutLine;
 
-        const size = span || this.ast.size;
+        const size = this.ast.size;
         const style: TextStyle = {
             fontSize: size * 0.6,
             fontFamily: this.ast.font,
