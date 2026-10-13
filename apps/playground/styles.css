@@ -713,6 +713,7 @@ button:focus-visible, [tabindex]:focus-visible {
     .editor-panel { border-bottom: 1px solid var(--line); }
     .preview-scroll { padding: 14px 0; }
     .playback-scroll { padding: 18px; }
+    .view-switch { display: none; }
     .statusbar { position: fixed; z-index: 30; right: 0; bottom: 0; left: 0; }
 }
 
