@@ -32,7 +32,8 @@ test("同行连音线是一条闭合填充的丝带", () => {
         "a same-line tie must be a closed ribbon made of an outer and an inner cubic",
     );
     assert(nearTiePaths[0].style?.fill === "#000", "the tie ribbon must be filled instead of stroked");
-    assert(nearly(tieApexHeight(nearTiePaths[0]), 11), "the default tie height must be half an em at the declaration site");
+    assert(tieApexHeight(nearTiePaths[0]) > 0 && tieApexHeight(nearTiePaths[0]) < 11,
+        "the default short tie must be lower than half an em");
 
     const farTiePaths = commandsOfKind(`1@a 2 3 4 5 6 7 1@b @tie(a,b)`, "path");
     assert(farTiePaths.length === 1, "a far same-line tie must emit one path");
@@ -65,8 +66,8 @@ test("增时线参与显式及默认连音端点，但不合并播放音符", ()
 });
 
 test("连音线弧高随字号缩放，也接受显式长度", () => {
-    const smallTiePath = commandsOfKind(`1@a 2@b @tie(a,b)`, "path", 20)[0];
-    const largeTiePath = commandsOfKind(`1@a 2@b @tie(a,b)`, "path", 40)[0];
+    const smallTiePath = commandsOfKind(`1@a 2@b @tie(a,b,height=0.5em)`, "path", 20)[0];
+    const largeTiePath = commandsOfKind(`1@a 2@b @tie(a,b,height=0.5em)`, "path", 40)[0];
     assert(
         nearly(tieApexHeight(largeTiePath), tieApexHeight(smallTiePath) * 2),
         "tie geometry must scale with the declaration font size",
@@ -74,6 +75,38 @@ test("连音线弧高随字号缩放，也接受显式长度", () => {
 
     const explicitHeightPath = commandsOfKind(`1@a 2@b @tie(a,b,height=10px)`, "path")[0];
     assert(nearly(tieApexHeight(explicitHeightPath), 10), "tie height must honor its fixed length argument");
+});
+
+test("ties leave a small font-relative gap above upper octave dots", () => {
+    for (const fontSize of [20, 40]) {
+        for (const source of [
+            "1'@a 2'@b @tie(a,b)",
+            "1''@a 2'@b @tie(a,b,height=0.5em)",
+            "{1^3'}@a {2^4'}@b @tie(a,b)",
+            "{1^3'@a} 2'@b @tie(a,b)",
+            "1'@a @br() 2''@b @tie(a,b)",
+        ]) {
+            const layout = layoutOf(source, fontSize);
+            const paths = attachmentCommands(layout.attachments[0]).filter(command => command.kind === "path");
+            const start = paths[0].commands[0];
+            const last = paths.at(-1)!;
+            const end = last.commands[last.commands[1].op === "C" ? 1 : 2];
+            assert(start.op === "M" && (end.op === "C" || end.op === "Q"), "expected tie endpoints");
+            const circles = recordCommands(layout).filter(command => command.kind === "circle");
+            for (const point of [start, end]) {
+                const dots = circles.filter(dot => nearly(dot.cx, point.x) && dot.cy > point.y);
+                assert(dots.length > 0, "the endpoint must have upper octave dots");
+                const top = Math.min(...dots.map(dot => dot.cy - dot.r));
+                assert(nearly(top - point.y, fontSize * 0.05),
+                    `the tie endpoint must stay 0.05em above the uppermost dot: ${source}, gap=${top - point.y}`);
+            }
+        }
+    }
+    for (const source of ["1@a 2@b @tie(a,b)", "1,@a 2,@b @tie(a,b)"]) {
+        const layout = layoutOf(source);
+        assert(layout.objects.every(object => object.ports["tie.top"] === undefined),
+            "notes without upper octave dots must retain the original endpoint position");
+    }
 });
 
 test("tie height defaults follow scope and call-site fontsize with explicit overrides", () => {
@@ -85,9 +118,78 @@ test("tie height defaults follow scope and call-site fontsize with explicit over
 3@i 4@j @tie(i,j,height=0px)
 5@k 6@l @tie(k,l,height=-8px)`;
     const paths = recordCommands(compileValid(source).layout).filter(command => command.kind === "path");
-    const heights = [40, 60, 7, 40, 0, 0];
-    strictEqual(paths.length, heights.length);
-    paths.forEach((path, index) => assert(nearly(tieApexHeight(path), heights[index]), `tie ${index} must honor its height`));
+    const heights = [40, 60, 7, 40];
+    strictEqual(paths.length, 6);
+    heights.forEach((height, index) => assert(nearly(tieApexHeight(paths[index]), height), `tie ${index} must honor its height`));
+    for (const path of paths.slice(4)) {
+        assert(tieApexHeight(path) > 0 && tieApexHeight(path) <= 10,
+            "non-positive overrides must enable automatic height at the call-site fontsize");
+    }
+});
+
+test("automatic tie height follows a capped quadratic curve for each endpoint pair", () => {
+    const source = "1@a 2@b 3 4 5 6 7 1@c @tie(a,b,c)";
+    for (const fontSize of [20, 40]) {
+        const paths = commandsOfKind(source, "path", fontSize);
+        strictEqual(paths.length, 2);
+        for (const path of paths) {
+            const [start, end] = path.commands;
+            assert(start.op === "M" && end.op === "C", "expected a cubic tie");
+            const span = Math.abs(end.x - start.x);
+            const u = Math.min(span / (2.5 * fontSize), 1);
+            assert(nearly(tieApexHeight(path), 0.5 * fontSize * u * (2 - u)),
+                "automatic height must use the final horizontal span");
+        }
+        assert(tieApexHeight(paths[0]) < tieApexHeight(paths[1]), "near endpoints must have a lower arc");
+        assert(nearly(tieApexHeight(paths[1]), fontSize * 0.5), "long ties must reach, not exceed, the cap");
+        deepStrictEqual(commandsOfKind(source.replace("@tie(a,b,c)", "@tie(c,b,a)"), "path", fontSize)
+            .map(tieApexHeight).reverse(), paths.map(tieApexHeight));
+    }
+});
+
+test("zero, negative and inherited automatic heights match the default", () => {
+    const source = "1@a 2@b @tie(a,b)";
+    const expected = commandsOfKind(source, "path");
+    for (const height of ["0", "0px", "-8px", "-1em"]) {
+        deepStrictEqual(commandsOfKind(`1@a 2@b @tie(a,b,height=${height})`, "path"), expected);
+        deepStrictEqual(commandsOfKind(`@set(tie.height=${height}) ${source}`, "path"), expected);
+    }
+    const inherited = compileValid(`@set(tie.height=-1em) ${source}`);
+    const serialized = inherited.ast.content.at(-1)!.toString(source);
+    strictEqual(serialized, "@tie(a, b, height=0px)");
+    deepStrictEqual(commandsOfKind(`1@a 2@b ${serialized}`, "path"), expected);
+    const callSite = commandsOfKind("1@a 2 3 4 5 6 7 1@b @set(fontsize=40) @tie(a,b)", "path")[0];
+    assert(nearly(tieApexHeight(callSite), 20), "the cap must use call-site, not endpoint, fontsize");
+});
+
+test("automatic cross-line ties use 0.45em for all segments regardless of span", () => {
+    const source = "1@a 2 3 4 5 6 7 @br() 2 @br() 3@b @tie(a,b)";
+    const layout = layoutOf(source);
+    const paths = attachmentCommands(layout.attachments[0]).filter(command => command.kind === "path");
+    strictEqual(paths.length, 3);
+    const [start, curve] = paths[0].commands;
+    const [plateau, , end] = paths[2].commands;
+    assert(start.op === "M" && curve.op === "Q" && plateau.op === "M" && end.op === "Q",
+        "expected opening and closing curves");
+    assert(nearly(start.y - curve.y, 9.9), "a long opening segment must use 0.45em");
+    assert(nearly(end.y - plateau.y, 9.9), "a short closing segment must use 0.45em");
+    assert(nearly(layout.attachments[0].regions[1].h, 22 * 0.09), "middle segments must retain their band thickness");
+    const empty = layoutOf("1@a @br(2) 2@b @tie(a,b,height=0)");
+    strictEqual(empty.attachments[0].regions.length, 3);
+    assert(Object.values(empty.attachments[0].box).every(Number.isFinite), "empty lines must keep finite geometry");
+    for (const fontSize of [20, 40]) {
+        const automatic = commandsOfKind("1@a @br() 2@b @tie(a,b)", "path", fontSize);
+        const fixed = commandsOfKind("1@a @br() 2@b @tie(a,b,height=0.45em)", "path", fontSize);
+        deepStrictEqual(automatic, fixed, "short cross-line segments must match fixed 0.45em geometry");
+        deepStrictEqual(commandsOfKind("1@a @br() 2@b @tie(a,b,height=-1em)", "path", fontSize), fixed);
+    }
+    deepStrictEqual(
+        commandsOfKind(source, "path"),
+        commandsOfKind(source.replace("@tie(a,b)", "@tie(a,b,height=0.45em)"), "path"),
+        "middle segments must also match fixed 0.45em geometry",
+    );
+    const vertical = layoutOf("@stack({1@a}, {2@b}) @tie(a,b)");
+    assert(Object.values(vertical.attachments[0].box).every(Number.isFinite), "zero horizontal span must keep finite geometry");
 });
 
 test("named-only height leaves all positional labels and implicit endpoints intact", () => {
@@ -210,7 +312,7 @@ test("短行跨行连音线的首尾段最短时只有起落弧", () => {
     const opening = layout.attachments[0].regions.find(region => region.line === 0);
     assert(opening && opening.x + opening.w >= firstLineRight,
         "a short opening tie segment must cover its system's actual content edge");
-    const curveWidth = layout.objects[0].ast.size * 0.5 * 1.2;
+    const curveWidth = layout.objects[0].ast.size * 0.45 * 1.2;
     assert(nearly(opening.w, curveWidth),
         "a short opening tie segment must be exactly one rising curve wide");
     const closing = layout.attachments[0].regions.find(region => region.line === 1);
@@ -283,7 +385,7 @@ test("连音线可以跨行与跨轨，首尾弧从端点固定抬高", () => {
     assert(crossTrackTieResult.attachments.length === 1, "tie must allow endpoints on different tracks");
     assert(crossTrackTieResult.attachments[0].box.h > 0, "a cross-track tie must produce visible geometry");
 
-    const tieIntoUp = layoutOf(`1@x
+    const tieIntoUp = layoutOf(`@set(tie.height=0.5em) 1@x
 
 @up(3,4) 5@y @tie(x,y)`);
     const closingPath = attachmentCommands(tieIntoUp.attachments[0])
@@ -295,7 +397,7 @@ test("连音线可以跨行与跨轨，首尾弧从端点固定抬高", () => {
     assert(nearly(closingPath.commands[2].y - closingPath.commands[0].y, 11),
         "a closing tie plateau must be exactly one configured height above its endpoint");
 
-    const tieOutOfUp = layoutOf(`@up(3,4) 5@x @br() 1@y @tie(x,y)`);
+    const tieOutOfUp = layoutOf(`@set(tie.height=0.5em) @up(3,4) 5@x @br() 1@y @tie(x,y)`);
     const openingPath = attachmentCommands(tieOutOfUp.attachments[0])
         .find(command => command.kind === "path");
     assert(openingPath?.kind === "path"

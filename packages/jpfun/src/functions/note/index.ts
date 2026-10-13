@@ -3,6 +3,7 @@ import { Diagnostic, ErrorDiagnostic } from "../../diagnostic.js";
 import { parseNoteName } from "./noteNameFSM.js";
 import { GrammarCallNodeTyped, type GrammarNode, type GrammarSugarNode } from "../../parser/grammarType.js";
 import type { LayoutBox, LayoutDecoration, LayoutPrepareContext } from "../../layout/types.js";
+import { getLayoutBounds } from "../../layout/engine.js";
 import type { Painter, TextStyle } from "../../render/types.js";
 import { paintAccidental, placeAccidentals, type PlacedAccidental } from "./accidentals.js";
 import type { LoweringResult } from "../../lowering/types.js";
@@ -294,6 +295,12 @@ class NoteTemporalNode extends TemporalNodeBase {
 
     override finalizeLayout() {
         this.ports["lyric"] = { x: this.box.anchor, y: this.box.h };
+        if (this.octave > 0) {  // 八度点上方留空间
+            this.ports["tie.top"] = {
+                x: this.box.anchor,
+                y: getLayoutBounds(this, true).y - this.box.y - this.ast.size * 0.05,
+            };
+        }
     }
 
     override paint(painter: Painter) {

@@ -25,6 +25,10 @@ import type { Track } from "../../lowering/track.js";
 const CUBIC_LIFT = 4 / 3;
 /** 弧带中部最大厚度与字号之比 */
 const THICKNESS_RATIO = 0.09;
+/** 参考弧线的跨度约为弧高的 5 倍；在 2.5em 处平滑达到 0.5em 上限 */
+const AUTO_SPAN_RATIO = 2.5;
+const AUTO_HEIGHT_RATIO = 0.5;
+const CROSS_LINE_HEIGHT_RATIO = 0.45;
 
 class TieFunction extends ASTFunctionNode {
     static override def = {
@@ -35,22 +39,23 @@ class TieFunction extends ASTFunctionNode {
 1@a 2 3@b @tie(a, b, height=0.5em)
 ~~~
 - **位置参数**：端点标签，可传多个，按顺序连接；省略时查找最近的可标记对象，包括增时线
-- **height**：仅命名的弧线高度参数，默认 \`0.5em\`；可用 \`@set(tie.height=0.8em)\` 设置局部默认值，显式传参优先
+- **height**：仅命名的弧线高度参数，默认 \`0\`（自动）；非正数按水平跨度自动调整，在 \`2.5em\` 跨度处平滑达到 \`0.5em\` 上限，正数指定固定弧高。em 相对调用处字号；可用 \`@set(tie.height=0.8em)\` 设置局部默认值，显式传参优先
 
-同行端点用一条弧线连接，跨行时自动拆成多段。同轨同音且时间连续的音段建立播放连接，各段保留自己的装饰，例如 \`1 ^ $tr 1 @tie()\` 的后一音段不继承颤音。涉及增时线的连接仅绘制，不合并播放音符。`,
+同行端点用一条弧线连接，自动高度按水平跨度计算；跨行时自动拆成多段，自动模式下各段统一使用 \`0.45em\` 高度。同轨同音且时间连续的音段建立播放连接，各段保留自己的装饰，例如 \`1 ^ $tr 1 @tie()\` 的后一音段不继承颤音。涉及增时线的连接仅绘制，不合并播放音符。`,
         allowExtraArgs: true,
         extraArgType: "label" as const,
         args: [{
             name: "height",
             namedOnly: true,
-            description: "弧线高度，支持 px/em；em 相对调用处字号，负值按 0 处理",
+            description: "弧线高度，支持 px/em；em 相对调用处字号，非正数自动调整，最高 0.5em",
             type: "length" as const,
-            default: { value: 0.5, unit: "em" as const },
+            default: { value: 0, unit: "em" as const },
         }]
     };
 
     endPoints: ASTNodeBase[] = [];
     readonly height: number;
+    private readonly fontSize: number;
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
@@ -72,6 +77,7 @@ class TieFunction extends ASTFunctionNode {
         }
         if (this.endPoints.length < 2) throw new ErrorDiagnostic("E_NOT_ENOUGH_ARGS", "@tie 连音线需要至少两个端点", sourceSpan);
         this.height = Math.max(0, ctx.length2px(height));
+        this.fontSize = ctx.variables.fontsize;
     }
 
     /**
@@ -90,7 +96,7 @@ class TieFunction extends ASTFunctionNode {
             ctx.diagnostics.push(Diagnostic.warning.UnresolvedEndpoint("tie", this.sourceSpan));
             return [];
         }
-        ctx.addAttachment(new TieLayoutAttachment(endPoints, this.height, this.sourceSpan));
+        ctx.addAttachment(new TieLayoutAttachment(endPoints, this.height, this.fontSize, this.sourceSpan));
         return [];
     }
 
@@ -115,12 +121,14 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
 
     readonly endPoints: VisualTemporalNode[];
     private readonly height: number;
+    private readonly fontSize: number;
     /** 弧带中部厚度；两端收尖到 0。端点字号不随布局变化，可以一次算定 */
     private readonly thickness: number;
 
-    constructor(endPoints: VisualTemporalNode[], height: number, sourceSpan: SourceSpan) {
+    constructor(endPoints: VisualTemporalNode[], height: number, fontSize: number, sourceSpan: SourceSpan) {
         this.endPoints = endPoints;
         this.height = height;
+        this.fontSize = fontSize;
         this.sourceSpan = sourceSpan;
         const size = endPoints.reduce(
             (current, endpoint) => Math.max(current, endpoint.ast.size),
@@ -214,10 +222,8 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
             const end = this.tiePort(endNode);
 
             if (startNode.layoutLine === endNode.layoutLine) {
-                const startTop = context.getVisualAxis(startNode.layoutLine, startNode.track)
-                    + (context.getHostExtent(startNode.layoutLine, startNode.track)?.top ?? 0);
-                const endTop = context.getVisualAxis(endNode.layoutLine, endNode.track)
-                    + (context.getHostExtent(endNode.layoutLine, endNode.track)?.top ?? 0);
+                const startTop = this.hostTop(context, startNode.layoutLine, startNode.track);
+                const endTop = this.hostTop(context, endNode.layoutLine, endNode.track);
                 segments.push(this.arcSegment(
                     start,
                     end,
@@ -227,11 +233,12 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
                 continue;
             }
 
+            const height = this.height > 0 ? this.height : this.fontSize * CROSS_LINE_HEIGHT_RATIO;
             // 首行先起弧，再沿水平段延伸到当前谱面行最右侧
             segments.push(this.openingSegment(
                 start,
                 this.lineRightX(context, startNode.layoutLine),
-                this.plateauY(context, startNode.layoutLine, startNode.track, start.y),
+                height,
                 startNode.layoutLine,
                 startNode.track,
             ));
@@ -241,7 +248,7 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
                 segments.push(this.horizontalSegment(
                     this.lineEntryX(context, line, startNode.track),
                     this.lineRightX(context, line),
-                    this.plateauY(context, line, startNode.track),
+                    this.hostTop(context, line, startNode.track) - height,
                     line,
                     startNode.track,
                 ));
@@ -251,12 +258,18 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
             segments.push(this.closingSegment(
                 this.lineEntryX(context, endNode.layoutLine, endNode.track),
                 end,
-                this.plateauY(context, endNode.layoutLine, endNode.track, end.y),
+                height,
                 endNode.layoutLine,
                 endNode.track,
             ));
         }
         return segments;
+    }
+
+    private resolveHeight(span: number) {
+        if (this.height > 0) return this.height;
+        const ratio = Math.min(1, span / (this.fontSize * AUTO_SPAN_RATIO));
+        return this.fontSize * AUTO_HEIGHT_RATIO * ratio * (2 - ratio);
     }
 
     private lineEntryX(
@@ -280,17 +293,8 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
         return right;
     }
 
-    /** 有端点时从端点固定抬高；中间段没有端点，才以当前 Track 的主体顶部为基准 */
-    private plateauY(
-        context: AttachmentLayoutContext,
-        line: number,
-        track: Track,
-        endpointY: number = Infinity,
-    ) {
-        if (Number.isFinite(endpointY)) return endpointY - this.height;
-        const axis = context.getVisualAxis(line, track);
-        const hostTop = context.getHostExtent(line, track)?.top ?? 0;
-        return axis + hostTop - this.height;
+    private hostTop(context: AttachmentLayoutContext, line: number, track: Track) {
+        return context.getVisualAxis(line, track) + (context.getHostExtent(line, track)?.top ?? 0);
     }
 
     /** 一条三次贝塞尔的外缘配上反向内缘，得到两端收尖、中部最厚的乐谱弧线 */
@@ -307,7 +311,7 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
         const run = (end.x - start.x) * 0.25;
         const leftX = start.x + run;
         const rightX = end.x - run;
-        const lift = this.height * CUBIC_LIFT;
+        const lift = this.resolveHeight(end.x - start.x) * CUBIC_LIFT;
         const inner = Math.max(0, lift - this.thickness * CUBIC_LIFT);
 
         const commands: PathCommand[] = [
@@ -324,11 +328,12 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
     private openingSegment(
         start: LayoutPoint,
         right: number,
-        plateauY: number,
+        height: number,
         line: number,
         track: Track,
     ) {
-        const run = this.height * 1.2;
+        const plateauY = start.y - height;
+        const run = height * 1.2;
         right = Math.max(right, start.x + run);
         const curveX = start.x + run;
         const controlX = start.x + run * 0.45;
@@ -349,11 +354,12 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
     private closingSegment(
         left: number,
         end: LayoutPoint,
-        plateauY: number,
+        height: number,
         line: number,
         track: Track,
     ) {
-        const run = this.height * 1.2;
+        const plateauY = end.y - height;
+        const run = height * 1.2;
         left = Math.min(left, end.x - run);
         const curveX = end.x - run;
         const controlX = end.x - run * 0.45;
