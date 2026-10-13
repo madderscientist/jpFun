@@ -1,11 +1,72 @@
 import { test } from "node:test";
+import { strictEqual } from "node:assert/strict";
 
 import { DEFAULT_VELOCITY, TemporalNodeBase } from "../src/functions/temporal.js";
 import { symbolBounds, type SymbolShape } from "../src/functions/symbol/shape.js";
 import { fermataSymbol } from "../src/functions/symbol/symbols/fermata.js";
+import { trSymbol } from "../src/functions/symbol/symbols/tr.js";
 import { analyzeScoreSyntax, compileScore } from "../src/pipeline.js";
 import { compilePlayback } from "../src/playback/compile.js";
-import { assert, expectDiagnostic, layoutOf, lower, nearly, parse, playedNotes, recordCommands } from "./helpers.js";
+import { assert, compileValid, expectDiagnostic, layoutOf, lower, nearly, parse, playedNotes, recordCommands } from "./helpers.js";
+
+test("符号先精确查表，未命中才构造正则变体", () => {
+    for (const source of ["$TR", "@symbol(TR)"]) {
+        const node = parse(source).content[0];
+        assert("definition" in node, "解析结果应为符号节点");
+        strictEqual(node.definition, trSymbol, "查表应直接返回登记的定义");
+    }
+    for (const source of ["$TR+++", '@symbol("TR+++")']) {
+        const node = parse(source).content[0];
+        assert("definition" in node && node.definition !== null && typeof node.definition === "object",
+            "正则应构造变体定义");
+        assert("name" in node.definition, "变体应有名称");
+        strictEqual(node.definition.name, "tr+++", "构造函数仍接收小写名称");
+    }
+});
+
+test("符号连续文本完整识别，不拆出减时线或其他语法", () => {
+    for (const name of ["tr+++/", "tr+++/.", "tr+++oops", "tr+++$p", "tr+++^3", "123", "中文"]) {
+        const source = `$${name}`;
+        const result = compileScore(source);
+        strictEqual(result.diagnostics.length, 1);
+        strictEqual(result.diagnostics[0].code, "W_UNKNOWN_SYMBOL");
+        assert(result.diagnostics[0].message.includes(`$${name}`), "诊断必须包含完整符号名");
+        expectDiagnostic(() => parse(`@set(strict=true) 1^${source}`), "E_UNKNOWN_SYMBOL");
+        const { syntax } = analyzeScoreSyntax(source);
+        const token = syntax.tokens.find(token => token.span.start === 0);
+        assert(token?.kind === "atom" && token.span.end === source.length, "原子必须覆盖所有连续文本");
+    }
+    for (const separator of [" ", "\t", "\n"]) {
+        compileValid(`$tr+++${separator}$p`);
+    }
+    compileValid("1^$tr+++ / 2");
+    compileValid("@div($tr+++, 1)");
+    compileValid("{1^$tr+++}");
+});
+
+test("固定字形路径的边界只计算一次，重复片段仍计入各自偏移", () => {
+    let reads = 0;
+    const path: NonNullable<SymbolShape["path"]> = [
+        { op: "M", get x() { reads++; return 0; }, y: 0 },
+        { op: "L", x: 2, y: 1 },
+    ];
+    const shape: SymbolShape = { path, style: { fill: "#000" } };
+    const base = symbolBounds([shape]);
+    const initialReads = reads;
+    const repeated = symbolBounds([shape, { ...shape, dx: 3 }]);
+    assert(initialReads > 0 && reads === initialReads, "重复使用同一固定路径不应重新求曲线边界");
+    assert(nearly(base.w, 2) && nearly(repeated.w, 5) && nearly(repeated.h, base.h),
+        "路径缓存不能忽略重复片段的偏移");
+});
+
+test("未知符号保持原诊断，不把完整名称误拆成已知符号", () => {
+    for (const source of ["$trouble", "$tr_2", '@symbol("tr+++oops")']) {
+        const result = compileScore(source);
+        strictEqual(result.diagnostics.length, 1);
+        strictEqual(result.diagnostics[0].code, "W_UNKNOWN_SYMBOL");
+        expectDiagnostic(() => parse(`@set(strict=true) ${source}`), "E_UNKNOWN_SYMBOL");
+    }
+});
 
 test("$name 由词法层识别为完整的 symbol 原子", () => {
     const source = `$tr`;
@@ -15,6 +76,76 @@ test("$name 由词法层识别为完整的 symbol 原子", () => {
         "symbol 糖应产生一个 atom token");
     assert(syntax.tokens[0].span.start === 0 && syntax.tokens[0].span.end === source.length,
         "symbol token 应覆盖完整名称");
+});
+
+test("颤音尾巴的连续加号属于同一个 symbol 原子", () => {
+    for (const name of ["tr+", "tr++", "tr+++", "TR++++"]) {
+        const source = `$${name}`;
+        const { syntax, diagnostics } = analyzeScoreSyntax(source);
+        assert(diagnostics.length === 0 && syntax.tokens.length === 1,
+            `${source} 应无诊断地解析为单个 token`);
+        assert(syntax.tokens[0].kind === "atom" && syntax.tokens[0].span.end === source.length,
+            "token 必须包含所有尾巴加号");
+        compileValid(`@set(strict=true) 1^${source} / 2`);
+        compileValid(`@div(${source}, 1)`);
+    }
+});
+
+test("颤音每个加号增加一截 SVG 尾巴，显式调用与简写等价", () => {
+    const base = compileValid("$tr").layout;
+    const baseBox = base.objects[0].box;
+    let previousWidth = baseBox.w;
+    let step = 0;
+    for (let count = 1; count <= 5; count++) {
+        const name = `tr${"+".repeat(count)}`;
+        const layout = compileValid(`$${name}`).layout;
+        const box = layout.objects[0].box;
+        const commands = recordCommands(layout);
+        const paths = commands.filter(command => command.kind === "path");
+        assert(paths.length === count + 1, "每个加号必须添加且只添加一个波浪片段");
+        assert(nearly(box.h, baseBox.h) && box.w > previousWidth,
+            "尾巴只能增加宽度，不能拉伸 tr 的高度");
+        assert(nearly(box.anchor, baseBox.anchor), "尾巴不能移动原 tr 字形的对齐点");
+        if (count === 2) step = box.w - previousWidth;
+        if (count > 2) assert(nearly(box.w - previousWidth, step), "后续每截尾巴的步长应一致");
+        previousWidth = box.w;
+
+        const painted = symbolBounds(paths.map(command => ({ path: command.commands, style: command.style ?? {} })));
+        assert(nearly(painted.x, box.x) && nearly(painted.y, box.y)
+            && nearly(painted.w, box.w) && nearly(painted.h, box.h), "所有墨迹应恰好落在布局包围盒内");
+        const explicit = compileValid(`@symbol("${name}")`).layout;
+        assert(JSON.stringify(commands) === JSON.stringify(recordCommands(explicit)),
+            "显式名称和简写应产生相同绘制命令");
+
+        const doubled = compileValid(`@symbol("${name}", size=1em)`).layout.objects[0].box;
+        assert(nearly(doubled.w, box.w * 2) && nearly(doubled.h, box.h * 2),
+            "尾巴必须随 size 等比例缩放");
+        assert(nearly(doubled.anchor, box.anchor * 2), "对齐点必须随 size 等比例缩放");
+    }
+});
+
+test("带尾巴的颤音仍以原 tr 字形对齐宿主", () => {
+    for (const operator of ["^", "_"]) {
+        const base = recordCommands(compileValid(`1 ${operator} $tr`).layout)
+            .find(command => command.kind === "path");
+        const extended = recordCommands(compileValid(`1 ${operator} $tr+++`).layout)
+            .find(command => command.kind === "path");
+        assert(base?.kind === "path" && extended?.kind === "path", "颤音应绘制 tr 路径");
+        assert(JSON.stringify(base.commands) === JSON.stringify(extended.commands),
+            "增加尾巴后，宿主上方或下方的原 tr 字形都不应移动");
+    }
+});
+
+test("颤音尾巴不改变宿主时值、颤音密度或作用范围", () => {
+    for (const placement of ["1 ^", "1 _", ""]) {
+        const base = playedNotes(compilePlayback(lower(`${placement} $tr 2`)));
+        const extended = playedNotes(compilePlayback(lower(`${placement} $tr+++ 2`)));
+        const summary = (notes: typeof base) => notes.map(note =>
+            `${note.midi}:${note.start}:${note.duration}:${note.velocity}`).join(" ");
+        assert(summary(base) === summary(extended), "加号不能改变附属或独立颤音的播放行为");
+    }
+    expectDiagnostic(() => parse(`@set(strict=true) @symbol("prall+")`), "E_UNKNOWN_SYMBOL");
+    expectDiagnostic(() => parse(`@set(strict=true) @symbol("tr+oops")`), "E_UNKNOWN_SYMBOL");
 });
 
 test("未登记的 symbol 在宽容模式报警，严格模式报错", () => {
@@ -408,4 +539,3 @@ test("$fine 只在回跳之后生效，不被反复线提前触发", () => {
     assert(played("|: 1 2 $fine 3 :| 4") === "60 62 64 60 62 64 65", "没有回跳记号时 Fine 不生效");
     assert(played("1 $dc 2 $fine 3") === "60 60 62 64", "写在回跳点之后的 Fine 永远不生效");
 });
-

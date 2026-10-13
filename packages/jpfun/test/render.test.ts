@@ -100,6 +100,18 @@ test("动态与固定图形各自使用一个 SVG 元素", () => {
     assert((fixedOnlySvg.match(/<text /g) ?? []).length === 3, "each fixed note number must use one normal text element");
 });
 
+test("颤音尾巴在 SVG 与 Canvas 中都逐截绘制", () => {
+    for (let count = 0; count <= 3; count++) {
+        const result = layoutOf(`$tr${"+".repeat(count)}`);
+        const [svg] = renderLayoutPagesToSvg(result);
+        const calls = recordCanvasCalls(result);
+        strictEqual((svg.match(/<path d=/g) ?? []).length, count + 1);
+        strictEqual(calls.filter(call => call === "fill").length, count + 1);
+        assert(recordCommands(result).every(allNumbersFinite)
+            && !/NaN|Infinity/.test(svg), "尾巴绘制坐标必须有限");
+    }
+});
+
 test("voice connectors use the same finite paths in SVG and Canvas", () => {
     const voices = '@voice({1}, A), @voice({2}, B), @voice({3}, C)';
     for (const [connect, paths, curves, rectangles] of [

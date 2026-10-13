@@ -36,6 +36,11 @@ import { trSymbol } from "./symbols/tr.js";
 export interface SymbolDefinition {
     readonly name: string;
     readonly description: string;
+    /** 查表未命中时使用；忽略大小写，从名称开头匹配，不允许 g/y */
+    readonly pattern?: {
+        readonly regex: RegExp;
+        readonly resolve: (match: RegExpExecArray) => SymbolDefinition;
+    };
 
     /** 固定图形；文字记号改用 text */
     readonly shapes?: readonly SymbolShape[];
@@ -46,6 +51,8 @@ export interface SymbolDefinition {
     readonly weight?: number;
     /** 图形下方留白，使用符号自身坐标并随 scale 缩放；默认 0 */
     readonly paddingBottom?: number;
+    /** 横向对齐点，使用符号自身坐标；默认采用完整图形的中心 */
+    readonly anchor?: number;
     /** 写入本位置之后持续生效的状态，例如力度记号的 velocity */
     readonly onTimeState?: (state: TimeState) => void;
     /** 发布系统控制，或注册对同一折叠序列后续音符的局部变换 */
@@ -56,11 +63,21 @@ export interface SymbolDefinition {
     readonly onVisit?: (cursor: PlaybackCursor, at: number) => PlaybackFlowAction | undefined;
 }
 
-const symbolTable: ReadonlyMap<string, SymbolDefinition> = new Map(
-    [trSymbol, fermataSymbol, prallSymbol, mordentSymbol, accentSymbol, ...dynamicSymbols,
-        dcSymbol, dsSymbol, segnoSymbol, fineSymbol]
-        .map(definition => [definition.name.toLowerCase(), definition]),
-);
+type SymbolPattern = NonNullable<SymbolDefinition["pattern"]>;
+const symbolTable = new Map<string, SymbolDefinition>();
+const symbolPatterns: SymbolPattern[] = [];
+for (const definition of [trSymbol, fermataSymbol, prallSymbol, mordentSymbol, accentSymbol,
+    ...dynamicSymbols, dcSymbol, dsSymbol, segnoSymbol, fineSymbol]) {
+    const name = definition.name.toLowerCase();
+    if (symbolTable.has(name)) throw new Error(`Duplicate symbol name: ${definition.name}`);
+    symbolTable.set(name, definition);
+    const pattern = definition.pattern;
+    if (!pattern) continue;
+    const { regex } = pattern;
+    if (regex.global || regex.sticky) throw new Error(`Symbol pattern must not use g or y flags: ${name}`);
+    symbolPatterns.push(regex.ignoreCase ? pattern
+        : { ...pattern, regex: new RegExp(regex.source, `${regex.flags}i`) });
+}
 
 class SymbolFunction extends ASTFunctionNode {
     static override def = {
@@ -70,7 +87,7 @@ class SymbolFunction extends ASTFunctionNode {
 ~~~jpfun
 1 ^ @symbol(p, size=0.5em)
 ~~~
-**简写**：\`$name\`，如 \`1 ^ $p\`
+**简写**：\`$name\`，如 \`1 ^ $p\`。名称读取到下一个空白或当前内容区间末尾，连续的标点也属于名称。
 
 **内置记号**
 ${[...symbolTable.values()].map(item => `- \`$${item.name}\`：${item.description}`).join("\n")}`,
@@ -92,10 +109,10 @@ ${[...symbolTable.values()].map(item => `- \`$${item.name}\`：${item.descriptio
     };
 
     static override deSugarAtom(source: string, start: number, end: number) {
-        if (source[start] !== "$" || !/[A-Za-z]/.test(source[start + 1] ?? "")) return null;
-        let next = start + 2;
-        while (next < end && /[A-Za-z0-9_-]/.test(source[next])) next++;
-        const name = source.slice(start + 1, next);
+        if (source[start] !== "$") return null;
+        const name = /^\S+/.exec(source.slice(start + 1, end))?.[0];
+        if (!name) return null;
+        const next = start + 1 + name.length;
         const node: GrammarCallNodeTyped = {
             kind: "call",
             typed: true,
@@ -114,7 +131,18 @@ ${[...symbolTable.values()].map(item => `- \`$${item.name}\`：${item.descriptio
         super(sourceSpan, parent);
         const [name, size] = this.getArgValue(args, ctx) as [string, LengthValue];
         this.size = ctx.length2px(size);
-        const definition = symbolTable.get(name.toLowerCase());
+        const normalized = name.toLowerCase();
+        let definition = symbolTable.get(normalized);
+        if (!definition) {
+            let matched: { pattern: SymbolPattern; match: RegExpExecArray } | undefined;
+            for (const pattern of symbolPatterns) {
+                const match = pattern.regex.exec(normalized);
+                if (!match || match.index !== 0 || match[0] !== normalized) continue;
+                if (matched) throw new Error(`Ambiguous symbol patterns: ${normalized}`);
+                matched = { pattern, match };
+            }
+            definition = matched?.pattern.resolve(matched.match);
+        }
         if (!definition) {
             const message = `@symbol: 未知符号: $${name}`;
             if (ctx.variables.strict) throw new ErrorDiagnostic("E_UNKNOWN_SYMBOL", message, sourceSpan);
@@ -179,7 +207,9 @@ class SymbolTemporal extends TemporalNodeBase implements PlaybackFlow {
             this.box.w = this.bounds.w * this.scale;
             this.box.h = this.height + (this.ast.definition.paddingBottom ?? 0) * this.scale;
         }
-        this.box.anchor = this.box.w / 2;
+        this.box.anchor = !this.label && this.ast.definition.anchor !== undefined
+            ? (this.ast.definition.anchor - this.bounds.x) * this.scale
+            : this.box.w / 2;
         this.box.visualAxis = this.box.h / 2;
     }
 

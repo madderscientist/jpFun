@@ -1,9 +1,20 @@
 import type { SymbolDefinition } from "../index.js";
+import { symbolBounds, type SymbolShape } from "../shape.js";
 import { ornament } from "../ornament.js";
 
 export const trSymbol: SymbolDefinition = {
     name: "tr",
-    description: "颤音：本音与调内上方二度交替",
+    description: '颤音：本音与调内上方二度交替。可写为 `$tr++`，每个紧接的 `+` 添加一截波浪尾巴',
+    pattern: {
+        regex: /^tr(\++)/,
+        resolve: match => {
+            const shapes = [...trSymbol.shapes!];
+            for (let i = 0; i < match[1].length; i++) {
+                shapes.push({ ...tailShape, dx: 14.11212 + i * 5.95219 });
+            }
+            return { ...trSymbol, name: match[0], anchor: trAnchor, shapes };
+        },
+    },
     shapes: [
         {
             path: [
@@ -70,4 +81,40 @@ export const trSymbol: SymbolDefinition = {
         },
     ],
     emitPlayback: emitter => emitter.affectFollowing(ornament({ body: [0, 1], repeat: true })),
+};
+
+const trBounds = symbolBounds(trSymbol.shapes!);
+const trAnchor = trBounds.x + trBounds.w / 2;
+
+// MuseScore 导出的 TrillSegment，按 tr 字形高度归一化，保留片段之间的重叠。
+const tailShape: SymbolShape = {
+    path: [
+        { op: "M", x: 7.03619, y: 4.89762 },
+        { op: "C", cx1: 7.03619, cy1: 4.89762, cx2: 6.87351, cy2: 4.70878, x: 6.65687, y: 4.5183 },
+        { op: "C", cx1: 6.57594, cy1: 4.43737, cx2: 6.46721, cy2: 4.41039, x: 6.38546, y: 4.41039 },
+        { op: "C", cx1: 6.30535, cy1: 4.41039, cx2: 6.25058, cy2: 4.43737, x: 6.19662, y: 4.49132 },
+        { op: "L", x: 5.89905, y: 4.78889 },
+        { op: "C", cx1: 5.8451, cy1: 4.84367, cx2: 5.79033, cy2: 4.87064, x: 5.73719, y: 4.87064 },
+        { op: "C", cx1: 5.62846, cy1: 4.87064, cx2: 5.57451, cy2: 4.78889, x: 5.57451, y: 4.78889 },
+        { op: "C", cx1: 5.57451, cy1: 4.78889, cx2: 3.84223, cy2: 3.30105, x: 3.57164, y: 3.05662 },
+        { op: "C", cx1: 3.27407, cy1: 2.8408, cx2: 2.9765, cy2: 2.75905, x: 2.70591, y: 2.75905 },
+        { op: "C", cx1: 2.13857, cy1: 2.75905, cx2: 1.62355, cy2: 3.08523, x: 1.40773, y: 3.32721 },
+        { op: "L", x: 0.10873, y: 4.62703 },
+        { op: "C", cx1: 0.02698, cy1: 4.70878, cx2: 0, cy2: 4.76192, x: 0, y: 4.84367 },
+        { op: "C", cx1: 0, cy1: 4.97773, cx2: 0.10873, cy2: 5.08646, x: 0.10873, y: 5.08646 },
+        { op: "C", cx1: 0.10873, cy1: 5.08646, cx2: 0.27141, cy2: 5.2753, x: 0.48723, y: 5.46578 },
+        { op: "C", cx1: 0.56898, cy1: 5.54671, cx2: 0.64909, cy2: 5.57451, x: 0.73084, y: 5.57451 },
+        { op: "C", cx1: 0.81259, cy1: 5.57451, cx2: 0.86655, cy2: 5.54671, x: 0.91968, y: 5.49276 },
+        { op: "L", x: 1.21725, y: 5.19519 },
+        { op: "C", cx1: 1.27284, cy1: 5.14123, cx2: 1.32598, cy2: 5.11344, x: 1.37993, y: 5.11344 },
+        { op: "C", cx1: 1.48866, cy1: 5.11344, cx2: 1.57041, cy2: 5.19519, x: 1.57041, y: 5.19519 },
+        { op: "C", cx1: 1.57041, cy1: 5.19519, cx2: 3.30105, cy2: 6.65605, x: 3.57164, y: 6.89885 },
+        { op: "C", cx1: 3.86921, cy1: 7.1163, cx2: 4.16678, cy2: 7.19805, x: 4.43819, y: 7.19805 },
+        { op: "C", cx1: 5.00635, cy1: 7.19805, cx2: 5.51973, cy2: 6.87187, x: 5.73719, y: 6.62989 },
+        { op: "L", x: 7.03619, y: 5.33008 },
+        { op: "C", cx1: 7.1163, cy1: 5.24833, cx2: 7.1441, cy2: 5.16821, x: 7.1441, y: 5.11344 },
+        { op: "C", cx1: 7.1441, cy1: 4.97773, cx2: 7.03619, cy2: 4.89762, x: 7.03619, y: 4.89762 },
+        { op: "Z" },
+    ],
+    style: { fill: "#000" },
 };

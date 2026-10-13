@@ -19,6 +19,9 @@ export interface SymbolShape {
     readonly style: PaintStyle;
 }
 
+// 固定字形路径不可原地修改；共享路径的重复片段只求一次曲线极值
+const pathBoundsCache = new WeakMap<readonly PathCommand[], Rect>();
+
 /** 全体图元的并集；宽高钳到正数，否则纯横线或纯竖线的符号会让缩放比例除零 */
 export function symbolBounds(shapes: readonly SymbolShape[]): Rect {
     let left = Infinity;
@@ -38,7 +41,8 @@ export function symbolBounds(shapes: readonly SymbolShape[]): Rect {
             merge(cx + dx - r, cy - r, 2 * r, 2 * r);
         }
         if (shape.path?.length) {
-            const rect = pathBounds(shape.path);
+            const rect = pathBoundsCache.get(shape.path) ?? pathBounds(shape.path);
+            pathBoundsCache.set(shape.path, rect);
             merge(rect.x + dx, rect.y, rect.w, rect.h);
         }
     }
