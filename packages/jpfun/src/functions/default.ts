@@ -9,6 +9,7 @@ import { DivNode } from "./div/index.js";
 import { DotNode } from "./dot/index.js";
 import { DynNode } from "./dyn/index.js";
 import { GraceNode } from "./grace/index.js";
+import { GlissNode } from "./gliss/index.js";
 import { HeadNode } from "./head/index.js";
 import { KeyNode } from "./key/index.js";
 import { MeterNode } from "./meter/index.js";
@@ -39,7 +40,7 @@ export const defaultFunctions: ASTFunctionClass[] = [
     UpNode, DownNode,
     ArpeggioNode,
     GraceNode,  // 倚音
-    TieNode, BeamNode, DynNode,
+    TieNode, BeamNode, GlissNode, DynNode,
     BoxNode, VoltaNode,
     AdjustNode,   // 手工微调
     SetNode, KeyNode, MeterNode, TempoNode, ProgramNode,    // 设置
