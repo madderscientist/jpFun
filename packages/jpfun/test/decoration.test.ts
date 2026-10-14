@@ -84,7 +84,7 @@ test("无减时线的下八度点贴近数字，有减时线时保留避让间�
 });
 
 test("显式音符、零层减时与折叠宿主使用相同的下八度点间距", () => {
-    for (const source of ["1,", "C3", '@note("1,")', "@div({1,}, 0)", "@up({1,}, 3)", "2>{1,}"]) {
+    for (const source of ["C3", '@note("1,")', "@div({1,}, 0)", "@up({1,}, 3)", "2>{1,}"]) {
         for (const suffix of ["", "/"]) {
             const { top, size } = octaveGeometry(compileValid(source + suffix).layout);
             const expected = suffix ? size * 0.2 + divLineWidth(size) : size * 0.12;

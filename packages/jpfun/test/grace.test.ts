@@ -89,6 +89,8 @@ test("宿主的修饰在 loweringFinalize 还给宿主自己", () => {
 
 test("连续倚音合并成一条整线", () => {
     const twoGraces = layoutGrace(`{3 2}>1`);
+    assert(twoGraces.result.attachments.length === 1,
+        "two real grace notes must merge into one beam");
     const twoGraceLines = twoGraces.commands.filter(command => command.kind === "line");
     const singleGraceLine = preGrace.commands.filter(command => command.kind === "line")[0];
     assert(twoGraceLines.length === 1, "consecutive grace notes must share one merged beam line");
@@ -115,9 +117,6 @@ test("倚音槽里的零时长标记只随块排版，不承担节奏", () => {
     const marked = layoutGrace(`{@key(F) 1}>2`);
     assert(marked.result.attachments.length === 0,
         "a zero-duration mark must not be beamed to the grace note beside it");
-    assert(layoutGrace(`{3 2}>1`).result.attachments.length === 1,
-        "two real grace notes must still merge into one beam");
-
     const markedLine = marked.commands.filter(command => command.kind === "line")[0];
     const soloLine = preGrace.commands.filter(command => command.kind === "line")[0];
     assert(markedLine !== undefined && nearly(markedLine.x2 - markedLine.x1, soloLine.x2 - soloLine.x1),
@@ -229,15 +228,6 @@ test("和弦折叠进倚音时修饰递归交还给代表成员", () => {
         "a folded chord's div lines must stay between the digit and its octave dots");
 });
 
-test("写在倚音内部的标签仍是合法的关系端点", () => {
-    const graceTie = layoutGrace(`2>1@a 3@b @tie(a,b)`);
-    assert(graceTie.result.attachments.length === 1
-        && attachmentCommands(graceTie.result.attachments[0]).some(command => command.kind === "path"),
-        "a label written inside a grace composite must still work as a tie endpoint");
-
-    expectLoweringError(`3>{1 2}`, "E_GRACE_INVALID_HOST");
-});
-
 test("grace 外部标签穿透宿主后仍保留完整关系左操作数", () => {
     for (const source of [
         `@grace({1},{2})@x ^ 3`,
@@ -270,6 +260,7 @@ test("倚音内容只拒绝换行，并且至少产生一个可见对象", () =>
     expectLoweringError(`{1 @br() 2}>3`, "E_GRACE_INVALID_CONTENT");
     expectLoweringError(`{@program(40)}>3`, "E_GRACE_INVALID_CONTENT");
     expectLoweringError(`{1 & 3}>{2 & 4}`, "E_GRACE_INVALID_HOST");
+    expectLoweringError(`3>{1 2}`, "E_GRACE_INVALID_HOST");
 
     // 不可见的状态事件留在倚音的时间流里，照常影响后续音色
     const changes = compilePlayback(lower(`{@program(40) 1}>2 3`)).events
@@ -347,7 +338,11 @@ test("倚音子域连同附件先排版：括线在声部之间撑出空间，�
     }
 });
 
-test("端点都在倚音里的关系写在外面也归子域", () => {
+test("倚音内部标签可作关系端点，子域关系不受声明位置影响", () => {
+    const graceTie = layoutGrace(`2>1@a 3@b @tie(a,b)`);
+    assert(graceTie.result.attachments.length === 1
+        && attachmentCommands(graceTie.result.attachments[0]).some(command => command.kind === "path"),
+        "a label written inside a grace composite must still work as a tie endpoint");
     for (const [inside, outside] of [
         [`{2@a 3@b @tie(a,b)}>1`, `{2@a 3@b}>1 @tie(a,b)`],
         [`{{2@a 3@b @tie(a,b)} & 5}>1`, `{{2@a 3@b} & 5}>1 @tie(a,b)`],

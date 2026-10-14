@@ -10,28 +10,18 @@ import type { LoweringResult } from "../src/lowering/types.js";
 import { assert, createLowering, layoutContext, layoutOf, lower, nearly, parse } from "./helpers.js";
 
 test("dot 与 div 的嵌套顺序不影响时值和计数", () => {
-    const outerDiv = lower(`@div(@dot(1, 1), 2)`).columns[0][0];
-    const outerDot = lower(`@dot(@div(1, 2), 1)`).columns[0][0];
-    for (const temporal of [outerDiv, outerDot]) {
-        assert(temporal.T.equals(3, 8), "dot and div nesting order must not change duration");
-        assert(temporal.addon?.["@div"] === 2 && temporal.addon?.["@dot"] === 1,
-            "dot and div nesting order must not change modifier addon counts");
+    for (const [source, numerator, denominator, div, dot] of [
+        ["@div(@dot(1, 1), 2)", 3, 8, 2, 1],
+        ["@dot(@div(1, 2), 1)", 3, 8, 2, 1],
+        ["@div(@div(1, 1), 2)", 1, 8, 3, undefined],
+        ["@dot(@dot(1, 1), 1)", 7, 4, undefined, 2],
+        ["@dot(@div(@dot(@div(A2, 1), 2), 3), 1)", 15, 128, 4, 3],
+    ] as const) {
+        const temporal = lower(source).columns[0][0];
+        assert(temporal.T.equals(numerator, denominator), `merged modifier duration: ${source}`);
+        assert(temporal.addon?.["@div"] === div && temporal.addon?.["@dot"] === dot,
+            `merged modifier counts: ${source}`);
     }
-
-    const nestedDiv = lower(`@div(@div(1, 1), 2)`).columns[0][0];
-    assert(nestedDiv.T.equals(1, 8) && nestedDiv.addon?.["@div"] === 3,
-        "nested modifiers of the same kind must accumulate duration and addon counts");
-    const nestedDot = lower(`@dot(@dot(1, 1), 1)`).columns[0][0];
-    assert(nestedDot.T.equals(7, 4) && nestedDot.addon?.["@dot"] === 2,
-        "nested dots must use their combined count instead of multiplying independent factors");
-
-    const interleavedModifiers = lower(
-        `@dot(@div(@dot(@div(A2, 1), 2), 3), 1)`,
-    ).columns[0][0];
-    assert(interleavedModifiers.addon?.["@div"] === 4 && interleavedModifiers.addon?.["@dot"] === 3,
-        "interleaved div and dot scopes must merge counts before applying them");
-    assert(interleavedModifiers.T.equals(15, 128),
-        "four divs and three dots must be applied from their merged counts");
 });
 
 test("修饰作用域在推进时间前逐个更新事件", () => {

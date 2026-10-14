@@ -355,63 +355,43 @@ test("所有行超过半页时横向撑满，短行保持自然宽度", () => {
         "a short final line must keep its natural spacing");
 });
 
-test("完全被宿主包含的附件不触发重排", () => {
-    const noExpansion = lower("1");
-    const host = noExpansion.columns[0]?.find(isVisualTemporalNode);
-    assert(host, "the contained occupancy test requires one visual host");
-    let layoutCalls = 0;
-    const containedRelation: LayoutAttachment = {
-        layer: "foreground",
-        createGeometry(context) {
-            layoutCalls++;
-            const axis = context.getVisualAxis(0, host.track);
-            const extent = context.getHostExtent(0, host.track);
-            assert(extent, "the contained occupancy test requires a host extent");
-            return {
-                regions: [{
-                    x: 10,
-                    y: axis + extent.top,
-                    w: 30,
-                    h: extent.bottom - extent.top,
-                    line: 0,
-                    track: host.track,
-                }],
-                paint() {},
-            };
-        },
-    };
-    noExpansion.attachments.push(containedRelation);
-    const noExpansionResult = layoutDocument(noExpansion, layoutContext);
-    assert(layoutCalls === 1, "contained track occupancy must not trigger a redundant relayout");
-    assert(noExpansionResult.attachments[0].box.h === host.box.h,
-        "a single-pass attachment must retain its measured bounds");
-    assert(noExpansionResult.attachments[0].regions?.length === 1,
-        "a single-pass attachment must retain its measured regions");
-});
-
-test("撑开轨道的附件在最终基线上重新布局", () => {
-    const withOccupancy = lower("1");
-    const host = withOccupancy.columns.flat().find(isVisualTemporalNode);
-    assert(host, "the occupancy test requires one visual host");
-    let layoutCalls = 0;
-    const expandingRelation: LayoutAttachment = {
-        layer: "foreground",
-        createGeometry(context) {
-            layoutCalls++;
-            return {
-                regions: [{ x: 10, y: context.getVisualAxis(0, host.track) - 100, w: 30, h: 10, line: 0, track: host.track }],
-                paint() {},
-            };
-        },
-    };
-    withOccupancy.attachments.push(expandingRelation);
-    const withOccupancyResult = layoutDocument(withOccupancy, layoutContext);
-    const finalAxis = host.box.y + host.box.visualAxis;
-    assert(layoutCalls === 2, "an attachment with track occupancy must be re-laid out on final axes");
-    assert(nearly(withOccupancyResult.attachments[0].box.y, finalAxis - 100),
-        "a re-laid attachment must expose bounds from its final geometry");
-    assert(nearly(withOccupancyResult.attachments[0].regions[0].y, finalAxis - 100),
-        "a re-laid attachment must expose regions from its final geometry");
+test("附件只在撑开轨道时重排，最终区域保持同步", () => {
+    for (const expands of [false, true]) {
+        const lowered = lower("1");
+        const host = lowered.columns.flat().find(isVisualTemporalNode);
+        assert(host, "the occupancy test requires one visual host");
+        let layoutCalls = 0;
+        const relation: LayoutAttachment = {
+            layer: "foreground",
+            createGeometry(context) {
+                layoutCalls++;
+                const axis = context.getVisualAxis(0, host.track);
+                const extent = context.getHostExtent(0, host.track);
+                assert(extent, "the occupancy test requires a host extent");
+                return {
+                    regions: [{
+                        x: 10, y: axis + (expands ? -100 : extent.top), w: 30,
+                        h: expands ? 10 : extent.bottom - extent.top, line: 0, track: host.track,
+                    }],
+                    paint() {},
+                };
+            },
+        };
+        lowered.attachments.push(relation);
+        const placed = layoutDocument(lowered, layoutContext).attachments[0];
+        assert(layoutCalls === (expands ? 2 : 1),
+            `only expanding occupancy must trigger a second pass: expands=${expands}`);
+        assert(placed.regions.length === 1, "the attachment must retain its measured region");
+        if (expands) {
+            const finalAxis = host.box.y + host.box.visualAxis;
+            assert(nearly(placed.box.y, finalAxis - 100),
+                "re-laid bounds must use the final axis");
+            assert(nearly(placed.regions[0].y, finalAxis - 100),
+                "re-laid regions must use the final axis");
+        } else {
+            assert(placed.box.h === host.box.h, "contained occupancy must retain its measured bounds");
+        }
+    }
 });
 
 test("可见附件保留最终区域与源码范围", () => {

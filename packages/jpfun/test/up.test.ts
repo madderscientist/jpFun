@@ -110,13 +110,10 @@ test("堆叠成员共享第一个成员的时值，零时长成员保持 0", () 
         "a zero-duration up member must stay at zero");
 });
 
-test("up 内外的修饰都累加到和弦本身", () => {
+test("up 内外的减时与附点修饰都由宿主承担", () => {
     const dividedChord = lower(`@div(@up(@div(1, 1), 3), 1)`).columns[0][0];
     assert(dividedChord.T.equals(1, 4) && dividedChord.addon?.["@div"] === 2,
         "modifiers inside and outside up must accumulate on the chord itself");
-});
-
-test("附点可以修饰整个 up/down，且仍由宿主承担节奏", () => {
     for (const source of [`{1^2}.`, `{1_2}.`, `{1.^2}`]) {
         const chord = lower(source).columns[0][0] as TemporalNodeBase & {
             members: readonly TemporalNodeBase[];
@@ -164,18 +161,14 @@ test("up 自己完成成员的堆叠定位与绘制", () => {
 });
 
 test("大括号阻断展平，内层 up 整体折叠成外层的一个成员", () => {
-    const chordTextPositions = (source: string) => recordCommands(layoutOf(source))
-        .filter(command => command.kind === "text")
-        .map(command => `${command.text}@${command.y.toFixed(4)}`)
-        .join(" ");
     const nestedChord = layoutOf(`@up({@up(1,3)}, 5)`).objects[0] as VisualTemporalNode & {
         members: readonly { members?: readonly unknown[] }[];
     };
     assert(nestedChord.members.length === 2 && nestedChord.members[0].members?.length === 2,
         "a braced inner up must stay one member of the outer up");
-    assert(chordTextPositions(`@up({@up(1,3)}, 5)`) === chordTextPositions(`@up(1,3,5)`),
+    assert(glyphPositions(`@up({@up(1,3)}, 5)`) === glyphPositions(`@up(1,3,5)`),
         "a nested up must render exactly like the flattened chord");
-    assert(chordTextPositions(`@up(@up(1,3), 5)`) === chordTextPositions(`1^3^5`),
+    assert(glyphPositions(`@up(@up(1,3), 5)`) === glyphPositions(`1^3^5`),
         "an unbraced inner up must flatten just like the ^ sugar");
 });
 

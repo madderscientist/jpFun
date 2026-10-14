@@ -27,23 +27,23 @@ function hairpin(source: string) {
 }
 
 test("dyn 按记谱时间线性叠加力度并在区间后保持", () => {
-    assert(velocities(`1@a ^ $p 2 3 4@b 5 @dyn(a,b,24)`).join(" ") === "48 56 64 72 72",
-        "crescendo must reach the full delta at the end and retain it afterwards");
-    assert(velocities(`1@a ^ $p 2 3@b @dyn(b,a,24)`).join(" ") === "48 60 72",
-        "reversed endpoint arguments must still follow score time");
-    assert(velocities(`1@a ^ $f 2 3@b 4 @dyn(a,b,-24)`).join(" ") === "96 84 72 72",
-        "negative delta must produce a linear diminuendo");
-    assert(velocities(`1@a 2@b @dyn(a,b,100)`).join(" ") === "80 127"
-        && velocities(`1@a 2@b @dyn(a,b,-100)`).join(" ") === "80 1",
-    "output velocity must be clamped to the audible MIDI range");
+    for (const [source, expected] of [
+        ["1@a ^ $p 2 3 4@b 5 @dyn(a,b,24)", "48 56 64 72 72"],
+        ["1@a ^ $p 2 3@b @dyn(b,a,24)", "48 60 72"],
+        ["1@a ^ $f 2 3@b 4 @dyn(a,b,-24)", "96 84 72 72"],
+        ["1@a 2@b @dyn(a,b,100)", "80 127"],
+        ["1@a 2@b @dyn(a,b,-100)", "80 1"],
+    ]) {
+        assert(velocities(source).join(" ") === expected, `${source} must produce ${expected}`);
+    }
 });
 
 test("dyn 的增时线端点使用同轨此前最后一个音符的力度基准", () => {
     for (const endpoints of ["a,b", "b,a"]) {
         const source = `1@a ^ $p 2 -@b 3 4 ^ $f @dyn(${endpoints},24)`;
-        assert(velocities(source).join(" ") === "48 60 72 96",
-            "a dash endpoint must retain the ramp until the next original velocity change");
         const notes = playedNotes(compilePlayback(lower(source)));
+        assert(notes.map(note => note.velocity).join(" ") === "48 60 72 96",
+            "a dash endpoint must retain the ramp until the next original velocity change");
         assert(notes[1].duration.equals(2), "the sustained note must keep its own onset velocity and duration");
         const { layout, lines } = hairpin(source);
         const end = layout.objects.find(object => object.ast.sourceSpan.start === source.indexOf("-@b"))!;
@@ -160,6 +160,8 @@ test("dyn 避让中间高对象和先注册的 attachment", () => {
 
     const stacked = layoutOf(`1@a 2@b @dyn(a,b,20) @dyn(a,b,30)`);
     const [inner, outer] = stacked.attachments;
+    assert(inner.regions.length === 1 && attachmentCommands(inner).filter(command => command.kind === "line").length === 2,
+        "a two-note dynamic range must draw one complete hairpin");
     assert(outer.box.y + outer.box.h <= inner.box.y + 1e-6,
         "a later hairpin must be placed outside an earlier hairpin");
 });
@@ -228,10 +230,4 @@ test("dyn 绘制单行楔形并申报上方占用", () => {
         `box=${attachment.box.x.toFixed(2)},${attachment.box.y.toFixed(2)},${attachment.box.w.toFixed(2)},${attachment.box.h.toFixed(2)}`,
         `lines=${lines.map(line => `${line.x1.toFixed(2)},${line.y1.toFixed(2)}-${line.x2.toFixed(2)},${line.y2.toFixed(2)}`).join(";")}`,
     ].join("\n"));
-});
-
-test("dyn 的闭区间允许只有两个相邻端点", () => {
-    const { attachment, lines } = hairpin(`1@a 2@b @dyn(a,b,20)`);
-    assert(attachment.regions.length === 1 && lines.length === 2,
-        "a two-note dynamic range must still draw one complete hairpin");
 });

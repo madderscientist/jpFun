@@ -20,11 +20,17 @@ test("tuplet 从内容推导单位数并精确缩放时间", () => {
     assert(events[1].t.equals(2, 5) && events[1].T.equals(4, 5), "the second member must start at 2/5 QN");
     assert(events[2].t.equals(6, 5) && events[2].T.equals(4, 5), "the third member must end the tuplet at 2 QN");
     assert(events[3].t.equals(2) && result.duration.equals(3), "the following event must start at the rewritten cursor");
+    const metered = lower(`@meter(2,4) @tuplet({1/23},4) |`);
+    assert(!metered.diagnostics.some(diagnostic => diagnostic.code === "W_METER_MISMATCH"),
+        "meter must validate the tuplet's rewritten 2 QN duration");
 });
 
 test("tuplet 支持等长、扩张与嵌套比例", () => {
-    const triplet = lower(`@tuplet({1/2/3/},2)`).columns.map(column => column[0]);
-    assert(triplet.every(event => event.T.equals(1, 3)), "three eighth notes in two units must each last 1/3 QN");
+    const triplet = lower(`@tuplet({1/2/3/},2)`);
+    assert(triplet.columns.every(column => column[0].T.equals(1, 3)),
+        "three eighth notes in two units must each last 1/3 QN");
+    assert(triplet.attachments.length === 2,
+        "three divided tuplet members must create one automatic beam plus one tuplet bracket");
 
     const duplet = lower(`@tuplet({12},3)`);
     assert(duplet.duration.equals(3) && duplet.columns[1][0].t.equals(3, 2),
@@ -41,16 +47,6 @@ test("tuplet 拒绝无时值、非法比例与并行内容", () => {
     expectCompileError(`@tuplet({1&2},3)`, "E_TUPLET_PARALLEL_CONTENT");
     expectCompileError(`@tuplet({12},0)`, "E_TUPLET_INVALID_NORMAL");
     expectCompileError(`@tuplet({1 @br() 2},3)`, "E_TUPLET_CROSS_LINE");
-});
-
-test("tuplet 的最终时间供拍号和自动连梁使用", () => {
-    const metered = lower(`@meter(2,4) @tuplet({1/23},4) |`);
-    assert(!metered.diagnostics.some(diagnostic => diagnostic.code === "W_METER_MISMATCH"),
-        "meter must validate the tuplet's rewritten 2 QN duration");
-
-    const beamed = lower(`@tuplet({1/2/3/},2)`);
-    assert(beamed.attachments.length === 2,
-        "three divided tuplet members must create one automatic beam plus one tuplet bracket");
 });
 
 test("tuplet 在 onTimeState 向 up 与 grace 的隐藏成员同步最终宿主时值", () => {
@@ -126,26 +122,17 @@ test("嵌套 tuplet 的外层括线排在内层括线之外", () => {
         "the outer bracket must clear the inner one instead of overlapping it");
 });
 
-test("tuplet 主体横移后仍按最终位置避让", () => {
-    const result = layoutOf(`@adjust({@tuplet({1/23},4)}, dx=200px)`);
-    const bracket = result.attachments.find(item =>
-        attachmentCommands(item).some(command => command.kind === "text" && command.text === "5"),
-    );
-    assert(bracket, "tuplet must create an attachment after its hosts move");
-    const hostTop = Math.min(...result.objects.map(host => host.box.y));
-    assert(bracket.box.y + bracket.box.h <= hostTop + 1e-6,
-        "the bracket must stay above hosts moved during onPlaced");
-});
-
-test("tuplet 主体纵移后仍按最终位置避让", () => {
-    const result = layoutOf(`@adjust({@tuplet({1/23},4)}, dy=-40px)`);
-    const bracket = result.attachments.find(item =>
-        attachmentCommands(item).some(command => command.kind === "text" && command.text === "5"),
-    );
-    assert(bracket, "tuplet must create an attachment after its hosts move");
-    const hostTop = Math.min(...result.objects.map(host => host.box.y));
-    assert(bracket.box.y + bracket.box.h <= hostTop + 1e-6,
-        "the bracket must stay above vertically adjusted hosts");
+test("tuplet 主体横移或纵移后仍按最终位置避让", () => {
+    for (const adjustment of ["dx=200px", "dy=-40px"]) {
+        const result = layoutOf(`@adjust({@tuplet({1/23},4)}, ${adjustment})`);
+        const bracket = result.attachments.find(item =>
+            attachmentCommands(item).some(command => command.kind === "text" && command.text === "5"),
+        );
+        assert(bracket, `tuplet must create an attachment after ${adjustment}`);
+        const hostTop = Math.min(...result.objects.map(host => host.box.y));
+        assert(bracket.box.y + bracket.box.h <= hostTop + 1e-6,
+            `the bracket must stay above adjusted hosts: ${adjustment}`);
+    }
 });
 
 test("tuplet brackets stay above folded grace members", () => {

@@ -59,33 +59,14 @@ test("固定字形路径的边界只计算一次，重复片段仍计入各自�
         "路径缓存不能忽略重复片段的偏移");
 });
 
-test("未知符号保持原诊断，不把完整名称误拆成已知符号", () => {
-    for (const source of ["$trouble", "$tr_2", '@symbol("tr+++oops")']) {
-        const result = compileScore(source);
-        strictEqual(result.diagnostics.length, 1);
-        strictEqual(result.diagnostics[0].code, "W_UNKNOWN_SYMBOL");
-        expectDiagnostic(() => parse(`@set(strict=true) ${source}`), "E_UNKNOWN_SYMBOL");
-    }
-});
-
-test("$name 由词法层识别为完整的 symbol 原子", () => {
-    const source = `$tr`;
-    const { syntax, diagnostics } = analyzeScoreSyntax(source);
-    assert(diagnostics.length === 0, "合法 symbol 糖在词法层不应报错");
-    assert(syntax.tokens.length === 1 && syntax.tokens[0].kind === "atom",
-        "symbol 糖应产生一个 atom token");
-    assert(syntax.tokens[0].span.start === 0 && syntax.tokens[0].span.end === source.length,
-        "symbol token 应覆盖完整名称");
-});
-
-test("颤音尾巴的连续加号属于同一个 symbol 原子", () => {
-    for (const name of ["tr+", "tr++", "tr+++", "TR++++"]) {
+test("symbol 名称及颤音尾巴由词法层识别为完整原子", () => {
+    for (const name of ["tr", "tr+", "tr++", "tr+++", "TR++++"]) {
         const source = `$${name}`;
         const { syntax, diagnostics } = analyzeScoreSyntax(source);
         assert(diagnostics.length === 0 && syntax.tokens.length === 1,
             `${source} 应无诊断地解析为单个 token`);
-        assert(syntax.tokens[0].kind === "atom" && syntax.tokens[0].span.end === source.length,
-            "token 必须包含所有尾巴加号");
+        assert(syntax.tokens[0].kind === "atom" && syntax.tokens[0].span.start === 0
+            && syntax.tokens[0].span.end === source.length, "token 必须包含完整名称和所有尾巴加号");
         compileValid(`@set(strict=true) 1^${source} / 2`);
         compileValid(`@div(${source}, 1)`);
     }
@@ -148,8 +129,11 @@ test("颤音尾巴不改变宿主时值、颤音密度或作用范围", () => {
     expectDiagnostic(() => parse(`@set(strict=true) @symbol("tr+oops")`), "E_UNKNOWN_SYMBOL");
 });
 
-test("未登记的 symbol 在宽容模式报警，严格模式报错", () => {
-    for (const source of [`$not-registered`, `@symbol(not-registered)`, `@div($tr_2)`]) {
+test("未登记或形似已知名称的 symbol 在宽容模式报警，严格模式报错", () => {
+    for (const source of [
+        "$not-registered", "@symbol(not-registered)", "@div($tr_2)",
+        "$trouble", "$tr_2", '@symbol("tr+++oops")',
+    ]) {
         const result = compileScore(source);
         assert(result.diagnostics.length === 1 && result.diagnostics[0].code === "W_UNKNOWN_SYMBOL",
             "宽容模式应只报告未知符号警告");

@@ -82,15 +82,13 @@ test("CRLF preprocessing masks CR outside strings without shifting source spans"
 });
 
 test("引号必须配对才算字符串", () => {
-    const paired = preprocessSource(`"100% in string" % comment`);
-    assert(paired.commentSpans.length === 1, "配对引号内的 % 不是注释");
-
-    // 未配对引号若开启字符串状态，后文所有 % 都会失去注释语义
-    const unpaired = preprocessSource(`5" 英寸\n% comment`);
-    assert(unpaired.commentSpans.length === 1, "孤立引号之后的 % 仍然是注释");
-
-    const escaped = preprocessSource(`"a\\" % b" 1`);
-    assert(escaped.commentSpans.length === 0, "转义引号不闭合字符串");
+    for (const [source, comments] of [
+        [`"100% in string" % comment`, 1],
+        [`5" 英寸\n% comment`, 1],
+        [`"a\\" % b" 1`, 0],
+    ] as const) {
+        deepStrictEqual(preprocessSource(source).commentSpans.length, comments, source);
+    }
 });
 
 test("head 行语法糖只标记前缀并递归显式内容", () => {

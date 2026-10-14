@@ -51,15 +51,20 @@ test("非法方向警告后回退到无箭头上行", () => {
         "fallback rendering must use the arrowless path");
 });
 
-test("琶音按方向错开起音并保持共同终点", () => {
-    const notes = (source: string) => playedNotes(compilePlayback(lower(source)));
-    const upward = notes(`@arpeggio({1 ^ 3 ^ 5})`);
-    const downward = notes(`@arpeggio({1 ^ 3 ^ 5}, direction=down)`);
-    assert(upward.map(note => note.midi).join(",") === "60,64,67", "up arpeggio must sound low to high");
-    assert(downward.map(note => note.midi).join(",") === "67,64,60", "down arpeggio must sound high to low");
-    assert(upward[0].start.compare(upward[1].start) < 0 && upward[1].start.compare(upward[2].start) < 0,
-        "up arpeggio starts must increase");
-    assert(upward.every(note => note.end.equals(upward[0].end)), "arpeggio notes must share one end");
+test("琶音按方向和视觉顺序错开起音并保持共同终点", () => {
+    for (const content of ["1 ^ 3 ^ 5", "5 _ 3 _ 1"]) {
+        for (const [direction, expected] of [["", "60,64,67"], [", direction=down", "67,64,60"]]) {
+            const source = `@arpeggio({${content}}${direction})`;
+            const notes = playedNotes(compilePlayback(lower(source)));
+            assert(notes.map(note => note.midi).join(",") === expected, `${source}: unexpected visual order`);
+            assert(notes[0].start.compare(notes[1].start) < 0 && notes[1].start.compare(notes[2].start) < 0,
+                `${source}: arpeggio starts must increase`);
+            assert(notes.every(note => note.end.equals(notes[0].end)), `${source}: notes must share one end`);
+        }
+    }
+    const dotted = playedNotes(compilePlayback(lower(`@arp({G3. ^ A3 ^ C4})`)));
+    assert(dotted.map(note => note.start.toString()).join(",") === "0,1/8,1/4",
+        "a dotted arp chord must use the audible default spread");
 });
 
 test("反复中的每次琶音访问独立错开一次", () => {
@@ -69,29 +74,18 @@ test("反复中的每次琶音访问独立错开一次", () => {
     assert(starts === "0,1/8,1/4,1,9/8,5/4", `unexpected repeated starts: ${starts}`);
 });
 
-test("不发声成员同样占用一个延迟槽", () => {
-    const notes = playedNotes(compilePlayback(lower(`@arpeggio({1 ^ @text(A) ^ 5})`)));
-    assert(notes.length === 2, "text must not emit a note");
-    assert(notes[0].start.equals(0) && notes[1].start.equals(1, 4),
-        "the silent middle member must still consume one arpeggio slot");
-});
-
-    test("无声成员占槽但系统状态仍在和弦时刻生效", () => {
-        const plan = compilePlayback(lower(`@arp({1 ^ @tempo(80) ^ 5})`));
-        const tempo = plan.events.find(event => event.kind === "tempo" && event.bpm === 80);
+test("不发声成员占用延迟槽，但系统状态仍在和弦时刻生效", () => {
+    for (const source of ["@arpeggio({1 ^ @text(A) ^ 5})", "@arp({1 ^ @tempo(80) ^ 5})"]) {
+        const plan = compilePlayback(lower(source));
         const notes = playedNotes(plan);
-        assert(tempo?.at.equals(0), "a merged system-state event must not inherit an arbitrary member slot");
+        assert(notes.length === 2, `${source}: a silent member must not emit a note`);
         assert(notes.map(note => note.start.toString()).join(",") === "0,1/4",
-        "the silent tempo member must still leave one empty arpeggio slot");
-    });
-
-test("向上和向下按视觉顺序延迟 Fold 成员", () => {
-    const midi = (source: string) => playedNotes(compilePlayback(lower(source)))
-        .map(note => note.midi).join(",");
-    assert(midi(`@arpeggio({5 _ 3 _ 1})`) === "60,64,67",
-        "up must traverse a downward Fold from its visual bottom to top");
-    assert(midi(`@arpeggio({5 _ 3 _ 1}, direction=down)`) === "67,64,60",
-        "down must traverse a downward Fold from its visual top to bottom");
+            `${source}: the silent middle member must still consume one arpeggio slot`);
+        if (source.includes("@tempo")) {
+            const tempo = plan.events.find(event => event.kind === "tempo" && event.bpm === 80);
+            assert(tempo?.at.equals(0), "a merged system-state event must not inherit an arbitrary member slot");
+        }
+    }
 });
 
 test("短时值压缩延迟且保持共同终点", () => {
@@ -151,10 +145,4 @@ test("琶音中的颤音与多倚音在剩余窗口内保持正时值", () => {
             && note.start.compare(0) >= 0 && note.end.compare(1) <= 0),
         "琶音应保留全部内部音符并将其排入剩余时值");
     }
-});
-
-test("arp 是主名且附点和弦具有可辨识的播放间隔", () => {
-    const notes = playedNotes(compilePlayback(lower(`@arp({G3. ^ A3 ^ C4})`)));
-    assert(notes.map(note => note.start.toString()).join(",") === "0,1/8,1/4",
-        "a dotted arp chord must use the audible default spread");
 });

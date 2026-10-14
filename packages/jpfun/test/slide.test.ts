@@ -71,7 +71,6 @@ test("slide preserves playback and is stable on repeated layout", () => {
     deepStrictEqual(attachmentCommands(second.attachments[0]), commands);
     deepStrictEqual(second.objects.map(node => node.box), boxes);
     strictEqual(SlideNode.loweringFinalize, undefined);
-    strictEqual(lower("1 2").attachments.length, 0);
 });
 
 test("slide supports local layouts, nesting and multi-line content", () => {

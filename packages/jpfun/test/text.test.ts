@@ -12,28 +12,17 @@ function textBox(source: string) {
     return { box: objects[0].box, size: objects[0].ast.size };
 }
 
-test("单行文本的盒子与默认测量一致", () => {
-    const { box, size } = textBox(`@text("进入")`);
-
-    assert(nearly(box.w, size * 2), "single line width must be the measured text width");
-    assert(nearly(box.h, size), "single line height must stay one font size");
-    assert(nearly(box.anchor, size / 2), "anchor must be half of the first character");
-    assert(nearly(box.visualAxis, size / 2), "visualAxis must stay at the block center");
-});
-
-test("括号内的换行按多行排版", () => {
-    const { box, size } = textBox(`@text("上行\n下面这行更长")`);
-
-    assert(nearly(box.w, size * 6), "width must come from the widest line");
-    assert(nearly(box.h, size * 1.25 + size), "height must be one line advance plus the last line");
-    assert(nearly(box.anchor, size / 2), "anchor must still follow the first character of the first line");
-    assert(nearly(box.visualAxis, box.h / 2), "visualAxis must stay at the block center");
-});
-
-test("lineheight 是自身字号的倍数", () => {
-    const { box, size } = textBox(`@text("上行\n下行", lineheight=2)`);
-
-    assert(nearly(box.h, size * 3), "line advance must be lineheight times the font size");
+test("文本盒子按最长行、行高倍数与首字符锚点测量", () => {
+    for (const [source, width, height] of [
+        ['@text("进入")', 2, 1],
+        ['@text("上行\n下面这行更长")', 6, 2.25],
+        ['@text("上行\n下行", lineheight=2)', 2, 3],
+    ] as const) {
+        const { box, size } = textBox(source);
+        assert(nearly(box.w, size * width) && nearly(box.h, size * height), `${source}: measured dimensions`);
+        assert(nearly(box.anchor, size / 2), `${source}: first character anchor`);
+        assert(nearly(box.visualAxis, box.h / 2), `${source}: block center axis`);
+    }
 });
 
 test("每行单独绘制且左对齐", () => {
@@ -112,18 +101,16 @@ test("文本源码往返保留换行、制表符和字体字符串", () => {
         const commands = commandsOfKind(restored, "text");
         assert(commands.map(command => command.text).join("\n") === value, "text must survive serialization");
         assert(commands.every(command => command.style.fontFamily === value), "font must survive serialization");
-        for (const call of [`@page(numbering=${quote(value)})`, "@set()"]) {
-            const input = `${call.slice(0, -1)}${call === "@set()" ? "" : ", "}font=${quote(value)})`;
-            const serialized = parse(input).content[0].toString(input);
-            const node = parse(serialized).content[0];
-            if (call === "@set()") {
-                assert(commandsOfKind(`${serialized} @text(Label)`, "text")[0].style.fontFamily === value,
-                    "set must preserve the font string");
-            } else {
-                assert("font" in node && node.font === value, `${call} must preserve the font string`);
-                if ("numbering" in node) assert(node.numbering === value, "page must preserve its numbering string");
-            }
-        }
+        const page = `@page(numbering=${quote(value)}, font=${quote(value)})`;
+        const serializedPage = parse(page).content[0].toString(page);
+        const node = parse(serializedPage).content[0];
+        assert("font" in node && node.font === value, "page must preserve the font string");
+        assert("numbering" in node && node.numbering === value, "page must preserve its numbering string");
+
+        const set = `@set(font=${quote(value)})`;
+        const serializedSet = parse(set).content[0].toString(set);
+        assert(commandsOfKind(`${serializedSet} @text(Label)`, "text")[0].style.fontFamily === value,
+            "set must preserve the font string");
     }
 });
 

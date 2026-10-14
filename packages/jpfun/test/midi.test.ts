@@ -1,4 +1,5 @@
 import test from "node:test";
+import { throws } from "node:assert/strict";
 
 import {
     compileScore,
@@ -228,20 +229,18 @@ test("MIDI 八分三连音使用专用三分网格，普通十六分不误判", 
 });
 
 test("MIDI 四分与十六分三连音保持各自书面时值", () => {
-    const quarter = midiJsonToJpFun(midi([[
-        note(0, 320, 60), note(320, 320, 62), note(640, 320, 64),
-    ]]));
-    const sixteenth = midiJsonToJpFun(midi([[
-        note(0, 80, 60), note(80, 80, 62), note(160, 80, 64),
-    ]]));
-    const quarterNotes = playedNotes(compilePlayback(lower(quarter)));
-    const sixteenthNotes = playedNotes(compilePlayback(lower(sixteenth)));
-    assert(quarter.includes("@tuplet({C4 D4 E4}, 2)")
-        && quarterNotes.every(note => note.duration.equals(2, 3)),
-    `四分三连音应写三个普通音并缩放为 2/3 QN：${quarter}`);
-    assert(sixteenth.includes("@tuplet({C4// D4// E4//}, 2)")
-        && sixteenthNotes.every(note => note.duration.equals(1, 6)),
-    `十六分三连音应写三个双减时音并缩放为 1/6 QN：${sixteenth}`);
+    for (const [ticks, spelling, numerator, denominator] of [
+        [320, "@tuplet({C4 D4 E4}, 2)", 2, 3],
+        [80, "@tuplet({C4// D4// E4//}, 2)", 1, 6],
+    ] as const) {
+        const source = midiJsonToJpFun(midi([[
+            note(0, ticks, 60), note(ticks, ticks, 62), note(ticks * 2, ticks, 64),
+        ]]));
+        const notes = playedNotes(compilePlayback(lower(source)));
+        assert(source.includes(spelling)
+            && notes.length === 3 && notes.every(note => note.duration.equals(numerator, denominator)),
+        `三连音必须保留书面时值及播放时长：${source}`);
+    }
 });
 
 test("MIDI 三连和弦按槽识别，不吞并持续低音或不完整候选", () => {
@@ -371,22 +370,6 @@ test("跨小节持续音在每个小节首重写，并用完整 tie 链连接", 
     `小节首重写不得改变单音或和弦的总时值：${single}\n${chord}`);
 });
 
-test("不同 MIDI 轨生成 N 声部并保留轨名", () => {
-    const source = midiJsonToJpFun(midi(
-        [[note(0, 480, 72)], [note(0, 960, 48)]],
-        { names: ["主唱", 'Bass "A"'] },
-    ), { pitchMode: "absolute" });
-    assert(source.includes('N("主唱"):') && source.includes('N("Bass \\"A\\""):'),
-        `多轨应生成带名称的 N 声部：${source}`);
-    assert(source.includes("H.signature: 1=C4 4/4"),
-        `绝对音高模式也应在 head 中显示 1=C：${source}`);
-    assert(!source.includes("@voices(") && !source.includes("@voice("), `MIDI 声部应优先使用 N 语法糖：${source}`);
-    assert(source.includes("\"主唱\"") && source.includes('"Bass \\"A\\""'), `轨名应正确转义：${source}`);
-    const notes = playedNotes(compilePlayback(lower(source)));
-    assert(notes.length === 2 && notes.some(item => item.midi === 72) && notes.some(item => item.midi === 48),
-        `两个 MIDI 轨都必须保留：${source}`);
-});
-
     test("单个 MIDI 声部省略轨名", () => {
         const source = midiJsonToJpFun(midi([[note(0, 480, 60)]], { names: ["Solo"] }), { barsPerLine: 4 });
         assert(source.includes("\n\nN:") && !source.includes('N("Solo"):'),
@@ -421,23 +404,26 @@ test("全谱速度变化附着到最高 lane", () => {
         `全谱速度必须写在最高 lane，不得落在低声部：${source}`);
 });
 
-test("MIDI 每个系统重写 N，只有首系统保留轨名", () => {
+test("MIDI 多轨每个系统重写 N，只有首系统保留并转义轨名", () => {
     const source = midiJsonToJpFun(midi(
         [
-            [note(0, 480, 60), note(1920, 480, 62)],
-            [note(0, 480, 64), note(1920, 480, 65)],
+            [note(0, 480, 72), note(1920, 480, 74)],
+            [note(0, 960, 48), note(1920, 480, 50)],
         ],
-        { names: ["A", "B"] },
+        { names: ["主唱", 'Bass "A"'] },
     ), { barsPerLine: 1 });
-    assert((source.match(/^N(?:\(|:)/gm) ?? []).length === 4
-        && (source.match(/^N\(/gm) ?? []).length === 2
-        && !source.includes("@br()"),
-    `两轨两系统应有四条 N、仅首系统两条带名称：${source}`);
     const systems = source.split("\n\n").slice(1);
     assert(systems.length === 2
-        && systems[0].includes('N("A"):') && systems[0].includes('N("B"):')
+        && systems.every(system => (system.match(/^N(?:\(|:)/gm) ?? []).length === 2)
+        && (systems[0].match(/^N\(/gm) ?? []).length === 2
+        && systems[0].includes('N("主唱"):') && systems[0].includes('N("Bass \\"A\\""):')
         && (systems[1].match(/^N:/gm) ?? []).length === 2,
     `后续系统只能使用 N:：${source}`);
+    assert(!source.includes("@br()") && !source.includes("@voices(") && !source.includes("@voice("),
+        `MIDI 声部和系统应优先使用 N 语法糖与空行：${source}`);
+    const notes = playedNotes(compilePlayback(lower(source)));
+    assert(notes.length === 4 && notes.some(item => item.midi === 72) && notes.some(item => item.midi === 48),
+        `两个 MIDI 轨都必须保留：${source}`);
 });
 
 test("MIDI 默认自动换行，barsPerLine 正数可强制覆盖", () => {
@@ -621,21 +607,19 @@ test("输入校验拒绝无效 PPQ、选项、拍号和音符", () => {
     const valid = midi([[note(0, 480, 60)]]);
     const invalidProgram = midi([[note(0, 480, 60)]]);
     invalidProgram.tracks[0].instruments = [{ ticks: 0, number: 128 }];
-    let failures = 0;
-    for (const run of [
-        () => midiJsonToJpFun({ ...valid, header: { ...valid.header, tick: 0 } }),
-        () => midiJsonToJpFun(valid, { alignRate: 1 }),
-        () => midiJsonToJpFun(valid, { barsPerLine: 1.5 }),
-        () => midiJsonToJpFun(valid, { title: 1 as unknown as string }),
-        () => midiJsonToJpFun(valid, { pitchMode: "other" as "relative" }),
-        () => midiJsonToJpFun(midi([[note(0, 0, 60)]])),
-        () => midiJsonToJpFun(midi([[note(0, 480, 128)]])),
-        () => midiJsonToJpFun(invalidProgram),
-        () => midiJsonToJpFun(midi([[note(0, 480, 60)]], {
+    for (const [name, run] of [
+        ["PPQ", () => midiJsonToJpFun({ ...valid, header: { ...valid.header, tick: 0 } })],
+        ["alignRate", () => midiJsonToJpFun(valid, { alignRate: 1 })],
+        ["barsPerLine", () => midiJsonToJpFun(valid, { barsPerLine: 1.5 })],
+        ["title", () => midiJsonToJpFun(valid, { title: 1 as unknown as string })],
+        ["pitchMode", () => midiJsonToJpFun(valid, { pitchMode: "other" as "relative" })],
+        ["duration", () => midiJsonToJpFun(midi([[note(0, 0, 60)]]))],
+        ["pitch", () => midiJsonToJpFun(midi([[note(0, 480, 128)]]))],
+        ["program", () => midiJsonToJpFun(invalidProgram)],
+        ["meter", () => midiJsonToJpFun(midi([[note(0, 480, 60)]], {
             timeSignatures: [{ ticks: 0, timeSignature: [4, 3] }],
-        })),
-    ]) {
-        try { run(); } catch { failures++; }
+        }))],
+    ] as const) {
+        throws(run, `invalid ${name} must be rejected`);
     }
-    assert(failures === 9, `九种非法输入都应失败，实际失败 ${failures} 种`);
 });

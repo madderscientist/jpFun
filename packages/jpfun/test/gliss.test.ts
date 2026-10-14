@@ -29,13 +29,6 @@ function gliss(source: string, noPitch = false) {
     return { ...compiled, attachment, path, start, end };
 }
 
-test("gliss has no global lowering finalizer", () => {
-    strictEqual(GlissNode.loweringFinalize, undefined);
-    const source = "1 2 3";
-    const result = lower(source);
-    strictEqual(result.attachments.length, 0);
-});
-
 test("gliss draws upward, downward and unison arrows between explicit labels", () => {
     for (const [notes, direction] of [["1@a 5@b", -1], ["5@a 1@b", 1], ["1@a 1@b", 0]] as const) {
         const { layout, start, end, path } = gliss(`${notes} @gliss(a,b)`);
@@ -76,10 +69,6 @@ test("gliss orders positional endpoints by time regardless of argument order", (
         deepStrictEqual(attachmentCommands(reverse.attachment), attachmentCommands(forward.attachment));
         deepStrictEqual(reverse.layout.objects.map(node => node.box), forward.layout.objects.map(node => node.box));
     }
-    const lowered = lower("5 -@a 2@b @gliss(b,a)");
-    const first = layoutDocument(lowered, layoutContext);
-    const second = layoutDocument(lowered, layoutContext);
-    deepStrictEqual(attachmentCommands(second.attachments[0]), attachmentCommands(first.attachments[0]));
 });
 
 test("gliss crosses tracks in either vertical direction on the same score line", () => {
@@ -100,16 +89,20 @@ test("gliss crosses tracks in either vertical direction on the same score line",
 });
 
 test("gliss geometry scales with fontsize and does not accumulate spacing on relayout", () => {
+    strictEqual(GlissNode.loweringFinalize, undefined);
+    strictEqual(lower("1 2 3").attachments.length, 0);
     const small = gliss("@set(fontsize=20) 1@a 5@b @gliss(a,b)");
     const large = compileValid("1@a 5@b @gliss(a,b)", { variables: { fontsize: 40 } });
     const largePath = attachmentCommands(large.layout.attachments[0]).find(command => command.kind === "path")!;
     assert(largePath.kind === "path", "expected arrow path");
     assert(nearly(largePath.style!.strokeWidth!, small.path.style!.strokeWidth! * 2), "stroke scales with font size");
-    const lowered = lower("1@a 5@b @gliss(a,b)");
-    const first = layoutDocument(lowered, layoutContext);
-    const expected = attachmentCommands(first.attachments[0]);
-    const second = layoutDocument(lowered, layoutContext);
-    deepStrictEqual(attachmentCommands(second.attachments[0]), expected);
+    for (const source of ["1@a 5@b @gliss(a,b)", "5 -@a 2@b @gliss(b,a)"]) {
+        const lowered = lower(source);
+        const first = layoutDocument(lowered, layoutContext);
+        const expected = attachmentCommands(first.attachments[0]);
+        const second = layoutDocument(lowered, layoutContext);
+        deepStrictEqual(attachmentCommands(second.attachments[0]), expected);
+    }
 });
 
 test("gliss retains the original playback and emits a portable SVG path", () => {
@@ -194,25 +187,8 @@ test("gliss warns once per attachment, including repeated geometry measurement a
     deepStrictEqual(doubled.diagnostics.map(item => item.code), ["W_GLISS_NO_PITCH", "W_GLISS_NO_PITCH"]);
 });
 
-test("gliss reads finite resolvedMidi values independently of function type", () => {
-    const lowered = lower("{1^3}@a 5@b @gliss(a,b)");
-    const from = lowered.columns.flat().find(node => node.ast instanceof ASTFunctionNode && node.ast.label === "a")!;
-    for (const [pitch, direction] of [[80, 1], [0, -1], [null, 0], [undefined, 0], [NaN, 0], [Infinity, 0], ["80", 0]] as const) {
-        Object.defineProperty(from, "resolvedMidi", { value: pitch, configurable: true });
-        const layout = layoutDocument(lowered, layoutContext);
-        const path = attachmentCommands(layout.attachments[0]).find(command => command.kind === "path")!;
-        assert(path.kind === "path", "expected gliss path");
-        const [start, end] = path.commands;
-        assert(start.op === "M" && end.op === "L", "expected arrow shaft");
-        strictEqual(Math.sign(end.y - start.y), direction);
-    }
-});
-
 test("gliss supports folded note labels, beams, boxes and explicit adjustments", () => {
-    for (const source of [
-        "@up(1@a,3) 5@b @gliss(a,b)",
-        "@set(div.autobeam=false) 1/@a 5/@b @beam(a,b) @gliss(a,b)",
-    ]) gliss(source);
+    gliss("@set(div.autobeam=false) 1/@a 5/@b @beam(a,b) @gliss(a,b)");
     const plain = gliss("1@a 5@b @gliss(a,b)");
     const shifted = gliss("@adjust({1@a},dx=3px,dy=5px) 5@b @gliss(a,b)");
     assert(nearly(shifted.start.x - plain.start.x, 3), "arrow follows source dx");

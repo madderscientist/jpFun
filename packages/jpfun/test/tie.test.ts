@@ -24,25 +24,6 @@ function horizontalBandBottom(attachment: PlacedAttachment, segment: number) {
 const opsOf = (path: { commands: readonly PathCommand[] }) =>
     path.commands.map(command => command.op).join(",");
 
-test("同行连音线是一条闭合填充的丝带", () => {
-    const nearTiePaths = commandsOfKind(`1@a 2@b @tie(a,b)`, "path");
-    assert(nearTiePaths.length === 1, "a near tie must emit one path");
-    assert(
-        opsOf(nearTiePaths[0]) === "M,C,C,Z",
-        "a same-line tie must be a closed ribbon made of an outer and an inner cubic",
-    );
-    assert(nearTiePaths[0].style?.fill === "#000", "the tie ribbon must be filled instead of stroked");
-    assert(tieApexHeight(nearTiePaths[0]) > 0 && tieApexHeight(nearTiePaths[0]) < 11,
-        "the default short tie must be lower than half an em");
-
-    const farTiePaths = commandsOfKind(`1@a 2 3 4 5 6 7 1@b @tie(a,b)`, "path");
-    assert(farTiePaths.length === 1, "a far same-line tie must emit one path");
-    assert(
-        opsOf(farTiePaths[0]) === "M,C,C,Z",
-        "distance must not change the same-line tie drawing type",
-    );
-});
-
 test("增时线参与显式及默认连音端点，但不合并播放音符", () => {
     for (const source of [
         `1 -@a 1@b @tie(a,b)`,
@@ -127,12 +108,14 @@ test("tie height defaults follow scope and call-site fontsize with explicit over
     }
 });
 
-test("automatic tie height follows a capped quadratic curve for each endpoint pair", () => {
+test("automatic same-line ties remain filled ribbons with capped quadratic heights", () => {
     const source = "1@a 2@b 3 4 5 6 7 1@c @tie(a,b,c)";
     for (const fontSize of [20, 40]) {
         const paths = commandsOfKind(source, "path", fontSize);
         strictEqual(paths.length, 2);
         for (const path of paths) {
+            strictEqual(opsOf(path), "M,C,C,Z", "near and far ties must remain closed cubic ribbons");
+            strictEqual(path.style?.fill, "#000", "tie ribbons must be filled");
             const [start, end] = path.commands;
             assert(start.op === "M" && end.op === "C", "expected a cubic tie");
             const span = Math.abs(end.x - start.x);
@@ -276,8 +259,11 @@ test("grace 内部标签连接成员，外部标签穿透到宿主", () => {
 });
 
 test("跨系统连音线按首、中、尾分段绘制", () => {
-    const crossLineTiePaths = commandsOfKind(`1@a @br() 2@b @tie(a,b)`, "path");
+    const crossLineTieResult = layoutOf(`1@a @br() 2@b @tie(a,b)`);
+    const crossLineTiePaths = attachmentCommands(crossLineTieResult.attachments[0])
+        .filter(command => command.kind === "path");
     assert(crossLineTiePaths.length === 2, "a two-system tie must emit first and final segments");
+    assert(crossLineTieResult.objects[0].box.y > 0, "the first tie segment must push its note row down");
     assert(
         opsOf(crossLineTiePaths[0]) === "M,Q,L,L,L,Q,Z",
         "the first system tie segment must rise, extend to the right edge and close back",
@@ -294,7 +280,10 @@ test("跨系统连音线按首、中、尾分段绘制", () => {
         "every intermediate system must use one full horizontal tie band",
     );
 
-    const emptyMiddleTiePaths = commandsOfKind(`1@a @br(2) 2@b @tie(a,b)`, "path");
+    const emptyMiddleTieResult = layoutOf(`1@a @br(2) 2@b @tie(a,b)`);
+    assert(emptyMiddleTieResult.lineCount === 3, "a tie spanning br(2) must preserve its empty middle system");
+    const emptyMiddleTiePaths = attachmentCommands(emptyMiddleTieResult.attachments[0])
+        .filter(command => command.kind === "path");
     assert(emptyMiddleTiePaths.length === 3, "a tie spanning an empty system must still emit three segments");
     assert(
         emptyMiddleTiePaths[1].commands.every(command => command.op === "Z" || command.y > 0),
@@ -364,23 +353,7 @@ N: 3`;
         "the closing tie segment must start at the target track's leftmost note edge");
 });
 
-test("三行与含空行的连音线都保持每系统一段", () => {
-    const threeLineTieResult = layoutOf(`1@a @br() 2 @br() 3@b @tie(a,b)`);
-    assert(attachmentCommands(threeLineTieResult.attachments[0]).filter(command => command.kind === "path").length === 3,
-        "a three-system tie must create first, middle and final segments");
-
-    const emptyMiddleTieResult = layoutOf(`1@a @br(2) 2@b @tie(a,b)`);
-    assert(emptyMiddleTieResult.lineCount === 3, "a tie spanning br(2) must preserve its empty middle system");
-    assert(attachmentCommands(emptyMiddleTieResult.attachments[0]).filter(command => command.kind === "path").length === 3,
-        "an attachment must render a segment on an otherwise empty system");
-});
-
 test("连音线可以跨行与跨轨，首尾弧从端点固定抬高", () => {
-    const crossLineTieResult = layoutOf(`1@a @br() 2@b @tie(a,b)`);
-    assert(attachmentCommands(crossLineTieResult.attachments[0]).filter(command => command.kind === "path").length === 2,
-        "a two-system tie must render one segment in each system");
-    assert(crossLineTieResult.objects[0].box.y > 0, "the first tie segment must push its note row down");
-
     const crossTrackTieResult = layoutOf(`@stack({1@a}, {2@b}) @tie(a,b)`);
     assert(crossTrackTieResult.attachments.length === 1, "tie must allow endpoints on different tracks");
     assert(crossTrackTieResult.attachments[0].box.h > 0, "a cross-track tie must produce visible geometry");

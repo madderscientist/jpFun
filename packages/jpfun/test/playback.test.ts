@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import { deepStrictEqual } from "node:assert/strict";
 
-import { ErrorDiagnostic } from "../src/diagnostic.js";
 import { TemporalNodeBase } from "../src/functions/temporal.js";
 import type { LoweringAttachment } from "../src/lowering/types.js";
 import { compilePlayback } from "../src/playback/compile.js";
@@ -12,15 +11,7 @@ import {
     secondsToPerformanceTime,
     secondsToScoreTime,
 } from "../src/playback/time.js";
-import { assert, nearly, lower, playedNotes } from "./helpers.js";
-
-function expectPlaybackError(run: () => unknown, code: string) {
-    let thrown: unknown;
-    try { run(); } catch (error) { thrown = error; }
-    assert(thrown instanceof ErrorDiagnostic, `Expected ${code}, got ${String(thrown)}`);
-    assert(thrown.code === code, `Expected ${code}, got ${thrown.code}`);
-    return thrown;
-}
+import { assert, expectDiagnostic as expectPlaybackError, nearly, lower, playedNotes } from "./helpers.js";
 
 function lowerWithModifier(source: string, emitPlayback: (emitter: PlaybackEmitter) => void, column = 0) {
     const lowering = lower(source);
@@ -191,10 +182,7 @@ test("音色按音轨固化并在反复后恢复", () => {
     assert(lower(`@program(10) 1`).columns[0][0].box === undefined,
         "program 应进入时间列但不产生可见布局对象");
     for (const source of [`@program(-1)`, `@program(1.5)`, `@program(128)`]) {
-        let thrown: unknown;
-        try { lower(source); } catch (error) { thrown = error; }
-        assert(thrown instanceof ErrorDiagnostic && thrown.code === "E_PROGRAM_INVALID",
-            `${source} 应拒绝 0..127 之外的 program`);
+        expectPlaybackError(() => lower(source), "E_PROGRAM_INVALID");
     }
 });
 
@@ -342,14 +330,14 @@ test("tie 只合并同轨同音且连续的单音", () => {
     assert(tied[0].duration.equals(3), "合并后的 gesture 应持续到最后一个端点结束");
     assert(tied[0].sourceSpans.length === 3, "合并后必须保留所有端点的源码范围");
 
-    const differentPitch = playedNotes(compilePlayback(lower(`1@a 2@b @tie(a,b)`)));
-    assert(differentPitch.length === 2, "异音 tie 只保留视觉关系，不能合并 attack");
-
-    const discontinuous = playedNotes(compilePlayback(lower(`1@a 0 1@b @tie(a,b)`)));
-    assert(discontinuous.length === 2, "中间有时间空隙的 tie 不能合并");
-
-    const crossTrack = playedNotes(compilePlayback(lower(`@stack({1@a}, {1@b}) @tie(a,b)`)));
-    assert(crossTrack.length === 2, "跨轨 tie 不能合并为一个 MIDI gesture");
+    for (const source of [
+        "1@a 2@b @tie(a,b)",
+        "1@a 0 1@b @tie(a,b)",
+        "@stack({1@a}, {1@b}) @tie(a,b)",
+    ]) {
+        const notes = playedNotes(compilePlayback(lower(source)));
+        assert(notes.length === 2, `${source}: only contiguous same-track unisons may merge`);
+    }
 
     // 反复让同一个端点产生多个 gesture，每一遍各串一条链
     const repeated = playedNotes(compilePlayback(lower(`|: 1@a 1@b :| @tie(a,b)`)));
@@ -573,10 +561,6 @@ test("结构、控制与声音回调每次编译只执行一次，最终状态�
             calls.control++;
             state.bpmScale.div(2);
         });
-        emitter.defer(context => {
-            calls.structure++;
-            assert(!("stateAt" in context), "结构阶段不应暴露最终状态查询");
-        });
         emitter.affectFollowing((context, notes) => {
             calls.sound++;
             const snapshot = context.stateAt(notes[0].start);
@@ -593,6 +577,16 @@ test("结构、控制与声音回调每次编译只执行一次，最终状态�
             });
         });
     });
+    const firstNode = lowering.columns[0][0];
+    const emit = firstNode.emitPlayback!.bind(firstNode);
+    firstNode.emitPlayback = emitter => {
+        emit(emitter);
+        emitter.defer(context => {
+            calls.structure++;
+            assert(!("stateAt" in context), "结构阶段不应暴露最终状态查询");
+            assert(context.notes.length === 1, "defer 不能看见未来列的音段");
+        });
+    };
     const first = compilePlayback(lowering);
     const second = compilePlayback(lowering);
     assert(calls.structure === 2 && calls.control === 2 && calls.sound === 2,
@@ -629,22 +623,6 @@ test("秒数反查谱面位置时钳制到演奏计划边界", () => {
     assert(nearly(secondsToScoreTime(plan, plan.durationSeconds), 2), "计划终点应映射到谱面终点");
     assert(nearly(secondsToScoreTime(plan, plan.durationSeconds + 1), 2),
         "计划结束后的秒数不能继续外推谱面位置");
-});
-
-test("defer 只能看到当前位置此前发布的音段", () => {
-    const lowering = lower(`1 2`);
-    const node = lowering.columns[0][0];
-    const emit = node.emitPlayback!.bind(node);
-    let visibleNotes = 0;
-    node.emitPlayback = emitter => {
-        emit(emitter);
-        emitter.defer(context => {
-            visibleNotes = context.notes.length;
-        });
-    };
-
-    compilePlayback(lowering);
-    assert(visibleNotes === 1, "defer 只能观察当前位置此前发布的音段，不能看见未来音段");
 });
 
 test("局部事件变换不能跨顶层 play frame 泄漏", () => {

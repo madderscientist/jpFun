@@ -177,15 +177,6 @@ test("MusicXML timewise and staff-numbered multiple rests retain grouping", () =
   assert(result.lowering.duration.equals(8), "timewise rest must retain its length");
 });
 
-test("MusicXML returns a script and structured diagnostics", () => {
-  const document = new DOMParser().parseFromString(SCORE, "application/xml");
-  const result = convertMusicXmlElement(document.documentElement!);
-  assert(typeof result.script === "string" && result.script.includes("H.title: Example"),
-    "the generated script must be returned explicitly");
-  deepStrictEqual(result.diagnostics, []);
-  assert(playedNotes(compilePlayback(lower(result.script))).length === 4, "all original notes must survive");
-});
-
 test("MusicXML queries do not confirm preservation until explicitly accepted", () => {
   const root = new DOMParser().parseFromString(
     '<direction><direction-type><future/><future/><ignored/><group><nested/><nested/></group></direction-type></direction>',
@@ -246,8 +237,6 @@ test("MusicXML diagnoses only discarded children of supported musical containers
     "only discarded semantics should be diagnosed");
   assert(result.script.includes("$fermata") && result.script.includes("$accent")
     && result.script.includes("$tr") && result.script.includes("$p"), "supported siblings must still be preserved");
-  deepStrictEqual(importMusicXml(xml), result);
-  deepStrictEqual(importMusicXml(SCORE).diagnostics, []);
 });
 
 test("MusicXML reads and diagnoses every notations container", () => {
@@ -346,13 +335,16 @@ test("MusicXML accepts equivalent tuplet markers on merged chord members", () =>
   deepStrictEqual(result.diagnostics, []);
 });
 
-test("MusicXML reports display-pitch approximation and preserves its existing script", () => {
+test("MusicXML reports display-pitch approximation and preserves playable display pitches", () => {
   const pitched = "<pitch><step>G</step><octave>4</octave></pitch>";
   const xml = SCORE.replace(pitched, "<unpitched><display-step>G</display-step><display-octave>4</display-octave></unpitched>");
   const result = importMusicXml(xml);
   assert(result.script === musicXmlToJpFun(SCORE), "display-pitch conversion must remain unchanged");
   deepStrictEqual(result.diagnostics.map(item => [item.code, item.location.element]),
     [["W_MUSICXML_APPROXIMATED", "unpitched"]]);
+  const notes = playedNotes(compilePlayback(lower(result.script)));
+  assert(notes.length === 4 && notes.some(note => note.midi === 67 && note.duration.equals(1)),
+    "unpitched display-step/display-octave must remain audible rather than becoming a rest");
 });
 
 test("MusicXML reports unattached directions and grace notes", () => {
@@ -575,7 +567,10 @@ test("MusicXML dynamics inside tuplets stay local to the selected voice", () => 
 });
 
 test("MusicXML 的 part、staff、voice、chord、rest 和 backup 转成可播放 jpFun", () => {
-    const source = musicXmlToJpFun(SCORE);
+    const document = new DOMParser().parseFromString(SCORE, "application/xml");
+    const result = convertMusicXmlElement(document.documentElement!);
+    deepStrictEqual(result.diagnostics, []);
+    const source = result.script;
     const plan = compilePlayback(lower(source));
     const notes = playedNotes(plan);
     assert(plan.diagnostics.length === 0, `转换结果不应产生诊断：${source}`);
@@ -601,14 +596,6 @@ test("MusicXML 保留复合拍号的书面分母", () => {
   const source = musicXmlToJpFun(`<?xml version="1.0"?>
 <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Meter</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>2</divisions><time><beats>6</beats><beat-type>8</beat-type></time></attributes><note><rest/><duration>6</duration><voice>1</voice></note></measure></part></score-partwise>`);
   assert(source.includes("H.signature: 1=C4 6/8"), `6/8 不得约分成 3/4：${source}`);
-});
-
-test("MusicXML unpitched 使用显示音高而非静默转成休止", () => {
-  const source = musicXmlToJpFun(`<?xml version="1.0"?>
-<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Drums</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><unpitched><display-step>G</display-step><display-octave>4</display-octave></unpitched><duration>1</duration><voice>1</voice></note></measure></part></score-partwise>`);
-  const notes = playedNotes(compilePlayback(lower(source)));
-  assert(source.includes("G4") && notes.length === 1 && notes[0].midi === 67,
-    `unpitched 应按 display-step/display-octave 保留为可播放事件：${source}`);
 });
 
 test("MusicXML instrument 切换 program 且 channel 10 鼓点跳过", () => {

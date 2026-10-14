@@ -76,30 +76,26 @@ test("empty text font overrides the function preset and falls back to the catego
     strictEqual(texts('@set(font="", text.font="") @text(Label, font="")')[0].style.fontFamily, DEFAULT_TEXT_FONT);
 });
 
-for (const [name, call, label] of [
-    ["page", '@page(numbering="page 1"', "page 1"],
-] as const) {
-    test(`${name} font precedence and serialization`, () => {
-        for (const [settings, explicit, expected] of [
-            ["", "", "sans-serif"],
-            ['@set(font="")', ', font=""', "sans-serif"],
-            ['@set(font="Global")', "", "Global"],
-            [`@set(font="Global", ${name}.font="Function")`, "", "Function"],
-            [`@set(font="Global", ${name}.font="Function")`, ', font=""', "Global"],
-            [`@set(font="Global", ${name}.font="Function")`, ', font="Explicit"', "Explicit"],
-        ]) {
-            const source = `${settings} ${call}${explicit}) 3`;
-            const compiled = compileScore(source);
-            strictEqual(recordCommands(compiled.layout).filter(command => command.kind === "text")
-                .find(command => command.text === label)?.style.fontFamily, expected);
-            const node = compiled.ast.content.find(node => node instanceof ASTFunctionNode && node.callName === name)!;
-            const serialized = node.toString(source);
-            ok(serialized.includes(`font=${JSON.stringify(expected)}`));
-            strictEqual(texts(`@set(font="Later", ${name}.font="Later") ${serialized} 3`)
-                .find(command => command.text === label)?.style.fontFamily, expected);
-        }
-    });
-}
+test("page font precedence and serialization", () => {
+    for (const [settings, explicit, expected] of [
+        ["", "", "sans-serif"],
+        ['@set(font="")', ', font=""', "sans-serif"],
+        ['@set(font="Global")', "", "Global"],
+        ['@set(font="Global", page.font="Function")', "", "Function"],
+        ['@set(font="Global", page.font="Function")', ', font=""', "Global"],
+        ['@set(font="Global", page.font="Function")', ', font="Explicit"', "Explicit"],
+    ]) {
+        const source = `${settings} @page(numbering="page 1"${explicit}) 3`;
+        const compiled = compileScore(source);
+        strictEqual(recordCommands(compiled.layout).filter(command => command.kind === "text")
+            .find(command => command.text === "page 1")?.style.fontFamily, expected);
+        const node = compiled.ast.content.find(node => node instanceof ASTFunctionNode && node.callName === "page")!;
+        const serialized = node.toString(source);
+        ok(serialized.includes(`font=${JSON.stringify(expected)}`));
+        strictEqual(texts(`@set(font="Later", page.font="Later") ${serialized} 3`)
+            .find(command => command.text === "page 1")?.style.fontFamily, expected);
+    }
+});
 
 test("tempo inherits the context font and serializes without a font argument", () => {
     const source = '@set(font="Outer") @tempo(96, 19px) { @set(font="Inner") @tempo(120) } @tempo(144)';

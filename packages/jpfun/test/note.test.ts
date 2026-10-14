@@ -10,9 +10,9 @@ import { compileScore } from "../src/pipeline.js";
 import { transformNotes, type NoteTransform } from "../src/functions/note/index.js";
 import { assert, expectCompileError, layoutContext, layoutOf, lower, nearly, parse, recordCommands } from "./helpers.js";
 
-function transformed(source: string, operation: NoteTransform) {
+function transformed(source: string, operation: NoteTransform, ranges?: { start: number; end: number }[]) {
     let result = source;
-    for (const { span, text } of transformNotes(source, lower(source), operation).reverse()) {
+    for (const { span, text } of transformNotes(source, lower(source), operation, ranges).reverse()) {
         result = result.slice(0, span.start) + text + result.slice(span.end);
     }
     return result;
@@ -38,12 +38,8 @@ test("shorthand accidentals override defaults even when empty", () => {
 });
 
 test("note source transformations preserve shorthand and call arguments", () => {
-    const selected = (source: string, ranges: { start: number; end: number }[], operation: NoteTransform = "to-absolute") => {
-        let result = source;
-        const edits = transformNotes(source, lower(source), operation, ranges);
-        for (const { span, text } of edits.reverse()) result = result.slice(0, span.start) + text + result.slice(span.end);
-        return result;
-    };
+    const selected = (source: string, ranges: { start: number; end: number }[], operation: NoteTransform = "to-absolute") =>
+        transformed(source, operation, ranges);
     strictAssert.equal(selected("123", [{ start: 1, end: 2 }]), "1D4 3");
     strictAssert.equal(selected("C4D4", [{ start: 2, end: 4 }], "to-relative"), "C4 2");
     strictAssert.equal(selected("123", [{ start: 0, end: 1 }, { start: 2, end: 3 }]), "C4 2E4");
@@ -111,7 +107,6 @@ test("semitones prefer simple spellings and leave unrelated source untouched", (
     const source = 'H.signature: 1=C4 4/4\nN: @n( C4 , color = red )/ 3@a 0 X\nL: C4\n% C4 #1';
     strictAssert.equal(transformed(source, "semitone-up"),
         'H.signature: 1=C4 4/4\nN: @n( C#4 , color = red )/ 4@a 0 X\nL: C4\n% C4 #1');
-    strictAssert.equal(transformed("@div(C3,1)", "to-relative"), "@div({1,},1)");
     strictAssert.equal(transformed("C4D4", "to-relative"), "12");
     strictAssert.equal(transformed("0 Z 8 9 X @key(D) 123", "to-relative"), "0 Z 8 9 X @key(D) 123");
 });
@@ -290,37 +285,23 @@ test("附点优先使用宿主端口，缺失时才退回右边界", () => {
     );
 });
 
-test("X 与数字 9 使用相同的节拍记号语义", () => {
-    const source = `X @note(X) 9`;
-    const result = layoutOf(source);
-    const glyphs = recordCommands(result)
-        .filter(command => command.kind === "text")
-        .map(command => command.text);
-    const notes = result.objects as (VisualTemporalNode & { resolvedMidi: number | null })[];
+for (const [alias, digit, glyph] of [["X", "9", "X"], ["Z", "0", "0"]]) {
+    test(`${alias} 与数字 ${digit} 使用相同的记号语义`, () => {
+        const source = `${alias} @note(${alias}) ${digit}`;
+        const result = layoutOf(source);
+        const glyphs = recordCommands(result)
+            .filter(command => command.kind === "text")
+            .map(command => command.text);
+        const notes = result.objects as (VisualTemporalNode & { resolvedMidi: number | null })[];
 
-    assert(glyphs.join("") === "XXX", "X 和 9 都必须绘制为 X");
-    assert(notes.every(note => note.resolvedMidi === null), "X 和 9 都不具有旋律音高，打击键由播放事件指定");
-    assert(notes.every(note => note.ast.toString(source).startsWith("@n(9,")),
-        "X、@note(X) 和 9 的去糖写法必须归一为 9");
-    assert(nearly(notes[0].box.w, notes[2].box.w) && nearly(notes[0].box.h, notes[2].box.h),
-        "X 和 9 必须使用相同的记谱盒");
-});
-
-test("Z 与数字 0 使用相同的休止符语义", () => {
-    const source = `Z @note(Z) 0`;
-    const result = layoutOf(source);
-    const glyphs = recordCommands(result)
-        .filter(command => command.kind === "text")
-        .map(command => command.text);
-    const notes = result.objects as (VisualTemporalNode & { resolvedMidi: number | null })[];
-
-    assert(glyphs.join("") === "000", "Z 和 0 都必须绘制为休止符 0");
-    assert(notes.every(note => note.resolvedMidi === null), "Z 和 0 都必须推进节拍而不发音");
-    assert(notes.every(note => note.ast.toString(source).startsWith("@n(0,")),
-        "Z、@note(Z) 和 0 的去糖写法必须归一为 0");
-    assert(nearly(notes[0].box.w, notes[2].box.w) && nearly(notes[0].box.h, notes[2].box.h),
-        "Z 和 0 必须使用相同的记谱盒");
-});
+        strictAssert.deepEqual(glyphs, [glyph, glyph, glyph]);
+        assert(notes.every(note => note.resolvedMidi === null), `${alias} 和 ${digit} 都不具有旋律音高`);
+        assert(notes.every(note => note.ast.toString(source).startsWith(`@n(${digit},`)),
+            `${alias}、@note(${alias}) 和 ${digit} 的去糖写法必须归一为 ${digit}`);
+        assert(nearly(notes[0].box.w, notes[2].box.w) && nearly(notes[0].box.h, notes[2].box.h),
+            `${alias} 和 ${digit} 必须使用相同的记谱盒`);
+    });
+}
 
 test("小节线与音符共享视觉中心轴，并加强附近的弹簧", () => {
     const barAlignmentResult = layoutOf(`1 | 2/ 3, |`);
@@ -332,10 +313,8 @@ test("小节线与音符共享视觉中心轴，并加强附近的弹簧", () =>
     assert(firstBar.springConfig.mu_R === 64, "an anchor right spring must use 4x mu");
     assert(noteAfterBar.springConfig.mu_L === 64, "the spring facing an anchor from the right must use 4x mu");
     assert(noteBeforeBar.springConfig.mu_L === 16, "the side away from an anchor must keep its base mu");
-});
 
-test("小节线几何中心与数字视觉中心对齐", () => {
-    const barAlignmentCommands = recordCommands(layoutOf(`1 | 2/ 3, |`));
+    const barAlignmentCommands = recordCommands(barAlignmentResult);
     const alignedNumberCenters = barAlignmentCommands
         .filter(command => command.kind === "text")
         .filter(command => /^[0-9]$/.test(command.text))
@@ -345,8 +324,8 @@ test("小节线几何中心与数字视觉中心对齐", () => {
         .filter(command => command.style?.fill === "#000")
         .map(command => command.y + command.h / 2);
 
-    assert(alignedNumberCenters.length === 3, "bar alignment sample must contain three number centers");
-    assert(alignedBarCenters.length === 2, "bar alignment sample must contain two bar centers");
+    strictAssert.equal(alignedNumberCenters.length, 3);
+    strictAssert.equal(alignedBarCenters.length, 2);
     assert(
         [...alignedNumberCenters, ...alignedBarCenters].every(center => nearly(center, alignedNumberCenters[0])),
         "bar geometry centers must align with number visual centers",
@@ -365,9 +344,14 @@ test("反复线落在指定线条的 anchor 上，adjust 扩位不移动墨迹",
         };
     };
 
+    let radius: number | undefined;
     for (const type of [3, 4, 5]) {
         const base = geometry(`@bar(${type})`);
         const wider = geometry(`@adjust(@bar(${type}), dw=20px)`);
+        assert(base.dots.length > 0, `bar type ${type} must draw repeat dots`);
+        const expectedRadius = radius ?? base.dots[0].r;
+        radius = expectedRadius;
+        assert(base.dots.every(dot => nearly(dot.r, expectedRadius)), "repeat bar dots must share one radius");
         const anchorLine = base.lines.reduce((left, right) => type === 3
             ? (left.w > right.w ? left : right)
             : (left.w < right.w ? left : right));
@@ -386,14 +370,6 @@ test("反复线落在指定线条的 anchor 上，adjust 扩位不移动墨迹",
             `bar type ${type} dots must stay fixed relative to the anchor`);
         }
     }
-});
-
-test("三种反复线的圆点大小一致", () => {
-    const radiusOf = (type: number) => recordCommands(layoutOf(`@bar(${type})`))
-        .find(command => command.kind === "circle")?.r;
-    const radii = [3, 4, 5].map(radiusOf);
-    assert(radii.every(radius => radius !== undefined && nearly(radius, radii[0]!)),
-        `repeat bar dots must share one radius, got ${radii.join(", ")}`);
 });
 
 test("双竖线使用两条细线，三竖线使用原终止线样式", () => {

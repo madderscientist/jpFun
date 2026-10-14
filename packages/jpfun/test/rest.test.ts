@@ -43,26 +43,32 @@ test("default rest shows 1 and needs an explicit onset meter", () => {
 });
 
 test("rest-only columns insert a shared pause before other voices' notes", () => {
-    const result = lower("@meter(4,4)\nN: | @rest(2) |\nN: | 1 2 3 4 |");
-    const restColumn = result.columns.find(column => column.some(node => named(node, "rest")))!;
-    assert(restColumn.every(node => named(node, "rest")), "rest must never merge with notes");
-    const notes = result.columns.flat().filter(node => named(node, "note"));
-    deepStrictEqual(notes.map(node => node.t.toString()), ["8", "9", "10", "11"]);
-    assert(result.duration.equals(12), "shared pause must push subsequent music and the final endpoint");
-    deepStrictEqual(playedNotes(compilePlayback(result)).map(note => note.start.toString()), ["8", "9", "10", "11"]);
-    assert(result.diagnostics.some(diagnostic => diagnostic.code === "W_METER_MISMATCH"),
-        "the last virtual measure includes following notes without a separating bar");
+    for (const [content, hostName] of [["@rest(2)", "rest"], ["@up(@rest(2), @text(X))", "up"]]) {
+        const result = lower(`@meter(4,4)\nN: | ${content} |\nN: | 1 2 3 4 |`);
+        const restColumn = result.columns.find(column => column.some(node => named(node, hostName)))!;
+        strictEqual(restColumn.length, 1, "rest hosts must never merge with other voices' notes");
+        const notes = result.columns.flat().filter(node => named(node, "note"));
+        deepStrictEqual(notes.map(node => node.t.toString()), ["8", "9", "10", "11"]);
+        assert(result.duration.equals(12), "shared pause must push subsequent music and the final endpoint");
+        deepStrictEqual(playedNotes(compilePlayback(result)).map(note => note.start.toString()), ["8", "9", "10", "11"]);
+        assert(result.diagnostics.some(diagnostic => diagnostic.code === "W_METER_MISMATCH"),
+            "the last virtual measure includes following notes without a separating bar");
+    }
+    const chord = lower('@meter(4,4)\nN: | @up(@rest(2),1) |\nN: | 1234 |');
+    deepStrictEqual(chord.columns.flat().filter(node => named(node, "note")).map(node => node.t.toString()), ["8", "9", "10", "11"]);
 });
 
 test("simultaneous rests add their maximum duration once and emit boundaries once", () => {
-    const compiled = compileValid("@meter(4,4)\nN: | @rest(2) |\nN: | @rest(3) |");
-    const column = compiled.lowering.columns.find(column => column.some(node => named(node, "rest")))!;
-    strictEqual(column.length, 2);
-    assert(column.every(node => node.t.equals(0)), "members of one rest column must start together");
-    deepStrictEqual(column.map(node => node.T.toString()), ["8", "12"]);
-    assert(compiled.lowering.duration.equals(12), "durations must not be summed across voices");
-    deepStrictEqual(compiled.lowering.columns.flat().filter(node => node.mergeKey === ANCHOR_KEY && !node.box)
-        .map(node => node.t.toString()), ["4", "8"]);
+    for (const [content, hostName] of [["@rest(2)", "rest"], ["@up(@rest(2), @text(X))", "up"]]) {
+        const compiled = compileValid(`@set(strict=true) @meter(4,4)\nN: | ${content} |\nN: | @rest(3) |`);
+        const column = compiled.lowering.columns.find(column => column.some(node => named(node, hostName)))!;
+        strictEqual(column.length, 2);
+        assert(column.every(node => node.t.equals(0)), "members of one rest column must start together");
+        deepStrictEqual(column.map(node => node.T.toString()), ["8", "12"]);
+        assert(compiled.lowering.duration.equals(12), "durations must not be summed across voices");
+        deepStrictEqual(compiled.lowering.columns.flat().filter(node => node.mergeKey === ANCHOR_KEY && !node.box)
+            .map(node => node.t.toString()), ["4", "8"]);
+    }
 });
 
 test("same-time meter precedes a rest column regardless of voice order", () => {
@@ -101,14 +107,15 @@ test("invisible boundaries preserve strict first and last measure validation", (
     compileValid("@set(strict=true) @meter(4,4) 1 | @rest(2) |");
 });
 
-test("rest silence respects tempo and repeats without duplicate spans", () => {
-    const compiled = compileValid("@tempo(60) @meter(4,4) |: @rest(2) :|");
-    const playback = compilePlayback(compiled.lowering);
-    strictEqual(playedNotes(playback).length, 0);
-    assert(playback.performanceDuration.equals(16), "the whole rest must repeat");
-    assert(nearly(playback.durationSeconds, 16), "tempo must apply to the whole silent interval");
-    deepStrictEqual(compilePlayback(compiled.lowering).events, playback.events);
-});
+for (const content of ["@rest(2)", "@up(@rest(2), @text(X))"]) {
+    test(`${content}: silence respects tempo and repeats without duplicate spans`, () => {
+        const compiled = compileValid(`@tempo(60) @meter(4,4) |: ${content} :|`);
+        const playback = compilePlayback(compiled.lowering);
+        strictEqual(playedNotes(playback).length, 0);
+        assert(playback.performanceDuration.equals(16), "the whole rest must repeat");
+        assert(nearly(playback.durationSeconds, 16), "tempo must apply to the whole silent interval");
+    });
+}
 
 test("rest has fixed minimum graphical width, size-based anchor, thick bar and right clearance", () => {
     for (const size of [16, 32]) {
@@ -206,14 +213,19 @@ test("rest supports ordinary wrappers and fresh repeated lowering", () => {
         assert(nearly(line.x2 - line.x1, reference.x2 - reference.x1),
             "wrapper occupancy must not resize the painted rest");
     }
-    const context = createLowering();
-    const ast = parse("@meter(4,4) | @rest(3) |");
-    const first = context.lowerDocument(ast);
-    const second = context.lowerDocument(ast);
-    strictEqual(first.columns.length, second.columns.length);
-    assert(first.columns[0][0] !== second.columns[0][0] && second.duration.equals(12), "no events may leak across compilations");
-    const plain = context.lowerDocument(parse("1 2"));
-    assert(plain.duration.equals(2) && plain.columns[1][0].t.equals(1), "meter and offsets must reset");
+    for (const [content, hostName] of [["@rest(3)", "rest"], ["@up(@rest(3), @text(X))", "up"]]) {
+        const context = createLowering();
+        const ast = parse(`@meter(4,4) | ${content} |`);
+        const first = context.lowerDocument(ast);
+        const second = context.lowerDocument(ast);
+        strictEqual(first.columns.length, second.columns.length);
+        assert(first.duration.equals(12) && second.duration.equals(12), "rest offsets must not leak across compilations");
+        const firstHost = first.columns.flat().find(node => named(node, hostName));
+        const secondHost = second.columns.flat().find(node => named(node, hostName));
+        assert(firstHost && secondHost && firstHost !== secondHost, "each lowering must create a fresh rest host");
+        const plain = context.lowerDocument(parse("1 2"));
+        assert(plain.duration.equals(2) && plain.columns[1][0].t.equals(1), "meter and offsets must reset");
+    }
 });
 
 test("rest rejects invalid arguments and sustain", () => {
@@ -307,41 +319,6 @@ test("rest representatives retain the earliest same-track member at the executio
             && boundaries[0].ast.parent.toString("") === "@rest(2)",
             "the boundary must belong to the primary rest, not the last callback or private grace");
     }
-});
-
-test("folded and plain rests merge once and still precede other voices' notes", () => {
-    const compiled = compileValid('@set(strict=true) @meter(4,4)\nN: | @up(@rest(2), @text(X)) |\nN: | @rest(3) |');
-    const column = compiled.lowering.columns.find(nodes => nodes.some(node => named(node, "up")))!;
-    strictEqual(column.length, 2);
-    assert(column.every(node => node.t.isZero()), "all rest hosts must stay at the common onset");
-    deepStrictEqual(column.map(node => node.T.toString()), ["8", "12"]);
-    assert(compiled.lowering.duration.equals(12), "folding must not sum simultaneous pauses");
-    deepStrictEqual(compiled.lowering.columns.flat().filter(node => node.mergeKey === ANCHOR_KEY && !node.box)
-        .map(node => node.t.toString()), ["4", "8"]);
-
-    const result = lower('@meter(4,4)\nN: | @up(@rest(2), @text(X)) |\nN: | 1234 |');
-    deepStrictEqual(result.columns.flat().filter(node => named(node, "note")).map(node => node.t.toString()), ["8", "9", "10", "11"]);
-    deepStrictEqual(playedNotes(compilePlayback(result)).map(note => note.start.toString()), ["8", "9", "10", "11"]);
-    const chord = lower('@meter(4,4)\nN: | @up(@rest(2),1) |\nN: | 1234 |');
-    deepStrictEqual(chord.columns.flat().filter(node => named(node, "note")).map(node => node.t.toString()), ["8", "9", "10", "11"]);
-});
-
-test("folded rest repeats and repeated lowering retain independent timing", () => {
-    const source = '@tempo(60) @meter(4,4) |: @up(@rest(2), @text(X)) :|';
-    const compiled = compileValid(source);
-    const playback = compilePlayback(compiled.lowering);
-    strictEqual(playedNotes(playback).length, 0);
-    assert(playback.performanceDuration.equals(16) && nearly(playback.durationSeconds, 16),
-        "the folded silent host must repeat in full at its onset tempo");
-    deepStrictEqual(compilePlayback(compiled.lowering).events, playback.events);
-    const context = createLowering();
-    const ast = parse(source);
-    const first = context.lowerDocument(ast);
-    const second = context.lowerDocument(ast);
-    assert(first.duration.equals(8) && second.duration.equals(8) && first.columns.length === second.columns.length,
-        "folded host mappings and offsets must not leak between compilations");
-    assert(first.columns.flat().find(node => named(node, "up")) !== second.columns.flat().find(node => named(node, "up")),
-        "each lowering must create a fresh composite host");
 });
 
 test("rest combinations retain modifiers and the existing host-driven fold semantics", () => {

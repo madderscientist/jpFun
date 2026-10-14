@@ -86,7 +86,7 @@ const textObjects = (source: string) => {
     return found;
 };
 
-test("head 使用全局弹簧分开左中右三槽", () => {
+test("head 分开左中右三槽，center 不受两侧宽度影响", () => {
     const source = `@head(
         left={@text(L)},
         center={@text(C)},
@@ -100,6 +100,13 @@ test("head 使用全局弹簧分开左中右三槽", () => {
     const centerBox = textObjects(source).get("C")!.box;
     assert(Math.abs(centerBox.x + centerBox.w / 2 - PAGE_CENTER) < SOLVER_TOLERANCE,
         "center slot must align to the page content center");
+    for (const [leftText, rightText] of [["LLLLLLLLLLLLLLLLLLLL", "R"], ["L", "RRRRRRRRRRRRRRRRRRRR"]]) {
+        const box = textObjects(
+            `@head(left={@text(${leftText})}, center={@text(C)}, right={@text(${rightText})}) @br() 1`
+        ).get("C")!.box;
+        assert(nearly(box.x + box.w / 2, centerBox.x + centerBox.w / 2),
+            `wider side slots must not move the center: ${leftText}, ${rightText}`);
+    }
 });
 
 test("head lowering results from the same AST remain independent", () => {
@@ -144,22 +151,6 @@ test("head track measurement state belongs to each lowering result", () => {
     second[1].measure([{ top: 0, bottom: 100 }], 0);
     second[2].measure([{ top: 0, bottom: 50 }], 0);
     deepStrictEqual([first[0].place!(host, left, 0), first[2].place!(host, right, 0)], positions);
-});
-
-test("center 的位置与两侧内容宽度无关", () => {
-    const midOf = (left: string, right: string) => {
-        const box = textObjects(
-            `@head(left={@text(${left})}, center={@text(C)}, right={@text(${right})}) @br() 1`
-        ).get("C")!.box;
-        return box.x + box.w / 2;
-    };
-    const base = midOf("L", "R");
-    assert(nearly(midOf("LLLLLLLLLLLLLLLLLLLL", "R"), base),
-        "a wider left slot must not move the center slot at all");
-    assert(nearly(midOf("L", "RRRRRRRRRRRRRRRRRRRR"), base),
-        "a wider right slot must not move the center slot at all");
-    assert(Math.abs(base - PAGE_CENTER) < SOLVER_TOLERANCE,
-        "the center slot must sit on the page content centre line");
 });
 
 test("侧槽各行贴住纸面左右边缘", () => {
@@ -286,13 +277,6 @@ H.right: {@text(A) @text(B)}`);
         "right items must preserve writing order with the fixed item gap");
 });
 
-test("head 内 attachment 进入全局布局", () => {
-    const commands = recordCommands(layoutOf(`@head(center={@box(@text(测试), padding=0.2em)}) @br() 1`));
-    assert(commands.some(command => command.kind === "rect"), "box inside head must be painted");
-    assert(commands.some(command => command.kind === "text" && command.text === "测试"),
-        "box content inside head must remain visible");
-});
-
 test("head 拒绝正时长内容", () => {
     for (const source of [
         "@head(center={1})",
@@ -373,12 +357,22 @@ H.author: 很长的作者信息
         "author rows must use right text alignment");
 });
 
-test("H 显式内容使用完整全局 attachment 生命周期", () => {
-    const commands = recordCommands(layoutOf(`H.title: @box({@text(A) @text(B)}, width=300px)
-@br()
-1`));
-    const box = commands.find(command => command.kind === "rect");
-    assert(box && nearly(box.w, 300), "fixed-width box inside H.title must run its global horizontal hook");
+test("head 与 H 内容使用完整全局 attachment 生命周期", () => {
+    for (const source of [
+        "@head(center={@box(@text(测试), padding=0.2em)}) @br() 1",
+        "H.title: @box({@text(A) @text(B)}, width=300px)\n@br()\n1",
+    ]) {
+        const commands = recordCommands(layoutOf(source));
+        const box = commands.find(command => command.kind === "rect");
+        assert(box, "box inside head must be painted");
+        if (source.startsWith("H.")) {
+            assert(nearly(box.w, 300), "fixed-width box inside H.title must run its global horizontal hook");
+        }
+        for (const text of source.startsWith("@head") ? ["测试"] : ["A", "B"]) {
+            assert(commands.some(command => command.kind === "text" && command.text === text),
+                `box content inside head must remain visible: ${text}`);
+        }
+    }
 });
 
 // 侧槽在弹簧链上收缩成一个点，但块内的相对布局保留在刚性列的偏移里
