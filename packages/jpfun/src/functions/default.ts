@@ -10,6 +10,7 @@ import { DotNode } from "./dot/index.js";
 import { DynNode } from "./dyn/index.js";
 import { GraceNode } from "./grace/index.js";
 import { GlissNode } from "./gliss/index.js";
+import { SlideNode } from "./slide/index.js";
 import { HeadNode } from "./head/index.js";
 import { KeyNode } from "./key/index.js";
 import { MeterNode } from "./meter/index.js";
@@ -39,7 +40,7 @@ export const defaultFunctions: ASTFunctionClass[] = [
     StackNode,  // 时间同步
     UpNode, DownNode,
     ArpeggioNode,
-    GraceNode,  // 倚音
+    GraceNode, SlideNode,  // 倚音与滑入滑出
     TieNode, BeamNode, GlissNode, DynNode,
     BoxNode, VoltaNode,
     AdjustNode,   // 手工微调
