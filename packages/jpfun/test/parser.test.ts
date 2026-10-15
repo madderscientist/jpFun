@@ -174,6 +174,33 @@ test("嵌套的未闭合调用同时保留可见性和错误", () => {
     assert(boundedResult.diagnostics.some(item => item.code === "E_UNTERMINATED_CALL"), "an incomplete nested call must report its error");
 });
 
+test("语法 token 在跨越被掩码注释时保持严格非重叠且顺序拼接还原源码", () => {
+    const samples = [
+        `1 @gliss(a, b)\n\n% 滑音连接非常自由\n1@a 2 3@b`,
+        `N: 1 2\nL: 啦 啦 % 行尾注释\nN: 3 4`,
+        `@text(第一行 % 参数内注释\n第二行)`,
+        `1 \\ % 续行注释\n2`,
+    ];
+    for (const source of samples) {
+        const { tokens } = analyzeScoreSyntax(source).syntax;
+        let offset = 0;
+        let reconstructed = "";
+        for (const token of tokens) {
+            assert(token.span.start < token.span.end, "token span must not be empty");
+            assert(token.span.start >= offset, `token [${token.span.start}, ${token.span.end}) overlapped previous end ${offset}`);
+            if (token.span.start > offset) {
+                reconstructed += source.slice(offset, token.span.start);
+            }
+            reconstructed += source.slice(token.span.start, token.span.end);
+            offset = token.span.end;
+        }
+        if (offset < source.length) {
+            reconstructed += source.slice(offset);
+        }
+        deepStrictEqual(reconstructed, source, "sequential token slicing must reconstruct the original source without duplication");
+    }
+});
+
 test("命名参数与标签保留无歧义的字面量类型", () => {
     const typedExtras = `@set(fontsize=30) 1@a 2@b @tie(a,b,height=0.5em) @up(1,2)`;
     const typedSyntax = analyzeScoreSyntax(typedExtras).syntax;

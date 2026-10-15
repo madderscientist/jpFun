@@ -1,6 +1,6 @@
 ---
 title: 装饰音&装饰符号
-description: 倚音、琶音、外框，以及 颤音、波音、延长 等记号
+description: 倚音、琶音、滑音、外框，以及 颤音、波音、延长 等记号
 sidebar:
   order: 11
 ---
@@ -57,6 +57,38 @@ export const arpeggioExample = `@arpeggio(1 ^ 3 ^ 5)
 这里的方向按音符在谱面上的上下位置判断。播放时，各音的起音依次错开，但仍在和弦原本的终点一起结束，不会增加和弦的总时值。
 
 理论上琶音非常自由，可以横跨声部、轨道。但是 jpFun 考虑到实用性，限制琶音只能作用于至少包含两个成员的**同轨和弦**（用 `^` 或 `_` 连接），不能用 `&` 连接的多个声部代替。这是因为如果要支持任意声部，就需要用标签的写法，写起来并不方便。
+
+## 滑音
+滑音可以连接两个音，也可以表示单个音的滑入或滑出。**目前只有视觉效果，不产生滑音播放，也不改变原来的音高或时值。**
+
+### 两音之间的滑音
+先用 `@标签` 标记两个端点，再用 `@gliss(标签1, 标签2)` 连接。箭头按音高上行或下行，标签传入顺序不限；两个端点不能同时起音，也不能跨谱面行。
+
+export const glissExample = `\
+1@a 5@b @gliss(a,b)   6@c 2@d @gliss(c,d)\n
+% 滑音连接非常自由
+N: 1@a 2 3 4 5@d
+N: 0 3@b 2 1@c 0
+@gliss(a,b)
+@gliss(a,c)
+@gliss(b,d)
+@gliss(b,c)
+`;
+
+<ScoreExample title="两音之间的滑音" source={glissExample} />
+
+### 滑入与滑出
+用 `@slide` 包住要修饰的内容：
+```jpfun
+@slide(content, side=pre, direction=up)
+```
+
+- `side`：`pre` 在左侧画滑入箭头，`post` 在右侧画滑出箭头。
+- `direction`：`up` 表示音高上行，`down` 表示音高下行。默认是从低处滑入。
+
+<ScoreExample title="上行与下行的滑入、滑出" source="@slide(5)   @slide(5, direction=down)   @slide(5, side=post)   @slide(5, side=post, direction=down)" />
+
+多个音用大括号括起来：`pre` 只修饰内容首端，`post` 只修饰末端，不会给每个音都加箭头。
 
 ## 演奏与装饰符号
 重音、延长记号、波音和颤音等符号，都收纳在符号函数 `@symbol` 中：

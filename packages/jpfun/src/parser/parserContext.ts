@@ -172,10 +172,20 @@ export class ParserContext {
         } return this.syntax;
     }
 
-    // syntax 路径独占这些 span，AST 路径不会读取或改写它们
+    // syntax 路径独占这些 span，AST 路径不会读取或改写它们；跨注释区间按前缀 comment token 切开以保证互不重叠
     private addSyntax(kind: SyntaxTokenKind, span: SourceSpan | undefined) {
-        if (span && span.start < span.end) {
-            this.syntax.tokens.push({ kind, span });
+        if (!span || span.start >= span.end) return;
+        let start = span.start;
+        for (const token of this.syntax.tokens) {
+            if (token.kind !== "comment" || token.span.start >= span.end) break;
+            if (token.span.end <= start) continue;
+            if (start < token.span.start) {
+                this.syntax.tokens.push({ kind, span: { start, end: token.span.start } });
+            }
+            start = token.span.end;
+        }
+        if (start < span.end) {
+            this.syntax.tokens.push({ kind, span: { start, end: span.end } });
         }
     }
 
