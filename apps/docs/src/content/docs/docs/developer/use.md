@@ -241,7 +241,7 @@ const { script, diagnostics } = musicXmlToJpFun(document.documentElement, {
 | `W_MUSICXML_APPROXIMATED` | 无固定音高音符按显示音高转换、后倚音改为前倚音、渐强线按起音端点和固定力度变化近似 |
 | `W_MUSICXML_UNSUPPORTED_ELEMENT` | 和声及记号容器中被舍弃的踏板、连奏线、演奏记号、装饰音记号和力度等 |
 | `W_MUSICXML_UNATTACHED_CONTENT` | 倚音、文字或力度没有可附着目标 |
-| `W_MUSICXML_UNRESOLVED_RELATION` | 连音线、渐强线或房子未配对、被覆盖、未闭合或无法生成端点 |
+| `W_MUSICXML_UNRESOLVED_RELATION` | 连音线、滑音线、渐强线或房子未配对、被覆盖、未闭合或无法生成端点 |
 
 `location.element` 是去掉命名空间前缀的元素名；可取得的位置还包含 `partId`、从 1 开始的声部内小节序号 `measureIndex`、原始字符串编号 `measureNumber`、`staff` 和 `voice`。这些位置属于原始 XML，不是生成源码的偏移；最小 DOM 接口不提供 XML 行列号。诊断按转换阶段的处理顺序输出，多次转换的顺序一致，不保证与 XML 全文顺序相同。
 
@@ -250,6 +250,8 @@ const { script, diagnostics } = musicXmlToJpFun(document.documentElement, {
 文字、力度和楔形线严格匹配所属 part 和 staff；省略 voice 时，力度和楔形线作用于该 staff 的匹配声部，文字只附着一次。目标不存在时报告诊断，不会改写其他 staff 或 voice。连音组标记只有被最终事件的节奏状态保留才算确认，和弦成员上的等价重复声明不会误报。
 
 同一音符的所有 `notations` 容器都会检查。速度和力度标记只有实际进入生成源码才算输出，曲末等未输出的标记会报告无法附着。琶音若在和弦合并及声部拆分后无法表达，例如跨 staff 分组被拆成单音事件，会报告未支持的内容。
+
+双音 `<slide>` 和 `<glissando>` 按 part、元素种类和 number 配对为 `@gliss`，可跨声部；同时刻或跨谱面行的端点报告未解决关系并省略。波浪线或带文字的滑音线近似为直箭头并报告 `W_MUSICXML_APPROXIMATED`。单音 articulations 中的 `scoop/plop/doit/falloff` 分别转换为前上行、前下行、后上行、后下行 `@slide`；曲线外观近似为直箭头。这些记号只影响视觉，不增加滑音播放。
 
 在 Node.js 中可使用任意兼容 DOM 实现，并传入满足 `MusicXmlElement` 接口的根元素。转换器支持 partwise/timewise、part/staff/voice、休止与和弦、倚音、连音、连音组、歌词、速度、调号、拍号、力度、反复与房子，以及基本的分页和谱头信息。
 

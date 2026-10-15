@@ -16,7 +16,7 @@ import {
 } from "./dom.js";
 import {
     MusicXmlReader, acceptTuplets, directionDynamic, directionTexts, endingPasses, metronomeBpm,
-    mergeArpeggio, noteArpeggio, noteLyrics, noteModifiers, parsePitch,
+    mergeArpeggio, noteArpeggio, noteGlissandi, noteLyrics, noteModifiers, parsePitch,
     parseTimeSignature, partMeasures, readInstrument, reportDiagnostic, scoreMetadata, timeModification, transposePitch,
 } from "./features.js";
 import type {
@@ -381,6 +381,7 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
                 const notationElements = children(item, "notations");
                 const notations = notationElements.length ? new MusicXmlReader(notationElements) : undefined;
                 const pitch = parsePitch(item, location, notations);
+                noteGlissandi(notations, pitch, diagnostics);
                 const rest = child(item, "rest") !== undefined;
                 if (!pitch && !rest) {
                     throw new TypeError("MusicXML note must contain pitch, unpitched, or rest");
@@ -443,7 +444,7 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
                 if (duration.compare(0) <= 0) throw new RangeError("MusicXML non-grace notes require a positive duration");
                 let event = chord ? previousEvent : undefined;
                 const lyrics = noteLyrics(item);
-                const modifiers = noteModifiers(notations, diagnostics, location);
+                const { modifiers, slides } = noteModifiers(notations, diagnostics, location);
                 const arpeggio = noteArpeggio(notations, location);
                 const tuplets = notations?.readAll("tuplet");
                 // chord 成员只有起点和时值都一致时才合并到前一事件
@@ -460,6 +461,7 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
                         postGraces: [],
                         lyrics,
                         arpeggio,
+                        slides,
                         timeModification: timeModification(item, tuplets),
                     };
                     pendingGraces.delete(laneKey);
@@ -468,6 +470,11 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
                     lastEvent.set(laneKey, event);
                 } else {
                     event.arpeggio = mergeArpeggio(event.arpeggio, arpeggio);
+                    for (const slide of slides) {
+                        if (!event.slides?.some(item => item.side === slide.side && item.direction === slide.direction)) {
+                            (event.slides ??= []).push(slide);
+                        }
+                    }
                     for (const modifier of modifiers) {
                         if (!event.modifiers.some(item => item.name === modifier.name && item.placement === modifier.placement)) {
                             event.modifiers.push(modifier);
@@ -637,6 +644,9 @@ function eventSource(
         } else reportDiagnostic(diagnostics, "arpeggioOutput", event.arpeggio.location);
     }
 
+    for (const slide of event.slides ?? []) {
+        source = `@slide(${source}, side=${slide.side}, direction=${slide.direction})`;
+    }
     const graceSource = (groups: Pitch[][]) => groups.map(group => group.length === 1
             ? pitchSource(group[0], mode, key, metadata)
             : `{${group.map(pitch => pitchSource(pitch, mode, key, metadata)).join(" ^ ")}}`);
@@ -870,6 +880,14 @@ function labelRelations(score: ParsedScore, diagnostics: MusicXmlDiagnostic[]) {
         metadata.labels.set(target, label);
         return label;
     };
+    const appendRelation = (event: MusicEvent, source: string) => {
+        let after = metadata.afterSources.get(event);
+        if (!after) metadata.afterSources.set(event, after = []);
+        after.push(source);
+    };
+    const activeGlissandi = new Map<string, { pitch: Pitch; event: MusicEvent }>();
+    const glissLineBreaks = [...score.lineBreaks].map(fractionFromKey);
+    const glissandi: { event: MusicEvent; pitch: Pitch }[] = [];
     const active = new Map<string, Pitch>();
     const unmatchedTies = new Set<Pitch>();
     const endingActive = new Map<EndingSpan, Map<string, Pitch>>();
@@ -893,13 +911,12 @@ function labelRelations(score: ParsedScore, diagnostics: MusicXmlDiagnostic[]) {
                 ...event.postGraces.flat(),
             ];
             for (const pitch of orderedPitches) {
+                if (pitch.glissandi?.length) glissandi.push({ event, pitch });
                 const key = `${lane.partId}\0${lane.staff}\0${lane.voice}\0${pitch.step}\0${pitch.alter}\0${pitch.octave}`;
                 const previous = localActive.get(key) ?? (ending ? active.get(key) : undefined);
                 if (pitch.tieStop && previous) {
                     unmatchedTies.delete(previous);
-                    const after = metadata.afterSources.get(event) ?? [];
-                    after.push(`@tie(${labelOf(previous)}, ${labelOf(pitch)})`);
-                    metadata.afterSources.set(event, after);
+                    appendRelation(event, `@tie(${labelOf(previous)}, ${labelOf(pitch)})`);
                 } else if (pitch.tieStop) {
                     reportDiagnostic(diagnostics, "tieStart", pitch.location);
                 }
@@ -912,6 +929,24 @@ function labelRelations(score: ParsedScore, diagnostics: MusicXmlDiagnostic[]) {
         }
     }
     for (const pitch of unmatchedTies) reportDiagnostic(diagnostics, "tieStop", pitch.location);
+    // 复用上面的音高遍历，仅排序滑音端点；无滑音时不额外遍历或排序全谱
+    for (const { event, pitch } of glissandi.sort((a, b) =>
+        a.event.start.compare(b.event.start) || a.event.order - b.event.order)) for (const mark of pitch.glissandi ?? []) {
+        const key = `${pitch.location.partId}\0${mark.kind}\0${mark.number}`;
+        const previous = activeGlissandi.get(key);
+        if (mark.type === "start") {
+            if (previous) reportDiagnostic(diagnostics, "glissReplaced", previous.pitch.location);
+            activeGlissandi.set(key, { pitch, event });
+            continue;
+        }
+        activeGlissandi.delete(key);
+        if (!previous) reportDiagnostic(diagnostics, "glissStart", pitch.location);
+        else if (previous.event.start.equals(event.start) || glissLineBreaks.some(time =>
+            time.compare(previous.event.start) > 0 && time.compare(event.start) <= 0)) {
+            reportDiagnostic(diagnostics, "glissEndpoints", pitch.location);
+        } else appendRelation(event, `@gliss(${labelOf(previous.pitch)}, ${labelOf(pitch)})`);
+    }
+    for (const { pitch } of activeGlissandi.values()) reportDiagnostic(diagnostics, "glissStop", pitch.location);
     const eventLabel = (event: MusicEvent) => labelOf(event.pitches.length === 1 ? event.pitches[0] : event);
     for (const wedge of score.wedges) {
         // 连续楔形区间落到实际起音端点后再输出离散的 dyn 关系
@@ -1009,8 +1044,6 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagno
         return programs;
     });
 
-    // 关系先分配标签，随后 eventSource 才能把标签写进正确音符
-    const { relations, metadata } = labelRelations(score, diagnostics);
     const barTimes = [...score.bars.keys()].map(fractionFromKey)
         .sort((left, right) => left.compare(right));
     const measureBars = [...score.measureBoundaries].map(fractionFromKey)
@@ -1024,6 +1057,8 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagno
             }
         }
     }
+    // 换行确定后分配关系标签，随后 eventSource 写进正确音符
+    const { relations, metadata } = labelRelations(score, diagnostics);
 
     const page = score.page
         ? `@page(width=${score.page.width}px, height=${score.page.height}px, top=${score.page.top}px, bottom=${score.page.bottom}px, left=${score.page.left}px, right=${score.page.right}px)\n`
@@ -1062,7 +1097,7 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagno
             && covered.length > 0 && covered.every(blocks => blocks.length === count
                 && blocks.every((block, index) => {
                     const event = block.event;
-                    return event?.rest && event.pitches.length === 0 && !event.arpeggio
+                    return event?.rest && event.pitches.length === 0 && !event.arpeggio && !event.slides?.length
                         && event.modifiers.length === 0 && event.annotations.length === 0
                         && event.preGraces.length === 0 && event.postGraces.length === 0
                         && event.lyrics.size === 0 && !metadata.afterSources.has(event)

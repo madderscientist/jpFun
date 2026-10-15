@@ -34,6 +34,11 @@ export interface MusicXmlPitch {
     octave: number;
     tieStart: boolean;
     tieStop: boolean;
+    glissandi?: {
+        kind: "slide" | "glissando";
+        number: string;
+        type: "start" | "stop";
+    }[];
 }
 
 /** 一个 lane 上的原子事件，同起止音高已合并为一个和弦事件 */
@@ -49,6 +54,7 @@ export interface MusicXmlEvent {
     postGraces: MusicXmlPitch[][];
     lyrics: Map<string, string>;
     arpeggio?: MusicXmlArpeggio;
+    slides?: { side: "pre" | "post"; direction: "up" | "down" }[];
     program?: number;
     timeModification?: {
         actual: number;

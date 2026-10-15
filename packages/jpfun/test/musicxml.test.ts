@@ -76,6 +76,60 @@ function compileMusicXml(xml: string, options?: Parameters<typeof convertMusicXm
   return { ...compiled, script: imported.script, playback };
 }
 
+function slideScore(notations: string[], middle = "") {
+  return `<score-partwise><part-list><score-part id="P1"><part-name>Flute</part-name></score-part></part-list>
+    <part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes>${
+      notations.map((marks, i) => `${i === 1 ? middle : ""}<note><pitch><step>${i === 1 ? "F" : "B"}</step>
+      <octave>${i === 1 ? 5 : 4}</octave></pitch><duration>1</duration><notations>${marks}</notations></note>`).join("")
+    }</measure></part></score-partwise>`;
+}
+
+test("MusicXML MuseScore slide and four chord-line articulations retain visual marks and playback", () => {
+  const marks = [
+    '<slide line-type="solid" number="1" type="start"/>',
+    '<slide line-type="solid" number="1" type="stop"/>',
+    '<articulations><doit line-shape="straight"/><scoop line-shape="straight"/></articulations>',
+    '<articulations><falloff line-shape="straight"/><plop line-shape="straight"/></articulations>',
+  ];
+  const result = compileMusicXml(slideScore(marks));
+  assert((result.script.match(/@gliss\(/g) ?? []).length === 1, result.script);
+  for (const combination of ["side=pre, direction=up", "side=pre, direction=down",
+    "side=post, direction=up", "side=post, direction=down"]) assert(result.script.includes(combination), result.script);
+  assert(result.layout.attachments.filter(item => item.sourceSpan
+    && /^@(gliss|slide)\(/.test(result.script.slice(item.sourceSpan.start))).length === 5,
+    "one gliss and four slide arrows");
+  const plain = compileMusicXml(slideScore(["", "", "", ""]));
+  const notes = (plan: typeof result.playback) => playedNotes(plan)
+    .map(note => [note.midi, note.start.toString(), note.end.toString()]);
+  deepStrictEqual(notes(result.playback), notes(plain.playback));
+});
+
+test("MusicXML glissando kinds and numbers pair independently and report unsupported shapes", () => {
+  const result = importMusicXml(slideScore([
+    '<slide type="start" number="1"/><glissando type="start" number="1" line-type="wavy"/>',
+    '<slide type="stop" number="1"/><glissando type="stop" number="1"/>',
+  ]));
+  assert((result.script.match(/@gliss\(/g) ?? []).length === 2, result.script);
+  deepStrictEqual(result.diagnostics.map(item => item.code), ["W_MUSICXML_APPROXIMATED"]);
+  compileValid(result.script);
+  for (const marks of [
+    ['<slide type="start"/>', ""],
+    ["", '<slide type="stop"/>'],
+    ['<slide type="start"/>', '<slide type="start"/>'],
+  ]) {
+    const unmatched = importMusicXml(slideScore(marks));
+    assert(unmatched.diagnostics.length > 0 && unmatched.diagnostics.every(item =>
+      item.code === "W_MUSICXML_UNRESOLVED_RELATION"), "unmatched relationships must warn");
+    assert(!unmatched.script.includes("@gliss("), "no dangling labels");
+  }
+  const crossLine = importMusicXml(slideScore(
+    ['<slide type="start"/>', '<slide type="stop"/>'],
+    '</measure><measure number="2"><print new-system="yes"/>'));
+  assert(crossLine.diagnostics.some(item => item.code === "W_MUSICXML_UNRESOLVED_RELATION"), "cross-line warns");
+  assert(!crossLine.script.includes("@gliss("), "unsupported cross-line relation omitted");
+  compileValid(crossLine.script);
+});
+
 test("MusicXML explicit multiple rests retain one symbol, timing, and onset state", () => {
   for (const [count, meter, extra] of [[1, "3", ""], [32, "4", ""], [32, "4", '<print new-system="yes"/>']] as const) {
     const xml = restScore(count, count, extra, meter).replace('<measure number="1">',

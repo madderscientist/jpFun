@@ -39,6 +39,11 @@ const DIAGNOSTICS = {
     endingEndpoints: ["UNRESOLVED_RELATION", "Ending has no event endpoints in its interval and was omitted."],
     tieStart: ["UNRESOLVED_RELATION", "Tie stop has no matching start and was omitted."],
     tieStop: ["UNRESOLVED_RELATION", "Tie start has no matching stop in any ending branch and was omitted."],
+    glissStart: ["UNRESOLVED_RELATION", "Glissando stop has no matching start and was omitted."],
+    glissStop: ["UNRESOLVED_RELATION", "Glissando start has no matching stop and was omitted."],
+    glissReplaced: ["UNRESOLVED_RELATION", "Glissando start was replaced before a matching stop and was omitted."],
+    glissEndpoints: ["UNRESOLVED_RELATION", "Glissando endpoints are simultaneous or cross a score line and were omitted."],
+    glissStyle: ["APPROXIMATED", "MusicXML <{value}> was converted to a straight glissando arrow."],
 } as const;
 
 export function reportDiagnostic(
@@ -215,19 +220,33 @@ export function transposePitch(pitch: MusicXmlPitch, chromatic: number, diatonic
 
 /** 将支持的 fermata articulation 和 ornament 转成 jpFun 修饰符 */
 export function noteModifiers(notations: MusicXmlReader | undefined, diagnostics: MusicXmlDiagnostic[], location: MusicXmlDiagnostic["location"]) {
-    const result: MusicXmlEvent["modifiers"] = [];
-    if (!notations) return result;
+    const modifiers: MusicXmlEvent["modifiers"] = [];
+    const slides: NonNullable<MusicXmlEvent["slides"]> = [];
+    if (!notations) return { modifiers, slides };
     const fermata = notations.read("fermata");
     if (fermata) {
-        result.push({ name: "fermata", placement: placementOf(fermata, fermata.getAttribute("type") === "inverted" ? "below" : "above") });
+        modifiers.push({ name: "fermata", placement: placementOf(fermata, fermata.getAttribute("type") === "inverted" ? "below" : "above") });
         notations.accept(fermata);
     }
     const articulations = notations.read("articulations");
     if (articulations) {
         const accent = notations.read("accent", false, articulations);
         if (accent) {
-            result.push({ name: "accent", placement: placementOf(accent, "above") });
+            modifiers.push({ name: "accent", placement: placementOf(accent, "above") });
             notations.accept(accent);
+        }
+        for (const [tag, side, direction] of [
+            ["scoop", "pre", "up"], ["plop", "pre", "down"],
+            ["doit", "post", "up"], ["falloff", "post", "down"],
+        ] as const) {
+            for (const articulation of children(articulations, tag)) {
+                slides.push({ side, direction });
+                notations.accept(articulation);
+                if (articulation.getAttribute("line-shape") === "curved"
+                    || articulation.getAttribute("line-type") === "wavy") {
+                    reportDiagnostic(diagnostics, "glissStyle", { ...location, element: tag }, tag);
+                }
+            }
         }
         notations.report(diagnostics, location, articulations);
         notations.accept(articulations);
@@ -242,17 +261,34 @@ export function noteModifiers(notations: MusicXmlReader | undefined, diagnostics
         for (const [tag, name] of names) {
             const ornament = notations.read(tag, false, ornaments);
             if (ornament) {
-                result.push({ name, placement: placementOf(ornament, "above") });
+                modifiers.push({ name, placement: placementOf(ornament, "above") });
                 notations.accept(ornament);
             }
         }
         notations.report(diagnostics, location, ornaments);
         notations.accept(ornaments);
     }
-    return result;
+    return { modifiers, slides };
 }
 
-/** 无箭头不覆盖显式方向，两个相反的显式方向不能属于同一和弦。 */
+/** 双音 slide 与 glissando 均是标签关系；与 articulations 下的单音滑音区别处理 */
+export function noteGlissandi(notations: MusicXmlReader | undefined, pitch: MusicXmlPitch | null, diagnostics: MusicXmlDiagnostic[]) {
+    if (!notations || !pitch) return;
+    for (const kind of ["slide", "glissando"] as const) {
+        for (const element of notations.readAll(kind)) {
+            const type = element.getAttribute("type");
+            if (type !== "start" && type !== "stop") continue;
+            (pitch.glissandi ??= []).push({ kind, type, number: element.getAttribute("number") || "1" });
+            notations.accept(element);
+            if (type === "start" && (kind === "glissando" && element.getAttribute("line-type") !== "solid"
+                || element.getAttribute("line-type") === "wavy" || text(element))) {
+                reportDiagnostic(diagnostics, "glissStyle", { ...pitch.location, element: kind }, kind);
+            }
+        }
+    }
+}
+
+/** 无箭头不覆盖显式方向，两个相反的显式方向不能属于同一和弦 */
 export function mergeArpeggio(current?: MusicXmlArpeggio, next?: MusicXmlArpeggio) {
     if (!next || next.direction === "none") return current ?? next;
     if (current && current.direction !== "none" && current.direction !== next.direction) {
@@ -261,7 +297,7 @@ export function mergeArpeggio(current?: MusicXmlArpeggio, next?: MusicXmlArpeggi
     return next;
 }
 
-/** 读取和弦成员上的琶音方向；none 表示无箭头但仍按自下而上演奏。 */
+/** 读取和弦成员上的琶音方向；none 表示无箭头但仍按自下而上演奏 */
 export function noteArpeggio(notations: MusicXmlReader | undefined, location: MusicXmlPitch["location"]): MusicXmlArpeggio | undefined {
     if (!notations) return undefined;
     let result: MusicXmlArpeggio | undefined;
