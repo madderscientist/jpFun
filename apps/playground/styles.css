@@ -565,14 +565,16 @@ button:focus-visible, [tabindex]:focus-visible {
     min-height: 100%;
 }
 .preview-page {
+    box-sizing: content-box;
     position: relative;
     flex: 0 0 auto;
     line-height: 0;
+    border: 1px solid var(--line);
+    background: #ffffff;
+    box-shadow: 0 7px 24px var(--preview-shadow);
 }
 .preview-page > svg, .preview-page > canvas {
     display: block;
-    border: 1px solid var(--line);
-    box-shadow: 0 7px 24px var(--preview-shadow);
     user-select: none;
 }
 .preview-overlay {

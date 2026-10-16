@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { compileScore, paintLayoutPages, RecordingPainter } from "jpfun";
+import { compileScore, layoutPageBounds, paintLayoutPages, RecordingPainter, SvgPainter, renderLayoutPagesToSvg } from "jpfun";
 import { downloadBitmapPages } from "../preview.ts";
 
 function environment(context) {
@@ -88,5 +88,18 @@ test("recorded page replay preserves all routed drawing commands", () => {
         const replayed = new RecordingPainter();
         page.replay(replayed);
         assert.deepEqual(replayed.commands, page.commands);
+    }
+});
+
+test("on-demand SVG page replay matches full rendering including page backgrounds and decorations", () => {
+    const layout = compileScore(source + ' @text(A) 1/ ^ $tr').layout;
+    const bounds = layoutPageBounds(layout);
+    const recordings = bounds.map(() => new RecordingPainter());
+    paintLayoutPages(layout, recordings);
+    const expected = renderLayoutPagesToSvg(layout, { background: "#ffffff" });
+    for (let index = bounds.length - 1; index >= 0; index--) {
+        const painter = new SvgPainter();
+        recordings[index].replay(painter);
+        assert.equal(painter.toSvg(bounds[index], { background: "#ffffff" }), expected[index]);
     }
 });

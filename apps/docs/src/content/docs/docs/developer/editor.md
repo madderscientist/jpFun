@@ -53,7 +53,7 @@ sidebar:
 | 标签跳转定义 | `syntax.tokens` + `ASTLabelNode.target` | `DefinitionProvider` |
 | 标签重命名 | `syntax.tokens` | `RenameProvider` |
 | 诊断 | `compiled.diagnostics` + 抛出的错误 | `DiagnosticCollection` |
-| 谱面预览 | `renderLayoutPagesToSvg` / `renderLayoutPagesToCanvas` | Webview |
+| 谱面预览 | `paintLayoutPages` + `RecordingPainter`，按页重放到 SVG / Canvas | Webview |
 | 源码 / 谱面双向定位 | `object.ast.sourceSpan + box`、`attachment.sourceSpan + regions` | Webview 消息 + `TextEditor.selection` |
 | 分页、缩放与打印 | `layout.pages` + 前端页面组装 | Webview / Webview 打印 |
 | 实际播放 | `compilePlayback(lowering)` + Web Audio 适配器 | Webview |
@@ -327,6 +327,10 @@ SVG 路径直接使用最终坐标，不生成 `<defs>/<use>`，以简化渲染�
 
 `renderLayoutPagesToCanvas` 在内部按页执行 `translate(-bounds.x, -bounds.y)`。前端负责创建数量匹配的 context，并处理画布尺寸、`devicePixelRatio` 和缩放。
 
+playground 使用「全量布局与指令缓存、按需创建绘图表面」：`paintLayoutPages` 一次将全曲绘制指令路由到各页 `RecordingPainter`，保留跨页元素和绘制层级；页面进入视口后，再重放到 `SvgPainter` 或 `CanvasPainter`。这减少 SVG 序列化、DOM 和 Canvas 像素缓冲开销，不减少全曲解析、布局和指令生成。
+
+页面生命周期由 `preview-pages.ts` 统一管理：所有页保留尺寸占位，`IntersectionObserver` 以滚动容器为根、上下各预留 600px 缓冲区，绘制更新合并到一个 animation frame。离屏表面移除，Canvas 同时缩至 1 × 1 释放像素缓冲，指令缓存保留；源码和播放定位可临时绘制目标页，再由观察器接管。打印和图片导出独立处理完整布局，不依赖已挂载的预览页。
+
 VS Code 可使用 Webview 展示预览。`jpfun` 是纯 ESM，不依赖 DOM，因此既可在扩展主进程编译，通过 `postMessage` 将 SVG 字符串发送给 Webview，也可全部放在 Webview 中运行。在扩展主进程编译时，诊断与预览可以复用同一份编译结果。
 
 ## 分页与缩放
@@ -338,7 +342,7 @@ playground 将每个 `layout.pages[i].bounds` 展示为独立纸张，纵向排�
 - 默认适宽模式，按钮以 `适合宽度:53%` 的形式显示实时倍率；容器或页面宽度变化时自动调整，手动选择倍率或使用 `Ctrl+滚轮` 后退出适宽模式，只显示百分比；
 - 普通滚轮滚动页面，`Ctrl+滚轮` 以指针位置为锚点缩放。
 
-多页缩放锚点保存为「具体页面 + 页面内归一化坐标」，避免将页间距计入缩放比例。SVG 只更新已有根元素的 CSS 尺寸；Canvas 按当前缩放和 `devicePixelRatio` 重绘，连续滚轮事件合并到一个 animation frame。
+多页缩放锚点保存为「具体页面 + 页面内归一化坐标」，避免将页间距计入缩放比例。缩放立即更新所有占位尺寸并恢复锚点；SVG 只更新已挂载根元素的 CSS 尺寸，Canvas 通过同一帧调度按最终缩放和 `devicePixelRatio` 重绘视口附近页。
 
 发生致命错误时，当前编译结果被清空，之后缩放不会重新显示上一次成功的谱面。
 

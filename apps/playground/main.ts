@@ -197,6 +197,7 @@ const workspace = createWorkspaceController(editor, {
     },
 });
 preview = createPreviewController({
+    onError: showError,
     onNavigateSource(range, select) {
         if (workspace.getSourceTab() !== "source") return;
         revealSourcePosition(editor, range, select);
