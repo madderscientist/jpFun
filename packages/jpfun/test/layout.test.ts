@@ -42,6 +42,46 @@ test("extent overloads return a scalar for one track and a map for all tracks", 
     layoutDocument(lowered, layoutContext);
 });
 
+test("horizontal extent queries filter hosts and attachments by actual x overlap", () => {
+    const lowered = lower("1 2' 3");
+    const [first, second] = lowered.columns.map(column => column[0]);
+    assert(isVisualTemporalNode(first) && isVisualTemporalNode(second), "expected two visual hosts");
+    const marker: LayoutAttachment = {
+        layer: "foreground",
+        createGeometry(context) {
+            const x = (first.box.x + first.box.w + second.box.x) / 2;
+            return {
+                regions: [{
+                    x, y: context.getVisualAxis(0, first.track) - 80,
+                    w: 1, h: 5, line: 0, track: first.track,
+                }],
+                paint() {},
+            };
+        },
+    };
+    const probe: LayoutAttachment = {
+        layer: "foreground",
+        createGeometry(context) {
+            const bounds = context.getAttachmentBox(marker);
+            deepStrictEqual(context.getHorizontalExtents(0, bounds.x, bounds.x + bounds.w).get(first.track),
+                { top: -80, bottom: -75 });
+            deepStrictEqual(context.getHorizontalExtents(0, second.box.x, second.box.x + second.box.w),
+                context.getRangeExtents(0, [1, 1]));
+            for (const [line, left, right, reason] of [
+                [0, bounds.x - 1, bounds.x, "touching edges"],
+                [0, second.box.x, second.box.x, "zero width"],
+                [0, second.box.x + 1, second.box.x, "reversed interval"],
+                [10, 0, 100, "missing line"],
+            ] as const) {
+                assert(context.getHorizontalExtents(line, left, right).size === 0, reason);
+            }
+            return { regions: [], paint() {} };
+        },
+    };
+    lowered.attachments.push(marker, probe);
+    layoutDocument(lowered, layoutContext);
+});
+
 test("document range queries represent folded content by its document composite", () => {
     const lowered = lower("@stack({@grace(1,{2 3}) 4}, {@grace(5,{6 7}) 1})");
     const graces = lowered.columns.flat().filter(node => node instanceof GraceTemporal);

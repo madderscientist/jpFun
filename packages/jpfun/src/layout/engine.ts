@@ -71,7 +71,7 @@ interface LayoutLine extends LineExtents {
     columns: VisualTemporalNode[][];
 }
 
-type BaseAttachmentContext = Omit<AttachmentLayoutContext, "getAttachmentBox" | "getAttachmentOccupancy" | "getRangeExtents" | "getContentBounds">;
+type BaseAttachmentContext = Omit<AttachmentLayoutContext, "getAttachmentBox" | "getAttachmentOccupancy" | "getRangeExtents" | "getHorizontalExtents" | "getContentBounds">;
 
 interface AttachmentItem {
     geometry: AttachmentGeometry;
@@ -756,27 +756,29 @@ function measureAttachmentPass(
         return item;
     }
 
-    function getRangeExtents(line: number, columns?: LayoutRange): ReadonlyMap<Track, Readonly<Extent>>;
-    function getRangeExtents(line: number, columns: LayoutRange | undefined, track: Track): Readonly<Extent> | undefined;
-    function getRangeExtents(line: number, columns?: LayoutRange, track?: Track): ReadonlyMap<Track, Readonly<Extent>> | Readonly<Extent> | undefined {
+    function getExtents(line: number, range?: LayoutRange | { left: number; right: number }): ReadonlyMap<Track, Readonly<Extent>>;
+    function getExtents(line: number, range: LayoutRange | undefined, track: Track): Readonly<Extent> | undefined;
+    function getExtents(line: number, range?: LayoutRange | { left: number; right: number }, track?: Track): ReadonlyMap<Track, Readonly<Extent>> | Readonly<Extent> | undefined {
         const view = baseContext.lines[line];
         const extents = track === undefined ? new Map<Track, Extent>() : undefined;
         let extent: Extent | undefined;
-        if (!view) return extents;
+        const horizontal = range && "left" in range ? range : undefined;
+        if (!view || (horizontal && horizontal.left >= horizontal.right)) return extents;
         const include = (owner: Track, top: number, bottom: number) => {
             if (extents) includeTrackExtent(extents, owner, top, bottom);
             else if (extent) includeExtent(extent, top, bottom);
             else extent = { top, bottom };
         };
         // 主体和附件共用范围筛选，仅累加结果的容器随查询模式变化。
-        const { start, end, wholeLine } = resolveRange(view, columns, track, lift);
+        const { start, end, wholeLine } = resolveRange(view, range && !("left" in range) ? range : undefined, track, lift);
         const target = track && lift(track);
 
-        let left = wholeLine ? baseContext.originX : Infinity;
-        let right = wholeLine ? baseContext.originX + baseContext.width : -Infinity;
+        let left = horizontal?.left ?? (wholeLine ? baseContext.originX : Infinity);
+        let right = horizontal?.right ?? (wholeLine ? baseContext.originX + baseContext.width : -Infinity);
         for (let column = start; column <= end; column++) {
             for (const host of view.columns[column]) {
                 if (target && host.track !== target) continue;
+                if (horizontal && (host.box.x + host.box.w <= left || host.box.x >= right)) continue;
                 if (!wholeLine) {
                     if (host.box.x < left) left = host.box.x;
                     if (host.box.x + host.box.w > right) right = host.box.x + host.box.w;
@@ -798,7 +800,8 @@ function measureAttachmentPass(
 
     const context: AttachmentLayoutContext = {
         ...baseContext,
-        getRangeExtents,
+        getRangeExtents: getExtents,
+        getHorizontalExtents: (line, left, right) => getExtents(line, { left, right }),
         getAttachmentOccupancy(dependency) {
             const geometry = resolveAttachment(dependency)?.geometry;
             return geometry && (geometry.occupancy ?? geometry.regions);

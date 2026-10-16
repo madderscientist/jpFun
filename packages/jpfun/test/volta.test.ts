@@ -1,8 +1,10 @@
 import { test } from "node:test";
 
+import { getLayoutBounds, layoutDocument } from "../src/layout/engine.js";
+import { isLayoutAttachment, type LayoutAttachment } from "../src/layout/types.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import { secondsToScoreTime, scoreTimeToSeconds } from "../src/playback/time.js";
-import { assert, attachmentCommands, expectSnapshot, layoutOf, lower, nearly, playedNotes } from "./helpers.js";
+import { assert, attachmentCommands, expectSnapshot, layoutContext, layoutOf, lower, nearly, playedNotes } from "./helpers.js";
 /** 用相对 C4 的半音数（C4 记作 1）表示演奏序列，断言失败时比 MIDI 号好读 */
 function played(source: string) {
     return playedNotes(compilePlayback(lower(source)))
@@ -336,6 +338,57 @@ test("括线高度只看房子覆盖的列", () => {
 
     const inside = clearance(`|: 1 2@a ^ @tempo(120) 3@b :| 4 5 || @volta(a, b, 1)`);
     assert(inside > plain + 1, `区间内的高标记应把括线顶上去，${inside} vs ${plain}`);
+});
+
+test("房子中间只为横线留白，两端分别避让折钩和编号", () => {
+    const size = 24;
+    const gap = size * 0.2;
+    const halfStroke = size * 0.055 / 2;
+    const inspect = (notes: string, passes = "1") => {
+        const layout = layoutOf(`${notes} @volta(a,b,${passes}) @br() 6`, size);
+        const house = layout.attachments[0];
+        const lines = attachmentCommands(house).filter(command => command.kind === "line");
+        return { layout, top: lines[0], hook: lines[1].y2 - lines[1].y1 };
+    };
+    const middle = inspect("1@a 2 3'''' 4 5@b");
+    assert(nearly(getLayoutBounds(middle.layout.objects[2]).y - middle.top.y1, gap + halfStroke),
+        "a tall interior note must clear only the horizontal stroke plus the gap");
+    const without = layoutOf("1@a 2 3'''' 4 5@b @br() 6", size);
+    assert(nearly(middle.layout.objects.at(-1)!.box.y - without.objects.at(-1)!.box.y, gap + 2 * halfStroke),
+        "line spacing must reserve only the actual added height, not the hook height");
+
+    for (const [notes, index] of [["1''''@a 2 3 4 5@b", 0], ["1@a 2 3 4 5''''@b", 4]] as const) {
+        const ending = inspect(notes);
+        const host = ending.layout.objects[index];
+        assert(getLayoutBounds(host).y - ending.top.y1 >= ending.hook + gap + halfStroke - 1e-6,
+            "a tall endpoint must clear the full vertical hook");
+    }
+    const label = inspect("1@a 2 3'''' 4 5@b", "1,2,3,4,5,6,7,8,9");
+    assert(getLayoutBounds(label.layout.objects[2]).y - label.top.y1 > gap + halfStroke + 1,
+        "a long pass label must avoid tall notes underneath its actual width");
+});
+
+test("房子按三部分申报占用，跨行中间段不预留折钩", () => {
+    const lowered = lower("1@a 2 3 @br() 4 5 @br() 6 7@b @volta(a,b,1)");
+    const house = lowered.attachments.find(isLayoutAttachment)!;
+    const probe: LayoutAttachment = {
+        layer: "foreground",
+        createGeometry(context) {
+            const occupancy = context.getAttachmentOccupancy(house)!;
+            assert(occupancy.length === 5, "first/last lines need two parts each; the middle line needs one");
+            const middle = occupancy.filter(region => region.line === 1);
+            assert(middle.length === 1 && nearly(middle[0].h, 22 * 0.055),
+                "a continuation line must reserve only its horizontal stroke");
+            for (const line of [0, 2]) {
+                const [stroke, end] = occupancy.filter(region => region.line === line);
+                assert(end.w < stroke.w && end.h > stroke.h,
+                    `only the endpoint part may reserve its full height on line ${line}`);
+            }
+            return { regions: [], paint() {} };
+        },
+    };
+    lowered.attachments.push(probe);
+    layoutDocument(lowered, layoutContext);
 });
 
 test("房子画出上方括线、两端下折和遍数标签", () => {

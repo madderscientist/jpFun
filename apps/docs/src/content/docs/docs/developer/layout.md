@@ -256,6 +256,7 @@ host.decorations.push({
 | `getRangeColumns(line, range?, track?)` | 所选主体列，用于字号等统计；范围为空时返回空数组，按轨过滤时保留空列 |
 | `getRangeExtents(line, range?)` | 主体与已登记附件占用，返回按 Track 分组的只读 Map；无占用时为空 Map |
 | `getRangeExtents(line, range, track)` | 指定轨道的只读 `Extent`；无占用时为 `undefined`，不创建结果 Map |
+| `getHorizontalExtents(line, left, right)` | 按全局 x 区间筛选横向相交的主体及已登记附件占用，返回按 Track 分组的只读 Map；空区间或无占用时为空 Map |
 | `getAttachmentBox(attachment)` | 指定已测附件的完整几何边界；尚未测量时抛错 |
 | `getAttachmentOccupancy(attachment)` | 指定已测附件的有效占用，即 `occupancy ?? regions`；保留显式空数组，尚未测量时为 `undefined` |
 | `getContentBounds(content)` | 显式内容清单中主体内容边界与已测附件的几何并集，不含主体纯留白；没有有效几何时为 `undefined` |
@@ -273,6 +274,8 @@ host.decorations.push({
 单轨整行查询使用 `getRangeExtents(line, undefined, track)`。`getHostExtent` 是主体准备后保存的轴局部基准；`getRangeExtents` 从本轮主体位置换算高度，并包含可见附件占用。在 `layoutOnly` 阶段使用未平移的布局位置，最终绘制测量则使用实际位置。两者的数据范围与坐标基准不同，不能互换。跨轨比较时，先通过 `getVisualAxis(line, track)` 将各轨的 `top/bottom` 转成同一坐标系。
 
 tuplet、volta 和 dyn 根据范围内最高点或最低点避让；tie 端点依附于宿主端口或内容上沿，歌词按宿主端口水平对齐，并避让 voice 内容作用域内的框底。它们不会因为任意范围中存在其他对象，就自动改成全局避让布局。系统提供测量事实，各函数决定使用哪一种结果及留白规则。
+
+volta 每行按开头折钩与编号、整段横线、末尾折钩三部分查询横向相交的占用，取能同时满足三者的最高位置。横线下方保留 `0.2em` 间隙，中间内容不必额外避开两端折钩的高度。跨行只有真正的首尾保留折钩，编号只在首行出现。`regions` 保留每行的外接矩形，`occupancy` 则按实际存在的部分分别申报；测量阶段即使用此轮廓，行距同步收紧。横向查询与范围查询使用相同的域、测量顺序和轴局部坐标规则，但直接按 x 相交筛选主体，不限制为端点之间的列；仅接触区间边缘不算相交。
 
 dyn 的插值与绘制使用同一闭区间，楔形线从起点完整宿主盒的左边界画到终点完整宿主盒的右边界；折叠成员参与播放，但布局只读取其可见宿主，端点里的 `$p`、`$f` 也计入主体占用。
 

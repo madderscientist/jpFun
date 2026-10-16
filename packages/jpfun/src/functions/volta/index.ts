@@ -185,7 +185,11 @@ class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
         const halfStroke = strokeWidth / 2;
         const hook = metrics.h * 1.2;
         // 标签在下折钩的高度里垂直居中
-        const textY = (hook - metrics.h) / 2 + metrics.baseline;
+        const textX = size * 0.15;
+        const textY = (hook - metrics.h) / 2 + metrics.baseline + 2;
+        const startWidth = Math.max(strokeWidth, halfStroke + textX + metrics.w);
+        const startBottom = Math.max(hook + halfStroke, textY - metrics.baseline + metrics.h);
+        const gap = size * 0.2;
 
         // 中间行可能没有本房子的可见对象，仍要补满，所以按行号连续遍历
         const draws = Array.from({ length: lastLine - firstLine + 1 }, (_, offset) => {
@@ -215,18 +219,34 @@ class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
                     : tail.box.x + (tail.ports["body.right"]?.x ?? tail.box.w);
             const left = Math.min(rawLeft, rawRight);
             const right = Math.max(rawLeft, rawRight);
-            return { left, right, lineY: hostTop - size * 0.2 - hook, line, track: topTrack };
+            const part = (x: number, w: number, bottom: number) => ({
+                x, y: -halfStroke, w, h: bottom + halfStroke, line, track: topTrack,
+            });
+            const parts = [part(left - halfStroke, right - left + strokeWidth, halfStroke)];
+            if (line === firstLine) {
+                parts.push(part(left - halfStroke, startWidth, startBottom));
+            }
+            if (line === lastLine) {
+                parts.push(part(right - halfStroke, strokeWidth, hook + halfStroke));
+            }
+            let lineY = Infinity;
+            for (const part of parts) {
+                for (const [track, extent] of context.getHorizontalExtents(line, part.x, part.x + part.w)) {
+                    lineY = Math.min(lineY, context.getVisualAxis(line, track) + extent.top - gap - (part.y + part.h));
+                }
+            }
+            if (lineY === Infinity) lineY = hostTop - gap - halfStroke;
+            for (const part of parts) part.y += lineY;
+            return { left, right, lineY, line, parts };
         });
 
         return {
-            regions: draws.map(({ left, right, lineY, line, track }) => ({
-                x: left - halfStroke,
-                y: lineY - halfStroke,
-                w: right - left + strokeWidth,
-                h: hook + strokeWidth,
-                line,
-                track,
+            regions: draws.map(({ parts }) => ({
+                ...parts[0],
+                w: Math.max(...parts.map(part => part.x + part.w)) - parts[0].x,
+                h: Math.max(...parts.map(part => part.h)),
             })),
+            occupancy: draws.flatMap(draw => draw.parts),
             paint(painter: Painter) {
                 const lineStyle = { stroke: "#000", strokeWidth };
                 for (const { left, right, lineY, line } of draws) {
@@ -234,7 +254,7 @@ class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
                     // 只有房子真正开始和结束的那一端才下折
                     if (line === firstLine) {
                         painter.drawLine(left, lineY, left, lineY + hook, lineStyle);
-                        painter.drawText(text, left + size * 0.15, lineY + textY + 2, style);
+                        painter.drawText(text, left + textX, lineY + textY, style);
                     }
                     if (line === lastLine) painter.drawLine(right, lineY, right, lineY + hook, lineStyle);
                 }

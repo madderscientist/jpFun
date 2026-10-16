@@ -135,6 +135,8 @@ export interface AttachmentLayoutContext extends LayoutPrepareContext {
         columns: LayoutRange | undefined,
         track: Track,
     ): Readonly<Extent> | undefined;
+    /** 按全局 x 区间筛选横向相交的主体及已测附件，返回各轨轴局部占用；空区间返回空 Map */
+    getHorizontalExtents(line: number, left: number, right: number): ReadonlyMap<Track, Readonly<Extent>>;
     /** 读取本轮已完成的 attachment 边界；分组在 endLoweringGroup 才注册，因而组内对象必然排在分组之前 */
     getAttachmentBox(attachment: LayoutAttachment): Readonly<Rect>;
     /** 读取已测附件的有效占用，保留显式空数组；尚未测量时返回 undefined */
