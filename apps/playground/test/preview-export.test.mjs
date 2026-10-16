@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { compileScore, layoutPageBounds, paintLayoutPages, RecordingPainter, SvgPainter, renderLayoutPagesToSvg } from "jpfun";
-import { downloadBitmapPages } from "../preview.ts";
+import { compileScore, renderLayoutPagesToSvg } from "jpfun";
+import { downloadBitmapPages, recordLayoutPages, recordedPageToSvg } from "../preview.ts";
 
 function environment(context) {
     const pending = [];
@@ -44,7 +44,9 @@ test("bitmap export downloads each completed page before encoding the next", asy
         const paint = node.paint.bind(node);
         node.paint = painter => { paints++; paint(painter); };
     }
-    const operation = downloadBitmapPages(layout, "png", 192);
+    const pages = recordLayoutPages(layout);
+    const commands = pages.map(page => structuredClone(page.recording.commands));
+    const operation = downloadBitmapPages(pages, "png", 192);
     assert.equal(paints, layout.objects.length);
     assert.equal(canvases.length, 1);
     assert.equal(pending.length, 1);
@@ -62,6 +64,7 @@ test("bitmap export downloads each completed page before encoding the next", asy
     assert.equal(canvases[0].width, 1);
     assert.equal(canvases[0].height, 1);
     assert.equal(paints, layout.objects.length);
+    assert.deepEqual(pages.map(page => page.recording.commands), commands);
     assert.ok(!events.some(event => event[0] === "fillRect"));
     assert.deepEqual(events.filter(event => event[0] === "translate"), layout.pages.map(page => ["translate", -page.bounds.x, -page.bounds.y]));
     assert.ok(events.filter(event => event[0] === "encode").every(event => event[1] === 400 && event[2] === 200 && event[3] === "image/png"));
@@ -69,7 +72,9 @@ test("bitmap export downloads each completed page before encoding the next", asy
 
 test("JPEG encoding failure releases the canvas and stops later pages", async context => {
     const { pending, events, canvases } = environment(context);
-    const operation = downloadBitmapPages(compileScore(source).layout, "jpeg", 96);
+    const pages = recordLayoutPages(compileScore(source).layout);
+    const commands = pages.map(page => structuredClone(page.recording.commands));
+    const operation = downloadBitmapPages(pages, "jpeg", 96);
     assert.ok(events.some(event => event[0] === "fillRect"));
     assert.deepEqual(events.find(event => event[0] === "encode").slice(3), ["image/jpeg", 0.95]);
     pending.shift()(null);
@@ -78,28 +83,21 @@ test("JPEG encoding failure releases the canvas and stops later pages", async co
     assert.ok(!events.some(event => event[0] === "download"));
     assert.equal(canvases[0].width, 1);
     assert.equal(canvases[0].height, 1);
+    assert.deepEqual(pages.map(page => page.recording.commands), commands);
 });
 
-test("recorded page replay preserves all routed drawing commands", () => {
+test("SVG export and print reuse the preview instructions without repainting the layout", () => {
     const layout = compileScore(source + ' @text(A) 1/ ^ $tr').layout;
-    const pages = layout.pages.map(() => new RecordingPainter());
-    paintLayoutPages(layout, pages);
-    for (const page of pages) {
-        const replayed = new RecordingPainter();
-        page.replay(replayed);
-        assert.deepEqual(replayed.commands, page.commands);
+    const transparent = renderLayoutPagesToSvg(layout);
+    const white = renderLayoutPagesToSvg(layout, { background: "#ffffff" });
+    const pages = recordLayoutPages(layout);
+    for (const node of layout.objects) {
+        node.paint = () => { throw new Error("Layout must not be painted again"); };
     }
-});
-
-test("on-demand SVG page replay matches full rendering including page backgrounds and decorations", () => {
-    const layout = compileScore(source + ' @text(A) 1/ ^ $tr').layout;
-    const bounds = layoutPageBounds(layout);
-    const recordings = bounds.map(() => new RecordingPainter());
-    paintLayoutPages(layout, recordings);
-    const expected = renderLayoutPagesToSvg(layout, { background: "#ffffff" });
-    for (let index = bounds.length - 1; index >= 0; index--) {
-        const painter = new SvgPainter();
-        recordings[index].replay(painter);
-        assert.equal(painter.toSvg(bounds[index], { background: "#ffffff" }), expected[index]);
+    for (const attachment of layout.attachments) {
+        attachment.paint = () => { throw new Error("Attachment must not be painted again"); };
     }
+    assert.deepEqual(pages.map(page => recordedPageToSvg(page)), transparent);
+    assert.deepEqual(pages.map(page => recordedPageToSvg(page, "#ffffff")), white);
+    assert.deepEqual(pages.map(page => recordedPageToSvg(page)), transparent);
 });

@@ -4,7 +4,6 @@ import {
     SvgPainter,
     layoutPageBounds,
     paintLayoutPages,
-    renderLayoutPagesToSvg,
     type CompileScoreResult,
     type Rect,
 } from "jpfun";
@@ -70,26 +69,48 @@ function canvasBlob(canvas: HTMLCanvasElement, format: "png" | "jpeg"): Promise<
     });
 }
 
-export async function downloadBitmapPages(layout: CompileScoreResult["layout"], format: "png" | "jpeg", ppi: number) {
-    const pages = layoutPageBounds(layout);
-    const recordings = pages.map(() => new RecordingPainter());
-    paintLayoutPages(layout, recordings);
+interface RecordedPage {
+    readonly bounds: Rect;
+    readonly recording: RecordingPainter;
+}
+
+export function recordLayoutPages(layout: CompileScoreResult["layout"]): RecordedPage[] {
+    const pages = layoutPageBounds(layout).map(bounds => ({ bounds, recording: new RecordingPainter() }));
+    paintLayoutPages(layout, pages.map(page => page.recording));
+    return pages;
+}
+
+export function recordedPageToSvg(page: RecordedPage, background?: string): string {
+    const painter = new SvgPainter();
+    page.recording.replay(painter);
+    return painter.toSvg(page.bounds, { background });
+}
+
+function drawRecordedPage(
+    canvas: HTMLCanvasElement,
+    { bounds, recording }: RecordedPage,
+    scale: number,
+    background?: string,
+) {
+    canvas.width = Math.max(1, Math.ceil(bounds.w * scale));
+    canvas.height = Math.max(1, Math.ceil(bounds.h * scale));
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas 2D context is unavailable");
+    if (background) {
+        context.fillStyle = background;
+        context.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    context.scale(scale, scale);
+    context.translate(-bounds.x, -bounds.y);
+    recording.replay(new CanvasPainter(context));
+}
+
+export async function downloadBitmapPages(pages: readonly RecordedPage[], format: "png" | "jpeg", ppi: number) {
     const scale = ppi / CSS_PIXELS_PER_INCH;
     const canvas = document.createElement("canvas");
     for (const [index, page] of pages.entries()) {
         try {
-            canvas.width = Math.max(1, Math.ceil(page.w * scale));
-            canvas.height = Math.max(1, Math.ceil(page.h * scale));
-            const context = canvas.getContext("2d");
-            if (!context) throw new Error("Canvas 2D context is unavailable");
-            if (format === "jpeg") {
-                context.fillStyle = "#ffffff";
-                context.fillRect(0, 0, canvas.width, canvas.height);
-            }
-            context.scale(scale, scale);
-            context.translate(-page.x, -page.y);
-            recordings[index].replay(new CanvasPainter(context));
-            recordings[index].commands.length = 0;
+            drawRecordedPage(canvas, page, scale, format === "jpeg" ? "#ffffff" : undefined);
             const blob = await canvasBlob(canvas, format);
             savePage(blob, format, index, pages.length);
         } finally {
@@ -118,7 +139,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
     let pendingSourceClickTimer: number | undefined;
     let playbackScoreTime: number | null = null;
     let playbackRegionKey = "";
-    let recordings: RecordingPainter[] = [];
+    let recordedPages: RecordedPage[] = [];
     const virtualPages = createVirtualPages(host, scroll, {
         renderPage,
         onError: options.onError,
@@ -126,35 +147,19 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
 
     document.head.append(printStyle);
 
-    function createSvgPages(compiled: CompileScoreResult) {
+    function createSvgPage(page: RecordedPage) {
         const container = document.createElement("div");
-        container.innerHTML = renderLayoutPagesToSvg(compiled.layout, { background: "#ffffff" }).join("");
-        return [...container.querySelectorAll<SVGSVGElement>(":scope > svg")];
+        container.innerHTML = recordedPageToSvg(page, "#ffffff");
+        const svg = container.querySelector("svg");
+        if (!svg) throw new Error("无法生成 SVG 页面");
+        return svg;
     }
 
     function renderPage(index: number): SVGSVGElement | HTMLCanvasElement {
-        const page = pageBounds[index];
-        const recording = recordings[index];
-        if (activeBackend === "svg") {
-            const painter = new SvgPainter();
-            recording.replay(painter);
-            const container = document.createElement("div");
-            container.innerHTML = painter.toSvg(page, { background: "#ffffff" });
-            const svg = container.querySelector("svg");
-            if (!svg) throw new Error("无法生成 SVG 页面");
-            return svg;
-        }
-        const ratio = window.devicePixelRatio || 1;
+        const page = recordedPages[index];
+        if (activeBackend === "svg") return createSvgPage(page);
         const canvas = document.createElement("canvas");
-        canvas.width = Math.max(1, Math.ceil(page.w * ratio * zoom));
-        canvas.height = Math.max(1, Math.ceil(page.h * ratio * zoom));
-        const context = canvas.getContext("2d");
-        if (!context) throw new Error("Canvas 2D context is unavailable");
-        context.scale(ratio * zoom, ratio * zoom);
-        context.fillStyle = "#ffffff";
-        context.fillRect(0, 0, page.w, page.h);
-        context.translate(-page.x, -page.y);
-        recording.replay(new CanvasPainter(context));
+        drawRecordedPage(canvas, page, (window.devicePixelRatio || 1) * zoom, "#ffffff");
         return canvas;
     }
 
@@ -378,7 +383,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         document.body.classList.add("print-ready");
         if (!result) return;
         const [paper] = pageBounds;
-        printHost.replaceChildren(...createSvgPages(result));
+        printHost.replaceChildren(...recordedPages.map(createSvgPage));
         printStyle.textContent = `@media print { @page { size: ${paper.w}px ${paper.h}px; margin: 0; } }`;
     }
 
@@ -391,19 +396,18 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
     async function download(format: ImageExportFormat, ppi: number) {
         if (!result) throw new Error("当前没有可导出的谱面");
         if (format === "svg") {
-            const files = renderLayoutPagesToSvg(result.layout);
-            for (const [index, svg] of files.entries()) {
+            for (const [index, page] of recordedPages.entries()) {
                 savePage(
-                    new Blob([svg], { type: "image/svg+xml;charset=utf-8" }),
+                    new Blob([recordedPageToSvg(page)], { type: "image/svg+xml;charset=utf-8" }),
                     format,
                     index,
-                    files.length,
+                    recordedPages.length,
                 );
             }
             return;
         }
 
-        await downloadBitmapPages(result.layout, format, ppi);
+        await downloadBitmapPages(recordedPages, format, ppi);
     }
 
     const closeZoomMenu = createDropdown(zoomButton, zoomMenu);
@@ -508,11 +512,9 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         render(compiled) {
             clearPendingSourceClick();
             result = compiled;
-            pageBounds = layoutPageBounds(compiled.layout);
+            recordedPages = recordLayoutPages(compiled.layout);
+            pageBounds = recordedPages.map(page => page.bounds);
             navigation = createPreviewNavigationMap(compiled);
-            // 只路由一次绘制指令；SVG 序列化、DOM 创建和 Canvas 绘制留到页面进入视口
-            recordings = pageBounds.map(() => new RecordingPainter());
-            paintLayoutPages(compiled.layout, recordings);
             virtualPages.reset(pageBounds, zoom);
             playbackRegionKey = "";
             if (fitToWidth) fitWidth();
@@ -522,7 +524,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
             invalidateNavigation();
             result = null;   // 否则缩放会把过期谱面重新画回来
             pageBounds = [];
-            recordings = [];
+            recordedPages = [];
             virtualPages.clear();
             clearPrint();
             const text = document.createElement("pre");

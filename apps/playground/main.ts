@@ -292,14 +292,16 @@ function compilePlaybackPlan(compiled: CompileScoreResult, sourceText: string) {
 }
 
 function ensurePlaybackPlan() {
-    window.clearTimeout(renderTimer);
+    if (!ensureCompiled()) return false;
     const sourceText = source();
-    if (!latestCompiled || latestCompiledSource !== sourceText) {
-        if (!compileAndRender()) return false;
-    }
     if (!latestCompiled) return false;
     if (playbackSource !== sourceText) return compilePlaybackPlan(latestCompiled, sourceText);
     return playback?.hasPlan ?? false;
+}
+
+function ensureCompiled(): boolean {
+    window.clearTimeout(renderTimer);
+    return (latestCompiled !== null && latestCompiledSource === source()) || compileAndRender();
 }
 
 function compileAndRender(): boolean {
@@ -369,9 +371,8 @@ function runNoteTransform(operation: NoteTransform) {
     if (editor.composing) return;
     const ranges = editor.state.selection.ranges.filter(range => !range.empty)
         .map(range => ({ start: range.from, end: range.to }));
-    window.clearTimeout(renderTimer);
     const original = source();
-    if ((!latestCompiled || latestCompiledSource !== original) && !compileAndRender()) return;
+    if (!ensureCompiled()) return;
     if (!latestCompiled) return;
     try {
         const edits = transformNotes(original, latestCompiled.lowering, operation, ranges.length ? ranges : undefined);
@@ -414,12 +415,9 @@ for (const button of exportFormatButtons) {
         }
         if (format !== "midi" && !isImageExportFormat(format)) return;
 
-        if (format !== "midi") {
-            window.clearTimeout(renderTimer);
-            if (!compileAndRender()) {
-                closeExportMenu(true);
-                return;
-            }
+        if (format !== "midi" && !ensureCompiled()) {
+            closeExportMenu(true);
+            return;
         }
 
         exportButton.disabled = true;
@@ -455,8 +453,8 @@ window.addEventListener("pagehide", event => {
 
 requiredElement<HTMLButtonElement>("#runLayout").addEventListener("click", compileAndRender);
 window.addEventListener("beforeprint", () => {
-    compileAndRender();
-    preview.preparePrint();
+    if (ensureCompiled()) preview.preparePrint();
+    else preview.clearPrint();
 });
 window.addEventListener("afterprint", preview.clearPrint);
 
