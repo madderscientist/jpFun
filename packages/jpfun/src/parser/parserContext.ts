@@ -42,6 +42,8 @@ export class ParserContext {
     readonly source: string;
     /** 词法层产物，只由 parseSyntax 填充；所有子上下文共享 */
     readonly syntax: SyntaxAnalysis;
+    /** syntax.tokens 前缀注释区间的扫描游标 */
+    private commentIndex: number;
     /** 解析过程中产生的诊断信息，包含错误和警告 */
     diagnostics: Diagnostic[];
     /** 变量表，存储 `@set` 定义的变量，供解析过程中查询和修改，具有局部作用域 */
@@ -77,6 +79,7 @@ export class ParserContext {
             this.source = ctx.source;
             this.diagnostics = ctx.diagnostics; // 诊断信息全局共享
             this.syntax = ctx.syntax;
+            this.commentIndex = ctx.commentIndex;
             this.variables = { ...ctx.variables };  // 继承但不修改父上下文的变量
             this.functions = ctx.functions; // 函数定义全局共享
             this.deSugarAtomFns = ctx.deSugarAtomFns; // 去糖方法全局共享
@@ -92,6 +95,7 @@ export class ParserContext {
                 tokens: (ctx.commentSpans ?? []).map(span => ({ kind: "comment", span })),
                 calls: [],
             };
+            this.commentIndex = 0;
             this.variables = Object.fromEntries(Object.entries(ParserContext.systemVariables).map(([name, definition]) => [name, definition.default]));
             Object.assign(this.variables, ctx.variables);
             this.functions = ctx.functions ?? new Map();
@@ -176,16 +180,21 @@ export class ParserContext {
     private addSyntax(kind: SyntaxTokenKind, span: SourceSpan | undefined) {
         if (!span || span.start >= span.end) return;
         let start = span.start;
-        for (const token of this.syntax.tokens) {
+        const tokens = this.syntax.tokens;
+        while (tokens[this.commentIndex]?.kind === "comment" && tokens[this.commentIndex].span.end <= start) {
+            this.commentIndex++;
+        }
+        for (let i = this.commentIndex; i < tokens.length; i++) {
+            const token = tokens[i];
             if (token.kind !== "comment" || token.span.start >= span.end) break;
-            if (token.span.end <= start) continue;
             if (start < token.span.start) {
-                this.syntax.tokens.push({ kind, span: { start, end: token.span.start } });
+                tokens.push({ kind, span: { start, end: token.span.start } });
             }
             start = token.span.end;
+            this.commentIndex = i + 1;
         }
         if (start < span.end) {
-            this.syntax.tokens.push({ kind, span: { start, end: span.end } });
+            tokens.push({ kind, span: { start, end: span.end } });
         }
     }
 
@@ -194,8 +203,8 @@ export class ParserContext {
         if (node.kind === "brace") {
             this.addSyntax("punctuation", { start: node.span.start, end: node.span.start + 1 });
             const close = Math.min(this.source.length, node.span.end - 1);
-            if (this.source[close] === "}") this.addSyntax("punctuation", { start: close, end: close + 1 });
             new ParserContext(this).parseSyntax(node.span.start + 1, close);
+            if (this.source[close] === "}") this.addSyntax("punctuation", { start: close, end: close + 1 });
             return;
         }
         if (node.kind === "label") {
@@ -212,13 +221,11 @@ export class ParserContext {
         this.syntax.calls.push(call);
         this.addSyntax("function", call.nameSpan);
         this.addSyntax("punctuation", call.openParenSpan);
-        this.addSyntax("punctuation", call.closeParenSpan);
         const def = this.functions.get(call.name.toLowerCase())?.def;
         for (let index = 0; index < call.args.length; index++) {
             const arg = call.args[index];
             this.addSyntax("property", arg.nameSpan);
             this.addSyntax("punctuation", arg.equalsSpan);
-            this.addSyntax("punctuation", arg.commaSpan);
             const name = arg.nameSpan
                 ? this.source.slice(arg.nameSpan.start, arg.nameSpan.end).toLowerCase()
                 : void 0;
@@ -230,7 +237,9 @@ export class ParserContext {
                 const kind = classifySyntaxValue(type, text);
                 if (kind) this.addSyntax(kind, arg.valueSpan);
             }
+            this.addSyntax("punctuation", arg.commaSpan);
         }
+        this.addSyntax("punctuation", call.closeParenSpan);
     }
 
     /**

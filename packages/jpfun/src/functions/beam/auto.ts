@@ -7,7 +7,7 @@ import {
 import type { LoweringResult } from "../../lowering/types.js";
 import { Fraction } from "../../fraction.js";
 import type { LayoutAttachment } from "../../layout/types.js";
-import type { ASTNodeBase, SourceSpan } from "../ASTtypes.js";
+import type { ASTNodeBase } from "../ASTtypes.js";
 import {
     DIV_ADDON_KEY,
     DivNode,
@@ -31,8 +31,9 @@ interface DivScope {
 
 /** 只返回实际参与当前事件 div addon 的 div，先沿祖先链找，不够再按书写顺序向下补 */
 function findActiveDivs(node: VisualTemporalNode): InstanceType<typeof DivNode>[] {
-    const result: InstanceType<typeof DivNode>[] = [];
     let remainingLevels = Math.max(0, Math.floor(Number(node.addon?.[DIV_ADDON_KEY]) || 0));
+    if (remainingLevels <= 0) return [];
+    const result: InstanceType<typeof DivNode>[] = [];
 
     const take = (div: InstanceType<typeof DivNode>) => {
         result.push(div);
@@ -44,6 +45,7 @@ function findActiveDivs(node: VisualTemporalNode): InstanceType<typeof DivNode>[
         if (ast instanceof DivNode) take(ast);
         ast = ast.parent;
     }
+    if (remainingLevels <= 0) return result;
 
     // 复合节点（如 up）把代表成员的修饰提升成了自己的，提供层级的 div 在子树里
     const descend = (parent: ASTNodeBase) => {
@@ -107,27 +109,27 @@ function outermostScopes(scopes: DivScope[]): DivScope[] {
     });
 }
 
-function sourceSpanForAutoBeam(nodes: readonly VisualTemporalNode[]): SourceSpan {
+function createAutoBeam(
+    nodes: VisualTemporalNode[],
+    nodeScopes: ReadonlyMap<VisualTemporalNode, readonly DivScope[]>,
+): LayoutAttachment {
     let start = Infinity;
     let end = -Infinity;
     for (const node of nodes) {
         start = Math.min(start, node.ast.sourceSpan.start);
         end = Math.max(end, node.ast.sourceSpan.end);
-        for (const div of findActiveDivs(node)) {
-            start = Math.min(start, div.sourceSpan.start);
-            end = Math.max(end, div.sourceSpan.end);
+        for (const { owner } of nodeScopes.get(node) ?? []) {
+            start = Math.min(start, owner.sourceSpan.start);
+            end = Math.max(end, owner.sourceSpan.end);
         }
     }
-    return { start, end };
-}
-
-function createAutoBeam(nodes: VisualTemporalNode[]): LayoutAttachment {
-    return createBeamLayoutAttachment(nodes, false, sourceSpanForAutoBeam(nodes));
+    return createBeamLayoutAttachment(nodes, false, { start, end });
 }
 
 /** 同一个 div 内部始终按轨道连接，手工 beam 端点会截断自动片段 */
 function createScopeBeams(
     scopes: DivScope[],
+    nodeScopes: ReadonlyMap<VisualTemporalNode, readonly DivScope[]>,
     explicitEndpoints: ReadonlySet<TemporalNodeBase>,
 ): LayoutAttachment[] {
     const attachments: LayoutAttachment[] = [];
@@ -143,7 +145,7 @@ function createScopeBeams(
         for (const nodes of tracks.values()) {
             let segment: VisualTemporalNode[] = [];
             const flush = () => {
-                if (segment.length >= 2) attachments.push(createAutoBeam(segment));
+                if (segment.length >= 2) attachments.push(createAutoBeam(segment, nodeScopes));
                 segment = [];
             };
 
@@ -194,7 +196,7 @@ function createAdjacentBeams(
         const group = groups.get(track);
         if (!group) return;
         groups.delete(track);
-        if (group.nodes.length >= 2) attachments.push(createAutoBeam(group.nodes));
+        if (group.nodes.length >= 2) attachments.push(createAutoBeam(group.nodes, nodeScopes));
     };
 
     const flushAll = () => {
@@ -255,9 +257,10 @@ function createAdjacentBeams(
 /** beam 域在 lowering 固化后统一生成作用域连接和相邻自动连接 */
 export function createAutomaticBeamAttachments(result: LoweringResult): LayoutAttachment[] {
     const { scopes, nodeScopes } = collectDivScopes(result);
+    if (scopes.length === 0) return [];
     const explicitEndpoints = collectExplicitBeamEndpoints(result.attachments);
     return [
-        ...createScopeBeams(scopes, explicitEndpoints),
+        ...createScopeBeams(scopes, nodeScopes, explicitEndpoints),
         ...createAdjacentBeams(result, nodeScopes, explicitEndpoints),
     ];
 }
