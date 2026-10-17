@@ -67,7 +67,7 @@ export type VoiceConnection = Required<ConnectionSpec>;
 function invalidConnection(span: SourceSpan) {
     return new ErrorDiagnostic(
         "E_VOICES_CONNECT",
-        '@voices 的 connect 必须是 [起点-终点] 或 {起点-终点} 的组合；端点可省略，否则须为有效声部编号。空字符串表示只有连谱线。',
+        '@voices 的 connect 必须是 [起点-终点]、{起点-终点}、[编号] 或 {编号} 的组合；范围端点可省略，否则须为有效声部编号。空字符串表示只有连谱线。',
         span,
     );
 }
@@ -76,13 +76,15 @@ export function parseConnections(value: string, span: SourceSpan): ConnectionSpe
     const source = value.trim();
     // 粘连匹配必须消费整串，不能跳过非法字符
     // 非空数字与其后空白一起可选，避免省略端点时重复回溯
-    const pattern = /\s*([\[{])\s*(?:(\d+)\s*)?-\s*(?:(\d+)\s*)?([\]}])\s*/y;
+    const pattern = /\s*([\[{])\s*(?:(?:(\d+)\s*)?-\s*(?:(\d+)\s*)?|(\d+)\s*)([\]}])\s*/y;
     const result: ConnectionSpec[] = [];
     while (pattern.lastIndex < source.length) {
         const match = pattern.exec(source);
-        if (!match || match[4] !== (match[1] === "[" ? "]" : "}")) throw invalidConnection(span);
-        const from = match[2] ? Number(match[2]) : undefined;
-        const to = match[3] ? Number(match[3]) : undefined;
+        if (!match || match[5] !== (match[1] === "[" ? "]" : "}")) throw invalidConnection(span);
+        const fromText = match[4] ?? match[2];
+        const toText = match[4] ?? match[3];
+        const from = fromText ? Number(fromText) : undefined;
+        const to = toText ? Number(toText) : undefined;
         for (const endpoint of [from, to]) {
             if (endpoint !== undefined && (!Number.isSafeInteger(endpoint) || endpoint < 1)) {
                 throw invalidConnection(span);

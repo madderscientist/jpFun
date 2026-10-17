@@ -328,7 +328,7 @@ const fourVoices = '@voice({1 2}, A), @voice({3 4}, B), @voice({5 6}, C), @voice
 const connectionSpecsOf = (source: string) => parseConnections(source, { start: 0, end: source.length });
 
 test("voice connections preserve variadic voices and serialize frozen defaults", () => {
-    for (const connect of ["[-]", "{1-2}[3-]", "", "[1-3]{2-4}", "[-]{-}", " [ - 2 ] { 3 - } "]) {
+    for (const connect of ["[-]", "{1-2}[3-]", "", "[1-3]{2-4}", "[-]{-}", " [ - 2 ] { 3 - } ", "{1-2}[3]", "[1]{4}", "[-1]"]) {
         const source = `@set(vs.connect=${quote(connect)}) @vs(${fourVoices})`;
         const result = compileValid(source);
         const voices = result.ast.children!.at(-1)!;
@@ -339,8 +339,34 @@ test("voice connections preserve variadic voices and serialize frozen defaults",
     }
 });
 
+test("single voice connections are equivalent to closed ranges", () => {
+    for (const [connect, expanded] of [
+        ["[3]", "[3-3]"],
+        ["{3}", "{3-3}"],
+        ["{1-2}[3]", "{1-2}[3-3]"],
+        ["[1]{4}", "[1-1]{4-4}"],
+    ]) {
+        deepStrictEqual(connectionSpecsOf(connect), connectionSpecsOf(expanded));
+        for (const source of [
+            `@voices(${fourVoices}, connect=${quote(connect)})`,
+            `@set(voices.connect=${quote(connect)})\nN:1 2\nN:3 4\nN:5 6\nN:7 1`,
+        ]) {
+            const result = compileValid(source);
+            const comparison = compileValid(source.replace(connect, expanded));
+            deepStrictEqual(recordCommands(result.layout), recordCommands(comparison.layout));
+            const serialized = result.ast.toString(source);
+            assert(serialized.includes(`connect=${quote(expanded)}`), serialized);
+            deepStrictEqual(recordCommands(compileValid(serialized).layout), recordCommands(result.layout));
+        }
+    }
+});
+
 test("connection ranges reject invalid values but not overlaps", () => {
-    for (const connect of ["[]", "{}", "[0-2]", "[2-1]", "[1-5]", "{1.5-2}", "[1-2}", "[1-2]oops", "[1-2];{3-4}"]) {
+    for (const connect of [
+        "[]", "{}", "[0-2]", "[2-1]", "[1-5]", "{1.5-2}", "[1-2}", "[1-2]oops", "[1-2];{3-4}",
+        "[0]", "{0}", "[5]", "{5}", "[1.5]", "[-1-1]", "[+1]", "[3}", "{3]", "[1 2]", "[3]oops",
+        "[9007199254740992]", "{9007199254740992}",
+    ]) {
         expectDiagnostic(() => compileScore(`@voices(${fourVoices}, connect=${quote(connect)})`, {
             variables: { strict: true },
         }), "E_VOICES_CONNECT");
@@ -355,6 +381,10 @@ test("connection whitespace stays separate from optional endpoint digits", () =>
             { kind: "bracket", from: undefined, to: undefined },
             { kind: "brace", from: 1, to: 4 },
         ]);
+        deepStrictEqual(connectionSpecsOf(`[${gap}3${gap}]${gap}{${gap}4${gap}}`), [
+            { kind: "bracket", from: 3, to: 3 },
+            { kind: "brace", from: 4, to: 4 },
+        ]);
     }
     for (const source of ["[1 2-3]", "[1-2 3]", "[1--2]", "[1-+2]", "[-1.0]"]) {
         expectDiagnostic(() => connectionSpecsOf(source), "E_VOICES_CONNECT");
@@ -363,7 +393,7 @@ test("connection whitespace stays separate from optional endpoint digits", () =>
 
 test("malformed connection ranges do not backtrack across long whitespace", () => {
     const gap = " ".repeat(100_000);
-    const sources = [`[${gap}x]`, `[-${gap}x]`];
+    const sources = [`[${gap}x]`, `[-${gap}x]`, `[3${gap}x]`, `{${gap}}`, `[${"3".repeat(100_000)}x]`];
     const start = performance.now();
     for (const source of sources) {
         expectDiagnostic(() => connectionSpecsOf(source), "E_VOICES_CONNECT");
