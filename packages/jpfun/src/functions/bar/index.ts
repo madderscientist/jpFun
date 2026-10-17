@@ -111,7 +111,7 @@ class BarTemporalNode extends TemporalNodeBase {
         while (host.foldedInto) host = host.foldedInto;
         if (!isVisualTemporalNode(host)) return;
         const run = line.trackRuns.get(host.track);
-        const index = run?.indexOf(host) ?? -1;
+        const index = line.trackIndexOf(host);
         if (!run || index < 0) return;
 
         line.registerHorizontalLayoutHook(host, host, ({ columns, start }) => {

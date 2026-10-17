@@ -474,6 +474,7 @@ export function prepareHorizontalLine(
     const hooks: HorizontalLayoutHookEntry[] = [];
     const columnIndex = new Map<LayoutHost, number>();
     const trackRuns = new Map<Track, VisualTemporalNode[]>();
+    let trackIndex: Map<LayoutHost, number> | undefined;
 
     for (let column = 0; column < columns.length; column++) {
         for (const node of columns[column]) {
@@ -490,6 +491,15 @@ export function prepareHorizontalLine(
         columns,
         trackRuns,
         columnOf: host => columnIndex.get(host) ?? -1,
+        trackIndexOf(host) {
+            if (!trackIndex) {
+                trackIndex = new Map();
+                for (const run of trackRuns.values()) {
+                    for (let i = 0; i < run.length; i++) trackIndex.set(run[i], i);
+                }
+            }
+            return trackIndex.get(host) ?? -1;
+        },
         registerHorizontalLayoutHook(from, to, hook) {
             const start = columnIndex.get(from);
             const end = columnIndex.get(to);

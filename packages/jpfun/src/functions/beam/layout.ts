@@ -128,18 +128,18 @@ class BeamLayoutAttachment implements LayoutAttachment {
 
     /** 同一 beam 组内的相邻元素使用更短的自然弹簧间距 */
     prepareHorizontal(context: HorizontalLineView[]) {
-        const endPoints: ReadonlySet<unknown> = new Set(this.endPoints);
-
-        for (const line of context) {
-            for (const run of line.trackRuns.values()) {
-                for (let i = 1; i < run.length; i++) {
-                    const left = run[i - 1];
-                    const right = run[i];
-                    if (!endPoints.has(left) || !endPoints.has(right)) continue;
-                    left.springConfig.alpha_R = (left.springConfig.alpha_R as number) * 0.8;
-                    right.springConfig.alpha_L = (right.springConfig.alpha_L as number) * 0.8;
+        let left: VisualTemporalNode | undefined;
+        for (const node of this.endPoints) {
+            if (!isVisualTemporalNode(node)) continue;
+            if (left && left.layoutLine === node.layoutLine && left.track === node.track) {
+                const line = context[left.layoutLine];
+                const index = line ? line.trackIndexOf(left) : -1;
+                if (index >= 0 && index + 1 === line.trackIndexOf(node)) {
+                    left.springConfig.alpha_R! *= 0.8;
+                    node.springConfig.alpha_L! *= 0.8;
                 }
             }
+            left = node;
         }
     }
 

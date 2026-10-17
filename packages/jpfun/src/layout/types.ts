@@ -183,6 +183,8 @@ export interface HorizontalLineView {
     readonly trackRuns: ReadonlyMap<Track, readonly LayoutHost[]>;
     /** 主体所在时间列下标；不在本行时返回 -1 */
     columnOf(host: LayoutHost): number;
+    /** 主体在所属 Track 可见序列中的下标；不在本行时返回 -1 */
+    trackIndexOf(host: LayoutHost): number;
     /** 注册横向布局 hook；同一行内按跨度从小到大执行 */
     registerHorizontalLayoutHook(from: LayoutHost, to: LayoutHost, hook: HorizontalLayoutHook): void;
 }
