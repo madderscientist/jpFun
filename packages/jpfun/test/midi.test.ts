@@ -1,8 +1,9 @@
 import test from "node:test";
-import { throws } from "node:assert/strict";
+import { deepStrictEqual, throws } from "node:assert/strict";
 
 import {
     compileScore,
+    ANCHOR_KEY,
     DEFAULT_PAGE_CONFIG,
     midiJsonToJpFun,
     type MidiJson,
@@ -10,7 +11,7 @@ import {
 } from "../src/index.js";
 import { convertMidiJsonToJpFun } from "../src/converter/midi/convert.js";
 import { compilePlayback } from "../src/playback/compile.js";
-import { assert, lower, playedNotes } from "./helpers.js";
+import { assert, lower, nearly, playedNotes } from "./helpers.js";
 
 function midi(
     tracks: readonly (readonly MidiJsonNote[])[],
@@ -474,6 +475,54 @@ test("MIDI 固定换行不需要 core 布局能力", () => {
     const source = convertMidiJsonToJpFun(input, { barsPerLine: 1 });
     assert(source.split("\n\n").length === 3,
         `无布局能力时仍应按每行一小节生成两个系统：${source}`);
+});
+
+test("MIDI 测宽省略非视觉元数据，但保持完整单行正文的横向几何", () => {
+    const input = midi([
+        [
+            note(0, 3840, 60), note(0, 3840, 64),
+            note(1920, 480, 72),
+            note(3840, 160, 60), note(4000, 160, 62), note(4160, 160, 64),
+        ],
+        [note(480, 1920, 48)],
+    ], {
+        names: ["RH", "LH"],
+        tempos: [{ ticks: 0, bpm: 100 }, { ticks: 960, bpm: 80 }],
+        timeSignatures: [{ ticks: 0, timeSignature: [4, 4] }, { ticks: 1920, timeSignature: [3, 4] }],
+    });
+    input.tracks[0].instruments = [
+        { ticks: 0, number: 40 }, { ticks: 120, number: 41 }, { ticks: 960, number: 43 },
+    ];
+    let calls = 0;
+    const source = convertMidiJsonToJpFun(input, { title: "Measurement" }, {
+        anchorKey: ANCHOR_KEY,
+        page: DEFAULT_PAGE_CONFIG,
+        compileScore(candidate, options) {
+            calls++;
+            deepStrictEqual(options, { horizontalOnly: true });
+            assert(!candidate.includes("H.") && !candidate.includes("@tie(") && !candidate.includes("@program("),
+                "测宽不应构造谱头、tie 或 program");
+            const measured = compileScore(candidate, options);
+            const full = compileScore(
+                candidate.slice(0, candidate.indexOf("\n") + 1) + convertMidiJsonToJpFun(input, { barsPerLine: 100 }),
+            );
+            const actual = measured.layout.objects;
+            const expected = full.layout.objects.filter(node => node.layoutLine === 1);
+            deepStrictEqual(measured.diagnostics, []);
+            assert(actual.length === expected.length, "测宽必须保留正文的全部时间片");
+            actual.forEach((node, index) => {
+                const ref = expected[index];
+                assert(node.t.equals(ref.t) && node.T.equals(ref.T) && node.mergeKey === ref.mergeKey
+                    && nearly(node.box.x, ref.box.x) && nearly(node.box.w, ref.box.w),
+                "省略 program 不得移除控制点或改变音符切分与自然宽度");
+            });
+            return measured;
+        },
+    });
+    assert(calls === 1 && source.includes("H.title: Measurement")
+        && source.includes("@tie(") && source.includes("@program(43)"),
+    "自动换行应只测宽一次，且最终源码必须保留谱头、tie 和 program");
+    deepStrictEqual(compileScore(source).diagnostics, []);
 });
 
 test("拍号对齐到最近小节边界并忽略尾音之后的元事件", () => {

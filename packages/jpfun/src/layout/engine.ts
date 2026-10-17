@@ -37,7 +37,8 @@ import type {
 } from "./types.js";
 
 export interface DocumentLayoutOptions extends SolverOptions {
-    rowGap?: number;    // 强制覆盖每行的轨道间距；缺省按该行最大字号推导
+    rowGap?: number;            // 强制覆盖每行的轨道间距；缺省按该行最大字号推导
+    horizontalOnly?: boolean;   // 跳过文档级纵向放置、分页与附件测量；子域仍完成尺寸所需的布局
 }
 
 // 兼容旧导入路径；布局入口会把正常页面溢出转换为 ErrorDiagnostic
@@ -251,6 +252,17 @@ export function layoutDocument(
         for (const column of line.view.columns) {
             for (const node of column) node.box.x += originX;
         }
+    }
+    // midi 导入进行自动断行的快通道
+    if (options.horizontalOnly) {
+        return {
+            diagnostics: result.diagnostics,
+            objects,
+            attachments: [],
+            bounds: { x: 0, y: 0, w: 0, h: 0 },
+            lineCount: lines.length,
+            pages: [],
+        };
     }
 
     // host 申报纵向占用

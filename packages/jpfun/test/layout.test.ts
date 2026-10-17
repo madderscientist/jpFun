@@ -17,6 +17,48 @@ test("装饰处理器从主函数名推导注册键", () => {
         "div layout must derive its handler key from the primary function name");
 });
 
+test("horizontalOnly 保留横向约束与子域尺寸，跳过文档放置、附件测量与分页", () => {
+    const run = (horizontalOnly: boolean) => {
+        const lowered = lower("@grace(1/@a,{@box({2/ 3/},padding=8px)}) 1/@b | @tie(a,b) @br() @stack({2/ 3/},{4})");
+        const first = lowered.columns.flat().find(isVisualTemporalNode)!;
+        let subdomainMeasured = 0;
+        for (const attachment of lowered.attachments) {
+            if (!isLayoutAttachment(attachment)) continue;
+            const createGeometry = attachment.createGeometry.bind(attachment);
+            attachment.createGeometry = context => (subdomainMeasured++, createGeometry(context));
+        }
+        let prepared = 0, placed = 0, docMeasured = 0;
+        first.onPlaced = () => { placed++; };
+        const probe: LayoutAttachment = {
+            layer: "foreground",
+            prepareHorizontal() { prepared++; first.springConfig.alpha_R! *= 0.5; },
+            createGeometry() { docMeasured++; return { regions: [], paint() {} }; },
+        };
+        lowered.attachments.push(probe);
+        return {
+            layout: layoutDocument(lowered, layoutContext, { horizontalOnly }),
+            counts: { subdomainMeasured, prepared, placed, docMeasured },
+        };
+    };
+    const complete = run(false);
+    const horizontal = run(true);
+    const geometry = (layout: typeof complete.layout) => layout.objects
+        .map(node => [node.layoutLine, node.box.x, node.box.w, node.box.h, node.box.anchor]);
+    deepStrictEqual(geometry(horizontal.layout), geometry(complete.layout));
+    assert(horizontal.layout.lineCount === complete.layout.lineCount, "横向测量必须保留全部行");
+    assert(horizontal.counts.subdomainMeasured > 0, "子域内部附件仍须参与复合体尺寸计算");
+    deepStrictEqual(horizontal.counts, {
+        subdomainMeasured: horizontal.counts.subdomainMeasured,
+        prepared: 1, placed: 0, docMeasured: 0,
+    });
+    assert(complete.counts.placed > 0 && complete.counts.docMeasured > 0,
+        "默认布局必须继续执行放置和附件测量");
+    deepStrictEqual(horizontal.layout.attachments, []);
+    deepStrictEqual(horizontal.layout.pages, []);
+    deepStrictEqual(horizontal.layout.bounds, { x: 0, y: 0, w: 0, h: 0 });
+    deepStrictEqual(horizontal.layout.diagnostics, complete.layout.diagnostics);
+});
+
 test("extent overloads return a scalar for one track and a map for all tracks", () => {
     const lowered = lower("@stack({1 2},{3 4})");
     const host = lowered.columns[0][0];

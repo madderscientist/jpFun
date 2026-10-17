@@ -24,7 +24,7 @@ export interface MidiToJpFunOptions {
 
 // 和 core 解除直接依赖关系
 export interface MidiLayoutCapability {
-    compileScore: (source: string) => {
+    compileScore: (source: string, options?: { horizontalOnly?: boolean }) => {
         layout: {
             objects: {
                 T: { isZero(): boolean };
@@ -352,12 +352,11 @@ function automaticLineBreaks(
     // 超宽页面关闭自动换行，从真实布局对象取得每个小节的自然宽度
     const naturalWidth = Math.max(1_000_000, source.length * 64);
     const naturalSource = `@page(width=${naturalWidth}px, height=0px, top=0px, bottom=0px, left=0px, right=0px)\n${source}`;
-    const layout = capability.compileScore(naturalSource).layout;
-    const bodyLine = Math.max(...layout.objects.filter(node => !node.T.isZero()).map(node => node.layoutLine));
-    const bodyObjects = layout.objects.filter(node => node.layoutLine === bodyLine && node.box.w > 0);
+    const layout = capability.compileScore(naturalSource, { horizontalOnly: true }).layout;
     const measureBounds = bars.map(() => ({ left: Infinity, right: -Infinity }));
-    // 按对象起点归入小节，小节线本身属于左侧刚结束的小节
-    for (const node of bodyObjects) {
+    // 测宽候选不含 head，所有正文可见对象均位于第 0 行；按起点归入小节，小节线归入左侧刚结束的小节
+    for (const node of layout.objects) {
+        if (node.box.w <= 0) continue;
         const at = Math.round(node.t.toNumber() * scale);
         let low = 0;
         let high = bars.length;
@@ -436,14 +435,16 @@ function renderLane(
     lane: Lane,
     rangeStart: number,
     rangeEnd: number,
+    lineSpan: number,
     rhythmScale: number,
     timeFactor: number,
     pitchMode: PitchMode,
     bars: ReadonlySet<number>,
+    regionBars: readonly number[],
     lineBreaks: ReadonlySet<number>,
     adjustments: ReadonlyMap<number, readonly string[]> | undefined,
     programs: ReadonlyMap<number, number>,
-    nextTieLabel: () => string,
+    nextTieLabel?: () => string,
 ) {
     // 事件边界与所有控制点共同切分时间线，保证每个片段内语义不变
     const points = new Set<number>([rangeStart, rangeEnd]);
@@ -451,10 +452,13 @@ function renderLane(
         points.add(item.start);
         points.add(item.end);
     }
-    for (const at of bars) if (at > rangeStart && at < rangeEnd) points.add(at);
-    for (const at of adjustments?.keys() ?? []) {
-        if (at >= rangeStart && at < rangeEnd) points.add(at);
+    for (const at of regionBars) points.add(at);
+    if (adjustments) {
+        for (const at of adjustments.keys()) {
+            if (at >= rangeStart && at < rangeEnd) points.add(at);
+        }
     }
+    // 测宽也保留 program 控制点，避免持续音的切分与完整源码不同。
     for (const at of programs.keys()) {
         if (at >= rangeStart && at < rangeEnd) points.add(at);
     }
@@ -463,34 +467,39 @@ function renderLane(
     const tieChains = new Map<QuantizedChord, string[][]>();
     // 每次重写和弦都为每个成员生成标签并追加到各自的 tie 链
     const extendTieChains = (chains: string[][]) => chains.map(chain => {
-        const label = nextTieLabel();
+        const label = nextTieLabel!();
         chain.push(label);
         return label;
     });
     // 预扫描找出不能只用 dash 延续的音符，提前为其建立逐音高标签链
-    for (const item of lane.items) {
-        if ("members" in item) continue;
-        const startIndex = timelineIndex.get(item.start)!;
-        for (let index = startIndex; timeline[index] < item.end; index++) {
-            const suffixes = rhythmSuffixes((timeline[index + 1] - timeline[index]) / timeFactor, rhythmScale);
-            if ((timeline[index] > item.start && bars.has(timeline[index]))
-                || suffixes.some((suffix, suffixIndex) =>
-                    (timeline[index] > item.start || suffixIndex > 0) && suffix.includes("/"))) {
-                tieChains.set(item, item.notes.map(() => []));
-                break;
+    if (nextTieLabel) {
+        for (const item of lane.items) {
+            if ("members" in item) continue;
+            const startIndex = timelineIndex.get(item.start)!;
+            for (let index = startIndex; timeline[index] < item.end; index++) {
+                const suffixes = rhythmSuffixes((timeline[index + 1] - timeline[index]) / timeFactor, rhythmScale);
+                if ((timeline[index] > item.start && bars.has(timeline[index]))
+                    || suffixes.some((suffix, suffixIndex) =>
+                        (timeline[index] > item.start || suffixIndex > 0) && suffix.includes("/"))) {
+                    tieChains.set(item, item.notes.map(() => []));
+                    break;
+                }
             }
         }
     }
 
-    const outputs: string[][] = Array.from({ length: lineBreaks.size + 1 }, () => []);
-    let outputIndex = [...lineBreaks].filter(at => at <= rangeStart).length;
+    const outputs: string[][] = Array.from({ length: lineSpan }, () => []);
+    let outputIndex = 0;
     let itemIndex = 0;
-    let initialProgram = programs.size ? 0 : undefined;
-    let programStart = -Infinity;
-    for (const [at, program] of programs) {
-        if (at <= rangeStart && at >= programStart) {
-            initialProgram = program;
-            programStart = at;
+    let initialProgram: number | undefined;
+    if (nextTieLabel && programs.size) {
+        initialProgram = 0;
+        let programStart = -Infinity;
+        for (const [at, program] of programs) {
+            if (at <= rangeStart && at >= programStart) {
+                initialProgram = program;
+                programStart = at;
+            }
         }
     }
     // 沿时间片单向推进当前事件，依次输出控制项、音符或补齐休止
@@ -503,8 +512,10 @@ function renderLane(
 
         const next = timeline[index + 1];
         if (next === undefined) continue;
-        const program = at === rangeStart ? initialProgram : programs.get(at);
-        if (program !== undefined) outputs[outputIndex].push(`@program(${program})`);
+        if (nextTieLabel) {
+            const program = at === rangeStart ? initialProgram : programs.get(at);
+            if (program !== undefined) outputs[outputIndex].push(`@program(${program})`);
+        }
         const changes = adjustments?.get(at) ?? [];
         const item = lane.items[itemIndex];
         if (item && item.start <= at && item.end >= next) {
@@ -523,21 +534,11 @@ function renderLane(
             for (let suffixIndex = 0; suffixIndex < suffixes.length; suffixIndex++) {
                 const suffix = suffixes[suffixIndex];
                 const continuation = at > item.start || suffixIndex > 0;
-                let token: string;
                 const chains = tieChains.get(item);
-                if (!continuation) {
-                    if (chains) {
-                        token = itemHead(item, pitchMode, suffix, extendTieChains(chains));
-                    } else {
-                        token = itemHead(item, pitchMode, suffix);
-                    }
-                } else if ((suffixIndex === 0 && bars.has(at)) || suffix.includes("/")) {
-                    token = itemHead(item, pitchMode, suffix, extendTieChains(chains!));
-                } else {
-                    token = `-${suffix}`;
-                }
-                if (suffixIndex === 0) token = attachAbove(token, changes);
-                outputs[outputIndex].push(token);
+                const token = !continuation || (suffixIndex === 0 && bars.has(at)) || suffix.includes("/")
+                    ? itemHead(item, pitchMode, suffix, chains && extendTieChains(chains))
+                    : `-${suffix}`;
+                outputs[outputIndex].push(suffixIndex === 0 ? attachAbove(token, changes) : token);
                 if (chains && next === item.end && suffixIndex === suffixes.length - 1) {
                     outputs[outputIndex].push(...chains.map(labels => `@tie(${labels.join(", ")})`));
                 }
@@ -555,8 +556,9 @@ function renderTrack(
     track: ConvertedTrack,
     scoreEnd: number,
     bars: ReadonlySet<number>,
+    orderedBars: readonly number[],
     lineBreaks: ReadonlySet<number>,
-    render: (region: TrackRegion, lane: Lane) => string[],
+    render: (region: TrackRegion, lane: Lane, regionBars: readonly number[], lineSpan: number) => string[],
     showName: boolean,
 ) {
     const lineCount = lineBreaks.size + 1;
@@ -570,20 +572,32 @@ function renderTrack(
         cursor = region.end;
     }
     if (cursor < scoreEnd) segments.push({ start: cursor, end: scoreEnd, lanes: [{ items: [] }] });
-    // 每个重叠区域独立渲染，多 lane 只在该区域局部组成 @stack
+    // segments 按时间递增且连续，小节线与行号可沿游标单向推进
+    let barCursor = 0;
+    let lineCursor = 0;
     for (const region of segments) {
         if (region.start > 0 && bars.has(region.start)) {
-            const lineIndex = [...lineBreaks].filter(at => at < region.start).length;
-            outputs[lineIndex].push("|");
+            outputs[lineCursor].push("|");
+            if (lineBreaks.has(region.start)) lineCursor++;
         }
-        const lanes = region.lanes.map(lane => render(region, lane));
-        for (let lineIndex = 0; lineIndex < lineCount; lineIndex++) {
-            if (!lanes.some(lines => lines[lineIndex])) continue;
+        while (barCursor < orderedBars.length && orderedBars[barCursor] <= region.start) barCursor++;
+        const barStart = barCursor;
+        let lineEnd = lineCursor;
+        while (barCursor < orderedBars.length && orderedBars[barCursor] < region.end) {
+            if (lineBreaks.has(orderedBars[barCursor])) lineEnd++;
+            barCursor++;
+        }
+        const regionBars = orderedBars.slice(barStart, barCursor);
+        const lineSpan = lineEnd - lineCursor + 1;
+        const lanes = region.lanes.map(lane => render(region, lane, regionBars, lineSpan));
+        for (let offset = 0; offset < lineSpan; offset++) {
+            if (!lanes.some(lines => lines[offset])) continue;
             const content = lanes.length === 1
-                ? lanes[0][lineIndex]
-                : `@stack(${lanes.map(lines => `{ ${lines[lineIndex]} }`).join(", ")})`;
-            outputs[lineIndex].push(content);
+                ? lanes[0][offset]
+                : `@stack(${lanes.map(lines => `{ ${lines[offset]} }`).join(", ")})`;
+            outputs[lineCursor + offset].push(content);
         }
+        lineCursor = lineEnd;
     }
     if (bars.has(scoreEnd)) outputs[lineCount - 1].push("|");
     return outputs.map((output, lineIndex) => {
@@ -793,28 +807,32 @@ export function convertMidiJsonToJpFun(
     });
     if (convertedTracks.length === 0) return head;
 
-    // 第六阶段：先生成单行候选做自然宽度测量，再用选出的断点生成最终源码
-    const renderScore = (lineBreaks: ReadonlySet<number>) => {
+    // 第六阶段：先用不含 head/tie/program 的单行候选测自然宽度，再用选出的断点生成完整源码
+    const renderScore = (lineBreaks?: ReadonlySet<number>) => {
         let tieIndex = 0;
-        // 每次渲染重新编号 tie，单行测量与最终源码因此保持相同标签结构
-        const tracks = convertedTracks.map((track, trackIndex) => renderTrack(track, scoreEnd, bars, lineBreaks, (region, lane) =>
+        const nextTieLabel = lineBreaks ? () => `mt${tieIndex++}` : undefined;
+        const breaks = lineBreaks ?? new Set<number>();
+        const tracks = convertedTracks.map((track, trackIndex) => renderTrack(track, scoreEnd, bars, orderedBars, breaks, (region, lane, regionBars, lineSpan) =>
             renderLane(
                 lane,
                 region.start,
                 region.end,
+                lineSpan,
                 rhythmScale,
                 timeFactor,
                 pitchMode,
                 bars,
-                lineBreaks,
+                regionBars,
+                breaks,
                 trackIndex === 0 && lane === region.lanes.at(-1) ? scoreAdjustments : undefined,
                 track.programs,
-                () => `mt${tieIndex++}`,
+                nextTieLabel,
             ), convertedTracks.length > 1));
-        return `${head}\n\n${renderSystems(tracks)}`;
+        const body = renderSystems(tracks);
+        return lineBreaks ? `${head}\n\n${body}` : body;
     };
     const lineBreaks = barsPerLine <= 0
-        ? automaticLineBreaks(renderScore(new Set()), orderedBars, scale, layoutCapability!)
+        ? automaticLineBreaks(renderScore(), orderedBars, scale, layoutCapability!)
         : new Set(orderedBars.filter((at, index) =>
             (index + 1) % barsPerLine === 0 && at < scoreEnd));
     return renderScore(lineBreaks);

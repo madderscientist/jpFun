@@ -2,7 +2,7 @@ import { LengthValue, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTF
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
 import { ANCHOR_KEY, isVisualTemporalNode, TemporalNodeBase } from "../temporal.js";
 import type { PlaybackColumnOf, PlaybackCursor, PlaybackFlow, PlaybackFlowHook } from "../../playback/types.js";
-import type { HorizontalLineView, LayoutBox, LayoutHost } from "../../layout/types.js";
+import type { HorizontalLineView, LayoutBox } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";
 
 class BarFunction extends ASTFunctionNode {
@@ -114,29 +114,17 @@ class BarTemporalNode extends TemporalNodeBase {
         const index = line.trackIndexOf(host);
         if (!run || index < 0) return;
 
-        line.registerHorizontalLayoutHook(host, host, ({ columns, start }) => {
-            const current = columns[start].find(element => element.time === host);
-            if (!current) return;
-
-            const elementOf = (node: LayoutHost) => {
-                const column = line.columnOf(node);
-                return column < 0 ? undefined : columns[column].find(element => element.time === node);
-            };
-
-            const left = index > 0 ? elementOf(run[index - 1]) : undefined;
-            if (left) {
-                left.config.mu_R *= 4;
-                current.config.mu_L *= 4;
-            }
-
-            const rightNode = run[index + 1];
-            const right = rightNode ? elementOf(rightNode) : undefined;
-            // 相邻两个 bar 的中间 gap 由右侧 bar 处理，避免重复增强
-            if (right && rightNode.mergeKey !== ANCHOR_KEY) {
-                current.config.mu_R *= 4;
-                right.config.mu_L *= 4;
-            }
-        });
+        const left = run[index - 1];
+        if (left) {
+            left.springConfig.mu_R! *= 4;
+            host.springConfig.mu_L! *= 4;
+        }
+        const right = run[index + 1];
+        // 相邻两个 bar 的中间 gap 由右侧 bar 处理，避免重复增强
+        if (right && right.mergeKey !== ANCHOR_KEY) {
+            host.springConfig.mu_R! *= 4;
+            right.springConfig.mu_L! *= 4;
+        }
     }
 
     override prepareLayout() {
