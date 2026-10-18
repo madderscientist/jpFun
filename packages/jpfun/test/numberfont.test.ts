@@ -80,6 +80,7 @@ test("numberfont scopes restore and parsed AST remains frozen during lowering/la
 test("symbol preserves its fixed font and vector geometry", () => {
     const base = recordCommands(compileScore('$fine').layout).find(command => command.kind === "text");
     ok(base?.kind === "text");
+    equal(base.style.fontStyle, "italic");
     const source = '@set(font="Ordinary", numberfont="Digits", symbol.font="Preset") @symbol(fine, font="Explicit") $tr';
     const measured: TextStyle[] = [];
     const compiled = compileScore(source, { textMeasurer: { measureText(text, style) {

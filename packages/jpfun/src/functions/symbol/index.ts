@@ -45,7 +45,11 @@ export interface SymbolDefinition {
     /** 固定图形；文字记号改用 text */
     readonly shapes?: readonly SymbolShape[];
     /** 交给宿主字体绘制的文字记号，与 shapes 二选一 */
-    readonly text?: { readonly content: string; readonly fontFamily: string };
+    readonly text?: {
+        readonly content: string;
+        readonly fontFamily: string;
+        readonly fontStyle?: TextStyle["fontStyle"];
+    };
 
     /** 符号高度 = size × weight，用来修正宽扁字形的视觉重量；默认 1 */
     readonly weight?: number;
@@ -191,7 +195,7 @@ class SymbolTemporal extends TemporalNodeBase implements PlaybackFlow {
         // 文字记号的字号也是 size × weight，所以与图形记号视觉等高
         this.label = text && {
             content: text.content,
-            style: { fontSize: this.height, fontFamily: text.fontFamily },
+            style: { fontSize: this.height, fontFamily: text.fontFamily, fontStyle: text.fontStyle },
         };
         this.initLayoutBox();
     }

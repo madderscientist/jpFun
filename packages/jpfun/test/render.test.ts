@@ -78,6 +78,25 @@ test("SVG 输出已转义、无无效坐标、不依赖 defs 与 transform", () 
         "consecutive spaces must remain in the serialized text content");
 });
 
+test("Fine 在 SVG 和 Canvas 中使用斜体，不影响普通文本", () => {
+    for (const source of ["$fine", "@symbol(fine)"]) {
+        const layout = layoutOf(`${source} "Plain"`);
+        const [svg] = renderLayoutPagesToSvg(layout);
+        strictEqual((svg.match(/font-style="italic"/g) ?? []).length, 1);
+        assert(/<text [^>]*font-style="italic"[^>]*>Fine\.<\/text>/.test(svg),
+            "Fine 文字应输出斜体样式");
+
+        const fonts: string[] = [];
+        const context = recordingCanvasContext([]);
+        context.fillText = () => { fonts.push(context.font); };
+        renderLayoutPagesToCanvas(layout, [context]);
+        strictEqual(fonts.length, 2);
+        strictEqual(fonts.filter(font => font.startsWith("italic ")).length, 1);
+        assert(fonts[0].includes('"Times New Roman", serif'), "Fine 应保留原有字体");
+        assert(fonts[0].startsWith("italic "), "Canvas 中的 Fine 也应使用斜体");
+    }
+});
+
 test("SVG 路径把平移与正负缩放烘进最终几何", () => {
     const scaledPathPainter = new SvgPainter();
     const scaledPathCommands: readonly PathCommand[] = [
