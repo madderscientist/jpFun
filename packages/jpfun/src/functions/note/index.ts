@@ -196,7 +196,7 @@ class NoteTemporalNode extends TemporalNodeBase {
     declare box: LayoutBox;
 
     // 时间固化后的参数
-    resolvedMidi: number | null = null; // MIDI音高 name是数字则需要在onTimeState中基于当前调性偏移 播放的音高
+    resolvedMidi: number | null = null; // 按调性解析的记谱音高，不含播放偏移
     keySignature = "C4";    // 用于转调时记录大环境
     transposeDiatonic: ((steps: number) => number) | undefined;
     name: string;     // 数字
@@ -345,6 +345,8 @@ class NoteTemporalNode extends TemporalNodeBase {
     override emitPlayback(emitter: PlaybackEmitter) {
         const percussion = this.ast.name === "9";
         const midi = percussion ? 37 : this.resolvedMidi;
+        const shift = percussion ? 0 : this.playbackState?.pitchShift ?? 0;
+        const transpose = this.transposeDiatonic;
         if (emitter.end.compare(emitter.start) <= 0) return;
         // 休止符和占位符也要保留结构边界，速度效果与后续延长才能覆盖这段时间。
         if (midi === null) {
@@ -355,9 +357,10 @@ class NoteTemporalNode extends TemporalNodeBase {
         emitter.note({
             start: emitter.start,
             end: emitter.end,
-            midi,
+            midi: midi + shift,
             velocity: this.playbackState?.velocity ?? DEFAULT_VELOCITY,
-            ...(percussion ? { percussion: true as const } : { transpose: this.transposeDiatonic }),
+            ...(percussion ? { percussion: true as const }
+                : { transpose: shift && transpose ? steps => transpose(steps) + shift : transpose }),
         });
     }
 }

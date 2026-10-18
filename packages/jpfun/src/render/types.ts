@@ -32,6 +32,7 @@ export interface TextStyle {
     fontSize: number;        // 字号，单位为布局坐标像素
     fontFamily?: string;     // Painter 原样使用的字体族列表
     fontWeight?: string | number; // CSS 或 Canvas 可接受的字重
+    fontStyle?: "normal" | "italic" | "oblique";
     textAlign?: "left" | "center" | "right"; // x 坐标对应文本的哪一侧
     fill?: string;
     opacity?: number;

@@ -8,7 +8,8 @@ export const JIANPU_NUMBER_FONT = "'Cascadia Mono', Consolas, 'Liberation Mono',
 
 /** Canvas 的 font 简写；测量与绘制必须用同一份，否则量到的不是将要画出的字形 */
 export function canvasFont(style: TextStyle): string {
-    return `${style.fontWeight ?? "normal"} ${style.fontSize}px ${style.fontFamily ?? DEFAULT_TEXT_FONT}`;
+    const slant = style.fontStyle ? `${style.fontStyle} ` : "";
+    return `${slant}${style.fontWeight ?? "normal"} ${style.fontSize}px ${style.fontFamily ?? DEFAULT_TEXT_FONT}`;
 }
 
 /** 默认文本测量保持确定性，不依赖浏览器和操作系统字体。 */
@@ -44,7 +45,7 @@ export class CanvasTextMeasurer implements TextMeasurer {
 
     /**
      * 字体名称不变但实际资源变化时调用，例如 Web 字体加载完成后，旧缓存仍是回退字体的宽度。
-     * 清理后宿主需重新编译、布局和绘制；仅切换字体族、字号或字重无需清理，它们已包含在缓存键中。
+     * 清理后宿主需重新编译、布局和绘制；切换字体族、字号、字重或斜体无需清理，它们已包含在缓存键中。
      */
     clearCache(): void {
         this.widths.clear();

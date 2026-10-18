@@ -118,3 +118,28 @@ test("volta ignores unknown named args and uses numeric extra-arg diagnostics", 
     equal(findFunction(compiled.ast, "volta")!.toString(source), '@volta(a, b, 1, 2, 3)');
     deepEqual(compileScore('1@a 2@b @volta(a,b,1,2,"Custom")').diagnostics.map(item => item.code), ["W_INVALID_NUMBER"]);
 });
+
+test("ottava captures scoped numberfont and measures the same italic label it paints", () => {
+    for (const [settings, expected] of [
+        ['', JIANPU_NUMBER_FONT], ['@set(font="Ordinary", numberfont="")', JIANPU_NUMBER_FONT],
+        ['@set(numberfont="Digits")', 'Digits'],
+    ] as const) {
+        const measured: { text: string; style: TextStyle }[] = [];
+        const source = `${settings} 1@a @ottava(a,a,2) @set(numberfont="Later")`;
+        const compiled = compileScore(source, { textMeasurer: { measureText(text, style) {
+            measured.push({ text, style: { ...style } });
+            return defaultTextMeasurer.measureText(text, style);
+        } } });
+        deepEqual(compiled.diagnostics, []);
+        const label = recordCommands(compiled.layout).find(command => command.kind === "text" && command.text === "15");
+        ok(label?.kind === "text");
+        equal(label.style.fontFamily, expected);
+        equal(label.style.fontStyle, "italic");
+        deepEqual(label.style, measured.find(item => item.text === "15")?.style);
+        equal(findFunction(compiled.ast, "ottava")!.toString(source), '@ottava(a, a, 2)');
+    }
+    const scoped = compileScore('@set(numberfont="Outer") 1@a 2@b { @set(numberfont="Inner") @ottava(a,b,2) } @ottava(a,b,3)');
+    deepEqual(recordCommands(scoped.layout).filter(command => command.kind === "text")
+        .filter(command => ["15", "22"].includes(command.text))
+        .map(command => command.style.fontFamily), ["Inner", "Outer"]);
+});

@@ -88,6 +88,7 @@ export class SvgPainter implements Painter {
             `<text x="${number(x)}" y="${number(y)}" `
             + `font-family="${escapeXml(family)}" font-size="${number(style.fontSize)}" `
             + `font-weight="${escapeXml(String(weight))}" text-anchor="${textAnchor}" `
+            + (style.fontStyle ? `font-style="${escapeXml(style.fontStyle)}" ` : "")
             + `fill="${escapeXml(fill)}" xml:space="preserve"`
             + `${opacityAttribute(style)}>${escapeXml(text)}</text>`,
         );

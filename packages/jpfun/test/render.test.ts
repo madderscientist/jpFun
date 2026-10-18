@@ -3,7 +3,7 @@ import { strictEqual } from "node:assert";
 
 import type { DocumentLayoutResult } from "../src/layout/engine.js";
 import { pathBounds } from "../src/layout/path.js";
-import { renderLayoutPagesToCanvas } from "../src/render/canvas.js";
+import { CanvasPainter, renderLayoutPagesToCanvas } from "../src/render/canvas.js";
 import { layoutPageBounds } from "../src/render/paint.js";
 import { renderLayoutPagesToSvg, SvgPainter } from "../src/render/svg.js";
 import { CanvasTextMeasurer, canvasFont } from "../src/render/text.js";
@@ -109,6 +109,26 @@ test("颤音尾巴在 SVG 与 Canvas 中都逐截绘制", () => {
         strictEqual(calls.filter(call => call === "fill").length, count + 1);
         assert(recordCommands(result).every(allNumbersFinite)
             && !/NaN|Infinity/.test(svg), "尾巴绘制坐标必须有限");
+    }
+});
+
+test("高低多八度号的斜体标签、虚线与折钩在 SVG 和 Canvas 中一致", () => {
+    for (const shift of [2, -3]) {
+        const layout = layoutOf(`1@a @br() 2@b @ottava(a,b,${shift})`);
+        const commands = recordCommands(layout);
+        const [svg] = renderLayoutPagesToSvg(layout);
+        const calls = recordCanvasCalls(layout);
+        const text = String(Math.abs(shift) * 7 + 1);
+        strictEqual((svg.match(new RegExp(`>${text}</text>`, "g")) ?? []).length, 1);
+        strictEqual((svg.match(/font-style="italic"/g) ?? []).length, 1);
+        strictEqual((svg.match(/<text /g) ?? []).length, 3);
+        strictEqual(calls.filter(call => call === "fillText").length, 3);
+        strictEqual((svg.match(/<path d=/g) ?? []).length, 0);
+        const lines = commands.filter(command => command.kind === "line").length;
+        assert(lines > 1, "八度号仍绘制续行虚线和末端折钩");
+        strictEqual((svg.match(/<line /g) ?? []).length, lines);
+        strictEqual(calls.filter(call => call === "stroke").length, lines);
+        assert(commands.every(allNumbersFinite) && !/NaN|Infinity/.test(svg), "所有后端坐标须有限");
     }
 });
 
@@ -236,11 +256,19 @@ test("CanvasTextMeasurer 用绘制时的同一份字体串测量", () => {
         measureText: () => ({ width }),
     } as unknown as CanvasRenderingContext2D;
     const measurer = new CanvasTextMeasurer(context);
-    const style: TextStyle = { fontSize: 20, fontFamily: "Cascadia Mono", fontWeight: "bold" };
+    const style: TextStyle = { fontSize: 20, fontFamily: "Cascadia Mono", fontWeight: "bold", fontStyle: "italic" };
 
     const metrics = measurer.measureText("abc", style);
     assert(seen.length === 1 && seen[0] === canvasFont(style),
         "the measurer must select the exact font string CanvasPainter draws with");
+    strictEqual(seen[0], "italic bold 20px Cascadia Mono");
+    let drawnFont = "";
+    const drawingContext = recordingCanvasContext([]);
+    Object.defineProperty(drawingContext, "font", {
+        set(value: string) { drawnFont = value; },
+    });
+    new CanvasPainter(drawingContext).drawText("abc", 0, 0, style);
+    strictEqual(drawnFont, canvasFont(style));
     assert(nearly(metrics.w, 40), "width must come from the host font metrics");
     assert(nearly(metrics.h, 20) && nearly(metrics.baseline, 16),
         "height and baseline must keep the deterministic em-box convention");
@@ -251,9 +279,10 @@ test("CanvasTextMeasurer 用绘制时的同一份字体串测量", () => {
     measurer.measureText("abc", largerStyle);
     assert(seen.at(-1) === canvasFont(largerStyle), "a different style must not reuse the cached width");
     const samples = [["abc", style], ["def", style], ["abc", largerStyle],
-        ["abc", { ...style, fontFamily: "serif" }], ["abc", { ...style, fontWeight: "normal" }]] as const;
+        ["abc", { ...style, fontFamily: "serif" }], ["abc", { ...style, fontWeight: "normal" }],
+        ["abc", { ...style, fontStyle: "normal" }]] as const;
     for (const [text, sampleStyle] of samples) measurer.measureText(text, sampleStyle);
-    strictEqual(seen.length, samples.length, "text, size, family and weight must have separate cache entries");
+    strictEqual(seen.length, samples.length, "text, size, family, weight and slant must have separate cache entries");
     width = 60;
     for (const [text, sampleStyle] of samples) {
         assert(measurer.measureText(text, sampleStyle).w === 40, "cached widths remain until invalidated");

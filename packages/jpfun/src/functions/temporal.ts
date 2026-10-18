@@ -113,7 +113,7 @@ export class TemporalNodeBase implements TimeLineEvent {
      * 装饰与关系函数使用的命名局部坐标，相对 box 左上角，每轮布局重建。
      *
      * 当前内置端口：
-     * - body.left / body.right：主体核心左右边界，供 div、tuplet、volta 使用；缺省为盒左右边界。
+     * - body.left / body.right：主体核心左右边界，供 div、tuplet、volta、ottava 使用；缺省为盒左右边界。
      * - decoration.below：下方装饰排列起点（只读 y）；缺省为正文 box.h。
      * - shoulder：倚音的纵向定位基准（只读 y）；音符提供数字顶边，缺省为盒顶。
      * - tie.top：连音线端点；缺省为 anchor 与内容上沿，up 提供最上层成员的端点。

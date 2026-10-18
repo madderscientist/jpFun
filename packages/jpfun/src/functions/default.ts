@@ -16,6 +16,7 @@ import { KeyNode } from "./key/index.js";
 import { MeterNode } from "./meter/index.js";
 import { BrNode } from "./br/index.js";
 import { NoteNode } from "./note/index.js";
+import { OttavaNode } from "./ottava/index.js";
 import { RestNode } from "./rest/index.js";
 import { UpNode, DownNode } from "./up/index.js";
 import { PageNode } from "./page/index.js";
@@ -42,7 +43,7 @@ export const defaultFunctions: ASTFunctionClass[] = [
     ArpeggioNode,
     GraceNode, SlideNode,  // 倚音与滑入滑出
     TieNode, BeamNode, GlissNode, DynNode,
-    BoxNode, VoltaNode,
+    BoxNode, VoltaNode, OttavaNode,
     AdjustNode,   // 手工微调
     SetNode, KeyNode, MeterNode, TempoNode, ProgramNode,    // 设置
     TextNode, SymbolNode,

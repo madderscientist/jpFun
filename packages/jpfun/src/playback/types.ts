@@ -60,6 +60,8 @@ export interface PlaybackState {
     readonly bpm?: number;
     readonly velocity?: number;
     readonly program?: number;
+    /** 只改变发声的半音偏移，不改变记谱音高及其源码改写 */
+    readonly pitchShift?: number;
 }
 
 /** 按线性化时间扫描的可变系统状态 */
