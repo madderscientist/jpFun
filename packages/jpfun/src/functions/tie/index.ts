@@ -16,10 +16,38 @@ import type {
 } from "../../layout/types.js";
 import type { Painter, PathCommand } from "../../render/types.js";
 import type {
+    PlaybackNote,
     PlaybackRelation,
     PlaybackRelationContext,
 } from "../../playback/types.js";
 import type { Track } from "../../lowering/track.js";
+
+/** 仅索引被 @tie 引用过的端点，避免为全谱无关音符分配数组与 Map 节点 */
+const tieEndpoints = new WeakSet<VisualTemporalNode>();
+const notesByOriginNode = new WeakMap<
+    readonly Readonly<PlaybackNote>[],
+    Map<VisualTemporalNode, Readonly<PlaybackNote>[]>
+>();
+
+function endpointNotes(
+    notes: readonly Readonly<PlaybackNote>[],
+    endpoint: VisualTemporalNode,
+): readonly Readonly<PlaybackNote>[] {
+    let index = notesByOriginNode.get(notes);
+    if (!index) {
+        index = new Map();
+        for (const note of notes) {
+            for (const { node } of note.origins) {
+                if (!tieEndpoints.has(node as VisualTemporalNode)) continue;
+                const group = index.get(node as VisualTemporalNode);
+                if (group) group.push(note);
+                else index.set(node as VisualTemporalNode, [note]);
+            }
+        }
+        notesByOriginNode.set(notes, index);
+    }
+    return index.get(endpoint) ?? [];
+}
 
 /** 三次贝塞尔控制点的抬高系数：两个控制点同高时，实际弧高恰好是抬高的 3/4 */
 const CUBIC_LIFT = 4 / 3;
@@ -127,6 +155,7 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
 
     constructor(endPoints: VisualTemporalNode[], height: number, fontSize: number, sourceSpan: SourceSpan) {
         this.endPoints = endPoints;
+        for (const endpoint of endPoints) tieEndpoints.add(endpoint);
         this.height = height;
         this.fontSize = fontSize;
         this.sourceSpan = sourceSpan;
@@ -143,14 +172,12 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
      */
     applyPlayback(context: PlaybackRelationContext) {
         // 整体端点可能包含和弦多个成员或多遍访问，每个首段分别寻找自己的连接链。
-        for (const head of context.notes.filter(note =>
-            note.origins.some(origin => origin.node === this.endPoints[0]))) {
+        for (const head of endpointNotes(context.notes, this.endPoints[0])) {
             let previous = head;
             // 按显式端点顺序延续；某一端点没有相接音段就停止，不能跨过缺口连接。
             for (let index = 1; index < this.endPoints.length; index++) {
                 // connect 同时认领候选：配对冲突时继续找其他成员，重复声明可复用原配对。
-                const next = context.notes.find(note => note !== previous
-                    && note.origins.some(origin => origin.node === this.endPoints[index])
+                const next = endpointNotes(context.notes, this.endPoints[index]).find(note => note !== previous
                     && note.track === previous.track
                     && note.midi === previous.midi
                     && note.percussion === previous.percussion

@@ -1,9 +1,20 @@
 import { DEFAULT_BPM } from "../functions/temporal.js";
 import type { PlaybackEvent, PlaybackPlan, PlaybackScorePoint } from "./types.js";
 
-/** 演奏时间（QN）按分段速度积分为秒 */
-export function performanceTimeToSeconds(events: readonly PlaybackEvent[], performanceTime: number): number {
-    const target = Math.max(0, performanceTime);
+interface TempoSegment {
+    performance: number;
+    seconds: number;
+    bpm: number;
+}
+
+const tempoSegmentsCache = new WeakMap<readonly PlaybackEvent[], readonly TempoSegment[]>();
+
+/** 提取并缓存分段速度积分表，使帧级时间换算无需重复扫描全部音符事件 */
+function tempoSegmentsOf(events: readonly PlaybackEvent[]): readonly TempoSegment[] {
+    let segments = tempoSegmentsCache.get(events);
+    if (segments) return segments;
+
+    const built: TempoSegment[] = [{ performance: 0, seconds: 0, bpm: DEFAULT_BPM }];
     let seconds = 0;
     let position = 0;
     let bpm = DEFAULT_BPM;
@@ -11,41 +22,50 @@ export function performanceTimeToSeconds(events: readonly PlaybackEvent[], perfo
     for (const event of events) {
         if (event.kind !== "tempo") continue;
         const next = event.at.toNumber();
-        if (next > target) break;
-        if (next > position) seconds += (next - position) * 60 / bpm;
-        position = next;
+        if (next > position) {
+            seconds += (next - position) * 60 / bpm;
+            position = next;
+        }
         bpm = event.bpm;
+        const last = built[built.length - 1];
+        if (last.performance === position) last.bpm = bpm;
+        else built.push({ performance: position, seconds, bpm });
     }
-    return seconds + (target - position) * 60 / bpm;
+    tempoSegmentsCache.set(events, built);
+    return built;
+}
+
+function stepAt<T>(items: readonly T[], target: number, valueOf: (item: T) => number): T {
+    let low = 0;
+    let high = items.length;
+    while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (valueOf(items[middle]) <= target) low = middle + 1;
+        else high = middle;
+    }
+    return items[Math.max(0, low - 1)];
+}
+
+/** 演奏时间（QN）按分段速度积分为秒 */
+export function performanceTimeToSeconds(events: readonly PlaybackEvent[], performanceTime: number): number {
+    const target = Math.max(0, performanceTime);
+    const segment = stepAt(tempoSegmentsOf(events), target, item => item.performance);
+    return segment.seconds + (target - segment.performance) * 60 / segment.bpm;
 }
 
 export function secondsToPerformanceTime(events: readonly PlaybackEvent[], seconds: number): number {
-    let remaining = Math.max(0, seconds);
-    let position = 0;
-    let bpm = DEFAULT_BPM;
-
-    for (const event of events) {
-        if (event.kind !== "tempo") continue;
-        const next = event.at.toNumber();
-        const segmentSeconds = (next - position) * 60 / bpm;
-        if (remaining < segmentSeconds) return position + remaining * bpm / 60;
-        remaining -= segmentSeconds;
-        position = next;
-        bpm = event.bpm;
-    }
-    return position + remaining * bpm / 60;
+    const target = Math.max(0, seconds);
+    const segment = stepAt(tempoSegmentsOf(events), target, item => item.seconds);
+    return segment.performance + (target - segment.seconds) * segment.bpm / 60;
 }
 
 /** 演奏进度换算为谱面进度 */
 export function performanceTimeToScoreTime(scoreMap: readonly PlaybackScorePoint[], performanceTime: number): number {
     const target = Math.max(0, performanceTime);
-    let result = target;
-    for (const point of scoreMap) {
-        const performance = point.performance.toNumber();
-        if (performance > target) break;
-        result = point.score.toNumber() + target - performance;
-    }
-    return result;
+    const point = stepAt(scoreMap, target, item => item.performance.toNumber());
+    return point && point.performance.toNumber() <= target
+        ? point.score.toNumber() + target - point.performance.toNumber()
+        : target;
 }
 
 /**

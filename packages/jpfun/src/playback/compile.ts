@@ -40,14 +40,16 @@ import { isPlaybackRelation } from "./types.js";
  */
 function linearizeColumns(lowering: LoweringResult, diagnostics: Diagnostic[], maxFlowSteps: number) {
     const columns = lowering.columns;
-    const columnOf = new Map<TemporalNodeBase, number>();
-    // 先建立时间流内的 TemporalNode 的列索引
-    for (let index = 0; index < columns.length; index++) {
-        for (const node of columns[index]) columnOf.set(node, index);
-    }
+    let columnOf: Map<TemporalNodeBase, number> | undefined;
     // 折叠成员不单独占列，沿 foldedInto 找到最近的已入列宿主
     // 标记和关系端点都使用这个映射，保持控制流与实际时间列一致
     const resolveColumn: PlaybackColumnOf = (node, edge) => {
+        if (!columnOf) {
+            columnOf = new Map();
+            for (let index = 0; index < columns.length; index++) {
+                for (const item of columns[index]) columnOf.set(item, index);
+            }
+        }
         for (let at: TemporalNodeBase | undefined = node; at; at = at.foldedInto) {
             const index = columnOf.get(at);
             if (index === undefined) continue;
@@ -90,7 +92,7 @@ function linearizeColumns(lowering: LoweringResult, diagnostics: Diagnostic[], m
         for (const node of nodes) {
             addHook(node as TemporalNodeBase & Partial<PlaybackFlow>, node.ast.sourceSpan);
             const marks = node.playbackMarks?.();
-            if (!marks) continue;
+            if (!marks?.length) continue;
             const at = resolveColumn(node);
             if (at === void 0) continue;
             for (const mark of marks) {
@@ -211,11 +213,11 @@ export function compilePlayback(
         key: object;
         factor: Fraction;
         followConnections: boolean;
-        origins: PlaybackOrigin[];
+        origins: readonly PlaybackOrigin[];
         /** 区间内的归一化起点；外层结构缩放时与区间一起移动 */
         startRatio?: Fraction;
     }
-    type StateChange = { at: Fraction; origins: PlaybackOrigin[] } & (
+    type StateChange = { at: Fraction; origins: readonly PlaybackOrigin[] } & (
         | { kind: "initial" }
         | { kind: "control"; apply: PlaybackControl }
         | { kind: "scale"; scale: BpmScale; delta: 1 | -1 }
@@ -225,7 +227,7 @@ export function compilePlayback(
     const spanScales = new Map<PlaybackSpan, readonly BpmScale[]>();
     const structureContext: PlaybackHookContext = { spans, notes, diagnostics };
     /** 固化控制的演奏时刻和来源，回调留到最终状态扫描时统一执行 */
-    const scheduleControl = (at: Fraction, origins: PlaybackOrigin[], apply: PlaybackControl) => {
+    const scheduleControl = (at: Fraction, origins: readonly PlaybackOrigin[], apply: PlaybackControl) => {
         if (!Number.isFinite(at.toNumber()) || at.compare(0) < 0) {
             throw new ErrorDiagnostic("E_PLAYBACK_CONTROL_TIME", "系统控制时刻必须是非负有限值",
                 origins.at(-1)!.node.ast.sourceSpan);
@@ -240,17 +242,18 @@ export function compilePlayback(
         activeScales: BpmScale[],
         start: Fraction,
         duration: Fraction,
-        ancestors: PlaybackOrigin[] = [],
+        ancestors: readonly PlaybackOrigin[] = [],
         // 折叠成员沿用正文事件的轨发声，倚音各声部的私有轨因此并入宿主轨
         track = node.track,
     ) {
+        if (!node.playbackState && !node.emitPlayback) return;
         const lineage: PlaybackOrigin[] = [...ancestors, { node }];
-        // 当前目标使用进入时的效果快照；子节点序列使用副本，内部新增效果不会回灌外层
-        const childTransforms = [...activeTransforms];
-        const inheritedTransforms = [...activeTransforms];
-        const childScales = [...activeScales];
-        const inheritedScales = [...activeScales];
-        const deferred: PlaybackHook[] = [];
+        // 当前目标使用进入时的效果快照；子节点序列按需复制，内部新增效果不会回灌外层
+        const inheritedTransforms = activeTransforms.length ? [...activeTransforms] : undefined;
+        const inheritedScales = activeScales.length ? [...activeScales] : undefined;
+        let childTransforms: PlaybackTransform[] | undefined;
+        let childScales: BpmScale[] | undefined;
+        let deferred: PlaybackHook[] | undefined;
 
         /** 复制可变的时间和源码位置，避免结构修改影响输入或另一遍访问 */
         function publishSpan<Input extends PlaybackSpanInput>(input: Input) {
@@ -263,7 +266,7 @@ export function compilePlayback(
                 sourceSpans: [{ ...node.ast.sourceSpan }],
             };
             spans.push(span);
-            if (inheritedScales.length) spanScales.set(span, inheritedScales);
+            if (inheritedScales) spanScales.set(span, inheritedScales);
             return span;
         }
 
@@ -286,11 +289,12 @@ export function compilePlayback(
             note(input) {
                 const note = publishSpan(input);
                 notes.push(note);
-                if (inheritedTransforms.length) transforms.set(note, inheritedTransforms);
+                if (inheritedTransforms) transforms.set(note, inheritedTransforms);
             },
             /** 延长原区间，并把当前访问携带的效果定位到新增部分 */
             extend(span) {
-                if (!spans.includes(span) || !span.end.equals(start) || duration.compare(0) <= 0) {
+                // 待延长目标总在已发布末尾附近，反向查找无需额外 Set 即可 O(1) 命中
+                if (spans.lastIndexOf(span) < 0 || !span.end.equals(start) || duration.compare(0) <= 0) {
                     throw new ErrorDiagnostic("E_PLAYBACK_EXTEND_RANGE", "扩展必须接续当前计划内的区间且时值为正",
                         node.ast.sourceSpan);
                 }
@@ -301,8 +305,10 @@ export function compilePlayback(
                     ? { ...scale, startRatio: scale.startRatio.clone().mul(previousDuration).div(extendedDuration) }
                     : scale);
                 // 新效果从旧终点开始；保存比例后，后续整体结构缩放仍能同步移动它的起点
-                for (const scale of inheritedScales) {
-                    scales.push({ ...scale, startRatio: previousDuration.clone().div(extendedDuration) });
+                if (inheritedScales) {
+                    for (const scale of inheritedScales) {
+                        scales.push({ ...scale, startRatio: previousDuration.clone().div(extendedDuration) });
+                    }
                 }
                 if (scales.length) spanScales.set(span, scales);
                 span.end.add(duration);
@@ -328,12 +334,19 @@ export function compilePlayback(
                     origins: lineage });
             },
             affectFollowing: transform => activeTransforms.push(transform),
-            defer: hook => deferred.push(hook),
-            play: (child, childStart, childDuration) => play(child, childTransforms, childScales,
-                childStart ?? start, childDuration ?? duration, lineage, track),
+            defer: hook => (deferred ??= []).push(hook),
+            play: (child, childStart, childDuration) => play(
+                child,
+                childTransforms ??= [...activeTransforms],
+                childScales ??= [...activeScales],
+                childStart ?? start,
+                childDuration ?? duration,
+                lineage,
+                track,
+            ),
         });
         // 当前节点发布完成就执行结构处理，因此 hook 只能看到当前位置此前的目标
-        for (const hook of deferred) hook(structureContext);
+        if (deferred) for (const hook of deferred) hook(structureContext);
     }
 
     const order = linearizeColumns(lowering, diagnostics, maxFlowSteps);
@@ -350,6 +363,7 @@ export function compilePlayback(
         const index = order[step];
         // 同列各顶层访问共享演奏坐标，但分别建立自己的效果作用域
         for (const node of lowering.columns[index]) {
+            if (!node.playbackState && !node.emitPlayback) continue;
             play(node, [], [], node.t.clone().add(shift), node.T.clone());
         }
         const boundary = lowering.columns[index + 1]?.[0]?.t ?? lowering.duration;  // 当前列的控制终点
@@ -384,7 +398,7 @@ export function compilePlayback(
         Object.freeze(span);
     }
 
-    const noteSet = new Set(notes);
+    let noteSet: Set<PlaybackNote> | undefined;
     const connections = new Map<PlaybackNote, PlaybackNote>();
     const predecessors = new Map<PlaybackNote, PlaybackNote>();
     const relationContext: PlaybackRelationContext = {
@@ -392,6 +406,7 @@ export function compilePlayback(
         diagnostics,
         /** 只建立一进一出的逻辑连接，保留两个音段各自的边界和修饰 */
         connect(from, to) {
+            noteSet ??= new Set(notes);
             if (!noteSet.has(from) || !noteSet.has(to) || !from.end.equals(to.start)) {
                 throw new ErrorDiagnostic("E_PLAYBACK_CONNECTION", "音段连接必须属于当前计划且时间相接",
                     from.sourceSpans[0]);
@@ -408,13 +423,15 @@ export function compilePlayback(
         if (isPlaybackRelation(attachment)) attachment.applyPlayback(relationContext);
     }
 
-    const reverseNotes = [...notes].sort((left, right) => right.start.compare(left.start));
+    // 仅对实际参与连接的前驱按起点逆序排列，无连接时跳过排序与整表遍历
+    const connectedNotes = connections.size
+        ? [...connections.keys()].sort((left, right) => right.start.compare(left.start))
+        : [];
     const connectedEnds = new Map<PlaybackSpan, Fraction>();
     // 连接严格向未来推进；逆序处理保证后继的链尾已知，一次算出所有逻辑终点
-    for (const note of reverseNotes) {
-        const next = connections.get(note);
-        const end = next ? connectedEnds.get(next)! : note.end;
-        connectedEnds.set(note, end);
+    for (const note of connectedNotes) {
+        const next = connections.get(note)!;
+        connectedEnds.set(note, connectedEnds.get(next) ?? next.end);
     }
     // 将有声、无声区间上的效果转换为进入和退出边界，交给同一条全局状态时间线
     for (const span of spans) {
@@ -510,51 +527,58 @@ export function compilePlayback(
     }[]>();
     // 每个逻辑音段独立展开声音，连接不会让后一段继承前一段的装饰
     for (const note of notes) {
-        let owned: PlaybackNote[] = [{ ...note, start: note.start.clone(), end: note.end.clone() }];
-        // 变换按登记顺序消费上一项的结果，每项对这个逻辑音段只执行一次
-        for (const transform of transforms.get(note) ?? []) {
-            owned = transform(transformContext, owned) ?? owned;
-        }
-        let first: Fraction | undefined;
-        let last: Fraction | undefined;
-        // 各子音必须留在原区间内；同时收集整体边界，防止声音阶段改写已确定的结构范围
-        for (const sound of owned) {
-            if (!Number.isFinite(sound.start.toNumber()) || !Number.isFinite(sound.end.toNumber())
-                || sound.start.compare(note.start) < 0 || sound.end.compare(note.end) > 0
-                || sound.end.compare(sound.start) <= 0) {
-                throw new ErrorDiagnostic("E_PLAYBACK_TRANSFORM_RANGE", "声音展开必须位于原音段区间内且时值为正",
+        let owned: PlaybackNote[] = [note];
+        const noteTransforms = transforms.get(note);
+        if (noteTransforms) {
+            owned = [{ ...note, start: note.start.clone(), end: note.end.clone() }];
+            // 变换按登记顺序消费上一项的结果，每项对这个逻辑音段只执行一次
+            for (const transform of noteTransforms) {
+                owned = transform(transformContext, owned) ?? owned;
+            }
+            let first: Fraction | undefined;
+            let last: Fraction | undefined;
+            // 各子音必须留在原区间内；同时收集整体边界，防止声音阶段改写已确定的结构范围
+            for (const sound of owned) {
+                if (!Number.isFinite(sound.start.toNumber()) || !Number.isFinite(sound.end.toNumber())
+                    || sound.start.compare(note.start) < 0 || sound.end.compare(note.end) > 0
+                    || sound.end.compare(sound.start) <= 0) {
+                    throw new ErrorDiagnostic("E_PLAYBACK_TRANSFORM_RANGE", "声音展开必须位于原音段区间内且时值为正",
+                        note.sourceSpans[0]);
+                }
+                if (!first || sound.start.compare(first) < 0) first = sound.start;
+                if (!last || sound.end.compare(last) > 0) last = sound.end;
+            }
+            if (!first?.equals(note.start) || !last?.equals(note.end)) {
+                throw new ErrorDiagnostic("E_PLAYBACK_TRANSFORM_RANGE", "声音展开必须保持原音段的起止边界",
                     note.sourceSpans[0]);
             }
-            if (!first || sound.start.compare(first) < 0) first = sound.start;
-            if (!last || sound.end.compare(last) > 0) last = sound.end;
         }
-        if (!first?.equals(note.start) || !last?.equals(note.end)) {
-            throw new ErrorDiagnostic("E_PLAYBACK_TRANSFORM_RANGE", "声音展开必须保持原音段的起止边界",
-                note.sourceSpans[0]);
-        }
-        // 现在才分配实际音符身份；变换专用字段不再进入点事件，配对留给边界合并使用
-        realized.set(note, owned.map(sound => {
+        // 现在才分配实际音符身份；仅参与连接的音段需要记录事件对供边界合并
+        const pairs = (connections.has(note) || predecessors.has(note))
+            ? [] as { on: PlaybackDraftNoteOnEvent; off: PlaybackDraftNoteOffEvent }[]
+            : undefined;
+        for (const sound of owned) {
             const { start, end, track, midi, velocity, percussion, origins, sourceSpans } = sound;
             const noteId = nextNoteId++;
             const on: PlaybackDraftNoteOnEvent = {
                 kind: "note-on", at: start.clone(), noteId, order: nextEventOrder++,
                 track, midi, velocity, percussion,
-                origins: [...origins], sourceSpans: sourceSpans.map(span => ({ ...span })),
+                origins, sourceSpans: [...sourceSpans],
             };
             const off: PlaybackDraftNoteOffEvent = {
-                kind: "note-off", at: end.clone(), noteId, order: nextEventOrder++, origins: [...origins],
+                kind: "note-off", at: end.clone(), noteId, order: nextEventOrder++, origins,
             };
             events.push(on, off);
-            return { on, off };
-        }));
+            pairs?.push({ on, off });
+        }
+        if (pairs) realized.set(note, pairs);
     }
 
     const removed = new Set<PlaybackDraftEvent>();
     const joinedSources = new Map<PlaybackDraftNoteOnEvent, PlaybackDraftNoteOnEvent>();
     // 后继先完成合并，前驱便可直接接到它更新后的终点；仅合并连接处实际同音的事件
-    for (const note of reverseNotes) {
-        const next = connections.get(note);
-        if (!next) continue;
+    for (const note of connectedNotes) {
+        const next = connections.get(note)!;
         // 只有到达原音段末端的子音可以跨边界连接，中间子音保留自己的起止
         for (const tail of realized.get(note)!) {
             if (!tail.off.at.equals(note.end)) continue;

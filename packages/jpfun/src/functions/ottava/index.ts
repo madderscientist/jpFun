@@ -47,21 +47,29 @@ class OttavaFunction extends ASTFunctionNode {
     };
 
     static override loweringFinalize = (result: LoweringResult) => {
-        const ottavas = result.attachments.filter(
-            (attachment): attachment is OttavaAttachment => attachment instanceof OttavaAttachment,
-        ).map(attachment => {
+        const ottavasByTrack = new Map<TemporalNodeBase["track"], { start: TemporalNodeBase["t"]; end: TemporalNodeBase["t"]; shift: number }[]>();
+        for (const attachment of result.attachments) {
+            if (!(attachment instanceof OttavaAttachment)) continue;
             const [from, to] = attachment.endPoints;
-            return { from, end: to.t.clone().add(to.T), shift: attachment.ast.shift * 12 };
-        });
-        if (ottavas.length === 0) return;
+            const entry = { start: from.t, end: to.t.clone().add(to.T), shift: attachment.ast.shift * 12 };
+            const list = ottavasByTrack.get(from.track);
+            if (list) list.push(entry);
+            else ottavasByTrack.set(from.track, [entry]);
+        }
+        if (ottavasByTrack.size === 0) return;
+        for (const list of ottavasByTrack.values()) {
+            list.sort((left, right) => left.start.compare(right.start));
+        }
         for (const nodes of result.astToTemporal.values()) {
             for (const node of nodes) {
                 if (!node.playbackState) continue;
                 const host = outerHost(node);
+                const ottavas = ottavasByTrack.get(host.track);
+                if (!ottavas) continue;
                 let shift = 0;
                 for (const ottava of ottavas) {
-                    if (host.track === ottava.from.track && host.t.compare(ottava.from.t) >= 0
-                        && host.t.compare(ottava.end) < 0) {
+                    if (host.t.compare(ottava.start) < 0) break;
+                    if (host.t.compare(ottava.end) < 0) {
                         shift += ottava.shift;
                     }
                 }

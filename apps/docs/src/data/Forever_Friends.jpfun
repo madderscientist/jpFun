@@ -1,0 +1,26 @@
+@page(width=793.9190551181101px, height=0px, top=56.69292283464566px, bottom=56.69292283464566px, left=56.69292283464566px, right=56.69292283464566px, numbering="jpFun 制谱")
+H.title: Forever Friends
+H.subtitle: 动画电影《升空的焰火，从下面看还是从侧面看?》插曲
+H.author: Remedios  作曲
+H.author: Daoko  歌手
+H.signature: 1=Db5 4/4
+H.tempo: 75
+
+Ab4/ Db5/ Eb5/ Ab5// F5//@mx0 F5@mx1 - @tie(mx0, mx1) | F5/ Eb5/ F5/ Gb5// Eb5//@mx2 Eb5@mx3 - @tie(mx2, mx3) | F5/ Eb5/ F5/ Gb5// Eb5//@mx4 Eb5@mx5 - @tie(mx4, mx5) | Eb5/ Db5/ Eb5/ Gb5// F5//@mx6 F5//@mx7 @tie(mx6, mx7) Gb5/. Db5/ Bb4// Db5//@mx8 | 
+
+Db5@mx9 - @tie(mx8, mx9) Bb4 - | C5// Db5// Eb5/ Eb5/ F5/ Ab4/ Db5 Db5/@mx10 | Db5@mx11 - @tie(mx10, mx11) Db5/ Eb5/ Bb4/ Eb5/@mx12 | Eb5.@mx13 @tie(mx12, mx13) F5// Db5// Eb5 0 | Ab4/ Db5// Eb5/. Ab5// F5//@mx14 F5@mx15 - @tie(mx14, mx15) | 
+
+F5/ Eb5/ F5/ Gb5// Eb5//@mx16 Eb5@mx17 - @tie(mx16, mx17) | F5/ Eb5/ F5/ Gb5// Eb5//@mx18 Eb5@mx19 - @tie(mx18, mx19) | Eb5/ Db5// Eb5//@mx20 Eb5/@mx21 @tie(mx20, mx21) Gb5// F5//@mx22 F5//@mx23 @tie(mx22, mx23) Gb5/. Db5/ Bb4// Db5//@mx24 | Db5@mx25 - @tie(mx24, mx25) Bb4 - | C5// Db5// Eb5/ Eb5/ F5/ Ab4/ Db5 Db5/@mx26 | 
+
+Db5@mx27 - @tie(mx26, mx27) Db5/ Eb5/ Bb4/ Eb5/@mx28 | Eb5.@mx29 @tie(mx28, mx29) F5// Db5// Eb5 0 | 0/ Eb5/ Eb5/ Ab5/ Ab5/ Bb5// Bb5//@mx30 Bb5/@mx31 @tie(mx30, mx31) C6/ | C6/ Db6/ Ab5@mx32 Ab5.@mx33 @tie(mx32, mx33) Bb5// C6// | 
+
+C6// Db6/ Db6//@mx34 Db6/@mx35 @tie(mx34, mx35) Eb6// Bb5/// Cb6/// Bb5// Ab5/.@mx36 Ab5/@mx37 @tie(mx36, mx37) Bb5/ | Bb5// C6/ C6//@mx38 C6/.@mx39 @tie(mx38, mx39) Bb5// C6// Bb5// Ab5.@mx40 | Ab5/@mx41 @tie(mx40, mx41) Ab5/ Ab5/. Ab5// Ab5// Ab5// Ab5 Cb6/ | 
+
+Bb5/ Cb6// Bb5//@mx42 Bb5/@mx43 @tie(mx42, mx43) Cb6/ Bb5/ Ab5/ Gb5/ Ab5/ | Ab5. Eb5/ Ab5 - | 0@mx62 0 0 0 | Ab4/ Db5/ Eb5/ Ab5// F5//@mx44 F5@mx45 - @tie(mx44, mx45) | F5/ Eb5/ F5/ Gb5// Eb5//@mx46 Eb5@mx47 - @tie(mx46, mx47) | 
+
+F5/ Eb5/ F5/ Gb5// Eb5//@mx48 Eb5@mx49 - @tie(mx48, mx49) | Eb5/ Db5/ Eb5/ Gb5// F5//@mx50 F5//@mx51 @tie(mx50, mx51) Gb5/. Db5/ Bb4// Db5//@mx52 | Db5@mx53 - @tie(mx52, mx53) Bb4 - | C5// Db5// Eb5/ Eb5/ C5/ Db5/ C5// Db5//@mx54 Db5/@mx55 @tie(mx54, mx55) Bb4/ | 
+
+Gb5/ Ab5// Db5//@mx56 Db5@mx57 @tie(mx56, mx57) Db5/.@mx58 @tie(mx57, mx58) Db5// Db5// C5/ Db5//@mx59 | Db5@mx60 - @tie(mx59, mx60) - - | @rest(4)@mx63 :| Eb6/@mx64 Eb6// Eb6/. Eb6/ Ab5@mx65 -@mx66 | Bb5 - - 0/ C5// Bb4// | Eb5 - A4 - | 
+
+D5. C5/ A4 - | C5 - - D5 | Bb4 - - - | Bb4/ A4/ C5 - Bb4 | C5 - - - ||| 
+@adj(@volta(mx62, mx63, 1), dy=-2.5) @volta(mx64, mx66, 2)

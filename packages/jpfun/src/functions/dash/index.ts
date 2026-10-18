@@ -94,13 +94,13 @@ class DashTemporalNode extends TemporalNodeBase {
         // 这里只查询已发布的结构前缀；装饰音尚未展开，不需要逐个修改子音。
         emitter.defer(context => {
             let rootOrigin: PlaybackOrigin | undefined;
-            // 从最近发布的区间向前找，锁定与当前起点相接的那次顶层访问。
+            let extended = false;
+            // 同轨最近一次顶层访问是唯一可能与当前起点相接的目标组；
             // 来源身份限定了整组目标，防止延长更早的音符或另一遍反复中的同一节点。
             for (let index = context.spans.length - 1; index >= 0; index--) {
                 const span = context.spans[index];
-                if (span.track !== track) continue;
-                if (rootOrigin === undefined) {
-                    if (!span.end.equals(start)) continue;
+                if (!rootOrigin) {
+                    if (span.track !== track) continue;
                     rootOrigin = span.origins[0];
                 } else if (span.origins[0] !== rootOrigin) {
                     break;
@@ -108,9 +108,10 @@ class DashTemporalNode extends TemporalNodeBase {
                 // 一组目标可以含多个成员；extend 同时承接当前访问在新增部分上的速度效果。
                 if (span.end.equals(start)) {
                     emitter.extend(span);
+                    extended = true;
                 }
             }
-            if (rootOrigin === undefined) {
+            if (!extended) {
                 context.diagnostics.push(new WarningDiagnostic(
                     "W_PLAYBACK_SUSTAIN_WITHOUT_TARGET",
                     "增时线前没有可延续的音段",

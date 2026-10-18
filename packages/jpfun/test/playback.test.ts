@@ -1,11 +1,13 @@
 import { test } from "node:test";
 import { deepStrictEqual } from "node:assert/strict";
 
+import { Fraction } from "../src/fraction.js";
 import { TemporalNodeBase } from "../src/functions/temporal.js";
 import type { LoweringAttachment } from "../src/lowering/types.js";
 import { compilePlayback } from "../src/playback/compile.js";
-import type { PlaybackEmitter, PlaybackFlow, PlaybackRelation, PlaybackSpan, PlaybackTransform } from "../src/playback/types.js";
+import type { PlaybackEmitter, PlaybackEvent, PlaybackFlow, PlaybackRelation, PlaybackSpan, PlaybackTransform } from "../src/playback/types.js";
 import {
+    performanceTimeToScoreTime,
     performanceTimeToSeconds,
     scoreTimeToSeconds,
     secondsToPerformanceTime,
@@ -623,6 +625,40 @@ test("秒数反查谱面位置时钳制到演奏计划边界", () => {
     assert(nearly(secondsToScoreTime(plan, plan.durationSeconds), 2), "计划终点应映射到谱面终点");
     assert(nearly(secondsToScoreTime(plan, plan.durationSeconds + 1), 2),
         "计划结束后的秒数不能继续外推谱面位置");
+
+    const multiTempoEvents: readonly PlaybackEvent[] = [
+        { kind: "tempo", at: new Fraction(1), bpm: 90 },
+        { kind: "tempo", at: new Fraction(1), bpm: 60 },
+        { kind: "tempo", at: new Fraction(3), bpm: 180 },
+    ];
+    for (const [performance, seconds] of [
+        [-1, 0],
+        [0, 0],
+        [0.5, 0.25],
+        [1, 0.5],
+        [2, 1.5],
+        [3, 2.5],
+        [4.5, 3],
+    ] as const) {
+        assert(nearly(performanceTimeToSeconds(multiTempoEvents, performance), seconds),
+            `performance ${performance} 应换算为 ${seconds}s`);
+        if (performance >= 0) {
+            assert(nearly(secondsToPerformanceTime(multiTempoEvents, seconds), performance),
+                `${seconds}s 应反查为 performance ${performance}`);
+        }
+    }
+    assert(nearly(performanceTimeToSeconds([], 2), 1) && nearly(secondsToPerformanceTime([], 1), 2),
+        "无 tempo 事件时应按默认 120 BPM 换算");
+    assert(Number.isNaN(performanceTimeToSeconds(multiTempoEvents, Number.NaN))
+        && Number.isNaN(secondsToPerformanceTime(multiTempoEvents, Number.NaN))
+        && Number.isNaN(performanceTimeToScoreTime(plan.scoreMap, Number.NaN)),
+    "NaN 输入应保持 NaN，不得越界抛错");
+
+    const repeated = compilePlayback(lower(`1 |: 2 3 :| 4`));
+    for (const [performance, score] of [[0.5, 0.5], [1, 1], [2.5, 2.5], [3, 1], [4.5, 2.5], [5.25, 3.25]] as const) {
+        assert(nearly(performanceTimeToScoreTime(repeated.scoreMap, performance), score),
+            `反复演奏位置 ${performance} 应映射到谱面 ${score}`);
+    }
 });
 
 test("局部事件变换不能跨顶层 play frame 泄漏", () => {

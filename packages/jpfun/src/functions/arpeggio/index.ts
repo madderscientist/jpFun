@@ -119,7 +119,8 @@ class ArpeggioTemporal extends TemporalNodeBase {
     declare box: LayoutBox;
 
     private readonly host: FoldShape;
-    private readonly playbackMembers: readonly VisualTemporalNode[];
+    /** 槽位取自成员顺序；无声成员也占槽，不能按实际发声音符重新编号 */
+    private readonly slots: ReadonlyMap<TemporalNodeBase, number>;
     private hostX = 0;
     private markX = 0;
     private markCommands: PathCommand[] = [];
@@ -134,7 +135,8 @@ class ArpeggioTemporal extends TemporalNodeBase {
             host.members[0],
             ...host.members.slice(1, aboveCount),
         ];
-        this.playbackMembers = ast.direction === "down" ? bottomToTop.reverse() : bottomToTop;
+        const members = ast.direction === "down" ? bottomToTop.reverse() : bottomToTop;
+        this.slots = new Map(members.map((member, index) => [member, index]));
         this.T.copyFrom(host.T);
         this.mergeKey = host.mergeKey;
         this.initLayoutBox();
@@ -193,28 +195,23 @@ class ArpeggioTemporal extends TemporalNodeBase {
     override emitPlayback(emitter: PlaybackEmitter) {
         emitter.play(this.host);
         const total = emitter.end.clone().sub(emitter.start);
-        const step = new Fraction(1, 8)
+        const step = new Fraction(1, 8);
         // 短音段限制总延迟，让最后一个成员仍保留至少一半的宿主窗口。
-        const maxStep = total.clone().div(2).div(this.playbackMembers.length - 1);
+        const maxStep = total.clone().div(2).div(this.slots.size - 1);
         if (step.compare(maxStep) > 0) step.copyFrom(maxStep);
-        // 槽位取自成员顺序；无声成员也占槽，不能按实际发声音符重新编号。
-        const slots = new Map<TemporalNodeBase, number>(
-            this.playbackMembers.map((member, index) => [member, index]),
-        );
+        const { slots } = this;
         const owner = this;
         emitter.defer(context => {
             let rootOrigin: PlaybackOrigin | undefined;
-            // 反向锁定最近一次宿主访问的来源身份，避免修改前一遍反复留下的区间。
+            // 宿主刚在上面发布，其全部子区间连续排在 spans 末尾；命中后处理完同组即停。
             for (let index = context.spans.length - 1; index >= 0; index--) {
                 const note = context.spans[index];
-                if (!note.origins.some(origin => origin.node === owner)) continue;
-                rootOrigin = note.origins[0];
-                break;
-            }
-            if (!rootOrigin) return;
-            // 先限制到同一次顶层访问，再由成员来源筛出本宿主的全部有声、无声子区间。
-            for (const note of context.spans) {
-                if (note.origins[0] !== rootOrigin) continue;
+                if (!rootOrigin) {
+                    if (!note.origins.some(origin => origin.node === owner)) continue;
+                    rootOrigin = note.origins[0];
+                } else if (note.origins[0] !== rootOrigin) {
+                    break;
+                }
                 const member = note.origins.find(origin => slots.has(origin.node))?.node;
                 const slot = member ? slots.get(member) : undefined;
                 if (!slot) continue;

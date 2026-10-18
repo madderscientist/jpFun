@@ -61,7 +61,7 @@ export interface PlaybackOrigin {
 interface PlaybackDraftEventBase {
     at: Fraction;
     order: number;
-    origins: PlaybackOrigin[];
+    origins: readonly PlaybackOrigin[];
 }
 
 /** 声音展开后生成的点事件；最终输出前会校验并剥离内部字段 */
@@ -146,20 +146,21 @@ export function finalizePlaybackEvents(
             noteOffs.set(event.noteId, event);
         }
     }
-    // 物理合并完成后仍必须一一配对，并保留正时值和可追溯的来源
+    const audible = new Set<Track>();
+    // 物理合并完成后仍必须一一配对，并保留正时值和可追溯的来源；同时收集实际发声轨道
     for (const [noteId, on] of noteOns) {
         const off = noteOffs.get(noteId);
         if (!off) throw new Error(`Note ${noteId} has no NoteOff`);
         if (off.at.compare(on.at) <= 0) throw new Error(`Note ${noteId} has a non-positive duration`);
         if (on.origins.length === 0 || off.origins.length === 0) throw new Error(`Note ${noteId} has no origin`);
+        audible.add(on.track);
     }
-    // 再从关音侧反查，避免只检查开音时漏掉孤立的 NoteOff
-    for (const noteId of noteOffs.keys()) {
-        if (!noteOns.has(noteId)) throw new Error(`NoteOff ${noteId} has no NoteOn`);
+    // 仅当关音数量多于开音时反查孤立的 NoteOff
+    if (noteOffs.size !== noteOns.size) {
+        for (const noteId of noteOffs.keys()) {
+            if (!noteOns.has(noteId)) throw new Error(`NoteOff ${noteId} has no NoteOn`);
+        }
     }
-    const audible = new Set<Track>();
-    // 只从实际 NoteOn 收集轨道，无声区间和纯布局轨道不占输出编号
-    for (const on of noteOns.values()) audible.add(on.track);
     // 保留 lowering 的稳定轨道顺序，只过滤未实际发声的轨道
     const trackIds = new Map<Track, number>();
     for (const track of trackOrder) {

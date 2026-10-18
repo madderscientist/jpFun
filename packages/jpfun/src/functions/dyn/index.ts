@@ -1,6 +1,8 @@
 import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
+import type { Fraction } from "../../fraction.js";
 import type { AttachmentLayoutContext, LayoutAttachment } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
+import type { Track } from "../../lowering/track.js";
 import {
     isVisualTemporalNode,
     type TemporalNodeBase,
@@ -22,6 +24,18 @@ interface VelocityRecord {
     host: TemporalNodeBase;
     velocity: number;
     increment: number;
+}
+
+function findRecordBoundary(records: readonly VelocityRecord[], time: Fraction, after = false): number {
+    let low = 0;
+    let high = records.length;
+    while (low < high) {
+        const middle = (low + high) >>> 1;
+        const cmp = records[middle].host.t.compare(time);
+        if (after ? cmp <= 0 : cmp < 0) low = middle + 1;
+        else high = middle;
+    }
+    return low;
 }
 
 class DynFunction extends ASTFunctionNode {
@@ -50,29 +64,32 @@ class DynFunction extends ASTFunctionNode {
         );
         if (dynamics.length === 0) return;
 
-        // astToTemporal 包含不进入全局 columns 的和弦、倚音成员；host 只用于统一时间和音轨
-        const records: VelocityRecord[] = [];
+        // 仅收集存在 @dyn 的音轨上的记录，避免无关声部也分配包装对象与排序
+        const recordsByTrack = new Map<Track, VelocityRecord[]>(dynamics.map(d => [d.track, []]));
         for (const nodes of result.astToTemporal.values()) {
             for (const node of nodes) {
                 const velocity = node.playbackState?.velocity;
                 if (velocity === undefined) continue;
                 let host = node;
                 while (host.foldedInto) host = host.foldedInto;
-                records.push({ node, host, velocity, increment: 0 });
+                recordsByTrack.get(host.track)?.push({ node, host, velocity, increment: 0 });
             }
         }
-        records.sort((left, right) => left.host.t.compare(right.host.t) || left.node.order - right.node.order);
+        for (const list of recordsByTrack.values()) {
+            list.sort((left, right) => left.host.t.compare(right.host.t) || left.node.order - right.node.order);
+        }
 
         // 先累计全部 dyn 的贡献，最后统一写回，避免声明顺序改变后续 dyn 读取的原始力度
         for (const dynamic of dynamics) {
-            let endVelocity = dynamic.end.playbackState?.velocity
-                ?? records.find(record => record.host === dynamic.toHost)?.velocity;
-            for (let index = records.length - 1; endVelocity === undefined && index >= 0; index--) {
-                const record = records[index];
-                if (record.host.track === dynamic.track && record.host.t.compare(dynamic.toHost.t) <= 0) {
-                    endVelocity = record.velocity;
-                }
+            const records = recordsByTrack.get(dynamic.track)!;
+            const endStart = findRecordBoundary(records, dynamic.toHost.t);
+            const afterEnd = findRecordBoundary(records, dynamic.toHost.t, true);
+
+            let endVelocity = dynamic.end.playbackState?.velocity;
+            for (let i = endStart; endVelocity === undefined && i < afterEnd; i++) {
+                if (records[i].host === dynamic.toHost) endVelocity = records[i].velocity;
             }
+            endVelocity ??= records[afterEnd - 1]?.velocity;
             if (endVelocity === undefined) {
                 result.diagnostics.push(new WarningDiagnostic(
                     "W_DYN_NO_VELOCITY",
@@ -83,28 +100,29 @@ class DynFunction extends ASTFunctionNode {
             }
 
             // 终点后保持完整增量，直到原始力度相对终点再次发生变化
-            const stop = records.find(record =>
-                record.host.track === dynamic.track
-                && record.host.t.compare(dynamic.toHost.t) > 0
-                && record.velocity !== endVelocity,
-            )?.host.t;
+            let stopIndex = records.length;
+            for (let i = afterEnd; i < records.length; i++) {
+                if (records[i].velocity !== endVelocity) {
+                    stopIndex = findRecordBoundary(records, records[i].host.t);
+                    break;
+                }
+            }
+            const startIndex = findRecordBoundary(records, dynamic.fromHost.t);
             const duration = dynamic.toHost.t.clone().sub(dynamic.fromHost.t);
 
-            for (const record of records) {
-                if (record.host.track !== dynamic.track) continue;
-                const fromStart = record.host.t.compare(dynamic.fromHost.t);
-                if (fromStart < 0 || (stop && record.host.t.compare(stop) >= 0)) continue;
-                const progress = record.host.t.compare(dynamic.toHost.t) >= 0
-                    ? 1
-                    : record.host.t.clone().sub(dynamic.fromHost.t).div(duration).toNumber();
-                record.increment += dynamic.dv * progress;
+            for (let i = startIndex; i < stopIndex; i++) {
+                const progress = i >= endStart ? 1
+                    : records[i].host.t.clone().sub(dynamic.fromHost.t).div(duration).toNumber();
+                records[i].increment += dynamic.dv * progress;
             }
         }
 
-        for (const record of records) {
-            if (record.increment === 0) continue;
-            const velocity = Math.max(1, Math.min(127, record.velocity + record.increment));
-            record.node.playbackState = { ...record.node.playbackState, velocity };
+        for (const records of recordsByTrack.values()) {
+            for (const record of records) {
+                if (record.increment === 0) continue;
+                const velocity = Math.max(1, Math.min(127, record.velocity + record.increment));
+                record.node.playbackState = { ...record.node.playbackState, velocity };
+            }
         }
     };
 
