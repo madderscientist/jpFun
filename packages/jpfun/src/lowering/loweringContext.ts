@@ -279,13 +279,14 @@ export class LoweringContext {
      * 递归展开一棵子树，得到它的时间列与结束时间
      * @param timeOffset 当前节点的时间偏移量（单位QN） 由父节点传入，会被原地修改
      * @param track 当前所在的纵向音轨
+     * @param columns 当前时间列数组，会被原地修改
      */
     trackedEvents(
         node: ASTNodeBase,
         timeOffset: Fraction,
         track: Track,
+        columns: TimeColumn[] = [],
     ): TimeColumn[] {
-        const columns: TimeColumn[] = [];
         this.appendEvents(
             node.loweringEnter(this, track),
             node, timeOffset,
@@ -298,7 +299,7 @@ export class LoweringContext {
             switch (model.mode) {
                 case "sequence": {
                     for (const c of model.children) {
-                        for (const column of this.trackedEvents(c, timeOffset, track)) columns.push(column);
+                        this.trackedEvents(c, timeOffset, track, columns);
                     }
                 } break;
                 case "parallel": {
