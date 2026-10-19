@@ -121,8 +121,9 @@ class TupletFunction extends ASTFunctionNode {
         if (this.normal === actual) {
             throw new ErrorDiagnostic(
                 "E_TUPLET_INVALID_RATIO",
-                `@tuplet 的 normal 不能等于推导出的 actual (${actual})`,
+                "@tuplet 的 normal 不能等于推导出的 actual ({actual})",
                 this.sourceSpan,
+                { actual },
             );
         }
 

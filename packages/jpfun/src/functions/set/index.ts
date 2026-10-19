@@ -33,15 +33,17 @@ class SetFunction extends ASTFunctionNode {
         if (!def || !type) {
             ctx.diagnostics.push(new WarningDiagnostic(
                 "W_SET_UNKNOWN_TARGET",
-                `@set 的参数 [${key}] 没有对应的函数或其参数，将被忽略`,
-                nameSpan
+                "@set 的参数 [{key}] 没有对应的函数或其参数，将被忽略",
+                nameSpan,
+                { key },
             )); return null;
         }
         if (type === "content" || type === "label") {
             ctx.diagnostics.push(new WarningDiagnostic(
                 "W_SET_INVALID_VALUE_TYPE",
-                `@set 的参数 [${key}] 内容和标签不能作为默认值，将被忽略`,
-                nameSpan
+                "@set 的参数 [{key}] 内容和标签不能作为默认值，将被忽略",
+                nameSpan,
+                { key },
             )); return null;
         }
         // 别名统一成主名，否则 getArgValue 按主名查不到
@@ -57,8 +59,9 @@ class SetFunction extends ASTFunctionNode {
             if (typeof key !== "string") {
                 ctx.diagnostics.push(new WarningDiagnostic(
                     "W_SET_POSITIONAL_ARG",
-                    `函数 @set 不接收位置参数, 位置参数[${key}]将被忽略`,
-                    arg.span
+                    "函数 @set 不接收位置参数, 位置参数[{key}]将被忽略",
+                    arg.span,
+                    { key },
                 )); continue;
             }
             const target = SetFunction.resolveTarget(ctx, key.toLowerCase(), arg.nameSpan ?? arg.span);
@@ -69,8 +72,9 @@ class SetFunction extends ASTFunctionNode {
             if (v === null) {
                 ctx.diagnostics.push(new WarningDiagnostic(
                     "W_SET_INVALID_VALUE",
-                    `函数 @set 的参数值解析失败, 参数[${key}]将被忽略`,
-                    arg.valueSpan
+                    "函数 @set 的参数值解析失败, 参数[{key}]将被忽略",
+                    arg.valueSpan,
+                    { key },
                 )); continue;
             }
             ctx.setVariable(k, v);

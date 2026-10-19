@@ -170,8 +170,9 @@ class FoldFunction extends ASTFunctionNode {
         if (left < 0) {
             throw new ErrorDiagnostic(
                 "E_FOLD_NO_TARGET",
-                `${label}语法糖错误: 左边没有找到可叠加的目标`,
-                n.span
+                "{fn}语法糖错误: 左边没有找到可叠加的目标",
+                n.span,
+                { fn: label },
             );
         }
         let leftNode: ASTNodeBase = ctx.nodes[left];
@@ -221,8 +222,9 @@ class FoldFunction extends ASTFunctionNode {
         }
         throw new ErrorDiagnostic(
             "E_FOLD_NO_TARGET",
-            `${label}语法糖错误: 右边没有找到可叠加的目标`,
-            n.span
+            "{fn}语法糖错误: 右边没有找到可叠加的目标",
+            n.span,
+            { fn: label },
         );
     }
 }

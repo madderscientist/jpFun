@@ -103,7 +103,9 @@ class TieFunction extends ASTFunctionNode {
             if (!candidate || this.endPoints.includes(candidate)) continue;
             this.endPoints.unshift(candidate);
         }
-        if (this.endPoints.length < 2) throw new ErrorDiagnostic("E_NOT_ENOUGH_ARGS", "@tie 连音线需要至少两个端点", sourceSpan);
+        if (this.endPoints.length < 2) {
+            throw new ErrorDiagnostic("E_NOT_ENOUGH_ARGS", "@{fn} 连音线需要至少两个端点", sourceSpan, { fn: "tie" });
+        }
         this.height = Math.max(0, ctx.length2px(height));
         this.fontSize = ctx.variables.fontsize;
     }

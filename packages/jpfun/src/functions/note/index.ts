@@ -151,8 +151,9 @@ class NoteFunction extends ASTFunctionNode {
         }
         if (parseResult.next !== this.name.length) throw new ErrorDiagnostic(
             "E_WRONG_NOTE_NAME",
-            `函数 @note 的参数 [0]:"name" 格式错误: 无法解析尾部 "${this.name.slice(parseResult.next)}"`,
+            '函数 @note 的参数 [0]:"name" 格式错误: 无法解析尾部 "{tail}"',
             sourceSpan,
+            { tail: this.name.slice(parseResult.next) },
         );
         this.name = parseResult.name === "X" ? "9" : parseResult.name === "Z" ? "0" : parseResult.name;
         // 校验octave
@@ -160,8 +161,9 @@ class NoteFunction extends ASTFunctionNode {
         if (inputOctave !== void 0) {
             if (parseResult.octave !== null && parseResult.octave != inputOctave) throw new ErrorDiagnostic(
                 "E_NOTE_OCTAVE_CONFLICT",
-                `函数 @note 的参数 "octave" 与音符名称中的八度信息冲突: ${inputOctave} != ${parseResult.octave}`,
-                sourceSpan
+                '函数 @note 的参数 "octave" 与音符名称中的八度信息冲突: {inputOctave} != {noteOctave}',
+                sourceSpan,
+                { inputOctave: String(inputOctave), noteOctave: parseResult.octave },
             );
         } else {
             // 没有单独传入 octave 时，优先采用音名中的八度；数字音名缺省为相对 0。

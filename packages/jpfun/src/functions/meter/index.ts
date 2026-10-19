@@ -116,10 +116,11 @@ class MeterFunction extends ASTFunctionNode {
             measureLength.copyFrom(end).sub(measureStart);
             if (!measureLength.equals(active.measureDuration)
                 && (validationStarted || measureLength.compare(active.measureDuration) > 0)) {
-                const message = `小节时长为 ${measureLength} QN，不满足 ${active.numerator}/${active.denominator} 拍号`;
+                const message = "小节时长为 {duration} QN，不满足 {num}/{den} 拍号";
                 const span = { start: sourceStart, end: sourceEnd };
-                if (active.strict) throw new ErrorDiagnostic("E_METER_MISMATCH", message, span);
-                result.diagnostics.push(new WarningDiagnostic("W_METER_MISMATCH", message, span));
+                const params = { duration: measureLength, num: active.numerator, den: active.denominator };
+                if (active.strict) throw new ErrorDiagnostic("E_METER_MISMATCH", message, span, params);
+                result.diagnostics.push(new WarningDiagnostic("W_METER_MISMATCH", message, span, params));
             }
             measureStart.copyFrom(end);
         };

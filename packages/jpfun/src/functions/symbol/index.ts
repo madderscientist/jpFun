@@ -148,9 +148,10 @@ ${[...symbolTable.values()].map(item => `- \`$${item.name}\`：${item.descriptio
             definition = matched?.pattern.resolve(matched.match);
         }
         if (!definition) {
-            const message = `@symbol: 未知符号: $${name}`;
-            if (ctx.variables.strict) throw new ErrorDiagnostic("E_UNKNOWN_SYMBOL", message, sourceSpan);
-            ctx.diagnostics.push(new WarningDiagnostic("W_UNKNOWN_SYMBOL", message, sourceSpan));
+            const message = "@symbol: 未知符号: ${name}";
+            const params = { name };
+            if (ctx.variables.strict) throw new ErrorDiagnostic("E_UNKNOWN_SYMBOL", message, sourceSpan, params);
+            ctx.diagnostics.push(new WarningDiagnostic("W_UNKNOWN_SYMBOL", message, sourceSpan, params));
             return;
         }
         this.definition = definition;

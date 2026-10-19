@@ -184,8 +184,9 @@ class DynFunction extends ASTFunctionNode {
         if (dv !== inputDv) {
             ctx.diagnostics.push(new WarningDiagnostic(
                 "W_DYN_DELTA_CLAMPED",
-                `@dyn 的 dv 必须在 -127 到 127 之间，已被限制为 ${dv}`,
+                "@dyn 的 dv 必须在 -127 到 127 之间，已被限制为 {dv}",
                 span,
+                { dv },
             ));
         }
         this.from = from;

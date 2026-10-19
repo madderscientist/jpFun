@@ -429,7 +429,12 @@ H.tempo: 94
         const last = skipSpacesBack(ctx.source, boundary - 1, start);
         const span = { start, end: Math.max(start, last + 1) };
         if (span.start >= span.end) {
-            throw new ErrorDiagnostic("E_HEAD_EMPTY_DECLARATION", `H.${field}: 后必须有内容`, sugar.span);
+            throw new ErrorDiagnostic(
+                "E_HEAD_EMPTY_DECLARATION",
+                "H.{field}: 后必须有内容",
+                sugar.span,
+                { field },
+            );
         }
         const text = ctx.source.slice(span.start, span.end).trim();
         let parsed: ASTNodeBase[] | undefined;

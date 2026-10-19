@@ -10,7 +10,7 @@ import type {
     PageConfig,
 } from "../../layout/types.js";
 import type { TextStyle } from "../../render/types.js";
-import { Diagnostic, WarningDiagnostic } from "../../diagnostic.js";
+import { ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { quote } from "../../parser/parse-utils/string-utils.js";
 import {
     ASTFunctionNode,
@@ -132,19 +132,21 @@ export class PageFunction extends ASTFunctionNode {
         const [width, height, top, bottom, left, right, gap] =
             (values as LengthValue[]).map(value => ctx.length2px(value));
         if (!Number.isFinite(width) || width <= 0)
-            throw Diagnostic.error.InvalidPageConfig("@page 的 width 必须是正有限长度", sourceSpan);
+            throw new ErrorDiagnostic("E_INVALID_PAGE_CONFIG", "@page 的 width 必须是正有限长度", sourceSpan);
         if (!Number.isFinite(height))
-            throw Diagnostic.error.InvalidPageConfig("@page 的 height 必须是有限长度；小于等于 0 表示不自动分页", sourceSpan);
+            throw new ErrorDiagnostic("E_INVALID_PAGE_CONFIG", "@page 的 height 必须是有限长度；小于等于 0 表示不自动分页", sourceSpan);
         if ([top, bottom, left, right, gap].some(value => !Number.isFinite(value) || value < 0))
-            throw Diagnostic.error.InvalidPageConfig("@page 的边距和 gap 必须是非负有限长度", sourceSpan);
+            throw new ErrorDiagnostic("E_INVALID_PAGE_CONFIG", "@page 的边距和 gap 必须是非负有限长度", sourceSpan);
         if (left + right >= width)
-            throw Diagnostic.error.InvalidPageConfig("@page 的左右边距没有留下可用内容宽度", sourceSpan);
+            throw new ErrorDiagnostic("E_INVALID_PAGE_CONFIG", "@page 的左右边距没有留下可用内容宽度", sourceSpan);
         if (height > 0 && top + bottom >= height)
-            throw Diagnostic.error.InvalidPageConfig("@page 的上下边距没有留下可用内容高度", sourceSpan);
+            throw new ErrorDiagnostic("E_INVALID_PAGE_CONFIG", "@page 的上下边距没有留下可用内容高度", sourceSpan);
         if (numbering && bottom < PAGE_NUMBER_FONT_SIZE)
-            throw Diagnostic.error.InvalidPageConfig(
-                `@page 的 bottom 至少需要 ${PAGE_NUMBER_FONT_SIZE}px 才能放下页码`,
+            throw new ErrorDiagnostic(
+                "E_INVALID_PAGE_CONFIG",
+                "@page 的 bottom 至少需要 {minBottom}px 才能放下页码",
                 sourceSpan,
+                { minBottom: PAGE_NUMBER_FONT_SIZE },
             );
 
         this.config = normalizePageConfig({

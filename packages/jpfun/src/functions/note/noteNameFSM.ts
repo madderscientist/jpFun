@@ -43,8 +43,9 @@ export function parseNoteName(str: string, start: number = 0, end: number = str.
                         state = 2;
                     } else return new ErrorDiagnostic(
                         "E_WRONG_NOTE_NAME",
-                        `函数 @note 的参数 [0]:"name" 格式错误: 首字符 "${ch}" 不合法，期望 A-G (a-g)、0-9、X 或 Z 开头，或在开头直接使用升降号(#/b/n)`,
-                        { start: pos, end: pos + 1 }
+                        '函数 @note 的参数 [0]:"name" 格式错误: 首字符 "{ch}" 不合法，期望 A-G (a-g)、0-9、X 或 Z 开头，或在开头直接使用升降号(#/b/n)',
+                        { start: pos, end: pos + 1 },
+                        { ch },
                     );
                 } break;
             case 1: // [字母模式] 已获得音名
@@ -77,8 +78,9 @@ export function parseNoteName(str: string, start: number = 0, end: number = str.
                     break;
                 } else return new ErrorDiagnostic(
                     "E_WRONG_NOTE_NAME",
-                    `函数 @note 的参数 [0]:"name" 格式错误: 在升降号开头时，应该接数字音名，但发现字符 "${ch}"`,
-                    { start: pos, end: pos + 1 }
+                    '函数 @note 的参数 [0]:"name" 格式错误: 在升降号开头时，应该接数字音名，但发现字符 "{ch}"',
+                    { start: pos, end: pos + 1 },
+                    { ch },
                 );
             case 3: // [数字模式] 已获得音名
                 match = str.slice(pos, end).match(RELATIVE_OCTAVE_RE);

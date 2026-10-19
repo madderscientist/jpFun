@@ -87,8 +87,9 @@ class BrFunction extends ASTFunctionNode {
         if (this.offset !== offset) {
             ctx.diagnostics.push(new WarningDiagnostic(
                 "W_BR_OFFSET",
-                `@br 的 offset 必须是大于等于 1 的整数，已被修正为 ${this.offset}`,
-                this.sourceSpan
+                "@br 的 offset 必须是大于等于 1 的整数，已被修正为 {offset}",
+                this.sourceSpan,
+                { offset: this.offset },
             ));
         }
     }

@@ -148,8 +148,9 @@ class DotFunction extends ASTFunctionNode {
         if (group.temporalCount !== 1) {
             throw new ErrorDiagnostic(
                 "E_DOT_INVALID_CONTENT",
-                `函数 @dot 只能接收 1个元素，但找到了 ${group.temporalCount} 个`,
+                "函数 @dot 只能接收 1个元素，但找到了 {count} 个",
                 this.sourceSpan,
+                { count: group.temporalCount },
             );
         }
         return [];
@@ -173,8 +174,9 @@ class DotFunction extends ASTFunctionNode {
         if (n !== this.n) {
             ctx.diagnostics.push(new WarningDiagnostic(
                 "W_DOT_INVALID_N",
-                `@dot 的数量参数 n 必须为非负整数，已被修正为 ${n}`,
-                this.sourceSpan
+                "@dot 的数量参数 n 必须为非负整数，已被修正为 {n}",
+                this.sourceSpan,
+                { n },
             ));
             this.n = n;
         }

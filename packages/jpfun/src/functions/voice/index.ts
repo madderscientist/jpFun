@@ -350,8 +350,9 @@ L: la la la
             if (v === null) {
                 ctx.diagnostics.push(new WarningDiagnostic(
                     "W_VOICE_INVALID_LYRIC",
-                    `@voice 的歌词参数值解析失败, 参数[${key}]将被忽略`,
-                    arg.valueSpan
+                    "@voice 的歌词参数值解析失败, 参数[{key}]将被忽略",
+                    arg.valueSpan,
+                    { key },
                 ));
             } else this.addLyric(key, v as string);
         }
@@ -363,8 +364,9 @@ L: la la la
         if (tokens.length === 0 && ctx && span) {
             ctx.diagnostics.push(new WarningDiagnostic(
                 "W_EMPTY_LYRIC",
-                `@voice的歌词${name}是空的`,
-                span
+                "@voice的歌词{name}是空的",
+                span,
+                { name },
             ));
         }
         this.lyrics.push({ name, tokens });
@@ -637,8 +639,9 @@ N(女低): 1 2 3
             if (!(voice instanceof VoiceFunction)) {
                 throw new ErrorDiagnostic(
                     "E_VOICES_INVALID_CHILD",
-                    `@voices 的参数必须是 @voice 函数，但发现了其他类型 ${voice?.constructor.name}`,
-                    valueSpan
+                    "@voices 的参数必须是 @voice 函数，但发现了其他类型 {actual}",
+                    valueSpan,
+                    { actual: String(voice?.constructor.name) },
                 );
             }
             this.addVoice(voice);

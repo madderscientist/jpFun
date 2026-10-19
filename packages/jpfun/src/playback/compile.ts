@@ -75,8 +75,9 @@ function linearizeColumns(lowering: LoweringResult, diagnostics: Diagnostic[], m
             || from < 0 || to < from || to >= columns.length)) {
             throw new ErrorDiagnostic(
                 "E_PLAYBACK_FLOW_RANGE",
-                `播放控制流范围 [${from}, ${to}] 超出时间列边界`,
+                "播放控制流范围 [{from}, {to}] 超出时间列边界",
                 sourceSpan,
+                { from, to },
             );
         }
         const registered = { hook, sourceSpan };
@@ -133,8 +134,9 @@ function linearizeColumns(lowering: LoweringResult, diagnostics: Diagnostic[], m
         if (++steps > maxFlowSteps) {
             throw new ErrorDiagnostic(
                 "E_PLAYBACK_FLOW_LIMIT",
-                `播放控制流访问超过 ${maxFlowSteps} 步；可通过 maxFlowSteps 提高展开预算`,
+                "播放控制流访问超过 {maxFlowSteps} 步；可通过 maxFlowSteps 提高展开预算",
                 columns[index][0].ast.sourceSpan,
+                { maxFlowSteps },
             );
         }
         visits[index]++;
@@ -150,8 +152,9 @@ function linearizeColumns(lowering: LoweringResult, diagnostics: Diagnostic[], m
                 || action.column < 0 || action.column > columns.length) {
                 throw new ErrorDiagnostic(
                     "E_PLAYBACK_FLOW_JUMP",
-                    `播放控制流跳转目标 ${action.column} 超出时间列边界`,
+                    "播放控制流跳转目标 {column} 超出时间列边界",
                     registered.sourceSpan,
+                    { column: action.column },
                 );
             }
             // 取最小的跳转目标到最前面

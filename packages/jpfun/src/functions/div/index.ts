@@ -227,8 +227,9 @@ class DivFunction extends ASTFunctionNode {
         if (n !== this.n) {
             ctx.diagnostics.push(new WarningDiagnostic(
                 "W_DIV_INVALID_N",
-                `@div 的数量参数 n 必须为非负整数，已被修正为 ${n}`,
-                this.sourceSpan
+                "@div 的数量参数 n 必须为非负整数，已被修正为 {n}",
+                this.sourceSpan,
+                { n },
             ));
             this.n = n;
         }

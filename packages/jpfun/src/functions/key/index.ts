@@ -80,14 +80,16 @@ class KeyFunction extends ASTFunctionNode {
         if (normalized !== tonality) {
             if (ctx.variables.strict) throw new ErrorDiagnostic(
                 "E_KEY_TONALITY",
-                `@key 无法解析调性 "${tonality}"`,
-                sourceSpan
+                '@key 无法解析调性 "{tonality}"',
+                sourceSpan,
+                { tonality },
             );
             this.tonality = normalized ?? DEFAULT_TONALITY;
             ctx.diagnostics.push(new WarningDiagnostic(
                 "W_KEY_TONALITY",
-                `@key 的调性 "${tonality}" 不是规范写法，已自动切换到 ${this.tonality}`,
+                '@key 的调性 "{input}" 不是规范写法，已自动切换到 {tonality}',
                 sourceSpan,
+                { input: tonality, tonality: this.tonality },
             ));
         }
         // 归一化保证了格式是 [音名][最多一个 #b][八度]

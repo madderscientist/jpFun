@@ -48,7 +48,7 @@ class BeamFunction extends ASTFunctionNode {
         }
 
         if (this.endPoints.length < 2) {
-            throw new ErrorDiagnostic("E_NOT_ENOUGH_ARGS", "@beam 至少需要两个端点", sourceSpan);
+            throw new ErrorDiagnostic("E_NOT_ENOUGH_ARGS", "@{fn} 至少需要两个端点", sourceSpan, { fn: "beam" });
         }
     }
 
