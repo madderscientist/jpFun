@@ -51,11 +51,6 @@ function tracePath(
     }
 }
 
-function applyOpacity(context: CanvasRenderingContext2D, style?: PaintStyle) {
-    if (style?.opacity === void 0) return;
-    context.globalAlpha *= style.opacity;
-}
-
 /**
  * CanvasRenderingContext2D 的 Painter 适配器
  *
@@ -65,20 +60,29 @@ function applyOpacity(context: CanvasRenderingContext2D, style?: PaintStyle) {
 export class CanvasPainter implements Painter {
     constructor(private readonly context: CanvasRenderingContext2D) {}
 
+    private beginOpacity(style?: PaintStyle | TextStyle): number | undefined {
+        if (style?.opacity === void 0) return void 0;
+        const previous = this.context.globalAlpha;
+        this.context.globalAlpha = previous * style.opacity;
+        return previous;
+    }
+
+    private endOpacity(previous: number | undefined) {
+        if (previous !== void 0) this.context.globalAlpha = previous;
+    }
+
     drawText(text: string, x: number, y: number, style: TextStyle) {
-        this.context.save();
-        applyOpacity(this.context, style);
+        const previousAlpha = this.beginOpacity(style);
         this.context.fillStyle = style.fill ?? "#000";
         this.context.font = canvasFont(style);
         this.context.textAlign = style.textAlign ?? "left";
         this.context.textBaseline = "alphabetic";
         this.context.fillText(text, x, y);
-        this.context.restore();
+        this.endOpacity(previousAlpha);
     }
 
     drawLine(x1: number, y1: number, x2: number, y2: number, style?: PaintStyle) {
-        this.context.save();
-        applyOpacity(this.context, style);
+        const previousAlpha = this.beginOpacity(style);
         this.context.beginPath();
         this.context.moveTo(x1, y1);
         this.context.lineTo(x2, y2);
@@ -86,14 +90,13 @@ export class CanvasPainter implements Painter {
         this.context.lineWidth = style?.strokeWidth ?? 1;
         this.context.lineCap = "round";
         this.context.stroke();
-        this.context.restore();
+        this.endOpacity(previousAlpha);
     }
 
     drawRect(x: number, y: number, w: number, h: number, style?: PaintStyle) {
         if (w < 0 || h < 0) return;
 
-        this.context.save();
-        applyOpacity(this.context, style);
+        const previousAlpha = this.beginOpacity(style);
 
         if (style?.fill) {
             this.context.fillStyle = style.fill;
@@ -103,17 +106,17 @@ export class CanvasPainter implements Painter {
         if (style?.stroke) {
             this.context.strokeStyle = style.stroke;
             this.context.lineWidth = style.strokeWidth ?? 1;
+            this.context.lineJoin = "miter";
             this.context.strokeRect(x, y, w, h);
         }
 
-        this.context.restore();
+        this.endOpacity(previousAlpha);
     }
 
     drawCircle(cx: number, cy: number, r: number, style?: PaintStyle) {
         if (r < 0) return;
 
-        this.context.save();
-        applyOpacity(this.context, style);
+        const previousAlpha = this.beginOpacity(style);
         this.context.beginPath();
         this.context.arc(cx, cy, r, 0, Math.PI * 2);
 
@@ -128,14 +131,13 @@ export class CanvasPainter implements Painter {
             this.context.stroke();
         }
 
-        this.context.restore();
+        this.endOpacity(previousAlpha);
     }
 
     drawPath(commands: readonly PathCommand[], style?: PaintStyle, transform?: PathTransform) {
         if (commands.length === 0) return;
 
-        this.context.save();
-        applyOpacity(this.context, style);
+        const previousAlpha = this.beginOpacity(style);
         tracePath(
             this.context,
             commands,
@@ -158,7 +160,7 @@ export class CanvasPainter implements Painter {
             this.context.stroke();
         }
 
-        this.context.restore();
+        this.endOpacity(previousAlpha);
     }
 }
 

@@ -259,6 +259,33 @@ test("Canvas 后端能执行描边、曲线与文本绘制", () => {
     assert(canvasCalls.includes("stroke"), "Canvas backend must stroke local accidental paths");
     assert(canvasCalls.includes("bezierCurveTo"), "Canvas backend must execute tie curves");
     assert(canvasCalls.includes("fillText"), "Canvas backend must draw arbitrary text");
+    strictEqual(canvasCalls.filter(call => call === "save").length, 1,
+        "Canvas backend should only save/restore once per page, not per primitive");
+    strictEqual(canvasCalls.filter(call => call === "restore").length, 1,
+        "Canvas backend should only save/restore once per page, not per primitive");
+
+    const calls: string[] = [];
+    const alphas: number[] = [];
+    const joins: string[] = [];
+    const context = recordingCanvasContext(calls);
+    context.globalAlpha = 0.8;
+    context.fillText = () => {
+        calls.push("fillText");
+        alphas.push(context.globalAlpha);
+    };
+    context.strokeRect = () => {
+        calls.push("strokeRect");
+        joins.push(context.lineJoin);
+    };
+    const painter = new CanvasPainter(context);
+    painter.drawText("A", 0, 0, { fontSize: 16, opacity: 0.5 });
+    painter.drawPath([{ op: "M", x: 0, y: 0 }, { op: "L", x: 5, y: 5 }], { stroke: "#000" });
+    painter.drawRect(0, 0, 10, 10, { stroke: "#000" });
+    assert(nearly(alphas[0], 0.4), "drawText must multiply caller globalAlpha by style.opacity");
+    assert(nearly(context.globalAlpha, 0.8), "CanvasPainter must restore globalAlpha after drawing with opacity");
+    strictEqual(joins[0], "miter", "drawRect stroke must reset lineJoin after drawPath");
+    assert(!calls.includes("save") && !calls.includes("restore"),
+        "CanvasPainter primitives must not invoke save or restore");
 });
 
 test("综合样例的绘制规模基线", () => {

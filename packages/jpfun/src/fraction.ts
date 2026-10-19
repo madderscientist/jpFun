@@ -16,7 +16,7 @@ export class Fraction {
     private _denominator = 1;
 
     constructor(numerator = 0, denominator = 1) {
-        this.set(numerator, denominator);
+        if (numerator !== 0 || denominator !== 1) this.set(numerator, denominator);
     }
 
     get numerator(): number {
@@ -49,7 +49,7 @@ export class Fraction {
     }
 
     clone(): Fraction {
-        return new Fraction(this._numerator, this._denominator);
+        return new Fraction().copyFrom(this);
     }
 
     add(value: Fraction | number, denominator = 1): this {

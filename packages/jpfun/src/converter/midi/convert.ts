@@ -8,6 +8,7 @@
  *
  * MIDI 字节解析不属于 core；这里接收的是 midi.js 已解析好的 JSON。
  */
+import { DEFAULT_BPM } from "../../functions/temporal.js";
 import type { MidiJson, MidiJsonInstrument, MidiJsonNote, MidiJsonTrack } from "./json.js";
 import { identifyTriplets, type TripletMark } from "./triplet.js";
 import { attachAbove, quote, renderHead, renderPitch, renderSystems, type PitchMode } from "../source.js";
@@ -87,7 +88,6 @@ interface ConvertedTrack {
     programs: ReadonlyMap<number, number>;
 }
 
-const DEFAULT_BPM = 120;
 const DEFAULT_TIME_SIGNATURE = [4, 4] as const;
 const AUTO_LINE_TARGET_RATIO = 1.03;
 const AUTO_LINE_LIMIT_RATIO = 1.25;
