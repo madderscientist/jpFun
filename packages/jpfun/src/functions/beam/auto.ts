@@ -12,6 +12,7 @@ import {
     DIV_ADDON_KEY,
     DivNode,
 } from "../div/index.js";
+import { meterChangeAt } from "../meter/index.js";
 import {
     collectExplicitBeamEndpoints,
     createBeamLayoutAttachment,
@@ -163,16 +164,12 @@ function createScopeBeams(
     return attachments;
 }
 
-function beatAt(time: Fraction): number {
-    return Math.floor(time.numerator / time.denominator);
-}
-
 /**
  * 多个独立 div 的默认连接规则
  *
  * MuseScore 和 LilyPond 都以拍号的 beat structure 作为默认分组边界，并允许手工 beam 覆盖。
- * 当前语言没有拍号，暂以四分音符为拍单位。
- * 分组不跨轨道、逻辑行、拍点、小节线、时间间隙、普通长事件、开关边界或显式 beam。
+ * 随当前生效的 @meter 分拍（缺省或散板按四分音符，复拍子及 3/8 按三个分母单位，其余短分母按一个分母单位）。
+ * 分组不跨轨道、逻辑行、拍点、小节线、拍号变更、时间间隙、普通长事件、开关边界或显式 beam。
  */
 function createAdjacentBeams(
     result: LoweringResult,
@@ -184,6 +181,8 @@ function createAdjacentBeams(
     const lineStarts = new Map<number, Fraction>();
     const measureStart = new Fraction();
     const beatTime = new Fraction();
+    const beatDuration = new Fraction(1);
+    let candidateDuration: Fraction | number = 1;
 
     for (const column of result.columns) {
         for (const node of column) {
@@ -200,14 +199,28 @@ function createAdjacentBeams(
     };
 
     const flushAll = () => {
-        for (const track of [...groups.keys()]) flush(track);
+        for (const track of groups.keys()) flush(track);
     };
 
     for (const column of result.columns) {
-        const anchor = column.find(node => node.mergeKey === ANCHOR_KEY);
-        if (anchor) {
+        let meter: ReturnType<typeof meterChangeAt>;
+        let hasAnchor = false;
+        for (const node of column) {
+            meter = meterChangeAt(node) ?? meter;
+            if (node.mergeKey === ANCHOR_KEY) hasAnchor = true;
+        }
+        if (meter || hasAnchor) {
             flushAll();
-            measureStart.copyFrom(anchor.t);
+            measureStart.copyFrom(column[0].t);
+        }
+        if (meter) {
+            const { numerator, denominator } = meter;
+            if (numerator > 0 && denominator > 4) {
+                beatDuration.set(denominator >= 8 && numerator % 3 === 0 ? 12 : 4, denominator);
+            } else {
+                beatDuration.set(1);
+            }
+            candidateDuration = beatDuration.compare(1) < 0 ? beatDuration : 1;
         }
 
         for (const node of column) {
@@ -219,7 +232,7 @@ function createAdjacentBeams(
             const isCandidate = isVisualTemporalNode(node)
                 && isIndependentDiv
                 && autoBeamEnabled
-                && node.T.compare(1) < 0
+                && node.T.compare(candidateDuration) < 0
                 && !explicitEndpoints.has(node);
 
             if (!isCandidate) {
@@ -231,7 +244,10 @@ function createAdjacentBeams(
 
             const lineStart = lineStarts.get(node.layoutLine) ?? node.t;
             const activeStart = measureStart.compare(lineStart) >= 0 ? measureStart : lineStart;
-            const beat = beatAt(beatTime.copyFrom(node.t).sub(activeStart));
+            beatTime.copyFrom(node.t).sub(activeStart);
+            const beat = Math.floor(
+                beatTime.numerator * beatDuration.denominator / (beatTime.denominator * beatDuration.numerator),
+            );
             const current = groups.get(node.track);
             const isContinuous = current && node.t.equals(current.endTime);
             if (!current || node.layoutLine !== current.line || beat !== current.beat || !isContinuous) {

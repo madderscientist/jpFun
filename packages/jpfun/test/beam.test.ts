@@ -1,12 +1,15 @@
 import { test } from "node:test";
+import { deepStrictEqual } from "node:assert/strict";
 
 import { DivNode, divLinePortName } from "../src/functions/div/index.js";
+import { TemporalNodeBase } from "../src/functions/temporal.js";
 import {
     assert,
     attachmentCommands,
     commandsOfKind,
     expectLoweringError,
     layoutOf,
+    lower,
     nearly,
     parse,
     recordCommands,
@@ -85,6 +88,64 @@ test("自动连梁在拍点、换行、小节线与并行轨处分组", () => {
         "automatic beams must group parallel tracks independently");
     assert(layoutOf(`@div({@div({1 2}, 1) 3}, 1)`).attachments.length === 1,
         "nested div scopes must share one non-overlapping beam attachment");
+});
+
+test("自动连梁随 @meter 拍号切换分拍单位与小节相位", () => {
+    assert(layoutOf(`@meter(6,8) | 1/ 2/ 3/ 4/ 5/ 6/ |`).attachments.length === 2,
+        "6/8 must group six eighth notes into two dotted-quarter beats of three");
+    assert(layoutOf(`@meter(3,8) | 1/ 2/ 3/ |`).attachments.length === 1,
+        "3/8 must group three eighth notes into one dotted-quarter beat");
+    assert(layoutOf(`@meter(9,8) | 1/ 2/ 3/ 4/ 5/ 6/ 7/ 1'/ 2'/ |`).attachments.length === 3,
+        "9/8 must group nine eighth notes into three beats of three");
+    assert(layoutOf(`@meter(12,8) | 1/ 2/ 3/ 4/ 5/ 6/ 7/ 1'/ 2'/ 3'/ 4'/ 5'/ |`).attachments.length === 4,
+        "12/8 must group twelve eighth notes into four beats of three");
+    assert(layoutOf(`@meter(6,16) | 1// 2// 3// 4// 5// 6// |`).attachments.length === 2,
+        "6/16 must group six sixteenth notes into two dotted-eighth beats of three");
+    assert(layoutOf(`@meter(6,16) | 1/. 2// 3// 4// |`).attachments.length === 1,
+        "a full dotted-eighth beat note in 6/16 must not auto-beam with the next beat");
+
+    assert(layoutOf(`@meter(2,8) | 1/ 2/ |`).attachments.length === 0,
+        "in 2/8 each eighth note is a full beat and must not auto-beam across beats");
+    assert(layoutOf(`@meter(2,8) | 1// 2// 3// 4// |`).attachments.length === 2,
+        "in 2/8 sixteenth notes must auto-beam within each eighth-note beat");
+    assert(layoutOf(`@meter(2,8) | 1// 2/ 3// |`).attachments.length === 0,
+        "in 2/8 a full-beat eighth note must break adjacent sixteenth notes");
+
+    assert(layoutOf(`@meter(2,2) | 1/ 2/ 3/ 4/ 5/ 6/ 7/ 1'/ |`).attachments.length === 4,
+        "2/2 must keep quarter-note beat grouping in Jianpu");
+
+    assert(layoutOf(`H.signature: 1=C 6/8\n1/ 2/ 3/ 4/ 5/ 6/ |`).attachments.length === 2,
+        "meter declared in @head must drive subsequent auto-beam grouping");
+    assert(layoutOf(`@meter(2,4) 1/ 2/ 3/ 4/ @meter(6,8) 1/ 2/ 3/ 4/ 5/ 6/`).attachments.length === 4,
+        "a mid-line @meter change must flush active beams, reset phase, and switch beat unit");
+    assert(layoutOf(`1/ {2/ ^ @meter(6,8)} 3/ 4/ 5/ 6/ 7/`).attachments.length === 2,
+        "a folded @meter must reset the beat phase at its host column");
+    assert(layoutOf(`@meter(6,8) 1/ 2/ 3/ | @meter(0,0) 1/ 2/ 3/ 4/ 5/ 6/`).attachments.length === 4,
+        "switching to free meter @meter(0,0) must restore 1 QN quarter-note beat grouping");
+});
+
+test("自动连梁的实际端点遵循拍号、切换位置及同列最终拍号", () => {
+    const cases: [string, number[][]][] = [
+        ["@meter(6,8) | 1/ 2/ 3/ 4/ 5/ 6/ |", [[0, 0.5, 1], [1.5, 2, 2.5]]],
+        ["@meter(2,4) 1/ 2/ 3/ 4/ @meter(6,8) 1/ 2/ 3/ 4/ 5/ 6/",
+            [[0, 0.5], [1, 1.5], [2, 2.5, 3], [3.5, 4, 4.5]]],
+        ["1/ {2/ ^ @meter(6,8)} 3/ 4/ 5/ 6/ 7/", [[0.5, 1, 1.5], [2, 2.5, 3]]],
+        // 折叠成员按实际回调顺序生效，不是按源码顺序。
+        ["1/ {2/ ^ @meter(6,8) ^ @meter(2,8)} 3/ 4/ 5/ 6/ 7/",
+            [[0.5, 1, 1.5], [2, 2.5, 3]]],
+        ["1/ {2/ ^ @meter(2,8) ^ @meter(6,8)} 3/ 4/", []],
+    ];
+    for (const [source, expected] of cases) {
+        const groups = lower(source).attachments.map(attachment => {
+            assert("endPoints" in attachment && Array.isArray(attachment.endPoints),
+                "automatic beam must expose its actual endpoints");
+            return attachment.endPoints.map((node: unknown) => {
+                assert(node instanceof TemporalNodeBase, "beam endpoint must be a temporal node");
+                return node.t.numerator / node.t.denominator;
+            });
+        });
+        deepStrictEqual(groups, expected, source);
+    }
 });
 
 test("显式 @beam 只连接相邻端点，否则报错", () => {

@@ -17,10 +17,14 @@ import {
     type SourceSpan,
 } from "../ASTtypes.js";
 
-// 同一执行位置只关闭一次旧小节，保留最终拍号和最后源码边界。
+// 同一执行位置只关闭一次旧小节，保留最终拍号和最后源码边界
 const changesByPosition = new WeakMap<TemporalNodeBase, {
     start: number; end: number; meter: MeterFunction;
 }>();
+
+export function meterChangeAt(node: TemporalNodeBase): MeterFunction | undefined {
+    return changesByPosition.get(node)?.meter;
+}
 
 function recordMeasureChange(state: TimeState, node: TemporalNodeBase, meter: MeterFunction) {
     const position = state.currentEvent ?? node;
