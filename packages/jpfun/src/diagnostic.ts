@@ -18,7 +18,7 @@ export abstract class Diagnostic {
     message: string;
     /** 诊断位置，指示问题在源代码中的位置 */
     span: SourceSpan;
-    /** 诊断消息中的结构化参数（键值均为字符串） */
+    /** 诊断消息中的结构化参数（构造时复制并字符串化，不修改或持有原对象） */
     params?: DiagnosticParams;
 
     // 多语言支持：仅需要替换此函数
@@ -38,7 +38,7 @@ export abstract class Diagnostic {
         this.span = span;
         if (params) {
             const dict: DiagnosticParams = {};
-            for (const [k, v] of Object.entries(params)) dict[k] = String(v);
+            for (const key of Object.keys(params)) dict[key] = String(params[key]);
             this.params = dict;
         }
         this.message = Diagnostic.format(code, message, this.params);
@@ -82,223 +82,170 @@ export abstract class Diagnostic {
     static warning: any;
 }
 
+const formatArg = (arg: string | number) => typeof arg === "number" ? `[${arg}]` : `"${arg}"`;
+
 // 两个基类区分 Warning 和 Error
-export class ErrorDiagnostic extends Diagnostic {};
-export class WarningDiagnostic extends Diagnostic {};
+export class ErrorDiagnostic extends Diagnostic {}
+export class WarningDiagnostic extends Diagnostic {}
 
 Diagnostic.error = {
-    Bug: (message: string, span: SourceSpan) => {
-        return new ErrorDiagnostic(
+    Bug: (message: string, span: SourceSpan) =>
+        new ErrorDiagnostic(
             "E_BUG",
-            "解析器错误: {message}，请联系开发者修复这个问题",
-            span,
-            { message },
-        );
-    },
-    MissingArg: (functionName: string, argumentName: string | number, span: SourceSpan) => {
-        const arg = typeof argumentName === "number" ? `[${argumentName}]` : `"${argumentName}"`;
-        return new ErrorDiagnostic(
+            "解析器错误: {message}，请联系开发者修复这个问题", span,
+            { message }
+        ),
+    MissingArg: (functionName: string, argumentName: string | number, span: SourceSpan) =>
+        new ErrorDiagnostic(
             "E_MISSING_REQUIRED_ARG",
-            "函数@{fn} 缺少必需的参数 {arg}",
-            span,
-            { fn: functionName, arg },
-        );
-    },
+            "函数@{fn} 缺少必需的参数 {arg}", span,
+            { fn: functionName, arg: formatArg(argumentName) }
+        ),
     InvalidArgType: (
         functionName: string, argumentName: string | number,
         expectedType: string, actualType: string,
-        span: SourceSpan
-    ) => {
-        const arg = typeof argumentName === "number" ? `[${argumentName}]` : `"${argumentName}"`;
-        return new ErrorDiagnostic(
+        span: SourceSpan,
+    ) =>
+        new ErrorDiagnostic(
             "E_WRONG_ARG_TYPE",
-            "函数 @{fn} 的参数 {arg} 类型错误: 得到了 {actual}，但期望 {expected}",
-            span,
-            { fn: functionName, arg, expected: expectedType, actual: actualType },
-        );
-    },
-    PosAfterNamedArg: (functionName: string, span: SourceSpan) => {
-        return new ErrorDiagnostic(
+            "函数 @{fn} 的参数 {arg} 类型错误: 得到了 {actual}，但期望 {expected}", span,
+            { fn: functionName, arg: formatArg(argumentName), expected: expectedType, actual: actualType }
+        ),
+    PosAfterNamedArg: (functionName: string, span: SourceSpan) =>
+        new ErrorDiagnostic(
             "E_POSARG_AFTER_KWARG",
-            "函数 @{fn} 的位置参数出现在命名参数之后，这是不允许的",
-            span,
-            { fn: functionName },
-        );
-    },
-    EmptyContent: (functionName: string, argumentName: string | number, span: SourceSpan) => {
-        const arg = typeof argumentName === "number" ? `[${argumentName}]` : `"${argumentName}"`;
-        return new ErrorDiagnostic(
+            "函数 @{fn} 的位置参数出现在命名参数之后，这是不允许的", span,
+            { fn: functionName }
+        ),
+    EmptyContent: (functionName: string, argumentName: string | number, span: SourceSpan) =>
+        new ErrorDiagnostic(
             "E_EMPTY_CONTENT",
-            "函数 @{fn} 的参数 {arg} 内容为空(或无可用内容)；请提供有效内容",
-            span,
-            { fn: functionName, arg },
-        );
-    },
-    UnterminatedCall: (functionName: string, span: SourceSpan) => {
-        return new ErrorDiagnostic(
+            "函数 @{fn} 的参数 {arg} 内容为空(或无可用内容)；请提供有效内容", span,
+            { fn: functionName, arg: formatArg(argumentName) }
+        ),
+    UnterminatedCall: (functionName: string, span: SourceSpan) =>
+        new ErrorDiagnostic(
             "E_UNTERMINATED_CALL",
-            "函数调用未闭合: @{fn}(...)",
-            span,
-            { fn: functionName },
-        );
-    },
-    UnterminatedString: (span: SourceSpan) => {
-        return new ErrorDiagnostic(
+            "函数调用未闭合: @{fn}(...)", span,
+            { fn: functionName }
+        ),
+    UnterminatedString: (span: SourceSpan) =>
+        new ErrorDiagnostic(
             "E_UNTERMINATED_String",
-            `引号未闭合`,
-            span
-        );
-    },
-    UnknownFunction: (functionName: string, span: SourceSpan) => {
-        return new ErrorDiagnostic(
+            "引号未闭合", span
+        ),
+    UnknownFunction: (functionName: string, span: SourceSpan) =>
+        new ErrorDiagnostic(
             "E_UNKNOWN_FUNCTION",
-            "未知函数: @{fn}，请检查拼写",
-            span,
-            { fn: functionName },
-        );
-    },
-    UnknownLabel: (labelName: string, span: SourceSpan) => {
-        return new ErrorDiagnostic(
+            "未知函数: @{fn}，请检查拼写", span,
+            { fn: functionName }
+        ),
+    UnknownLabel: (labelName: string, span: SourceSpan) =>
+        new ErrorDiagnostic(
             "E_UNKNOWN_LABEL",
-            '未知标签: "{label}"',
-            span,
-            { label: labelName },
-        );
-    },
-    InvalidTonality: (tonality: string, span: SourceSpan) => {
-        return new ErrorDiagnostic(
+            '未知标签: "{label}"', span,
+            { label: labelName }
+        ),
+    InvalidTonality: (tonality: string, span: SourceSpan) =>
+        new ErrorDiagnostic(
             "E_INVALID_TONALITY",
-            '无效的调性: "{tonality}"，请提供有效的调性名称，必须 [一个大写字母][变音记号#bn只能一个][绝对八度数字]，后二者可选',
-            span,
-            { tonality },
-        );
-    },
-    BreakInsideEvent: (span: SourceSpan) => {
-        return new ErrorDiagnostic(
+            '无效的调性: "{tonality}"，请提供有效的调性名称，必须 [一个大写字母][变音记号#bn只能一个][绝对八度数字]，后二者可选', span,
+            { tonality }
+        ),
+    BreakInsideEvent: (span: SourceSpan) =>
+        new ErrorDiagnostic(
             "E_BREAK_INSIDE_EVENT",
-            `换行或换页切断了一个仍在持续的事件；请把长音写成多个事件，或调整换行、换页的位置`,
-            span
-        );
-    },
-    PageOverflow: (required: number, available: number, span: SourceSpan) => {
-        return new ErrorDiagnostic(
+            "换行或换页切断了一个仍在持续的事件；请把长音写成多个事件，或调整换行、换页的位置", span
+        ),
+    PageOverflow: (required: number, available: number, span: SourceSpan) =>
+        new ErrorDiagnostic(
             "E_PAGE_OVERFLOW",
-            "谱面行需要 {required}px 高度，但页面内容区只有 {available}px",
-            span,
-            { required, available },
-        );
-    }
+            "谱面行需要 {required}px 高度，但页面内容区只有 {available}px", span,
+            { required, available }
+        ),
 };
 
 Diagnostic.warning = {
-    UnknownFunction: (functionName: string, span: SourceSpan) => {
-        return new WarningDiagnostic(
+    UnknownFunction: (functionName: string, span: SourceSpan) =>
+        new WarningDiagnostic(
             "W_UNKNOWN_FUNCTION",
-            "未知函数: @{fn}，将被当作普通文本处理",
-            span,
-            { fn: functionName },
-        );
-    },
-    UnknownNamedArg: (functionName: string, argumentName: string, span: SourceSpan) => {
-        return new WarningDiagnostic(
+            "未知函数: @{fn}，将被当作普通文本处理", span,
+            { fn: functionName }
+        ),
+    UnknownNamedArg: (functionName: string, argumentName: string, span: SourceSpan) =>
+        new WarningDiagnostic(
             "W_UNKNOWN_NAMED_ARG",
-            '函数 @{fn} 收到未知的命名参数 "{arg}"',
-            span,
-            { fn: functionName, arg: argumentName },
-        );
-    },
-    TooManyPosArgs: (functionName: string, expected: number, actual: number, span: SourceSpan) => {
-        return new WarningDiagnostic(
+            '函数 @{fn} 收到未知的命名参数 "{arg}"', span,
+            { fn: functionName, arg: argumentName }
+        ),
+    TooManyPosArgs: (functionName: string, expected: number, actual: number, span: SourceSpan) =>
+        new WarningDiagnostic(
             "W_TOO_MANY_POS_ARGS",
-            "函数 @{fn} 接收了过多的位置参数，期望 {expected} 个但得到了 {actual} 个",
-            span,
-            { fn: functionName, expected, actual },
-        );
-    },
-    InvalidNumber: (value: string, span: SourceSpan) => {
-        return new WarningDiagnostic(
+            "函数 @{fn} 接收了过多的位置参数，期望 {expected} 个但得到了 {actual} 个", span,
+            { fn: functionName, expected, actual }
+        ),
+    InvalidNumber: (value: string, span: SourceSpan) =>
+        new WarningDiagnostic(
             "W_INVALID_NUMBER",
-            '无效的数字: "{value}"；将使用默认值(若存在)',
-            span,
-            { value },
-        );
-    },
-    InvalidBoolean: (value: string, span: SourceSpan) => {
-        return new WarningDiagnostic(
+            '无效的数字: "{value}"；将使用默认值(若存在)', span,
+            { value }
+        ),
+    InvalidBoolean: (value: string, span: SourceSpan) =>
+        new WarningDiagnostic(
             "W_INVALID_BOOL",
-            '无效的布尔值: "{value}": 应为 \'true\' 或 \'false\'；将使用默认值(若存在)',
-            span,
-            { value },
-        );
-    },
-    InvalidLength: (value: string, span: SourceSpan) => {
-        return new WarningDiagnostic(
+            '无效的布尔值: "{value}": 应为 \'true\' 或 \'false\'；将使用默认值(若存在)', span,
+            { value }
+        ),
+    InvalidLength: (value: string, span: SourceSpan) =>
+        new WarningDiagnostic(
             "W_INVALID_LENGTH",
-            '无效的长度值: "{value}"；请提供有效的长度值，例如 "10px" 或 "2em"；将使用默认值(若存在)',
-            span,
-            { value },
-        );
-    },
-    InvalidLengthUnit: (unit: string, span: SourceSpan) => {
-        return new WarningDiagnostic(
+            '无效的长度值: "{value}"；请提供有效的长度值，例如 "10px" 或 "2em"；将使用默认值(若存在)', span,
+            { value }
+        ),
+    InvalidLengthUnit: (unit: string, span: SourceSpan) =>
+        new WarningDiagnostic(
             "W_INVALID_LENGTH_UNIT",
-            '无效的长度单位: "{unit}"；仅支持 "px" 和 "em"；请检查函数参数或变量定义；将使用默认值(若存在)',
-            span,
-            { unit },
-        );
-    },
-    InvalidContent: (span: SourceSpan) => {
-        return new WarningDiagnostic(
+            '无效的长度单位: "{unit}"；仅支持 "px" 和 "em"；请检查函数参数或变量定义；将使用默认值(若存在)', span,
+            { unit }
+        ),
+    InvalidContent: (span: SourceSpan) =>
+        new WarningDiagnostic(
             "W_INVALID_CONTENT",
-            `内容解析失败，错误原因见上；将使用默认值(但往往不存在，极有可能导致错误)`,
-            span
-        );
-    },
-    EmptyContent: (functionName: string, argumentName: string, span: SourceSpan) => {
-        return new WarningDiagnostic(
+            "内容解析失败，错误原因见上；将使用默认值(但往往不存在，极有可能导致错误)", span
+        ),
+    EmptyContent: (functionName: string, argumentName: string, span: SourceSpan) =>
+        new WarningDiagnostic(
             "W_EMPTY_CONTENT",
-            '函数 @{fn} 的参数 "{arg}" 内容为空(或无可用内容)',
-            span,
-            { fn: functionName, arg: argumentName },
-        );
-    },
-    UnmatchedBrace: (span: SourceSpan) => {
-        return new WarningDiagnostic(
+            '函数 @{fn} 的参数 "{arg}" 内容为空(或无可用内容)', span,
+            { fn: functionName, arg: argumentName }
+        ),
+    UnmatchedBrace: (span: SourceSpan) =>
+        new WarningDiagnostic(
             "W_UNMATCHED_BRACE",
-            `未匹配的大括号: 缺少右大括号'}'；将尝试自动修复`,
-            span
-        );
-    },
-    LabelWithoutTarget: (labelName: string, span: SourceSpan) => {
-        return new WarningDiagnostic(
+            "未匹配的大括号: 缺少右大括号'}'；将尝试自动修复", span
+        ),
+    LabelWithoutTarget: (labelName: string, span: SourceSpan) =>
+        new WarningDiagnostic(
             "W_LABEL_WITHOUT_TARGET",
-            '标签 "{label}" 没有可绑定的目标；标签将被忽略',
-            span,
-            { label: labelName },
-        );
-    },
-    TargetAlreadyLabeled: (newLabel: string, oldLabel: string, span: SourceSpan) => {
-        return new WarningDiagnostic(
+            '标签 "{label}" 没有可绑定的目标；标签将被忽略', span,
+            { label: labelName }
+        ),
+    TargetAlreadyLabeled: (newLabel: string, oldLabel: string, span: SourceSpan) =>
+        new WarningDiagnostic(
             "W_TARGET_ALREADY_LABELED",
-            '目标已标注为 "{oldLabel}"，"{newLabel}" 将被忽略',
-            span,
-            { oldLabel, newLabel },
-        );
-    },
-    UnresolvedEndpoint: (functionName: string, span: SourceSpan) => {
-        return new WarningDiagnostic(
+            '目标已标注为 "{oldLabel}"，"{newLabel}" 将被忽略', span,
+            { oldLabel, newLabel }
+        ),
+    UnresolvedEndpoint: (functionName: string, span: SourceSpan) =>
+        new WarningDiagnostic(
             "W_UNRESOLVED_ENDPOINT",
-            "@{fn} 有端点找不到对应的谱面对象；该关系将被忽略",
-            span,
-            { fn: functionName },
-        );
-    },
-    ZeroTimeTrack: (span: SourceSpan, trackOrder: number) => {
-        return new WarningDiagnostic(
+            "@{fn} 有端点找不到对应的谱面对象；该关系将被忽略", span,
+            { fn: functionName }
+        ),
+    ZeroTimeTrack: (span: SourceSpan, trackOrder: number) =>
+        new WarningDiagnostic(
             "W_ZERO_TIME_TRACK",
-            "第{track}个子轨道的时长为0",
-            span,
-            { track: trackOrder },
-        );
-    },
+            "第{track}个子轨道的时长为0", span,
+            { track: trackOrder }
+        ),
 };

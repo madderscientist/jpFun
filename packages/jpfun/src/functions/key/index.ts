@@ -1,7 +1,7 @@
 import { DEFAULT_TONALITY, TemporalNodeBase, type TimeState } from "../temporal.js";
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, LengthValue, ParserContext, SourceSpan } from "../ASTtypes.js";
-import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
-import { parseNoteName } from "../note/noteNameFSM.js";
+import { ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
+import { parseNoteName } from "../note/noteName.js";
 import { acc2Offset, NoteNameMap, tonality2Midi } from "../../parser/parse-utils/note-utils.js";
 import { paintAccidental, placeAccidentals, type PlacedAccidental } from "../note/accidentals.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
@@ -19,8 +19,9 @@ function normalizeTonality(tonality: string): string | null {
         return tonality;
     } catch { /* 落到下面归一化 */ }
 
-    const parsed = parseNoteName(tonality.replace(/^[a-g]/, letter => letter.toUpperCase()));
-    if (parsed instanceof Diagnostic || parsed.next !== tonality.length) return null;
+    const normalizedInput = tonality.replace(/^[a-g]/, letter => letter.toUpperCase());
+    const parsed = parseNoteName(normalizedInput, 0, normalizedInput.length, false);
+    if (!parsed || parsed.next !== normalizedInput.length) return null;
     const pitchClass = NoteNameMap[parsed.name];
     if (pitchClass === undefined) return null;
 

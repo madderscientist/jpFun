@@ -1,6 +1,6 @@
 import { ASTNodeBase, ASTTextNode, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { Diagnostic, ErrorDiagnostic } from "../../diagnostic.js";
-import { parseNoteName } from "./noteNameFSM.js";
+import { parseNoteName } from "./noteName.js";
 import { GrammarCallNodeTyped, type GrammarNode, type GrammarSugarNode } from "../../parser/grammarType.js";
 import type { LayoutBox, LayoutDecoration, LayoutPrepareContext } from "../../layout/types.js";
 import { getLayoutBounds } from "../../layout/engine.js";
@@ -91,8 +91,8 @@ class NoteFunction extends ASTFunctionNode {
             },
         };
         // 解析音符名
-        const parseResult = parseNoteName(source, start, end);
-        if (parseResult instanceof Diagnostic) return null;
+        const parseResult = parseNoteName(source, start, end, false);
+        if (!parseResult) return null;
         const argMap: FunctionArgs = new Map();
         argMap.set("name", parseResult.name);
         if (parseResult.octave !== null) argMap.set("octave", parseResult.octave);

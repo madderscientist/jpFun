@@ -1,11 +1,11 @@
-import { Diagnostic, ErrorDiagnostic } from "../../diagnostic.js";
+import { ErrorDiagnostic } from "../../diagnostic.js";
 import type { ASTNodeBase } from "../ASTtypes.js";
 import type { SourceSpan } from "../../parser/types.js";
 import { preprocessSource } from "../../parser/preprocess.js";
 import { readCall } from "../../parser/parse-utils/call-utils.js";
 import { findClosingQuote, quote } from "../../parser/parse-utils/string-utils.js";
 import { NoteNameMap, SHARP_NOTE_NAMES, FLAT_NOTE_NAMES, resolveLetterNameToJianpu, tonality2Midi } from "../../parser/parse-utils/note-utils.js";
-import { parseNoteName } from "./noteNameFSM.js";
+import { parseNoteName } from "./noteName.js";
 
 export type NoteTransform = "to-absolute" | "to-relative" | "semitone-up" | "semitone-down";
 export interface SourceEdit { span: SourceSpan; text: string }
@@ -139,8 +139,9 @@ export function rewriteNotes(source: string, notes: readonly NoteSource[], opera
     for (let index = 0; index < tokens.length - 1; index++) {
         const left = tokens[index], right = tokens[index + 1];
         if (left.span.end !== right.span.start || left.text.endsWith("}")) continue;
-        const parsed = parseNoteName(left.text + right.text);
-        if (parsed instanceof Diagnostic || parsed.next !== left.text.length) {
+        const merged = left.text + right.text;
+        const parsed = parseNoteName(merged, 0, merged.length, false);
+        if (!parsed || parsed.next !== left.text.length) {
             if (left.text !== source.slice(left.span.start, left.span.end)) left.text += " ";
             else right.text = " " + right.text;
         }
