@@ -8,7 +8,7 @@ const MAX_BPM = 480;
 /** 一个装饰音能展开的子音上限；防的是 `@tempo(0.01)` 这类手滑 */
 const MAX_SUBNOTES = 256;
 
-interface OrnamentPattern {
+export interface OrnamentPattern {
     /** 调内音级偏移序列，0 表示本音 */
     readonly body: readonly number[];
     /** 主体是否重复到填满宿主时值 */

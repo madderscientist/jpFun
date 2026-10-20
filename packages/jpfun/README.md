@@ -1,15 +1,8 @@
 # jpFun
 
-A TypeScript engine that compiles a compact numbered-notation DSL into SVG or Canvas, with layout-independent playback.
+A zero-dependency TypeScript engine that compiles a functional numbered-notation (Jianpu) DSL into SVG, Canvas, and layout-independent playback plans.
 
-[Documentation](https://madderscientist.github.io/jpFun/)
-
-## Features
-
-- Extensible music DSL with exact rational timing
-- Automatic spacing and pagination, shared by SVG and Canvas
-- Structured diagnostics and source-aware editing
-- Zero runtime dependencies; works in Node.js and modern browsers
+[Documentation](https://madderscientist.github.io/jpFun/docs/) · [Playground](https://madderscientist.github.io/jpFun/playground) · [Grammar Reference](grammar.md)
 
 ## Installation
 
@@ -17,188 +10,98 @@ A TypeScript engine that compiles a compact numbered-notation DSL into SVG or Ca
 npm install jpfun
 ```
 
-jpFun is ESM-only, supports Node.js 18+ and modern browsers, and has no compiler DOM dependency.
+The npm package is ESM-only and supports Node.js 18+ and modern browsers.
 
-## Browser via CDN
-
-Use the bundled `jpfun` global without a build step:
+Or load via CDN (`globalThis.jpfun`):
 
 ```html
 <script src="https://unpkg.com/jpfun"></script>
-<script>
-  const { compileScore, renderLayoutPagesToSvg } = jpfun;
-  document.body.innerHTML = renderLayoutPagesToSvg(compileScore("1 2 3 | 4 -").layout)[0];
-</script>
 ```
 
-Or import an ES module:
+In production, pin all CDN bundles to the same `jpfun@x.y.z` version.
 
-```html
-<script type="module">
-  import { compileScore } from "https://cdn.jsdelivr.net/npm/jpfun/+esm";
-</script>
-```
-
-Pin `jpfun@x.y.z` in production; these URLs otherwise use the latest release.
-
-Optional bundles under `https://unpkg.com/jpfun/dist/` share the same global:
+IIFE bundles under `jpfun/dist/` share the `jpfun` global:
 
 | Bundle | Capabilities |
 | --- | --- |
-| `jpfun.core.min.js` | Compilation, rendering, playback, and source editing |
+| `jpfun.min.js` | Core and both converters |
+| `jpfun.core.min.js` | Compilation, rendering, playback, and source editing; no converters |
+| `jpfun.from-midi.min.js` | MIDI JSON import; automatic line breaking also requires core |
 | `jpfun.from-musicxml.min.js` | Standalone MusicXML import |
-| `jpfun.from-midi.min.js` | MIDI JSON import; automatic line breaking also requires the core bundle |
 
 For standalone MIDI import, set a positive `barsPerLine`.
 
 ## Quick Start
 
 ```ts
-import { compileScore, renderLayoutPagesToSvg } from "jpfun";
+import {
+  compilePlayback,
+  compileScore,
+  renderLayoutPagesToSvg,
+} from "jpfun";
 
 const source = `
-  @1(C4)
-  @tempo(96)
-
+  @1(C4) @tempo(96)
   1/ 2/ 3 4 | 5 -
 `;
 
-const result = compileScore(source);
-const pages = renderLayoutPagesToSvg(result.layout);
+// Compile source, retaining diagnostics and intermediate results
+const compiled = compileScore(source);
+
+// Render to SVG strings (one per page)
+const svgPages = renderLayoutPagesToSvg(compiled.layout);
+
+// Generate timed events and score mappings; this does not play audio
+const playback = compilePlayback(compiled.lowering);
 ```
 
-`renderLayoutPagesToSvg` returns one SVG string per page, ready to save or insert into a web page.
+Check returned `diagnostics` for recoverable problems and catch compilation errors when processing user input. The host handles audio/MIDI devices, real-time scheduling, and MIDI byte encoding.
 
-## Note Source Transformations
+For Canvas, create and size one canvas per layout page; see the [rendering example](https://madderscientist.github.io/jpFun/docs/developer/use/#渲染结果). The default text measurer estimates widths; `CanvasTextMeasurer` measures browser font widths for both SVG and Canvas layout.
 
-`transformNotes(source, lowering, operation, ranges?)` returns sorted `{ span, text }` edits for `to-absolute`, `to-relative`, `semitone-up`, or `semitone-down`. Use lowering from the same source and apply edits in one editor transaction or right to left.
+## Core APIs
 
-Only notes fully covered by `ranges` are changed; omit it for the whole source, or pass `[]` for no changes. Conversion preserves pitch; semitone shifts preserve each note's representation. Key declarations, rests, spacers, percussion, and surrounding source are retained. Invalid note input throws a diagnostic.
+### Custom Symbols (`symbols`)
 
-## Browser Rendering
-
-The default text measurer estimates glyph widths. For accurate browser layout, pass `CanvasTextMeasurer`, including when rendering SVG:
+Register or override `@symbol` (`$name`) definitions for instrument-specific symbol packages:
 
 ```ts
-import { compileScore, CanvasTextMeasurer, renderLayoutPagesToCanvas } from "jpfun";
+import { symbols, type SymbolDefinition } from "jpfun";
 
-const context = document.createElement("canvas").getContext("2d")!;
-const result = compileScore(source, { textMeasurer: new CanvasTextMeasurer(context) });
-renderLayoutPagesToCanvas(result.layout, [context]);
+const dieyin: SymbolDefinition = {
+  name: "dizi.dy",
+  description: "Dieyin ornament",
+  text: { content: "又", fontFamily: "serif" },
+  emitPlayback: emitter => emitter.affectFollowing(symbols.ornament({ body: [1, 0] })),
+};
+
+symbols.register(dieyin); // Register or override by lowercase name
 ```
 
-Canvas rendering takes one context per page. Measurement can use a separate canvas.
+The registry is shared across compilations. Names are case-insensitive, and later registrations override existing definitions, including built-ins. When finished, use `symbols.reset()` to remove extensions and restore `symbols.core`; `symbols.clear()` removes everything, including built-ins.
 
-## Compilation Pipeline
+### Note Transformations & Editor Analysis
 
-```text
-Source
-  -> Parser     -> AST
-  -> Lowering   -> timed events and relations
-      |-> Playback -> NoteOn / NoteOff / Tempo events
-       `-> Layout   -> document geometry
-            -> Renderer -> SVG or Canvas
-```
+- `transformNotes(source, lowering, operation, ranges?)`: Returns `{ span, text }[]` edits for `"to-absolute"`, `"to-relative"`, `"semitone-up"`, or `"semitone-down"`. Use lowering from the exact same source; apply edits in one editor transaction or from right to left.
+- `analyzeScoreSyntax(source, functions?)`: Fault-tolerant lexical/call analysis for real-time editor highlighting and completion.
+- `Diagnostic.format(code, message, params)`: Override to localize diagnostic messages.
 
-`compileScore` exposes `parser`, `ast`, `lowering`, and `layout`. Compile playback separately:
+### MIDI & MusicXML Import
+
+Import from dedicated subpaths (or from `"jpfun"`):
 
 ```ts
-import { compilePlayback } from "jpfun";
+import { midiJsonToJpFun } from "jpfun/converter/midi";
+import { musicXmlToJpFun } from "jpfun/converter/musicxml";
 
-const playback = compilePlayback(result.lowering);
+const fromMidi = midiJsonToJpFun(parsedMidiJson, { pitchMode: "absolute", alignRate: 4, barsPerLine: 0 });
+const { script, diagnostics } = musicXmlToJpFun(xmlDocument.documentElement, { pitchMode: "absolute", barsPerLine: 4 });
 ```
 
-The plan contains device-independent `events`, `scoreMap`, `tracks`, and `durationSeconds`, with exact `Fraction` timestamps. Repeat expansion exceeding 65,536 visited columns throws; raise the limit with `{ maxFlowSteps: 200_000 }` when needed.
+MIDI import expects [midi.js](https://madderscientist.github.io/noteDigger/lib/midi.js)-compatible JSON, not MIDI bytes. MusicXML import expects a parsed DOM root: provide a DOM implementation in Node.js and decompress `.mxl` first. Conversion can be lossy; inspect MusicXML diagnostics, and do not treat an empty array as a lossless guarantee.
 
-## MIDI JSON Conversion
-
-`midiJsonToJpFun` accepts the JSON returned by [`midi.js`](https://madderscientist.github.io/noteDigger/lib/midi.js)'s `JSON()` method. Parse MIDI bytes in your application.
-
-```ts
-import { midiJsonToJpFun } from "jpfun";
-
-const source = midiJsonToJpFun(parsedMidiJson, {
-  title: "My Score",
-  alignRate: 4,
-  barsPerLine: 0,
-});
-```
-
-`pitchMode` defaults to `"absolute"`; `"relative"` uses C-based numbered notation. `alignRate` controls quantization. `barsPerLine` defaults to `0` for automatic breaks; positive values fix the measures per system.
-
-Preserves notes, tracks, tempo, time signatures, programs, and standard 3:2 quarter-, eighth-, and sixteenth-note triplets. Other tuplets are unsupported. Percussion channel 10, velocity, controllers, pitch bends, and lyrics are omitted; time-signature changes snap to measure boundaries.
-
-## MusicXML Conversion
-
-`musicXmlToJpFun` accepts a parsed MusicXML root element. Use `DOMParser` in browsers or a compatible DOM implementation in Node.js:
-
-```ts
-import { musicXmlToJpFun } from "jpfun";
-
-const xml = await file.text();
-const document = new DOMParser().parseFromString(xml, "application/xml");
-if (document.querySelector("parsererror")) throw new SyntaxError("Invalid MusicXML");
-
-const { script, diagnostics } = musicXmlToJpFun(document.documentElement, {
-  barsPerLine: 4,
-});
-```
-
-The result contains the generated `script` and a `MusicXmlDiagnostic[]`. Callers that previously used the return value as a string must now read `.script`. Each diagnostic is a plain object with `code`, `severity: "warning"`, `message`, and `location`; no diagnostics means an empty array. Conversion failures still throw instead of returning partial output.
-
-| Code | Reported loss |
-| --- | --- |
-| `W_MUSICXML_PERCUSSION_SKIPPED` | Channel 10 notes omitted |
-| `W_MUSICXML_APPROXIMATED` | Display pitches used for unpitched notes, after-grace fallback, or wedges mapped to note onsets with a fixed velocity change |
-| `W_MUSICXML_UNSUPPORTED_ELEMENT` | Harmony and discarded children of supported notation or direction containers, including pedal, slur, unsupported articulations, ornaments, and dynamics |
-| `W_MUSICXML_UNATTACHED_CONTENT` | Grace notes, text, or dynamics with no target |
-| `W_MUSICXML_UNRESOLVED_RELATION` | Unmatched, replaced, unclosed, or unrenderable ties, wedges, and endings |
-
-`location.element` is the XML tag name without its namespace prefix. Available context includes `partId`, `measureIndex` (1-based within the part), `measureNumber` (the original string), `staff`, and `voice`. These refer to the imported score, not offsets in `script`; XML line/column information is not available through the minimal DOM interface. Reports follow deterministic processing order, not necessarily XML document order.
-
-Diagnostics cover the cases above, not the entire MusicXML specification. Empty diagnostics do not guarantee lossless conversion. Ordinary defaults and detailed engraving coordinates do not produce warnings. Diagnostic messages describe the loss; use `code` for programmatic classification.
-
-Text, dynamics, and wedges target the matching part and staff. With no voice specified, dynamics and wedges apply to matching voices on that staff, while text is attached only once. Missing targets produce diagnostics instead of redirecting the marking to another staff or voice. Tuplet markers are confirmed only when the resulting event rhythm retains their boundaries, including equivalent declarations on chord members.
-
-All `notations` containers on a note are inspected. Tempo and dynamic marks that never reach the generated script, including terminal marks, produce unattached-content warnings. Arpeggios that cannot be emitted after chord merging and voice splitting, such as cross-staff groups reduced to single-note events, produce unsupported-element warnings.
-
-Supports partwise/timewise scores, multiple voices, rhythm, lyrics, dynamics, repeats, and basic layout metadata. `pitchMode` defaults to `"absolute"`; `"relative"` uses the active MusicXML key.
-
-Decompress `.mxl` archives before parsing. Percussion channel 10, pedal, cross-staff arpeggio grouping, and detailed engraving coordinates are omitted.
-
-## Syntax Example
-
-```jpfun
-@page(width=860px, left=38px, right=38px)
-@1(C4)
-@tempo(96)
-
-N(Melody): 1/ 1/ 5/ 5/ 6/ 6/ 5 -
-N: @div(C4 C4) G4/G4/ A4/ A/ G
-L(Lyrics): do do so so la la so
-```
-
-See the [language reference](grammar.md) for the complete syntax.
-
-## Development
-
-jpFun is maintained in a pnpm workspace. From the repository root:
-
-```sh
-pnpm install
-pnpm run build:core
-pnpm test
-pnpm run dev
-```
-
-The development server opens the Playground at <http://127.0.0.1:4173>.
-
-## Documentation
-
-- [Language reference](grammar.md)
-- [Repository](https://github.com/madderscientist/jpFun)
-- [Issue tracker](https://github.com/madderscientist/jpFun/issues)
+See the [Developer Documentation](https://madderscientist.github.io/jpFun/docs/developer/use/) for full option and diagnostic details.
 
 ## License
 
-[Apache License 2.0](LICENSE)
+[Apache-2.0](LICENSE)

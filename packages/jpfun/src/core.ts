@@ -3,6 +3,12 @@ export * from "./pipeline.js";
 export * from "./functions/ASTtypes.js";
 export * from "./functions/temporal.js";
 export * from "./functions/default.js";
+export {
+    symbols,
+    type OrnamentPattern,
+    type SymbolDefinition,
+    type SymbolShape,
+} from "./functions/symbol/index.js";
 export { transformNotes, type NoteTransform, type SourceEdit } from "./functions/note/index.js";
 
 export * from "./diagnostic.js";

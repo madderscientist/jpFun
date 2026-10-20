@@ -15,8 +15,8 @@ import {
     type ParserContext,
     type SourceSpan,
 } from "../ASTtypes.js";
+import { ornament } from "./ornament.js";
 import { paintSymbol, symbolBounds, type SymbolShape } from "./shape.js";
-
 import { accentSymbol } from "./symbols/accent.js";
 import { dcSymbol } from "./symbols/dc.js";
 import { dsSymbol } from "./symbols/ds.js";
@@ -27,6 +27,9 @@ import { mordentSymbol } from "./symbols/mordent.js";
 import { prallSymbol } from "./symbols/prall.js";
 import { segnoSymbol } from "./symbols/segno.js";
 import { trSymbol } from "./symbols/tr.js";
+
+export type { OrnamentPattern } from "./ornament.js";
+export type { SymbolShape };
 
 /**
  * 一个乐谱符号：固定图形加可选的播放语义
@@ -68,38 +71,73 @@ export interface SymbolDefinition {
 }
 
 type SymbolPattern = NonNullable<SymbolDefinition["pattern"]>;
+const coreSymbols: readonly SymbolDefinition[] = Object.freeze([
+    trSymbol, fermataSymbol, prallSymbol, mordentSymbol, accentSymbol,
+    ...dynamicSymbols, dcSymbol, dsSymbol, segnoSymbol, fineSymbol,
+]);
 const symbolTable = new Map<string, SymbolDefinition>();
-const symbolPatterns: SymbolPattern[] = [];
-for (const definition of [trSymbol, fermataSymbol, prallSymbol, mordentSymbol, accentSymbol,
-    ...dynamicSymbols, dcSymbol, dsSymbol, segnoSymbol, fineSymbol]) {
-    const name = definition.name.toLowerCase();
-    if (symbolTable.has(name)) throw new Error(`Duplicate symbol name: ${definition.name}`);
-    symbolTable.set(name, definition);
-    const pattern = definition.pattern;
-    if (!pattern) continue;
-    const { regex } = pattern;
-    if (regex.global || regex.sticky) throw new Error(`Symbol pattern must not use g or y flags: ${name}`);
-    symbolPatterns.push(regex.ignoreCase ? pattern
-        : { ...pattern, regex: new RegExp(regex.source, `${regex.flags}i`) });
-}
+const symbolPatterns = new Map<string, SymbolPattern>();
+
+export const symbols = Object.freeze({
+    /** 内置符号的只读备份列表 */
+    core: coreSymbols,
+    /** 注册或同名覆盖一个或多个符号定义 */
+    register: (...definitions: readonly SymbolDefinition[]): void => {
+        const entries = definitions.map(definition => {
+            const name = definition.name.toLowerCase();
+            let pattern = definition.pattern;
+            if (pattern) {
+                const { regex } = pattern;
+                if (regex.global || regex.sticky) {
+                    throw new Error(`Symbol pattern must not use g or y flags: ${name}`);
+                }
+                if (!regex.ignoreCase) pattern = { ...pattern, regex: new RegExp(regex.source, `${regex.flags}i`) };
+            }
+            return { name, definition, pattern };
+        });
+        for (const { name, definition, pattern } of entries) {
+            symbolTable.set(name, definition);
+            if (pattern) symbolPatterns.set(name, pattern);
+            else symbolPatterns.delete(name);
+        }
+    },
+    /** 清空所有已注册符号（含内置符号） */
+    clear: (): void => {
+        symbolTable.clear();
+        symbolPatterns.clear();
+    },
+    /** 清空并恢复到最初的 symbols.core 状态 */
+    reset: (): void => {
+        symbols.clear();
+        symbols.register(...symbols.core);
+    },
+    /** 装饰音播放展开工具 */
+    ornament,
+    /** 计算符号图元在自身坐标系中的固有包围盒 */
+    bounds: symbolBounds,
+});
+
+symbols.reset();
 
 class SymbolFunction extends ASTFunctionNode {
     static override def = {
         name: ["symbol", "$"],
         description: "创建一个乐谱符号",
-        details: `\
+        get details() {
+            return `\
 ~~~jpfun
 1 ^ @symbol(p, size=0.5em)
 ~~~
 **简写**：\`$name\`，如 \`1 ^ $p\`。名称读取到下一个空白或当前内容区间末尾，连续的标点也属于名称。
 
-**内置记号**
-${[...symbolTable.values()].map(item => `- \`$${item.name}\`：${item.description}`).join("\n")}`,
+**已注册记号**
+${[...symbolTable.values()].map(item => `- \`$${item.name}\`：${item.description}`).join("\n")}`;
+        },
         allowExtraArgs: false,
         args: [
             {
                 name: "name",
-                description: "内置记号名称，见函数说明中的记号列表",
+                description: "已注册记号名称，见函数说明中的记号列表",
                 type: "string" as const,
                 default: null
             },
@@ -139,7 +177,7 @@ ${[...symbolTable.values()].map(item => `- \`$${item.name}\`：${item.descriptio
         let definition = symbolTable.get(normalized);
         if (!definition) {
             let matched: { pattern: SymbolPattern; match: RegExpExecArray } | undefined;
-            for (const pattern of symbolPatterns) {
+            for (const pattern of symbolPatterns.values()) {
                 const match = pattern.regex.exec(normalized);
                 if (!match || match.index !== 0 || match[0] !== normalized) continue;
                 if (matched) throw new Error(`Ambiguous symbol patterns: ${normalized}`);

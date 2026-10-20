@@ -36,6 +36,8 @@ test("full bundle exports core and converters", async () => {
   const target = context();
   await load(target, "jpfun.min.js");
   assert.equal(typeof target.jpfun.compileScore, "function");
+  assert.equal(typeof target.jpfun.symbols?.register, "function");
+  assert.equal(typeof target.jpfun.symbols?.reset, "function");
   assert.equal(typeof target.jpfun.midiJsonToJpFun, "function");
   assert.equal(typeof target.jpfun.musicXmlToJpFun, "function");
 });
@@ -44,6 +46,8 @@ test("core bundle excludes converters", async () => {
   const target = context();
   await load(target, "jpfun.core.min.js");
   assert.equal(typeof target.jpfun.compileScore, "function");
+  assert.equal(typeof target.jpfun.symbols?.register, "function");
+  assert.equal(typeof target.jpfun.symbols?.reset, "function");
   assert.equal(target.jpfun.midiJsonToJpFun, undefined);
   assert.equal(target.jpfun.musicXmlToJpFun, undefined);
 });

@@ -51,6 +51,7 @@ const pages = renderLayoutPagesToSvg(result.layout);
 | 生成播放计划 | `compileScore` + `compilePlayback` |
 | MIDI 转为 jpFun | `jpfun/converter/midi` |
 | MusicXML 转为 jpFun | `jpfun/converter/musicxml` |
+| 注册或管理乐谱符号 | `symbols` |
 | 编辑器即时语法反馈 | `analyzeScoreSyntax` |
 | 自定义绘制后端 | `compileScore` + `paintLayout` / `Painter` |
 
@@ -95,7 +96,7 @@ const compiled = compileScore(source, {
 
 ## 处理诊断
 
-能够恢复的问题会进入 `compiled.diagnostics`，编译仍然返回可用的 AST 和布局。每条诊断都包含稳定的 `code`、说明文字 `message` 和源码偏移 `span`：
+能够恢复的问题会进入 `compiled.diagnostics`，编译仍然返回可用的 AST 和布局。每条诊断都包含稳定的 `code`、说明文字 `message`、源码偏移 `span` 以及可选的结构化参数 `params`：
 
 ```ts
 import { ErrorDiagnostic, compileScore } from "jpfun";
@@ -108,12 +109,13 @@ for (const diagnostic of compiled.diagnostics) {
     severity: diagnostic instanceof ErrorDiagnostic ? "error" : "warning",
     code: diagnostic.code,
     message: diagnostic.message,
+    params: diagnostic.params,
     range,
   });
 }
 ```
 
-`toLineCol` 返回从 1 开始的行号和列号，适合没有文本编辑器模型的环境。CodeMirror 可以直接使用 `doc.lineAt(diagnostic.span.start)`，VS Code 则可使用 `document.positionAt(...)`，不必再做一次行起点查找。
+需要自定义多语言提示时，可在编译前替换静态格式化函数 `Diagnostic.format(code, message, params)`。`toLineCol` 返回从 1 开始的行号和列号，适合没有文本编辑器模型的环境。CodeMirror 可以直接使用 `doc.lineAt(diagnostic.span.start)`，VS Code 则可使用 `document.positionAt(...)`，不必再做一次行起点查找。
 
 无法恢复的解析错误或非法编译选项会由 `compileScore` 抛出，因此处理用户输入时还应包住调用。抛出的值若是 `Diagnostic`，其 `span` 仍可用于定位；其他异常应当作为内部错误展示，而不要假定它带有源码位置。
 
@@ -285,6 +287,40 @@ async function importScore(file: File) {
 ```
 
 分包由应用构建工具完成。`import("jpfun")` 会以整个根入口作为异步边界；分别延迟加载 MIDI 和 MusicXML 时，应使用上面的两个子路径。未配置打包器的原生 ESM 环境仍会按模块加载，但不会自动生成可部署的 chunk 文件。
+
+## 扩展与管理乐谱符号
+
+`@symbol`（简写 `$name`）的符号表由顶层导出的 `symbols` 对象管理。不同乐器的专属符号包可以独立于 `core` 维护，并在应用启动或切换乐器时按需注册：
+
+```ts
+import { compileScore, symbols, type SymbolDefinition } from "jpfun";
+
+const dieyinSymbol: SymbolDefinition = {
+  name: "dizi.dy",
+  description: "竹笛叠音：本音前带出上方二度",
+  text: { content: "又", fontFamily: "serif" },
+  emitPlayback: emitter =>
+    emitter.affectFollowing(symbols.ornament({ body: [1, 0] })),
+};
+
+// 注册符号包或单个符号；同名时直接覆盖已有定义（含内置符号）
+symbols.register(dieyinSymbol);
+
+const compiled = compileScore("1 ^ $dizi.dy");
+```
+
+`symbols` 提供以下属性与方法：
+
+| 成员 | 作用 |
+| --- | --- |
+| `symbols.core` | 最初内置符号的只读备份列表（`readonly SymbolDefinition[]`） |
+| `symbols.register(...definitions)` | 注册一个或多个符号定义；名称忽略大小写，同名直接覆盖并同步更新 `pattern` |
+| `symbols.clear()` | 清空全部已注册符号（包括内置符号） |
+| `symbols.reset()` | 清空并恢复为 `symbols.core` 初始状态 |
+| `symbols.ornament(pattern)` | 按调内音级偏移序列生成装饰音 `PlaybackTransform` |
+| `symbols.bounds(shapes)` | 计算 `SymbolShape[]` 在符号自身坐标系中的固有包围盒，用于自定义 `anchor` 或组合图形 |
+
+所有符号平铺在同一命名层级中，名称前缀（如 `dizi.dy`、`guitar.p`）或是否覆盖内置短名（如用吉他指法覆盖 `$p`）由符号包与宿主自行决定。切换曲谱或测试清理时，调用 `symbols.reset()` 即可回退到最初的内置符号表。`@symbol` 的函数文档 `SymbolNode.def.details` 会随当前已注册符号动态更新。
 
 ## 只分析编辑器语法
 

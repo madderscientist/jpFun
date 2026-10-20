@@ -1,10 +1,12 @@
 import { test } from "node:test";
-import { strictEqual } from "node:assert/strict";
+import { strictEqual, throws } from "node:assert/strict";
 
 import { DEFAULT_VELOCITY, TemporalNodeBase } from "../src/functions/temporal.js";
+import { SymbolNode } from "../src/functions/symbol/index.js";
 import { symbolBounds, type SymbolShape } from "../src/functions/symbol/shape.js";
 import { fermataSymbol } from "../src/functions/symbol/symbols/fermata.js";
 import { trSymbol } from "../src/functions/symbol/symbols/tr.js";
+import { symbols, type SymbolDefinition } from "../src/core.js";
 import { analyzeScoreSyntax, compileScore } from "../src/pipeline.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import { assert, compileValid, expectDiagnostic, layoutOf, lower, nearly, parse, playedNotes, recordCommands } from "./helpers.js";
@@ -522,4 +524,65 @@ test("$fine 只在回跳之后生效，不被反复线提前触发", () => {
     assert(played("|: 1 2 $fine :| 3 $dc") === "60 62 60 62 64 60 62", "反复段内的 Fine 不受反复线影响");
     assert(played("|: 1 2 $fine 3 :| 4") === "60 62 64 60 62 64 65", "没有回跳记号时 Fine 不生效");
     assert(played("1 $dc 2 $fine 3") === "60 60 62 64", "写在回跳点之后的 Fine 永远不生效");
+});
+
+test("symbols 支持分包注册、同名覆盖、清空与回退到 core", (t) => {
+    const { register, clear, reset } = symbols;
+    t.after(reset);
+
+    strictEqual(Object.isFrozen(symbols), true, "symbols 命名空间对象应只读冻结");
+    strictEqual(Object.isFrozen(symbols.core), true, "symbols.core 备份列表应只读冻结");
+    strictEqual(symbols.bounds, symbolBounds, "symbols.bounds 应暴露图形包围盒工具");
+
+    const diziDieyin: SymbolDefinition = {
+        name: "dizi.dy",
+        description: "竹笛叠音",
+        text: { content: "又", fontFamily: "serif" },
+        emitPlayback: emitter => emitter.affectFollowing(symbols.ornament({ body: [1, 0] })),
+    };
+    const guitarP: SymbolDefinition = {
+        name: "p",
+        description: "吉他右手拇指",
+        text: { content: "p", fontFamily: "serif" },
+    };
+    const customTr: SymbolDefinition = {
+        name: "tr",
+        description: "无尾巴颤音覆盖",
+        text: { content: "tr", fontFamily: "serif" },
+    };
+
+    // 非法正则（含 g/y）应在整批写入前拦截，不破坏既有符号表或 pattern
+    for (const regex of [/^tr(\++)/g, /^tr(\++)/y]) {
+        throws(() => register(diziDieyin, {
+            name: "tr",
+            description: "非法正则",
+            pattern: { regex, resolve: () => customTr },
+        }), { message: "Symbol pattern must not use g or y flags: tr" });
+        expectDiagnostic(() => parse("@set(strict=true) $dizi.dy"), "E_UNKNOWN_SYMBOL");
+        strictEqual(parse("$tr").content[0].toString("$tr"), "@symbol(tr)");
+        strictEqual(parse("$tr+++").content[0].toString("$tr+++"), "@symbol(tr+++)", "批次失败不应破坏原有 tr pattern");
+    }
+
+    register(diziDieyin, guitarP, customTr);
+
+    const diziPlayed = playedNotes(compilePlayback(lower("1 ^ $dizi.dy"))).map(note => note.midi).join(" ");
+    strictEqual(diziPlayed, "62 60", "新注册符号应支持 symbols.ornament 播放展开");
+    assert(SymbolNode.def!.details.includes("`$dizi.dy`：竹笛叠音"), "函数文档应动态反映新注册符号");
+
+    const pNode = parse("$p").content[0];
+    assert("definition" in pNode && pNode.definition === guitarP, "同名注册应覆盖内置 $p");
+    const pPlayed = playedNotes(compilePlayback(lower("$p 1")));
+    strictEqual(pPlayed[0].velocity, DEFAULT_VELOCITY, "被覆盖后的 $p 不再触发内置弱记号力度");
+
+    expectDiagnostic(() => parse("@set(strict=true) $tr+++"), "E_UNKNOWN_SYMBOL");
+
+    clear();
+    expectDiagnostic(() => parse("@set(strict=true) $p"), "E_UNKNOWN_SYMBOL");
+    expectDiagnostic(() => parse("@set(strict=true) $dizi.dy"), "E_UNKNOWN_SYMBOL");
+
+    reset();
+    expectDiagnostic(() => parse("@set(strict=true) $dizi.dy"), "E_UNKNOWN_SYMBOL");
+    strictEqual(parse("$tr+++").content[0].toString("$tr+++"), "@symbol(tr+++)", "reset 后内置正则变体应恢复");
+    const restoredP = playedNotes(compilePlayback(lower("$p 1")));
+    assert(restoredP[0].velocity < DEFAULT_VELOCITY, "reset 后内置 $p 力度语义应恢复");
 });
