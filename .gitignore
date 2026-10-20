@@ -3,3 +3,4 @@ dist/
 .astro/
 *.tsbuildinfo
 docs-build.log
+__pycache__/
