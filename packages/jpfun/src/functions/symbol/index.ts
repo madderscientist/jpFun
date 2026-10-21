@@ -23,10 +23,16 @@ import { dsSymbol } from "./symbols/ds.js";
 import { dynamicSymbols } from "./symbols/dynamics.js";
 import { fermataSymbol } from "./symbols/fermata.js";
 import { fineSymbol } from "./symbols/fine.js";
+import { harmonicSymbol } from "./symbols/harmonic.js";
+import { marcatoSymbol } from "./symbols/marcato.js";
 import { mordentSymbol } from "./symbols/mordent.js";
 import { prallSymbol } from "./symbols/prall.js";
 import { segnoSymbol } from "./symbols/segno.js";
+import { staccatoSymbol } from "./symbols/staccato.js";
+import { tenutoSymbol } from "./symbols/tenuto.js";
 import { trSymbol } from "./symbols/tr.js";
+import { tremoloSymbol } from "./symbols/tremolo.js";
+import { iturnSymbol, turnSymbol } from "./symbols/turn.js";
 
 export type { OrnamentPattern } from "./ornament.js";
 export type { SymbolShape };
@@ -34,7 +40,7 @@ export type { SymbolShape };
 /**
  * 一个乐谱符号：固定图形加可选的播放语义
  *
- * 每个符号自成一个文件、彼此没有依赖，新增一个符号就是新增一个对象字面量
+ * 每个符号或符号族自成一个文件，新增符号就是新增对象字面量，可复用已有图形和播放能力
  */
 export interface SymbolDefinition {
     readonly name: string;
@@ -72,7 +78,8 @@ export interface SymbolDefinition {
 
 type SymbolPattern = NonNullable<SymbolDefinition["pattern"]>;
 const coreSymbols: readonly SymbolDefinition[] = Object.freeze([
-    trSymbol, fermataSymbol, prallSymbol, mordentSymbol, accentSymbol,
+    trSymbol, fermataSymbol, prallSymbol, mordentSymbol, accentSymbol, tremoloSymbol, harmonicSymbol,
+    tenutoSymbol, marcatoSymbol, staccatoSymbol, turnSymbol, iturnSymbol,
     ...dynamicSymbols, dcSymbol, dsSymbol, segnoSymbol, fineSymbol,
 ]);
 const symbolTable = new Map<string, SymbolDefinition>();

@@ -104,4 +104,4 @@ See the [Developer Documentation](https://madderscientist.github.io/jpFun/docs/d
 
 ## License
 
-[Apache-2.0](LICENSE)
+[Apache-2.0](LICENSE), except the `$turn` / `$iturn` glyphs derived from [Bravura](https://github.com/steinbergmedia/bravura), licensed under [SIL OFL 1.1](Bravura-LICENSE.txt). Include `Bravura-LICENSE.txt` when redistributing these glyphs or bundles containing them.

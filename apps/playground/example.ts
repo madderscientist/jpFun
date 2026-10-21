@@ -76,7 +76,9 @@ L: 满天都是小星星。
 1 ^ $p 2@d1 3 5@d2 @dyn(d1, d2, 24)  5 ^ $f 3@d3 2 1@d4 @dyn(d3, d4, -24)
 
 @text("符号 ")
-@symbol(fermata) $ppp $pp $p $mp $mf $f $ff $fff $segno $ds $dc $fine $mordent $prall $tr $tr+++ $accent
+@symbol(fermata)
+$ppp $pp $p $mp $mf $f $ff $fff
+$segno $ds $dc $fine $mordent $prall $tr $tr+++ $accent $tremolo $harmonic $staccato $tenuto $marcato $turn $iturn
 
 @text("其他函数与混用：")
 

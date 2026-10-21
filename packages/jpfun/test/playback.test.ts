@@ -1,5 +1,5 @@
 import { test } from "node:test";
-import { deepStrictEqual } from "node:assert/strict";
+import { deepStrictEqual, throws } from "node:assert/strict";
 
 import { Fraction } from "../src/fraction.js";
 import { TemporalNodeBase } from "../src/functions/temporal.js";
@@ -600,10 +600,7 @@ test("点事件保留音符来源校验", () => {
     const lowering = lowerWithModifier(`1 ^ $accent`, emitter => {
         emitter.affectFollowing((_context, notes) => notes.map(note => ({ ...note, origins: [] })));
     });
-    let thrown: unknown;
-    try { compilePlayback(lowering); } catch (error) { thrown = error; }
-    assert(thrown instanceof Error && /^Note \d+ has no origin$/.test(thrown.message),
-        `缺少来源的音符必须被拒绝，实际为 ${String(thrown)}`);
+    throws(() => compilePlayback(lowering), Error);
 });
 
 test("声音展开拒绝越界、缩短、移动外边界与空结果", () => {

@@ -11,7 +11,7 @@ export interface MusicXmlMeasureSource {
     container: MusicXmlElement;
 }
 
-const DYNAMIC_NAMES = new Set(["ppp", "pp", "p", "mp", "mf", "f", "ff", "fff"]);
+const DYNAMIC_NAME = /^(?:p+|f+|mp|mf)$/;
 const MAX_ENDING_PASS = 256;
 
 const DIAGNOSTICS = {
@@ -44,6 +44,7 @@ const DIAGNOSTICS = {
     glissReplaced: ["UNRESOLVED_RELATION", "Glissando start was replaced before a matching stop and was omitted."],
     glissEndpoints: ["UNRESOLVED_RELATION", "Glissando endpoints are simultaneous or cross a score line and were omitted."],
     glissStyle: ["APPROXIMATED", "MusicXML <{value}> was converted to a straight glissando arrow."],
+    symbolStyle: ["APPROXIMATED", "MusicXML <{value}> was mapped to the default symbol shape."],
 } as const;
 
 export function reportDiagnostic(
@@ -218,7 +219,7 @@ export function transposePitch(pitch: MusicXmlPitch, chromatic: number, diatonic
     }
 }
 
-/** 将支持的 fermata articulation 和 ornament 转成 jpFun 修饰符 */
+/** 将支持的延长、奏法与装饰音记号转成 jpFun 修饰符 */
 export function noteModifiers(notations: MusicXmlReader | undefined, diagnostics: MusicXmlDiagnostic[], location: MusicXmlDiagnostic["location"]) {
     const modifiers: MusicXmlEvent["modifiers"] = [];
     const slides: NonNullable<MusicXmlEvent["slides"]> = [];
@@ -230,10 +231,17 @@ export function noteModifiers(notations: MusicXmlReader | undefined, diagnostics
     }
     const articulations = notations.read("articulations");
     if (articulations) {
-        const accent = notations.read("accent", false, articulations);
-        if (accent) {
-            modifiers.push({ name: "accent", placement: placementOf(accent, "above") });
-            notations.accept(accent);
+        for (const [tag, name] of [
+            ["accent", "accent"], ["staccato", "staccato"], ["tenuto", "tenuto"],
+            ["strong-accent", "marcato"], ["staccatissimo", "staccato"],
+        ] as const) {
+            const articulation = notations.read(tag, false, articulations);
+            if (!articulation) continue;
+            modifiers.push({ name, placement: placementOf(articulation, "above") });
+            notations.accept(articulation);
+            if (tag === "strong-accent" && articulation.getAttribute("type") === "down") {
+                reportDiagnostic(diagnostics, "symbolStyle", { ...location, element: tag }, tag);
+            }
         }
         for (const [tag, side, direction] of [
             ["scoop", "pre", "up"], ["plop", "pre", "down"],
@@ -253,16 +261,19 @@ export function noteModifiers(notations: MusicXmlReader | undefined, diagnostics
     }
     const ornaments = notations.read("ornaments");
     if (ornaments) {
-        const names = [
+        for (const [tag, name] of [
             ["trill-mark", "tr"],
             ["mordent", "mordent"],
             ["inverted-mordent", "prall"],
-        ] as const;
-        for (const [tag, name] of names) {
+            ["turn", "turn"],
+            ["inverted-turn", "iturn"],
+        ] as const) {
             const ornament = notations.read(tag, false, ornaments);
-            if (ornament) {
-                modifiers.push({ name, placement: placementOf(ornament, "above") });
-                notations.accept(ornament);
+            if (!ornament) continue;
+            modifiers.push({ name, placement: placementOf(ornament, "above") });
+            notations.accept(ornament);
+            if ((tag === "turn" || tag === "inverted-turn") && ornament.getAttribute("slash") === "yes") {
+                reportDiagnostic(diagnostics, "symbolStyle", { ...location, element: tag }, tag);
             }
         }
         notations.report(diagnostics, location, ornaments);
@@ -359,7 +370,7 @@ export function directionDynamic(dynamics: MusicXmlElement | undefined, diagnost
     let dynamic: string | undefined;
     for (const element of children(dynamics)) {
         const name = nameOf(element);
-        if (!dynamic && DYNAMIC_NAMES.has(name)) dynamic = name;
+        if (!dynamic && DYNAMIC_NAME.test(name)) dynamic = name;
         else reportDiagnostic(diagnostics, "unsupported", { ...location, element: name }, name);
     }
     return dynamic;

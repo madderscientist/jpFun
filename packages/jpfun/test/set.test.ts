@@ -97,7 +97,7 @@ test("missing positional arguments are numbered independently of named-only opti
     const context = new ParserContext({ source: "" });
     const node = new RequiredFunction({ start: 0, end: 0 });
     const error = expectDiagnostic(() => node.getArgValue(new Map(), context), "E_MISSING_REQUIRED_ARG");
-    deepStrictEqual(error.message, "函数@required 缺少必需的参数 [0]");
+    deepStrictEqual(error.params, { fn: "required", arg: "[0]" });
 });
 
 test("别名写法归一到主名", () => {

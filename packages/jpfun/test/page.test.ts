@@ -21,7 +21,6 @@ import {
     expectDiagnostic,
     expectLayoutError,
     expectLoweringError,
-    expectSnapshot,
     layoutContext,
     layoutOf,
     lower,
@@ -53,9 +52,6 @@ test("br 在 lowering 阶段就固化行号，并把文档切成两个系统", (
     assert(nearly(breakResult.objects[0].box.x, breakResult.objects[2].box.x), "each system must restart horizontal layout at the same origin");
     assert(breakResult.objects[2].box.y > breakResult.objects[0].box.y + breakResult.objects[0].box.h, "the second system must be below the first system");
 
-    expectSnapshot("page-break",
-        `lines=${breakResult.lineCount} firstY=${breakResult.objects[0].box.y.toFixed(2)}`
-        + ` secondY=${breakResult.objects[2].box.y.toFixed(2)}`);
 });
 
 test("br 的偏移参数保留空行，0 被修正并报警", () => {

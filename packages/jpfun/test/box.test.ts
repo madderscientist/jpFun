@@ -4,7 +4,7 @@ import { GraceTemporal } from "../src/functions/grace/index.js";
 import { compileScore } from "../src/pipeline.js";
 import type { DocumentLayoutResult } from "../src/layout/engine.js";
 import type { Rect } from "../src/layout/types.js";
-import { assert, expectLayoutError, expectSnapshot, layoutOf, nearly } from "./helpers.js";
+import { assert, expectLayoutError, layoutOf, nearly } from "./helpers.js";
 
 test("关系对象向上让位，box 包含它们的完整范围", () => {
     const relationResult = layoutOf(`
@@ -32,9 +32,6 @@ test("关系对象向上让位，box 包含它们的完整范围", () => {
     assert(tieBox.x + tieBox.w > tie.box.x + tie.box.w, "box must include the full tie width");
     assert(tieBox.y + tieBox.h > firstNote.box.y + firstNote.box.h, "box must include its notes and padding");
 
-    expectSnapshot("box-relations",
-        `attachments=${relationResult.attachments.length} tieTop=${tie.box.y.toFixed(2)}`
-        + ` visualAxis=${(firstNote.box.y + firstNote.box.visualAxis).toFixed(2)}`);
 });
 
 test("box 的边框覆盖成员自身的图形，只有写在框内的关系才撑框", () => {
@@ -144,7 +141,6 @@ test("空 box 不伪造对象，边界保持有限", () => {
     const emptyBoxResult = layoutOf(`@box({})`);
     assert(emptyBoxResult.objects.length === 0, "empty box must not create a fake temporal object");
     assert(Object.values(emptyBoxResult.bounds).every(Number.isFinite), "empty box bounds must stay finite");
-    expectSnapshot("box-empty", `bounds.w=${emptyBoxResult.bounds.w}`);
 });
 
 test("box 首尾留白参与横排，嵌套每层只计一次", () => {

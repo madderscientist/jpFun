@@ -2,7 +2,7 @@ import type { PaintStyle, PathCommand } from "../../../render/types.js";
 import type { SymbolDefinition } from "../index.js";
 
 /**
- * 力度记号族：八个记号由 m / f / p 三个字母横向拼接而成
+ * 力度记号族：由 m / f / p 三个字母横向拼接而成
  *
  * 三个字母抠自同一套字体的 mp / mf 连字，坐标同属一套字体坐标系（共基线、同字号），
  * 所以拼接只需要横向位移，字距也是从连字上量出来的。
@@ -148,6 +148,9 @@ const INK: PaintStyle = { fill: "#000" };
 /** size 是 f 的全高；p 系没有升部、盒子只有 f 的这么高，不按此缩小就会被放大 1.26 倍 */
 const P_WEIGHT = 0.79341;
 
+const P_VELOCITIES = [49, 33, 16, 10, 5, 1] as const;
+const F_VELOCITIES = [96, 112, 126, 127] as const;
+
 function dynamic(name: string, velocity: number, description: string): SymbolDefinition {
     let dx = 0;
     const shapes = Array.from(name, (letter, index) => {
@@ -164,14 +167,22 @@ function dynamic(name: string, velocity: number, description: string): SymbolDef
     };
 }
 
-/** 力度阶梯是 16 的整数倍，末级钳到 127；mf 恰好等于 DEFAULT_VELOCITY */
+/** 默认力度与 MuseScore 一致；mf 恰好等于 DEFAULT_VELOCITY */
 export const dynamicSymbols: readonly SymbolDefinition[] = [
-    dynamic("ppp", 16, "极弱"),
-    dynamic("pp", 32, "很弱"),
-    dynamic("p", 48, "弱"),
+    {
+        ...dynamic("p", P_VELOCITIES[0], "弱；支持 `$p`、`$pp`、`$ppp` 等连续 p，整体居中"),
+        pattern: {
+            regex: /^p+$/,
+            resolve: ([name]) => dynamic(name, P_VELOCITIES[Math.min(name.length, P_VELOCITIES.length) - 1], "弱力度记号"),
+        },
+    },
     dynamic("mp", 64, "中弱"),
     dynamic("mf", 80, "中强"),
-    dynamic("f", 96, "强"),
-    dynamic("ff", 112, "很强"),
-    dynamic("fff", 127, "极强"),
+    {
+        ...dynamic("f", F_VELOCITIES[0], "强；支持 `$f`、`$ff`、`$fff` 等连续 f，整体居中"),
+        pattern: {
+            regex: /^f+$/,
+            resolve: ([name]) => dynamic(name, F_VELOCITIES[Math.min(name.length, F_VELOCITIES.length) - 1], "强力度记号"),
+        },
+    },
 ];

@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { copyFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -6,6 +7,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../pack
 const require = createRequire(path.join(root, "package.json"));
 const { build } = require("esbuild");
 const banner = "/*! jpfun | Apache-2.0 | github.com/madderscientist/jpFun */";
+
+await copyFile(path.join(root, "Bravura-LICENSE.txt"), path.join(root, "dist", "Bravura-LICENSE.txt"));
 
 async function bundle(entry, outfile) {
   return build({
@@ -16,13 +19,13 @@ async function bundle(entry, outfile) {
     minify: true,
     format: "iife",
     target: "es2022",
-    legalComments: "none",
+    legalComments: "inline",
     banner: { js: banner },
     metafile: true,
   });
 }
 
-const full = await bundle("dist/iife/full.js", "dist/jpfun.min.js");
+await bundle("dist/iife/full.js", "dist/jpfun.min.js");
 const core = await bundle("dist/iife/core.js", "dist/jpfun.core.min.js");
 const fromMidi = await bundle("dist/iife/from-midi.js", "dist/jpfun.from-midi.min.js");
 const fromMusicXml = await bundle("dist/iife/from-musicxml.js", "dist/jpfun.from-musicxml.min.js");
@@ -38,5 +41,3 @@ function assertExcludes(result, name, patterns) {
 assertExcludes(core, "core bundle", ["/converter/"]);
 assertExcludes(fromMidi, "from-midi bundle", ["/pipeline.js", "/layout/", "/render/", "/playback/"]);
 assertExcludes(fromMusicXml, "from-musicxml bundle", ["/pipeline.js", "/layout/", "/render/", "/playback/"]);
-
-void full;

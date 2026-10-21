@@ -50,7 +50,7 @@ test("folded meter changes preserve the first closing and final opening source b
         { start: prefix.indexOf("|") + 1, end: source.indexOf("@meter(3,4)") },
         { start: source.indexOf(content) + content.length + 2, end: source.length },
     ]);
-    assert(mismatches[0].message.includes("4/4") && mismatches[1].message.includes("2/4"),
+    deepStrictEqual(mismatches.map(item => [item.params?.num, item.params?.den]), [["4", "4"], ["2", "4"]],
         "the old and final meters must validate their own measures");
     const withoutBar = `${prefix}${content} 1 |`;
     const final = compileScore(withoutBar).diagnostics.filter(item => item.code === "W_METER_MISMATCH").at(-1)!;

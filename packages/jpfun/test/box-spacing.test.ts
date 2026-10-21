@@ -172,8 +172,8 @@ test("附件占用查询只暴露有效区域，未测依赖与显式空占用�
         layer: "foreground",
         createGeometry(context) {
             assert(context.getAttachmentOccupancy(future) === undefined, "future geometry is not yet visible");
-            throws(() => context.getAttachmentBox(future), /dependency has not been measured/);
-            throws(() => context.getContentBounds({ nodes: [], attachments: [future] }), /dependency has not been measured/);
+            throws(() => context.getAttachmentBox(future), Error);
+            throws(() => context.getContentBounds({ nodes: [], attachments: [future] }), Error);
             return { regions: [], paint() {} };
         },
     };

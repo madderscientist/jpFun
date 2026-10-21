@@ -27,6 +27,7 @@
     "dist",
     "README.md",
     "LICENSE",
+    "Bravura-LICENSE.txt",
     "grammar.md"
   ],
   "engines": {

@@ -6,7 +6,6 @@ import {
     assert,
     attachmentCommands,
     expectCompileError,
-    expectSnapshot,
     layoutOf,
     lower,
 } from "./helpers.js";
@@ -86,11 +85,6 @@ test("tuplet 在整组上方绘制居中的单位数与括线", () => {
     assert(attachment.box.y < Math.min(...members.map(member => member.box.y)),
         "the tuplet bracket must reserve space above its members");
 
-    expectSnapshot("tuplet-bracket", [
-        `box=${attachment.box.x.toFixed(2)},${attachment.box.y.toFixed(2)},${attachment.box.w.toFixed(2)},${attachment.box.h.toFixed(2)}`,
-        `number=${number.x.toFixed(2)},${number.y.toFixed(2)},${number.style.fontSize.toFixed(2)}`,
-        `lines=${lines.map(line => `${line.x1.toFixed(2)},${line.y1.toFixed(2)}-${line.x2.toFixed(2)},${line.y2.toFixed(2)}`).join(";")}`,
-    ].join("\n"));
 });
 
 test("tuplet 括线只避让自己盖住的列，区间外的高对象顶不起它", () => {

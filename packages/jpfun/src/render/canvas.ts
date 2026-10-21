@@ -120,8 +120,9 @@ export class CanvasPainter implements Painter {
         this.context.beginPath();
         this.context.arc(cx, cy, r, 0, Math.PI * 2);
 
-        if (style?.fill ?? true) {
-            this.context.fillStyle = style?.fill ?? "#000";
+        const fill = style?.fill ?? "#000";
+        if (fill && fill !== "none") {
+            this.context.fillStyle = fill;
             this.context.fill();
         }
 

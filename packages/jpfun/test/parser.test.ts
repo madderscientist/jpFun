@@ -379,29 +379,25 @@ test("标签的 target 指向被标注对象，不随容器改写", () => {
         "a label nested in braces must still point at the annotated node");
 });
 
-test("诊断信息同时插值中文消息并保留字符串化的 params", () => {
+test("诊断保留结构化参数并支持自定义格式化", () => {
     const missing = expectDiagnostic(() => compileScore("@meter(4)"), "E_MISSING_REQUIRED_ARG");
     deepStrictEqual(missing.params, { fn: "meter", arg: '"den"' });
-    deepStrictEqual(missing.message, '函数@meter 缺少必需的参数 "den"');
 
     const meter = compileScore("@meter(4, 4) | 1 2 3 |").diagnostics.find(item => item.code === "W_METER_MISMATCH")!;
     deepStrictEqual(meter.params, { duration: "3", num: "4", den: "4" });
-    deepStrictEqual(meter.message, "小节时长为 3 QN，不满足 4/4 拍号");
 
     const symbol = compileScore("$foo").diagnostics.find(item => item.code === "W_UNKNOWN_SYMBOL")!;
     deepStrictEqual(symbol.params, { name: "foo" });
-    deepStrictEqual(symbol.message, "@symbol: 未知符号: $foo");
 
     const originalFormat = Diagnostic.format;
     try {
         Diagnostic.format = (code, message, params) =>
             code === "W_METER_MISMATCH" && params
-                ? `Measure duration ${params.duration} QN does not match ${params.num}/${params.den}`
+                ? JSON.stringify(params)
                 : originalFormat(code, message, params);
         const custom = compileScore("@meter(4, 4) | 1 2 3 |").diagnostics.find(item => item.code === "W_METER_MISMATCH")!;
-        deepStrictEqual(custom.message, "Measure duration 3 QN does not match 4/4");
+        deepStrictEqual(JSON.parse(custom.message), custom.params);
     } finally {
         Diagnostic.format = originalFormat;
     }
 });
-

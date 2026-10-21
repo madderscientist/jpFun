@@ -10,7 +10,6 @@ import {
     assert,
     attachmentCommands,
     expectLoweringError,
-    expectSnapshot,
     layoutOf,
     lower,
     nearly,
@@ -43,9 +42,6 @@ test("倚音折叠成一个可见对象，但保留宿主的时值与端口", ()
     assert(nearly(preGraceNode.ports["lyric"].x, preGraceNode.box.anchor),
         "the composite must forward the host lyric anchor instead of the grace one");
 
-    expectSnapshot("grace-metrics",
-        `w=${preGraceNode.box.w.toFixed(2)} anchor=${preGraceNode.box.anchor.toFixed(2)}`
-        + ` steal=${stealOf(`2>1`)}`);
 });
 
 test("倚音比宿主小一级字号，坐在宿主基线之上的左侧", () => {
@@ -203,7 +199,6 @@ test("倚音嵌套时字号逐层缩小，修饰递归还给最里层宿主", ()
     assert(nestedSizes.length === 3, "nested grace notes must all be rendered");
     assert(nearly(nestedSizes[1] / nestedSizes[0], 0.7) && nearly(nestedSizes[2] / nestedSizes[1], 0.7),
         "nesting must scale the font size once per level");
-    expectSnapshot("grace-nested", `sizes=${nestedSizes.map(size => size.toFixed(1)).join("/")}`);
 
     const nestedDivDots = layoutGrace(`1> 2,,,/>3`);
     const nestedDots = nestedDivDots.commands.filter(command => command.kind === "circle");

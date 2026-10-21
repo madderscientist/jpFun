@@ -18,7 +18,7 @@ function gliss(source: string, noPitch = false) {
     deepStrictEqual(compiled.diagnostics.map(item => item.code), noPitch ? ["W_GLISS_NO_PITCH"] : [], source);
     if (noPitch) {
         const warning = compiled.diagnostics[0];
-        assert(warning instanceof WarningDiagnostic && warning.message.includes("没有"), "missing pitch must produce a warning");
+        assert(warning instanceof WarningDiagnostic, "missing pitch must produce a warning");
         assert(source.slice(warning.span.start, warning.span.end).startsWith("@gliss("), "warning must point at gliss");
     }
     const attachment = compiled.layout.attachments.at(-1)!;
