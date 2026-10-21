@@ -772,6 +772,8 @@ test("symbols 支持分包注册、同名覆盖、清空与回退到 core", (t) 
     strictEqual(Object.isFrozen(symbols), true, "symbols 命名空间对象应只读冻结");
     strictEqual(Object.isFrozen(symbols.core), true, "symbols.core 备份列表应只读冻结");
     strictEqual(symbols.bounds, symbolBounds, "symbols.bounds 应暴露图形包围盒工具");
+    const table = symbols.table;
+    deepStrictEqual([...table.values()], symbols.core);
 
     const diziDieyin: SymbolDefinition = {
         name: "dizi.dy",
@@ -808,6 +810,10 @@ test("symbols 支持分包注册、同名覆盖、清空与回退到 core", (t) 
     }
 
     register(diziDieyin, guitarP, customTr, customFF);
+    strictEqual(symbols.table, table);
+    strictEqual(table.get("dizi.dy"), diziDieyin);
+    strictEqual(table.get("p"), guitarP);
+    strictEqual(table.size, symbols.core.length + 2);
     const overridden = compileValid("1 ^ $FF 2 ^ $fff");
     deepStrictEqual(playedNotes(compilePlayback(overridden.lowering)).map(note => note.velocity),
         [DEFAULT_VELOCITY, 126], "精确注册优先于正则，且只覆盖这一档");
@@ -826,10 +832,12 @@ test("symbols 支持分包注册、同名覆盖、清空与回退到 core", (t) 
     expectDiagnostic(() => parse("@set(strict=true) $tr+++"), "E_UNKNOWN_SYMBOL");
 
     clear();
+    strictEqual(table.size, 0);
     expectDiagnostic(() => parse("@set(strict=true) $p"), "E_UNKNOWN_SYMBOL");
     expectDiagnostic(() => parse("@set(strict=true) $dizi.dy"), "E_UNKNOWN_SYMBOL");
 
     reset();
+    deepStrictEqual([...table.values()], symbols.core);
     expectDiagnostic(() => parse("@set(strict=true) $dizi.dy"), "E_UNKNOWN_SYMBOL");
     strictEqual(parse("$tr+++").content[0].toString("$tr+++"), "@symbol(tr+++)", "reset 后内置正则变体应恢复");
     compileValid("@set(strict=true) 1 ^ $tremolo 2 ^ $harmonic $tenuto $marcato $staccato $turn $iturn");

@@ -42,6 +42,7 @@ sidebar:
 | --- | --- | --- |
 | 语法着色 | `syntax.tokens` | `DocumentSemanticTokensProvider` |
 | 函数名补全 | `defaultFunctions` 的 `def` | `CompletionItemProvider`（触发字符 `@`） |
+| 符号补全 | `symbols.table.values()` 的名称和说明 | `CompletionItemProvider`（触发字符 `$`） |
 | 参数名补全 | `syntax.calls` + `def.args` + `resolveArgType` | 同上 |
 | 当前参数提示 | `syntax.calls` + `resolveArgDef` | `SignatureHelpProvider` |
 | 标签补全 | 参数类型 + `syntax.tokens` 里的 `label` | 同上 |
@@ -110,13 +111,14 @@ playground 的补全由 [jpfun-language.ts](https://github.com/madderscientist/j
 
 ### 按光标位置生成候选
 
-`complete()` 区分三类候选：
+`complete()` 区分四类候选：
 
 1. **函数名**：当前前缀以 `@` 开头时列出函数，通过 `snippetCompletion` 插入 `@name()`，把光标放进括号。VS Code 可使用 `SnippetString("name($0)")` 和 `triggerCharacters: ["@"]`。
 2. **参数名**：在可输入参数名的位置，从 `def.args` 中列出其他参数尚未使用的具名选项。编辑已有名称时不把当前参数排除，进入等号右侧后则停止提供参数名。
 3. **标签值**：只有当前参数类型为 `label`，且光标处于位置参数或具名参数的值中，才加入文档中已声明的标签。`@x` 形式的 `label` token 是声明，`@tie(x)` 中的 `x` 是引用；编辑参数名本身时不混入标签候选。
+4. **符号名**：当前前缀以 `$` 开头时，从 `symbols.table.values()` 提供已注册符号名称和说明，直接插入 `$name`。符号注册需在加载编辑器语言模块前完成；候选列表只构建一次，后续输入由 CodeMirror 过滤。
 
-`content` 需要额外区分“开始输入一个参数”与“正在输入内容”：仅在参数起点的空白或名称前缀处，提供匹配的**仅命名选项**。已经输入音符、内容块或其他内容时，外层参数名补全返回 `null`，不能把内容误当成名字。`@` 前缀和嵌套调用仍走各自的补全逻辑。
+`content` 需要额外区分“开始输入一个参数”与“正在输入内容”：仅在参数起点的空白或名称前缀处，提供匹配的**仅命名选项**。已经输入音符、内容块或其他内容时，外层参数名补全返回 `null`，不能把内容误当成名字。`@`、`$` 前缀和嵌套调用仍走各自的补全逻辑。
 
 下表中的 `▮` 表示光标，不是源码的一部分：
 

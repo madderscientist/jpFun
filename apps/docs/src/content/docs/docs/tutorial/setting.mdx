@@ -108,6 +108,8 @@ jpFun 有两类字体，互不覆盖，影响函数有：
 
 如果文字里需要反斜杠本身，就写 `\\`。这和[歌词中的换行转义](../voice/#一行歌词太长时)使用的是同一个符号，但处理的内容不同。
 
+> 常用配置 `@set(font="'Times New Roman', KaiTi, STKaiti, serif")` 可让中文使用楷体、英文使用 Times New Roman。
+
 ### 文字的局部覆盖
 text、page 接受 `font` 参数，也支持 `@set(函数名.font="...")`；函数别名同样有效。优先级为：显式参数 > 函数预设 > 系统 `font`。
 ```jpfun

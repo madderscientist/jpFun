@@ -3,7 +3,7 @@ import MarkdownIt from "markdown-it";
 import { insertNewlineAndIndent } from "@codemirror/commands";
 import { EditorSelection, EditorState, RangeSetBuilder, StateEffect, StateField, type ChangeSpec, type StateCommand } from "@codemirror/state";
 import { activateHover, closeHoverTooltips, Decoration, EditorView, hoverTooltip, keymap, showTooltip, ViewPlugin, type DecorationSet, type Tooltip } from "@codemirror/view";
-import { analyzeScoreSyntax, ASTFunctionNode, ASTLabelNode, ASTNodeBase, defaultFunctions, resolveArgDef, resolveArgType, type CallInfo, type FunctionArgDef, type FunctionDef, type SourceSpan, type SyntaxAnalysis, type SyntaxToken, type SyntaxTokenKind } from "jpfun";
+import { analyzeScoreSyntax, ASTFunctionNode, ASTLabelNode, ASTNodeBase, defaultFunctions, resolveArgDef, resolveArgType, symbols, type CallInfo, type FunctionArgDef, type FunctionDef, type SourceSpan, type SyntaxAnalysis, type SyntaxToken, type SyntaxTokenKind } from "jpfun";
 
 const syntaxClasses: Record<SyntaxTokenKind, string> = {
     comment: "cm-jpfun-comment",
@@ -142,6 +142,12 @@ const functionCompletions: Completion[] = [...defByName].map(([name, def]) => sn
     type: "function",
     detail: def.description,
     info: () => renderFunctionDoc(functionDoc(def)),
+}));
+
+const symbolCompletions: Completion[] = Array.from(symbols.table.values(), symbol => ({
+    label: "$" + symbol.name,
+    type: "constant",
+    detail: symbol.description,
 }));
 
 /** 悬浮框与行框之间留的缝，免得压住光标 */
@@ -329,10 +335,13 @@ function applyParameterCompletion(view: EditorView, completion: Completion, from
 }
 
 function complete(context: CompletionContext): CompletionResult | null {
-    const word = context.matchBefore(/[@\w./-]*/)!;
+    const word = context.matchBefore(/[@$\w./-]*/)!;
     const source = context.state.doc.toString();
     if (source.slice(word.from, context.pos).startsWith("@")) {
         return { from: word.from, options: functionCompletions, validFor: /^@[\w./-]*$/ };
+    }
+    if (word.text.startsWith("$")) {
+        return { from: word.from, options: symbolCompletions, validFor: /^\$[\w./-]*$/ };
     }
 
     const { tokens, calls } = context.state.field(syntaxField).analysis;

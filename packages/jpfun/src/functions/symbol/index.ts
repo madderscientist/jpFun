@@ -77,17 +77,18 @@ export interface SymbolDefinition {
 }
 
 type SymbolPattern = NonNullable<SymbolDefinition["pattern"]>;
-const coreSymbols: readonly SymbolDefinition[] = Object.freeze([
-    trSymbol, fermataSymbol, prallSymbol, mordentSymbol, accentSymbol, tremoloSymbol, harmonicSymbol,
-    tenutoSymbol, marcatoSymbol, staccatoSymbol, turnSymbol, iturnSymbol,
-    ...dynamicSymbols, dcSymbol, dsSymbol, segnoSymbol, fineSymbol,
-]);
 const symbolTable = new Map<string, SymbolDefinition>();
 const symbolPatterns = new Map<string, SymbolPattern>();
 
 export const symbols = Object.freeze({
     /** 内置符号的只读备份列表 */
-    core: coreSymbols,
+    core: Object.freeze<SymbolDefinition[]>([
+        trSymbol, fermataSymbol, prallSymbol, mordentSymbol, accentSymbol, tremoloSymbol, harmonicSymbol,
+        tenutoSymbol, marcatoSymbol, staccatoSymbol, turnSymbol, iturnSymbol,
+        ...dynamicSymbols, dcSymbol, dsSymbol, segnoSymbol, fineSymbol,
+    ]),
+    /** 当前注册表的只读视图 */
+    table: symbolTable as ReadonlyMap<string, SymbolDefinition>,
     /** 注册或同名覆盖一个或多个符号定义 */
     register: (...definitions: readonly SymbolDefinition[]): void => {
         const entries = definitions.map(definition => {

@@ -314,6 +314,7 @@ const compiled = compileScore("1 ^ $dizi.dy");
 | 成员 | 作用 |
 | --- | --- |
 | `symbols.core` | 最初内置符号的只读备份列表（`readonly SymbolDefinition[]`） |
+| `symbols.table` | 当前注册表的只读视图（`ReadonlyMap<string, SymbolDefinition>`），键为小写名称；不复制 Map，只读限制由 TypeScript 类型提供 |
 | `symbols.register(...definitions)` | 注册一个或多个符号定义；名称忽略大小写，同名直接覆盖并同步更新 `pattern` |
 | `symbols.clear()` | 清空全部已注册符号（包括内置符号） |
 | `symbols.reset()` | 清空并恢复为 `symbols.core` 初始状态 |
