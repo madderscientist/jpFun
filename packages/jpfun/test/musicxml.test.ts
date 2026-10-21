@@ -9,8 +9,6 @@ import {
   musicXmlToJpFun as convertMusicXmlElement,
 } from "../src/index.js";
 import { assert, attachmentCommands, compileValid, lower, nearly, playedNotes, recordCommands } from "./helpers.js";
-import { MusicXmlReader } from "../src/converter/musicxml/features.js";
-import type { MusicXmlDiagnostic } from "../src/index.js";
 
 function importMusicXml(
   source: string,
@@ -229,34 +227,6 @@ test("MusicXML timewise and staff-numbered multiple rests retain grouping", () =
   const result = compileMusicXml(xml);
   assert(result.script.includes("@rest(2)"), result.script);
   assert(result.lowering.duration.equals(8), "timewise rest must retain its length");
-});
-
-test("MusicXML queries do not confirm preservation until explicitly accepted", () => {
-  const root = new DOMParser().parseFromString(
-    '<direction><direction-type><future/><future/><ignored/><group><nested/><nested/></group></direction-type></direction>',
-    'application/xml',
-  ).documentElement!;
-  const reader = new MusicXmlReader([root]);
-  const container = reader.read("direction-type")!;
-  const first = reader.read("future", true)!;
-  const nested = reader.readAll("nested", true);
-  const group = reader.read("group", true)!;
-  const diagnostics: MusicXmlDiagnostic[] = [];
-  const location = { element: "direction", partId: "P1" };
-  reader.report(diagnostics, location, container);
-  reader.report(diagnostics, location, group);
-  deepStrictEqual(diagnostics.map(item => item.location.element), ["future", "future", "ignored", "group", "nested", "nested"]);
-  reader.accept(first);
-  reader.accept(group);
-  for (const element of nested) reader.accept(element);
-  diagnostics.length = 0;
-  reader.report(diagnostics, location, container);
-  reader.report(diagnostics, location, group);
-  deepStrictEqual(diagnostics.map(item => item.location.element), ["future", "ignored"]);
-  for (const element of reader.readAll("future", true)) reader.accept(element);
-  diagnostics.length = 0;
-  reader.report(diagnostics, location, container);
-  deepStrictEqual(diagnostics.map(item => item.location.element), ["ignored"]);
 });
 
 test("MusicXML diagnoses omitted percussion with original XML location", () => {

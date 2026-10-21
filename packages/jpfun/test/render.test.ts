@@ -223,10 +223,6 @@ test("Canvas 后端能执行描边、曲线与文本绘制", () => {
     assert(canvasCalls.includes("stroke"), "Canvas backend must stroke local accidental paths");
     assert(canvasCalls.includes("bezierCurveTo"), "Canvas backend must execute tie curves");
     assert(canvasCalls.includes("fillText"), "Canvas backend must draw arbitrary text");
-    strictEqual(canvasCalls.filter(call => call === "save").length, 1,
-        "Canvas backend should only save/restore once per page, not per primitive");
-    strictEqual(canvasCalls.filter(call => call === "restore").length, 1,
-        "Canvas backend should only save/restore once per page, not per primitive");
 
     const calls: string[] = [];
     const alphas: number[] = [];

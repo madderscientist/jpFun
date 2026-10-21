@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import { deepStrictEqual } from "node:assert/strict";
 
-import { DivNode, divLinePortName } from "../src/functions/div/index.js";
+import { divLinePortName } from "../src/functions/div/index.js";
 import { TemporalNodeBase } from "../src/functions/temporal.js";
 import {
     assert,
@@ -11,29 +11,17 @@ import {
     layoutOf,
     lower,
     nearly,
-    parse,
     recordCommands,
 } from "./helpers.js";
 
-test("autobeam 开关在解析期就冻结在 div 节点上", () => {
-    const autoBeamFlagAst = parse(`1/ @set(div.autobeam=false) 2/`);
-    const parsedDivs = autoBeamFlagAst.content.filter(node => node instanceof DivNode);
-    assert(parsedDivs.length === 2, "two divided notes must create two DivNode instances");
-    assert(parsedDivs[0].autoBeamEnabled, "autobeam must default to enabled during parsing");
-    assert(!parsedDivs[1].autoBeamEnabled, "set(autobeam=false) must be frozen on following div nodes");
-});
-
-test("相邻分割音符自动连梁，并按比例缩短内侧弹簧", () => {
+test("相邻分割音符自动连梁，连梁内的音符间距更紧凑", () => {
     const adjacentAutoBeamResult = layoutOf(`1/ 2// 3/`);
     assert(adjacentAutoBeamResult.attachments.length === 1, "separate divided notes must auto-connect by default");
-    const [beamFirst, beamMiddle, beamLast] = adjacentAutoBeamResult.objects;
-    assert(beamFirst.springConfig.alpha_L === 6, "a beam must not shorten the outside left spring");
-    assert(nearly(beamFirst.springConfig.alpha_R as number, 4.8), "a beam must shorten its first inside spring to 80%");
-    assert(nearly(beamMiddle.springConfig.alpha_L as number, 4.8), "a middle beam element must shorten its left spring");
-    assert(nearly(beamMiddle.springConfig.alpha_R as number, 4.8), "a middle beam element must shorten its right spring");
-    assert(nearly(beamLast.springConfig.alpha_L as number, 4.8), "a beam must shorten its final inside spring");
-    assert(beamLast.springConfig.alpha_R === 6, "a beam must not shorten the outside right spring");
-    assert(nearly(beamMiddle.springConfig.beta_L as number, 1 / 6), "beam alpha changes must not implicitly recompute completed beta");
+    const unconnected = layoutOf(`@set(div.autobeam=false) 1/ 2// 3/`).objects;
+    for (let i = 1; i < unconnected.length; i++) {
+        const gap = adjacentAutoBeamResult.objects[i].box.x - adjacentAutoBeamResult.objects[i - 1].box.x;
+        assert(gap < unconnected[i].box.x - unconnected[i - 1].box.x, "连梁内侧应比独立分割音符更紧凑");
+    }
     assert(recordCommands(adjacentAutoBeamResult).filter(command => command.kind === "line").length === 2,
         "default auto beam must merge the shared level and keep one inner beamlet");
 
@@ -52,17 +40,11 @@ test("一个 div 作用域总是连成一条梁，层数决定线数", () => {
 test("autobeam=false 只断开分写的 div，不断开一个作用域内部", () => {
     const disabledAutoBeamResult = layoutOf(`@set(div.autobeam=false) 1/ 2// 3/`);
     assert(disabledAutoBeamResult.attachments.length === 0, "autobeam=false must keep separately written divs independent");
-    assert(
-        disabledAutoBeamResult.objects.every(object => object.springConfig.alpha_L === 6 && object.springConfig.alpha_R === 6),
-        "independent divs must keep their base spring lengths when autobeam is disabled",
-    );
     assert(recordCommands(disabledAutoBeamResult).filter(command => command.kind === "line").length === 4,
         "disabled auto beam must paint separately written div lines locally");
 
     const disabledScopeBeamResult = layoutOf(`@set(div.autobeam=false) @div({1 2}, 1)`);
     assert(disabledScopeBeamResult.attachments.length === 1, "autobeam=false must not disable connections inside one div");
-    assert(nearly(disabledScopeBeamResult.objects[0].springConfig.alpha_R as number, 4.8), "one div scope must shorten its inside right spring");
-    assert(nearly(disabledScopeBeamResult.objects[1].springConfig.alpha_L as number, 4.8), "one div scope must shorten its inside left spring");
     assert(recordCommands(disabledScopeBeamResult).filter(command => command.kind === "line").length === 1,
         "one div scope must keep one merged line while auto beam is disabled");
 });

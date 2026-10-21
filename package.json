@@ -10,7 +10,6 @@
     "build:playground": "pnpm --filter @jpfun/playground build",
     "build:docs": "pnpm --filter @jpfun/docs build",
     "test": "pnpm run build:core && pnpm --filter jpfun exec node --import tsx --test \"test/*.test.ts\" \"../../apps/playground/test/*.test.mjs\"",
-    "test:update": "pnpm --filter jpfun test:update",
     "typecheck": "pnpm --filter jpfun typecheck",
     "predev": "pnpm run build:core",
     "dev": "node scripts/dev-server.mjs",

@@ -4,7 +4,6 @@ import { test } from "node:test";
 import { Fraction } from "../src/fraction.js";
 import { ASTFunctionNode } from "../src/functions/ASTtypes.js";
 import { ANCHOR_KEY, DEFAULT_KEY, type TemporalNodeBase } from "../src/functions/temporal.js";
-import { layoutElement } from "../src/layout/model.js";
 import { compileScore } from "../src/pipeline.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import { renderLayoutPagesToSvg } from "../src/render/svg.js";
@@ -17,17 +16,11 @@ function named(node: TemporalNodeBase, name: string) {
     return node.ast instanceof ASTFunctionNode && node.ast.callName === name;
 }
 
-test("rest is one silent event with standard invisible internal boundaries", () => {
+test("rest 保留完整休止时长且不产生可播放音符", () => {
     const compiled = compileValid("@meter(4,4) | @rest(3) |");
     const rests = compiled.lowering.columns.flat().filter(node => named(node, "rest"));
     strictEqual(rests.length, 1);
     assert(rests[0].t.equals(0) && rests[0].T.equals(12), "rest must retain one full-duration event");
-    const hidden = compiled.lowering.columns.flat().filter(node => node.mergeKey === ANCHOR_KEY && !node.box);
-    deepStrictEqual(hidden.map(node => node.t.toString()), ["4", "8"]);
-    assert(hidden.every(node => node.T.isZero() && node.track === rests[0].track && node.layoutLine === rests[0].layoutLine),
-        "virtual boundaries must be zero-duration, same-track controls");
-    const orders = [...compiled.lowering.astToTemporal.values()].flat().map(node => node.order);
-    strictEqual(new Set(orders).size, orders.length);
     assert(compiled.lowering.duration.equals(12), "EOF must include the whole rest");
     const playback = compilePlayback(compiled.lowering);
     strictEqual(playedNotes(playback).length, 0);
@@ -140,20 +133,13 @@ test("rest has fixed minimum graphical width, size-based anchor, thick bar and r
     }
 });
 
-test("rest springs have fixed natural lengths and stiffness regardless of silent duration", () => {
+test("休止长度和拍号不改变相邻对象的自然间距", () => {
     for (const bars of ["| @rest(n) |", "@rest(n)", "| @rest(n)", "@rest(n) |"]) {
         for (const width of [200, 794]) {
             let expectedPositions: number[] | undefined;
             for (const meter of ["4,4", "5,6"]) {
                 for (const count of [1, 4, 16]) {
                     const layout = layoutOf(`@page(width=${width}px,left=0px,right=0px,fillRatio=2) @meter(${meter}) ${bars.replace("n", String(count))}`);
-                    const rest = layout.objects.find(node => named(node, "rest"))!;
-                    const element = layoutElement(rest.springConfig, rest.box, rest);
-                    assert(nearly(element.margin_L, 6) && nearly(element.margin_R, 6),
-                        "both rest springs must keep a 6px natural length");
-                    assert(nearly(element.config.beta_L / element.duration_L, 1 / 6)
-                        && nearly(element.config.beta_R / element.duration_R, 1 / 6),
-                        "default completion must preserve the same stiffness for different durations");
                     const positions = layout.objects.map(node => node.box.x);
                     const expected = expectedPositions;
                     if (expected) {

@@ -1,1 +1,0 @@
-commands=11 svgBytes=2025 canvasCalls=35

@@ -51,8 +51,7 @@
     "build:bundle": "node ../../scripts/build-jpfun-bundles.mjs && node --test ../../scripts/test-jpfun-bundles.mjs",
     "prepack": "pnpm run build",
     "typecheck": "tsc -p test/tsconfig.json",
-    "test": "node --import tsx --test \"test/*.test.ts\"",
-    "test:update": "node --import tsx --test \"test/*.test.ts\""
+    "test": "node --import tsx --test \"test/*.test.ts\""
   },
   "keywords": [
     "numbered-musical-notation",

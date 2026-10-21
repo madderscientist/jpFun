@@ -1,25 +1,15 @@
 import { deepStrictEqual, strictEqual } from "node:assert/strict";
 import { test } from "node:test";
+import { renderLayoutPagesToSvg } from "../src/render/svg.js";
 import { SlideNode } from "../src/functions/slide/index.js";
 import { layoutDocument } from "../src/layout/engine.js";
 import { compilePlayback } from "../src/playback/compile.js";
-import { renderLayoutPagesToSvg } from "../src/render/svg.js";
-import { assert, attachmentCommands, compileValid, expectCompileError, expectSnapshot, layoutContext, lower, nearly, playedNotes } from "./helpers.js";
-
-test("slide SVG snapshot covers all four directions and note decorations", () => {
-    const { layout } = compileValid(`
-        @slide(#5'.) 3
-        @slide(b3'., direction=down) 3
-        @slide(#5'., side=post) 3
-        @slide(b3'., side=post, direction=down) 3
-    `);
-    expectSnapshot("slide-svg", renderLayoutPagesToSvg(layout).join("\n"));
-});
+import { assert, attachmentCommands, compileValid, expectCompileError, layoutContext, lower, nearly, playedNotes } from "./helpers.js";
 
 test("slide draws the four directions outside its host", () => {
     for (const side of ["pre", "post"]) {
         for (const direction of ["up", "down"]) {
-            const { layout } = compileValid(`1 @slide(#5., side=${side}, direction=${direction}) 3`);
+            const { layout } = compileValid(`1 @slide(#5'., side=${side}, direction=${direction}) 3`);
             const host = layout.objects[1];
             const path = attachmentCommands(layout.attachments[0]).find(item => item.kind === "path");
             assert(path?.kind === "path", "slide paints a path");

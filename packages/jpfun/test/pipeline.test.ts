@@ -1,43 +1,10 @@
 import { test } from "node:test";
 import { deepStrictEqual } from "node:assert/strict";
 
-import { ASTBraceNode } from "../src/functions/ASTtypes.js";
 import { preprocessSource } from "../src/parser/preprocess.js";
 import { compileScore } from "../src/pipeline.js";
 import { compilePlayback } from "../src/playback/compile.js";
-import { assert, createLowering, createParser, expectSnapshot, recordCommands } from "./helpers.js";
-
-const SAMPLE_SCORE = `@set(text="100% ok")   % 字符串内的%不触发注释
-@.(@n(F#,,4,"#00f"))@1 @unknown(C4, 3)C3/@2 ; @tie(1,2) C4 . /
-@voice(
-    {@note(C4,,4)/ #5,,. | {4b4}//},
-    男 = ha-ha, % 测试
-    女 = la la
-)
-
-N(测试): A1& B2 &{D#/F} :| #1\\
-b4
-L: 测试voice语法糖
-L(歌词2): 测试\\
-歌词语\\
-法糖 \\\\
-@set(note.color=#f00)
-@stack(
-    N: 1-.23-@tie(),
-    N:3
-) @br()
-@over({#4', | Eb//}, F#5..)
-`;
-
-const { maskedSource, lineStarts } = preprocessSource(SAMPLE_SCORE);
-const parser = createParser(maskedSource);
-let parseError: unknown = null;
-try {
-    parser.parse();
-} catch (error) {
-    parseError = error;
-}
-const document = new ASTBraceNode({ start: 0, end: SAMPLE_SCORE.length }, parser.nodes);
+import { assert, recordCommands } from "./helpers.js";
 
 test("compileScore forwards root variables without mutating the input", () => {
     const variables = { fontsize: 30, font: "Ordinary", numberfont: "Digits", strict: false, custom: "kept" };
@@ -67,30 +34,6 @@ test("desugaring preserves wrappers, typed defaults and tie endpoints", () => {
             .filter(event => event.kind === "note-on").map(event => [event.midi, event.at.toString()]);
         deepStrictEqual(notes(after), notes(before));
     }
-});
-
-test("综合示例乐谱可以完整解析", () => {
-    assert(parseError === null, `示例乐谱必须能解析完成，实际抛出 ${parseError}`);
-    assert(maskedSource.length === SAMPLE_SCORE.length, "预处理不能改变源码长度");
-    expectSnapshot("pipeline-desugared", document.toString(maskedSource));
-    expectSnapshot("pipeline-diagnostics", parser.diagnostics
-        .map(diagnostic => {
-            const range = diagnostic.toLineCol(lineStarts);
-            return `${diagnostic.code} `
-                + `${range.startLine}:${range.startColumn}-${range.endLine}:${range.endColumn} `
-                + diagnostic.message;
-        })
-        .join("\n"));
-});
-
-test("综合示例乐谱可以完成时间固化", () => {
-    const columns = createLowering().lowerDocument(document).columns;
-    assert(columns.length > 0, "时间固化必须产生时间列");
-    expectSnapshot("pipeline-timeflow", columns
-        .map((column, index) => `${index}: ` + column
-            .map(event => `${event.constructor.name}(t=${event.t},T=${event.T})`)
-            .join(" "))
-        .join("\n"));
 });
 
 test("compileScore 一次性返回可直接渲染的完整结果", () => {

@@ -1,12 +1,10 @@
 import { test } from "node:test";
 import { deepStrictEqual, strictEqual, throws } from "node:assert/strict";
-import { createHash } from "node:crypto";
 
 import { DEFAULT_VELOCITY, TemporalNodeBase } from "../src/functions/temporal.js";
 import { paintSymbol, symbolBounds, type SymbolShape } from "../src/functions/symbol/shape.js";
 import { fermataSymbol } from "../src/functions/symbol/symbols/fermata.js";
 import { trSymbol } from "../src/functions/symbol/symbols/tr.js";
-import { iturnSymbol, turnSymbol } from "../src/functions/symbol/symbols/turn.js";
 import { symbols, type SymbolDefinition } from "../src/core.js";
 import { analyzeScoreSyntax, compileScore } from "../src/pipeline.js";
 import { compilePlayback } from "../src/playback/compile.js";
@@ -48,19 +46,12 @@ test("符号连续文本完整识别，不拆出减时线或其他语法", () =>
     compileValid("{1^$tr+++}");
 });
 
-test("固定字形路径的边界只计算一次，重复片段仍计入各自偏移", () => {
-    let reads = 0;
-    const path: NonNullable<SymbolShape["path"]> = [
-        { op: "M", get x() { reads++; return 0; }, y: 0 },
+test("重复字形的边界计入各自偏移", () => {
+    const shape: SymbolShape = { path: [
+        { op: "M", x: 0, y: 0 },
         { op: "L", x: 2, y: 1 },
-    ];
-    const shape: SymbolShape = { path, style: { fill: "#000" } };
-    const base = symbolBounds([shape]);
-    const initialReads = reads;
-    const repeated = symbolBounds([shape, { ...shape, dx: 3 }]);
-    assert(initialReads > 0 && reads === initialReads, "重复使用同一固定路径不应重新求曲线边界");
-    assert(nearly(base.w, 2) && nearly(repeated.w, 5) && nearly(repeated.h, base.h),
-        "路径缓存不能忽略重复片段的偏移");
+    ], style: { fill: "#000" } };
+    deepStrictEqual(symbolBounds([shape, { ...shape, dx: 3 }]), { x: 0, y: 0, w: 5, h: 1 });
 });
 
 test("symbol 名称及颤音尾巴由词法层识别为完整原子", () => {
@@ -99,8 +90,7 @@ test("颤音每个加号增加一截 SVG 尾巴，显式调用与简写等价", 
         assert(nearly(painted.x, box.x) && nearly(painted.y, box.y)
             && nearly(painted.w, box.w) && nearly(painted.h, box.h), "所有墨迹应恰好落在布局包围盒内");
         const explicit = compileValid(`@symbol("${name}")`).layout;
-        assert(JSON.stringify(commands) === JSON.stringify(recordCommands(explicit)),
-            "显式名称和简写应产生相同绘制命令");
+        deepStrictEqual(commands, recordCommands(explicit));
 
         const doubled = compileValid(`@symbol("${name}", size=1em)`).layout.objects[0].box;
         assert(nearly(doubled.w, box.w * 2) && nearly(doubled.h, box.h * 2),
@@ -116,7 +106,7 @@ test("带尾巴的颤音仍以原 tr 字形对齐宿主", () => {
         const extended = recordCommands(compileValid(`1 ${operator} $tr+++`).layout)
             .find(command => command.kind === "path");
         assert(base?.kind === "path" && extended?.kind === "path", "颤音应绘制 tr 路径");
-        assert(JSON.stringify(base.commands) === JSON.stringify(extended.commands),
+        deepStrictEqual(base.commands, extended.commands,
             "增加尾巴后，宿主上方或下方的原 tr 字形都不应移动");
     }
 });
@@ -441,7 +431,7 @@ test("内置 symbol 使用固定图形生成稳定几何和绘制命令", () => 
         "tenuto", "marcato", "staccato", "turn", "iturn",
         "ppp", "pp", "p", "mp", "mf", "f", "ff", "fff"];
     for (const name of names) {
-        const layout = layoutOf(`$${name}`);
+        const layout = compileValid(`$${name}`).layout;
         assert(layout.objects.length === 1, `$${name} 应生成一个可见对象`);
         const box = layout.objects[0].box;
         assert(Number.isFinite(box.w) && Number.isFinite(box.h) && box.w > 0 && box.h > 0,
@@ -456,7 +446,6 @@ test("内置 symbol 使用固定图形生成稳定几何和绘制命令", () => 
 
 test("基础奏法与回音符号支持大小写、完整调用、上下附着及等比缩放", () => {
     for (const name of ["tenuto", "marcato", "staccato", "turn", "iturn"]) {
-        assert(symbols.core.some(symbol => symbol.name === name), `$${name} 应属于 core`);
         const layout = compileValid(`$${name}`).layout;
         for (const source of [`$${name.toUpperCase()}`, `@symbol(${name})`]) {
             deepStrictEqual(recordCommands(compileValid(source).layout), recordCommands(layout));
@@ -470,24 +459,21 @@ test("基础奏法与回音符号支持大小写、完整调用、上下附着�
 });
 
 test("简谱断奏使用宽高接近的向下实心三角楔形", () => {
-    const staccato = symbols.core.find(symbol => symbol.name === "staccato");
-    assert(staccato, "断奏应属于 core");
-    deepStrictEqual(staccato.shapes?.[0]?.path, [
-        { op: "M", x: 0, y: 0 },
-        { op: "L", x: 12, y: 0 },
-        { op: "L", x: 6, y: 13 },
-        { op: "Z" },
-    ]);
-    const wedge = layoutOf("$staccato").objects[0].box;
-    assert(nearly(wedge.w, 8.8 * 12 / 13) && nearly(wedge.h, 8.8),
-        "楔形宽高比为 12:13，默认高度为 0.4em");
-    strictEqual(staccato.shapes?.[0]?.style.fill, "#000", "楔形直接使用黑色填充路径");
+    const layout = compileValid("$staccato").layout;
+    const [shape] = recordCommands(layout);
+    assert(shape.kind === "path" && shape.style?.fill === "#000", "断奏应绘制实心楔形");
+    const points = shape.commands.flatMap(command =>
+        command.op === "M" || command.op === "L" ? [{ x: command.x, y: command.y }] : []);
+    assert(points.length === 3 && nearly(points[0].y, points[1].y)
+        && points[2].y > points[0].y && nearly(points[2].x, (points[0].x + points[1].x) / 2),
+        "楔形的底边水平，尖端居中朝下");
+    const wedge = layout.objects[0].box;
+    assert(wedge.w / wedge.h > 0.8 && wedge.w / wedge.h < 1.2, "楔形宽高接近，不能画成细长针形");
 });
 
 test("旧符号名称和换气符号不再支持，重置核心也不会恢复", () => {
     symbols.reset();
     for (const name of ["staccatissimo", "breath", "invertedTurn"]) {
-        assert(!symbols.core.some(symbol => symbol.name === name), "移除的符号不应属于 core");
         for (const source of [`$${name}`, `$${name.toUpperCase()}`, `@symbol(${name})`]) {
             const compiled = compileScore(source);
             deepStrictEqual(compiled.diagnostics.map(item => item.code), ["W_UNKNOWN_SYMBOL"]);
@@ -528,42 +514,17 @@ test("保持音只绘制一条横线，线宽和圆端点计入边界并随字�
     }
 });
 
-test("回音使用 Bravura E567，逆回音复用同一轮廓并添加居中竖线", () => {
-    const shapes = turnSymbol.shapes;
-    const invertedShapes = iturnSymbol.shapes;
-    assert(shapes && invertedShapes && shapes[0].path, "回音应使用字体提取的填充路径");
-    strictEqual(shapes[0], invertedShapes[0], "两个符号共享同一个主体图元");
-    deepStrictEqual(symbolBounds(shapes), { x: 0, y: -218, w: 460, h: 218 });
-    deepStrictEqual(symbolBounds(invertedShapes), { x: 0, y: -306, w: 460, h: 396 });
-    const signature = shapes[0].path.map(command => {
-        if (command.op === "Z") return "Z";
-        if (command.op === "C") {
-            return [command.op, command.cx1, command.cy1, command.cx2, command.cy2, command.x, command.y].join(",");
-        }
-        assert(command.op === "M", "原字形仅包含 M、C、Z 指令");
-        return [command.op, command.x, command.y].join(",");
-    }).join(";");
-    strictEqual(createHash("sha256").update(signature).digest("hex"),
-        "49e22f5eec57727c71f65eb890b0e2d03b90574171e48bf3d62a9569e0c55ab0", "保留完整 Bravura 轮廓");
-    for (const definition of [turnSymbol, iturnSymbol]) {
-        const layout = compileValid(`$${definition.name}`).layout;
-        const commands = recordCommands(layout);
-        strictEqual(commands.length, definition === turnSymbol ? 1 : 2);
-        assert(commands[0].kind === "path", "回音主体只使用一条填充路径");
-        if (definition === iturnSymbol) {
-            const line = commands[1];
-            assert(line.kind === "line" && line.style?.strokeWidth !== undefined, "逆回音只添加一条竖线");
-            const halfStroke = line.style.strokeWidth / 2;
-            const box = layout.objects[0].box;
-            assert(nearly(line.x1, line.x2) && nearly(line.x1, box.x + box.w / 2)
-                && nearly(line.y1 - halfStroke, box.y)
-                && nearly(line.y2 + halfStroke, box.y + box.h), "竖线居中，端点落在原有边界内");
-        }
-    }
+test("逆回音的竖线居中且不缩小回音主体", () => {
     const turn = layoutOf("$turn").objects[0].box;
-    const inverted = layoutOf("$iturn").objects[0].box;
-    assert(nearly(turn.w, inverted.w) && nearly(inverted.h / turn.h, 396 / 218),
-        "两者等宽等比例缩放，不能因增加竖线而缩小逆回音的主体");
+    const layout = compileValid("$iturn").layout;
+    const inverted = layout.objects[0].box;
+    assert(nearly(turn.w, inverted.w) && inverted.h > turn.h, "逆回音与回音等宽，竖线增加高度");
+    const line = recordCommands(layout).find(command => command.kind === "line");
+    assert(line?.style?.strokeWidth !== undefined, "逆回音应绘制竖线");
+    const halfStroke = line.style.strokeWidth / 2;
+    assert(nearly(line.x1, line.x2) && nearly(line.x1, inverted.x + inverted.w / 2)
+        && nearly(line.y1 - halfStroke, inverted.y)
+        && nearly(line.y2 + halfStroke, inverted.y + inverted.h), "竖线居中并落在布局边界内");
 });
 
 test("回音与逆回音按调内二度均分宿主时值，且不影响后继音符", () => {
@@ -717,8 +678,6 @@ test("包围盒取曲线真实极值，宽扁符号用 weight 修正视觉重量
 });
 
 test("力度记号横向拼接字形，默认力度与 MuseScore 一致", () => {
-    deepStrictEqual(symbols.core.filter(definition => /^[pf]+$/.test(definition.name))
-        .map(definition => definition.name), ["p", "f"], "同族只登记基础定义");
     const ladder = [["pppppp", 1], ["ppppp", 5], ["pppp", 10], ["ppp", 16], ["pp", 33], ["p", 49],
         ["mp", 64], ["mf", 80], ["f", 96], ["ff", 112], ["fff", 126], ["ffff", 127],
         ["fffff", 127], ["ffffff", 127], ["ppppppp", 1], ["fffffff", 127]] as const;

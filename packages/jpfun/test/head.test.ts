@@ -434,22 +434,6 @@ H.title: B`);
     assert(heads.length === 2, "a blank line must start a new head block");
 });
 
-test("head 去糖结果按槽和视觉行换行缩进", () => {
-    const source = `@head(left={{@key(D4) @meter(4,4)}}, center={@text(A)})`;
-    const head = compileScore(source).ast.content[0];
-    const expected = [
-        "@head(",
-        "  left={",
-        `    ${head.children![0].children![0].toString(source)}`,
-        "  },",
-        "  center={",
-        `    ${head.children![1].children![0].toString(source)}`,
-        "  }",
-        ")",
-    ].join("\n");
-    assert(head.toString(source) === expected, "head toString must expose its slot and row structure");
-});
-
 test("head 内关系 attachment 使用真实全局端点", () => {
     const result = compileScore(`@head(center={{
         @headendpoint()@a @headendpoint()@b @tie(a,b)

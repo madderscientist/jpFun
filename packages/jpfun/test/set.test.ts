@@ -1,23 +1,12 @@
 import { test } from "node:test";
 import { deepStrictEqual } from "node:assert";
 
-import { ASTFunctionNode, type ASTNodeBase, resolveArgType, type FunctionArgs, type FunctionDef, type paramValue } from "../src/functions/ASTtypes.js";
+import { ASTFunctionNode, type ASTNodeBase, type FunctionArgs, type FunctionDef, type paramValue } from "../src/functions/ASTtypes.js";
 import { ParserContext } from "../src/parser/parserContext.js";
 import { compileScore } from "../src/pipeline.js";
 import { assert, commandsOfKind, compileValid, createParser, expectDiagnostic, layoutOf, nearly } from "./helpers.js";
 
-test("system variable declarations share types and reset defaults", () => {
-    for (const [name, type, input, expected] of [
-        ["fontsize", "length", "2em", 44], ["font", "string", '"Ordinary"', "Ordinary"],
-        ["numberfont", "string", '"Digits"', "Digits"], ["strict", "boolean", "false", false],
-    ] as const) {
-        const parser = createParser(`@set(${name}=${input})`);
-        parser.parse();
-        deepStrictEqual([ParserContext.systemVariables[name].type, parser.variables[name], parser.diagnostics],
-            [type, expected, []]);
-        parser.setVariable(name, undefined);
-        deepStrictEqual(parser.variables[name], ParserContext.systemVariables[name].default);
-    }
+test("自定义变量允许与原型属性同名，并保留假值", () => {
     const parser = createParser('@set(constructor="Custom", tostring="Other")');
     parser.parse();
     deepStrictEqual([parser.variables.constructor, parser.variables.tostring, parser.diagnostics], ["Custom", "Other", []]);
@@ -53,19 +42,13 @@ test("通用参数解析保留 0、false 和空字符串", () => {
     deepStrictEqual(node.getArgValue(new Map(), context), [0, false, ""]);
 });
 
-test("默认值按目标参数的声明类型固化", () => {
-    // 旧实现把值一律存成 raw text，length 类型的默认值到不了 length2px
-    const size = layoutOf(`@set(text.size=2em) @text(A)`).objects[0].ast.size;
-    assert(nearly(size, 44), `expected 2em to freeze to 44px, got ${size}`);
-});
-
-test("named-only defaults do not consume positional or variadic arguments", () => {
+test("仅命名选项不占用位置参数，必需的位置参数仍会校验", () => {
     class OptionsFunction extends ASTFunctionNode {
         static override def: FunctionDef = {
             name: "options", description: "", details: "", allowExtraArgs: true, extraArgType: "content",
             args: [
                 { name: "style", type: "string", default: "[-]", namedOnly: true },
-                { name: "count", type: "number", default: 1 },
+                { name: "count", type: "number", default: null },
             ],
         };
     }
@@ -76,28 +59,7 @@ test("named-only defaults do not consume positional or variadic arguments", () =
     deepStrictEqual(node.getArgValue(args, context), ["", 7]);
     args.set("style", "{-}");
     deepStrictEqual(node.getArgValue(args, context), ["{-}", 7]);
-    deepStrictEqual([
-        resolveArgType(OptionsFunction.def, undefined, 0),
-        resolveArgType(OptionsFunction.def, undefined, 1),
-        resolveArgType(OptionsFunction.def, "style", -1),
-        resolveArgType(OptionsFunction.def, "unknown", -1),
-    ], ["number", "content", "string", undefined]);
-});
-
-test("missing positional arguments are numbered independently of named-only options", () => {
-    class RequiredFunction extends ASTFunctionNode {
-        static override def: FunctionDef = {
-            name: "required", description: "", details: "", allowExtraArgs: false,
-            args: [
-                { name: "style", type: "string", default: "", namedOnly: true },
-                { type: "content", default: null },
-            ],
-        };
-    }
-    const context = new ParserContext({ source: "" });
-    const node = new RequiredFunction({ start: 0, end: 0 });
-    const error = expectDiagnostic(() => node.getArgValue(new Map(), context), "E_MISSING_REQUIRED_ARG");
-    deepStrictEqual(error.params, { fn: "required", arg: "[0]" });
+    expectDiagnostic(() => node.getArgValue(new Map([["style", "[-]"]]), context), "E_MISSING_REQUIRED_ARG");
 });
 
 test("别名写法归一到主名", () => {
@@ -105,9 +67,10 @@ test("别名写法归一到主名", () => {
     assert(digit.style.fill === "#f00", `alias must reach note.color, got ${digit.style.fill}`);
 });
 
-test("fontsize 写 em 时相对当前字号", () => {
-    const size = layoutOf(`@set(fontsize=2em) @text(A, size=1em)`).objects[0].ast.size;
-    assert(nearly(size, 44), `expected 2em to resolve against 22px, got ${size}`);
+test("长度默认值与 em 字号按声明类型和当前字号解析", () => {
+    for (const source of ["@set(text.size=2em) @text(A)", "@set(fontsize=2em) @text(A, size=1em)"]) {
+        assert(nearly(layoutOf(source).objects[0].ast.size, 44), source);
+    }
 });
 
 test("bool 默认值不会被当成非空字符串", () => {

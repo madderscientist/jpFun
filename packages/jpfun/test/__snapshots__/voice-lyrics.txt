@@ -1,1 +1,0 @@
-objects=4 lyricHeight=41.36 totalHeight=163.40

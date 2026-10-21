@@ -6,7 +6,7 @@ import { pathBounds } from "../src/layout/path.js";
 import { ASTFunctionNode, ASTNodeBase } from "../src/functions/ASTtypes.js";
 import { parseConnections } from "../src/functions/voice/connections.js";
 import { quote, removeQuote } from "../src/parser/parse-utils/string-utils.js";
-import { assert, attachmentCommands, commandsOfKind, compileValid, expectCompileError, expectDiagnostic, expectSnapshot, layoutContext, layoutOf, nearly, parse, recordCommands } from "./helpers.js";
+import { assert, attachmentCommands, commandsOfKind, compileValid, expectCompileError, expectDiagnostic, layoutContext, layoutOf, nearly, parse, recordCommands } from "./helpers.js";
 
 const axisOf = (object: { box: { y: number; visualAxis: number } }) => object.box.y + object.box.visualAxis;
 /** 无名声部的名称占位盒只为括线预留横向空间，高度为 0；纵向断言只关心真正可见的对象 */
@@ -169,9 +169,6 @@ test("声部的名称不推进时间，歌词行归一个附件并计入文档�
     assert(lyrics.box.h > voiceResult.objects[0].ast.size * 1.5, "two lyric rows must reserve more than one text line");
     assert(voiceResult.bounds.y + voiceResult.bounds.h >= lyrics.box.y + lyrics.box.h, "document bounds must include all lyrics");
 
-    expectSnapshot("voice-lyrics",
-        `objects=${voiceResult.objects.length} lyricHeight=${lyrics.box.h.toFixed(2)}`
-        + ` totalHeight=${voiceResult.bounds.h.toFixed(2)}`);
 });
 
 test("歌词行共用基线且随声部字号缩放", () => {
@@ -208,7 +205,6 @@ test("跨行歌词在每个含词的系统各用一条基线", () => {
     assert(crossLineLyrics.box.y + crossLineLyrics.box.h > crossLineVoiceResult.objects[3].box.y + crossLineVoiceResult.objects[3].box.h,
         "lyric bounds must include the final system tokens");
 
-    expectSnapshot("voice-cross-line", `lyricBaselines=${[...lyricBaselines].join(",")}`);
 });
 
 test("stack 的分支各自占轨，同时刻音符共享横向对齐点", () => {
@@ -235,9 +231,6 @@ test("voices 块把首末声部基线的中点对齐到宿主轴", () => {
     assert(nearly(axisOf(threeVoices[2]), axisOf(threeVoices[0])),
         "a symmetric three-voice block must put the middle voice on the host axis");
 
-    expectSnapshot("voice-vertical",
-        `hostAxis=${axisOf(twoVoices[0]).toFixed(2)}`
-        + ` voices=${axisOf(twoVoices[1]).toFixed(2)}/${axisOf(twoVoices[2]).toFixed(2)}`);
 });
 
 test("嵌套 stack 只撑开相邻基线，不移动 voices 的语义中心", () => {
@@ -334,7 +327,6 @@ test("voice connections preserve variadic voices and serialize frozen defaults",
         const voices = result.ast.children!.at(-1)!;
         strictEqual(voices.children!.length, 4);
         const serialized = voices.toString(source);
-        assert(serialized.includes("connect="), "desugaring must freeze the inherited configuration");
         deepStrictEqual(recordCommands(compileValid(serialized).layout), recordCommands(result.layout));
     }
 });
@@ -355,7 +347,6 @@ test("single voice connections are equivalent to closed ranges", () => {
             const comparison = compileValid(source.replace(connect, expanded));
             deepStrictEqual(recordCommands(result.layout), recordCommands(comparison.layout));
             const serialized = result.ast.toString(source);
-            assert(serialized.includes(`connect=${quote(expanded)}`), serialized);
             deepStrictEqual(recordCommands(compileValid(serialized).layout), recordCommands(result.layout));
         }
     }

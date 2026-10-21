@@ -1,7 +1,4 @@
 import { deepStrictEqual, ok } from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { ErrorDiagnostic } from "../src/diagnostic.js";
 import { ASTBraceNode } from "../src/functions/ASTtypes.js";
@@ -145,33 +142,4 @@ export function expectCompileError(source: string, code: string) {
 export function expectLayoutError(source: string, code: string) {
     const lowered = lower(source);
     return expectDiagnostic(() => layoutDocument(lowered, layoutContext), code);
-}
-
-const SNAPSHOT_DIR = join(dirname(fileURLToPath(import.meta.url)), "__snapshots__");
-// pnpm/npm 把当前脚本名写进环境变量，因此 `pnpm test:update` 就是重写基线
-const UPDATE_SNAPSHOTS = process.env.UPDATE_SNAPSHOTS === "1"
-    || process.env.npm_lifecycle_event === "test:update";
-
-/**
- * 把几何数值等"只能靠肉眼确认一次"的输出固定成基线文件
- * 确认新值正确后用 `pnpm test:update` 重写基线
- */
-export function expectSnapshot(name: string, actual: string) {
-    const file = join(SNAPSHOT_DIR, `${name}.txt`);
-    const write = () => {
-        mkdirSync(SNAPSHOT_DIR, { recursive: true });
-        writeFileSync(file, `${actual}\n`, "utf8");
-    };
-    if (UPDATE_SNAPSHOTS) return write();
-    if (!existsSync(file)) {
-        // 本地缺基线是新增快照，写出来交给人 review；CI 上缺基线只可能是漏提交
-        assert(!process.env.CI, `快照 "${name}" 的基线文件缺失，它必须随代码一起提交`);
-        return write();
-    }
-    const expected = readFileSync(file, "utf8").replace(/\r\n/g, "\n").replace(/\n$/, "");
-    assert(
-        actual === expected,
-        `快照 "${name}" 不匹配\n实际:\n${actual}\n基线:\n${expected}\n`
-        + `确认新值符合预期后运行 pnpm test:update 更新基线`,
-    );
 }

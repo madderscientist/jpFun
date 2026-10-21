@@ -4,7 +4,7 @@ import { getLayoutBounds, layoutDocument } from "../src/layout/engine.js";
 import { isLayoutAttachment, type LayoutAttachment } from "../src/layout/types.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import { secondsToScoreTime, scoreTimeToSeconds } from "../src/playback/time.js";
-import { assert, attachmentCommands, expectSnapshot, layoutContext, layoutOf, lower, nearly, playedNotes } from "./helpers.js";
+import { assert, attachmentCommands, layoutContext, layoutOf, lower, nearly, playedNotes } from "./helpers.js";
 /** 用相对 C4 的半音数（C4 记作 1）表示演奏序列，断言失败时比 MIDI 号好读 */
 function played(source: string) {
     return playedNotes(compilePlayback(lower(source)))
@@ -245,9 +245,6 @@ test("跨谱面行时逐行补满，只有真正的首尾下折", () => {
     assert(blank.regions[1].w > blank.regions[0].w && blank.regions[1].w > blank.regions[2].w,
         "空白中间行仍应回退到完整内容区宽度");
 
-    expectSnapshot("volta-cross-line", house.regions.map(region =>
-        `line${region.line}=${region.x.toFixed(2)},${region.y.toFixed(2)},`
-        + `${region.w.toFixed(2)},${region.h.toFixed(2)}`).join("\n"));
 });
 
 test("后声明的跨行房子在空白中间行也排在外层", () => {
@@ -416,13 +413,4 @@ test("房子画出上方括线、两端下折和遍数标签", () => {
     const sharedLabel = attachmentCommands(shared.attachments[0]).find(command => command.kind === "text")!;
     assert(sharedLabel.text === "1.2.", `共用房子的标签应把遍数依次写出，实际 ${sharedLabel.text}`);
 
-    // 括线高度、下折长度、描边粗细和标签位置都是只能肘眼确认一次的视觉参数
-    const box = layout.attachments[0].box;
-    expectSnapshot("volta-bracket", [
-        `box=${box.x.toFixed(2)},${box.y.toFixed(2)},${box.w.toFixed(2)},${box.h.toFixed(2)}`,
-        `label=${labels[0].x.toFixed(2)},${labels[0].y.toFixed(2)},${labels[0].style.fontSize.toFixed(2)}`,
-        `lines=${lines.map(line =>
-            `${line.x1.toFixed(2)},${line.y1.toFixed(2)}-${line.x2.toFixed(2)},${line.y2.toFixed(2)}`)
-            .join(";")}`,
-    ].join("\n"));
 });

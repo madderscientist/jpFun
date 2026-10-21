@@ -57,7 +57,6 @@ pnpm dev:docs              # 只启动文档
 pnpm run build:core        # 构建核心包
 pnpm run build:playground  # 构建 Playground
 pnpm run typecheck         # 只做类型检查（tsx 跑测试时不检查类型）
-pnpm run test:update       # 重写测试快照基线
 ```
 
 `pnpm dev` 的统一入口默认是 `http://127.0.0.1:4321/`：
