@@ -33,8 +33,8 @@ import { staccatoSymbol } from "./symbols/staccato.js";
 import { tenutoSymbol } from "./symbols/tenuto.js";
 import { tocodaSymbol } from "./symbols/tocoda.js";
 import { trSymbol } from "./symbols/tr.js";
-import { tremoloSymbol } from "./symbols/tremolo.js";
 import { iturnSymbol, turnSymbol } from "./symbols/turn.js";
+import { wheelSymbol } from "./symbols/wheel.js";
 
 export type { OrnamentPattern } from "./ornament.js";
 export type { SymbolShape };
@@ -85,7 +85,7 @@ const symbolPatterns = new Map<string, SymbolPattern>();
 export const symbols = Object.freeze({
     /** 内置符号的只读备份列表 */
     core: Object.freeze<SymbolDefinition[]>([
-        trSymbol, fermataSymbol, prallSymbol, mordentSymbol, accentSymbol, tremoloSymbol, harmonicSymbol,
+        trSymbol, fermataSymbol, prallSymbol, mordentSymbol, accentSymbol, wheelSymbol, harmonicSymbol,
         tenutoSymbol, marcatoSymbol, staccatoSymbol, turnSymbol, iturnSymbol,
         ...dynamicSymbols, dcSymbol, dsSymbol, segnoSymbol, fineSymbol, codaSymbol, tocodaSymbol,
     ]),

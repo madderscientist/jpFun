@@ -130,7 +130,7 @@ test("Canvas 圆形支持 fill=none，默认圆形仍填充黑色", () => {
 
 test("内置新增符号在 SVG 和 Canvas 中使用相同的有限矢量图元，不依赖字体", () => {
     for (const [source, paths, lines, circles] of [
-        ["$tremolo $harmonic", 1, 0, 1],
+        ["$wheel $harmonic", 1, 0, 1],
         ["$tenuto $marcato $staccato $turn $iturn", 4, 2, 0],
     ] as const) {
         const layout = layoutOf(source);

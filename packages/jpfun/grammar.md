@@ -111,7 +111,7 @@ sidebar:
     - `$` 后连续的非空白文本作为完整名称，直到空白或当前内容区间末尾。
     - 装饰：`$tr` 颤音、`$prall` 上波音、`$mordent` 下波音、`$turn` 回音、`$iturn` 逆回音。
     - 奏法：`$accent` 重音、`$marcato` 强调音、`$staccato` 断奏、`$tenuto` 保持音。
-    - 技法：`$tremolo` 轮指、`$harmonic` 泛音。
+    - 技法：`$wheel` 轮指、`$harmonic` 泛音。
     - 颤音尾巴：`$tr+`、`$tr++`、`$tr+++` 等。
     - 延长：`$fermata` 延长号。
     - 力度：`$ppp`、`$pp`、`$p`、`$mp`、`$mf`、`$f`、`$ff`、`$fff` 等。

@@ -1,7 +1,7 @@
 import type { SymbolDefinition } from "../index.js";
 
-export const tremoloSymbol: SymbolDefinition = {
-    name: "tremolo",
+export const wheelSymbol: SymbolDefinition = {
+    name: "wheel",
     description: "轮指",
     shapes: [
         {

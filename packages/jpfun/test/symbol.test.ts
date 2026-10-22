@@ -427,7 +427,7 @@ test("颤音从通用调内位置求每个音符自己的上方二度", () => {
 });
 
 test("内置 symbol 使用固定图形生成稳定几何和绘制命令", () => {
-    const names = ["tr", "fermata", "prall", "mordent", "accent", "tremolo", "harmonic",
+    const names = ["tr", "fermata", "prall", "mordent", "accent", "wheel", "harmonic",
         "dc", "ds", "segno", "fine", "coda", "tocoda",
         "tenuto", "marcato", "staccato", "turn", "iturn",
         "ppp", "pp", "p", "mp", "mf", "f", "ff", "fff"];
@@ -570,7 +570,7 @@ test("强调音沿用重音的局部力度增强，不改变后继基础力度",
 });
 
 test("轮指是五个分离的放射状短笔画，没有外圈", () => {
-    const commands = recordCommands(compileValid("$tremolo").layout);
+    const commands = recordCommands(compileValid("$wheel").layout);
     assert(commands.length === 1 && commands[0].kind === "path", "轮指应只用一条填充路径绘制");
     const { commands: path, style } = commands[0];
     strictEqual(style?.fill, "#000");
@@ -642,7 +642,7 @@ test("保持音、轮指和泛音仅记谱，不改变音高、时值、力度�
     };
     for (const [first, second] of [["1", "2"], ["1/", "2."]]) {
         const baseline = summary(`@tempo(96) ${first} ${second}`);
-        for (const name of ["tenuto", "tremolo", "harmonic"]) {
+        for (const name of ["tenuto", "wheel", "harmonic"]) {
             for (const placement of ["^", "_"]) {
                 deepStrictEqual(summary(`@tempo(96) ${first} ${placement} $${name} ${second}`), baseline);
             }
@@ -883,7 +883,7 @@ test("symbols 支持分包注册、同名覆盖、清空与回退到 core", (t) 
     deepStrictEqual([...table.values()], symbols.core);
     expectDiagnostic(() => parse("@set(strict=true) $dizi.dy"), "E_UNKNOWN_SYMBOL");
     strictEqual(parse("$tr+++").content[0].toString("$tr+++"), "@symbol(tr+++)", "reset 后内置正则变体应恢复");
-    compileValid("@set(strict=true) 1 ^ $tremolo 2 ^ $harmonic $tenuto $marcato $staccato $turn $iturn");
+    compileValid("@set(strict=true) 1 ^ $wheel 2 ^ $harmonic $tenuto $marcato $staccato $turn $iturn");
     const restoredP = playedNotes(compilePlayback(lower("$p 1")));
     assert(restoredP[0].velocity < DEFAULT_VELOCITY, "reset 后内置 $p 力度语义应恢复");
     strictEqual(playedNotes(compilePlayback(lower("1 ^ $ff")))[0].velocity, 112, "reset 应恢复正则力度");
