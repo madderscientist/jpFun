@@ -352,16 +352,32 @@ test("tie 只合并同轨同音且连续的单音", () => {
         `交叉声明的 tie 链也应合并成一个四拍 gesture，实际 ${crossed.length} 个音`);
 });
 
-test("tie 保留各音段的装饰，仅合并连接处的实际同音", () => {
+test("tie 延续无修饰后继的装饰与断奏，有独立修饰的后继从自身起点生效", () => {
     const trill = playedNotes(compilePlayback(lower(`1 ^ $tr 1 @tie()`)));
-    assert(trill.length === 9 && trill.slice(0, 8).every(note => note.duration.equals(1, 8)),
-        "第一音段应保持一拍颤音");
-    assert(trill[8].midi === 60 && trill[8].start.equals(1) && trill[8].end.equals(2),
-        "第二音段应是普通持续音，不继承颤音");
+    assert(trill.length === 16 && trill.every((note, i) =>
+        note.midi === (i % 2 === 0 ? 60 : 62) && note.start.equals(i, 8)
+        && note.duration.equals(1, 8) && note.sourceSpans.length === 2), "首音颤音铺满整条连音");
+
+    const midTrill = playedNotes(compilePlayback(lower(`1@a 1@b ^ $tr 1@c @tie(a,b,c)`)));
+    assert(midTrill.length === 16 && midTrill[0].start.equals(0) && midTrill[0].end.equals(9, 8)
+        && midTrill[0].sourceSpans.length === 3
+        && midTrill.slice(1).every((note, i) => note.start.equals(i + 9, 8) && note.duration.equals(1, 8)),
+    "中段颤音从中段延续到链尾");
 
     const prall = playedNotes(compilePlayback(lower(`1 ^ $prall 1 @tie()`)));
-    assert(prall.length === 3 && prall[2].start.equals(2, 3) && prall[2].end.equals(2),
-        "波音的最后子音与后一音段同音时，应自然合并释放边界");
+    assert(prall.length === 3 && prall.every(note => note.duration.equals(2, 3)) && prall[2].end.equals(2), "波音覆盖连音");
+    const tailPrall = playedNotes(compilePlayback(lower(`1 1 ^ $prall @tie()`)));
+    assert(tailPrall.length === 3 && tailPrall[0].end.equals(4, 3) && tailPrall[2].end.equals(2), "后段波音合并首音");
+
+    for (const [source, end, spans] of [
+        [`1 ^ $staccato 1 @tie()`, [1, 1], 2],
+        [`1 1 ^ $staccato @tie()`, [3, 2], 2],
+        [`1@a 1@b ^ $staccato 1@c @tie(a,b,c)`, [2, 1], 3],
+    ] as const) {
+        const notes = playedNotes(compilePlayback(lower(source)));
+        assert(notes.length === 1 && notes[0].start.equals(0)
+            && notes[0].end.equals(end[0], end[1]) && notes[0].sourceSpans.length === spans, "连音断奏时值");
+    }
 });
 
 test("tie 对同音和弦成员一对一连接", () => {
@@ -603,10 +619,10 @@ test("点事件保留音符来源校验", () => {
     throws(() => compilePlayback(lowering), Error);
 });
 
-test("声音展开拒绝越界、缩短、移动外边界与空结果", () => {
+test("声音展开拒绝越界、非正时值、移动起点与空结果", () => {
     const transforms: PlaybackTransform[] = [
         (_context, notes) => { notes[0].end.add(1); },
-        (_context, notes) => { notes[0].end.div(2); },
+        (_context, notes) => { notes[0].end.copyFrom(notes[0].start); },
         (_context, notes) => { notes[0].start.add(1, 4); },
         () => [],
     ];

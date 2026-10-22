@@ -107,7 +107,7 @@ export interface PlaybackNote extends PlaybackNoteInput, PlaybackSpan {}
 
 /** 当前节点发布完成后，修改此前音段的结构；此时尚未生成系统状态 */
 export type PlaybackHook = (context: PlaybackHookContext) => void;
-/** 在最终状态下展开一个音段；结果须保持原音段的起止边界 */
+/** 在最终状态下展开一个音段；结果须位于原音段区间内并保持原起点 */
 export type PlaybackTransform = (
     context: PlaybackTransformContext,
     notes: PlaybackNote[],

@@ -611,7 +611,26 @@ test("泛音用一个描边圆绘制，圆心透明且描边计入尺寸", () =>
     }
 });
 
-test("断奏、保持音、轮指和泛音仅记谱，不改变音高、时值、力度或速度", () => {
+test("断奏将附着音段发声时长减半，保持乐谱时间轴与延长范围", () => {
+    for (const [source, firstEnd, count] of [
+        [`1 ^ $staccato 2`, [1, 2], 2],
+        [`1 _ $staccato 2`, [1, 2], 2],
+        [`1 ^ $staccato - 2`, [1, 1], 2],
+        [`1 ^ $tr ^ $staccato`, [1, 2], 4],
+        [`1 ^ $staccato ^ $tr`, [1, 2], 8],
+        [`$staccato 1`, [1, 1], 1],
+    ] as const) {
+        const notes = playedNotes(compilePlayback(lower(source)));
+        assert(notes.length === count && notes[0].start.equals(0)
+            && notes[count === 2 ? 0 : count - 1].end.equals(firstEnd[0], firstEnd[1]), source);
+    }
+    const withFermata = compilePlayback(lower(`1 ^ $staccato ^ $fermata 2`));
+    assert(playedNotes(withFermata)[0].duration.equals(1, 2)
+        && withFermata.events.filter(e => e.kind === "tempo").map(e => `${e.at}:${e.bpm}`).join(" ") === "0:60 1:120",
+    "断奏不缩短延长记号区间");
+});
+
+test("保持音、轮指和泛音仅记谱，不改变音高、时值、力度或速度", () => {
     const summary = (source: string) => {
         const plan = compilePlayback(compileValid(source).lowering);
         deepStrictEqual(plan.diagnostics, []);
@@ -622,7 +641,7 @@ test("断奏、保持音、轮指和泛音仅记谱，不改变音高、时值�
     };
     for (const [first, second] of [["1", "2"], ["1/", "2."]]) {
         const baseline = summary(`@tempo(96) ${first} ${second}`);
-        for (const name of ["staccato", "tenuto", "tremolo", "harmonic"]) {
+        for (const name of ["tenuto", "tremolo", "harmonic"]) {
             for (const placement of ["^", "_"]) {
                 deepStrictEqual(summary(`@tempo(96) ${first} ${placement} $${name} ${second}`), baseline);
             }

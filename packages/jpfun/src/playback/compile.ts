@@ -426,27 +426,20 @@ export function compilePlayback(
         if (isPlaybackRelation(attachment)) attachment.applyPlayback(relationContext);
     }
 
-    // 仅对实际参与连接的前驱按起点逆序排列，无连接时跳过排序与整表遍历
-    const connectedNotes = connections.size
-        ? [...connections.keys()].sort((left, right) => right.start.compare(left.start))
-        : [];
-    const connectedEnds = new Map<PlaybackSpan, Fraction>();
-    // 连接严格向未来推进；逆序处理保证后继的链尾已知，一次算出所有逻辑终点
-    for (const note of connectedNotes) {
-        const next = connections.get(note)!;
-        connectedEnds.set(note, connectedEnds.get(next) ?? next.end);
-    }
     // 将有声、无声区间上的效果转换为进入和退出边界，交给同一条全局状态时间线
-    for (const span of spans) {
-        const end = connectedEnds.get(span) ?? span.end;
+    for (const [span, scales] of spanScales) {
+        let tail = span as PlaybackNote;
+        if (scales.some(scale => scale.followConnections)) {
+            while (connections.has(tail)) tail = connections.get(tail)!;
+        }
         // 连接只可能延续效果终点；每个效果仍从自己在原区间内的位置开始
-        for (const scale of spanScales.get(span) ?? []) {
+        for (const scale of scales) {
             const start = scale.startRatio
                 ? span.start.clone().add(span.end.clone().sub(span.start).mul(scale.startRatio))
                 : span.start;
             changes.push(
                 { kind: "scale", at: start, origins: scale.origins, scale, delta: 1 },
-                { kind: "scale", at: scale.followConnections ? end : span.end,
+                { kind: "scale", at: scale.followConnections ? tail.end : span.end,
                     origins: scale.origins, scale, delta: -1 },
             );
         }
@@ -524,40 +517,62 @@ export function compilePlayback(
         },
     };
 
+    const canAbsorb = (from: PlaybackNote, to: PlaybackNote) => !transforms.has(to)
+        && from.track === to.track && from.midi === to.midi && from.percussion === to.percussion;
+
     const realized = new Map<PlaybackNote, {
         on: PlaybackDraftNoteOnEvent;
         off: PlaybackDraftNoteOffEvent;
     }[]>();
-    // 每个逻辑音段独立展开声音，连接不会让后一段继承前一段的装饰
+    // 后继无独立变换时直接并入前驱音段，使首段装饰与奏法覆盖连续连音；有新变换时从该处分段并在交界处合并同音
     for (const note of notes) {
-        let owned: PlaybackNote[] = [note];
+        const previous = predecessors.get(note);
+        if (previous && canAbsorb(previous, note)) continue;
+
+        let tail = note;
+        let next = connections.get(tail);
+        let mergedSpans: Readonly<SourceSpan>[] | undefined;
+        while (next && canAbsorb(tail, next)) {
+            connections.delete(tail);
+            mergedSpans ??= [...note.sourceSpans];
+            mergedSpans.push(...next.sourceSpans);
+            tail = next;
+            next = connections.get(tail);
+        }
+        if (tail !== note) {
+            connections.delete(tail);
+            if (next) connections.set(note, next);
+        }
+        const segmentEnd = tail.end;
+        const segmentSpans = mergedSpans ? Object.freeze(mergedSpans) : note.sourceSpans;
         const noteTransforms = transforms.get(note);
+        let owned: PlaybackNote[];
         if (noteTransforms) {
-            owned = [{ ...note, start: note.start.clone(), end: note.end.clone() }];
+            owned = [{ ...note, start: note.start.clone(), end: segmentEnd.clone(), sourceSpans: segmentSpans }];
             // 变换按登记顺序消费上一项的结果，每项对这个逻辑音段只执行一次
             for (const transform of noteTransforms) {
                 owned = transform(transformContext, owned) ?? owned;
             }
             let first: Fraction | undefined;
-            let last: Fraction | undefined;
-            // 各子音必须留在原区间内；同时收集整体边界，防止声音阶段改写已确定的结构范围
+            // 各子音必须留在原区间内；同时收集整体起点，防止声音阶段延迟起音或返回空结果
             for (const sound of owned) {
                 if (!Number.isFinite(sound.start.toNumber()) || !Number.isFinite(sound.end.toNumber())
-                    || sound.start.compare(note.start) < 0 || sound.end.compare(note.end) > 0
+                    || sound.start.compare(note.start) < 0 || sound.end.compare(segmentEnd) > 0
                     || sound.end.compare(sound.start) <= 0) {
                     throw new ErrorDiagnostic("E_PLAYBACK_TRANSFORM_RANGE", "声音展开必须位于原音段区间内且时值为正",
                         note.sourceSpans[0]);
                 }
                 if (!first || sound.start.compare(first) < 0) first = sound.start;
-                if (!last || sound.end.compare(last) > 0) last = sound.end;
             }
-            if (!first?.equals(note.start) || !last?.equals(note.end)) {
-                throw new ErrorDiagnostic("E_PLAYBACK_TRANSFORM_RANGE", "声音展开必须保持原音段的起止边界",
+            if (!first?.equals(note.start)) {
+                throw new ErrorDiagnostic("E_PLAYBACK_TRANSFORM_RANGE", "声音展开必须保持原音段的起点",
                     note.sourceSpans[0]);
             }
+        } else {
+            owned = [tail === note ? note : { ...note, end: segmentEnd, sourceSpans: segmentSpans }];
         }
-        // 现在才分配实际音符身份；仅参与连接的音段需要记录事件对供边界合并
-        const pairs = (connections.has(note) || predecessors.has(note))
+        // 现在才分配实际音符身份；仅分段后仍存在跨段连接的音段需要记录事件对供边界合并
+        const pairs = (next !== undefined || previous !== undefined)
             ? [] as { on: PlaybackDraftNoteOnEvent; off: PlaybackDraftNoteOffEvent }[]
             : undefined;
         for (const sound of owned) {
@@ -579,12 +594,15 @@ export function compilePlayback(
 
     const removed = new Set<PlaybackDraftEvent>();
     const joinedSources = new Map<PlaybackDraftNoteOnEvent, PlaybackDraftNoteOnEvent>();
+    const connectedNotes = connections.size > 1
+        ? [...connections.keys()].sort((left, right) => right.start.compare(left.start))
+        : connections.keys();
     // 后继先完成合并，前驱便可直接接到它更新后的终点；仅合并连接处实际同音的事件
     for (const note of connectedNotes) {
         const next = connections.get(note)!;
         // 只有到达原音段末端的子音可以跨边界连接，中间子音保留自己的起止
         for (const tail of realized.get(note)!) {
-            if (!tail.off.at.equals(note.end)) continue;
+            if (!tail.off.at.equals(next.start)) continue;
             const head = realized.get(next)!.find(pair => !removed.has(pair.on)
                 && pair.on.at.equals(next.start) && pair.on.track === tail.on.track
                 && pair.on.midi === tail.on.midi && pair.on.percussion === tail.on.percussion);

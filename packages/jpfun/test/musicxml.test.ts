@@ -264,13 +264,13 @@ test("MusicXML diagnoses only discarded children of supported musical containers
 });
 
 test("MusicXML imports basic articulations and turns with placement and playback", () => {
-  for (const [container, tag, name, noteCount, velocity] of [
-    ["articulations", "staccato", "staccato", 1, 80],
-    ["articulations", "tenuto", "tenuto", 1, 80],
-    ["articulations", "strong-accent", "marcato", 1, 100],
-    ["articulations", "staccatissimo", "staccato", 1, 80],
-    ["ornaments", "turn", "turn", 4, 80],
-    ["ornaments", "inverted-turn", "iturn", 4, 80],
+  for (const [container, tag, name, noteCount, velocity, end] of [
+    ["articulations", "staccato", "staccato", 1, 80, [1, 2]],
+    ["articulations", "tenuto", "tenuto", 1, 80, [1, 1]],
+    ["articulations", "strong-accent", "marcato", 1, 100, [1, 1]],
+    ["articulations", "staccatissimo", "staccato", 1, 80, [1, 2]],
+    ["ornaments", "turn", "turn", 4, 80, [1, 1]],
+    ["ornaments", "inverted-turn", "iturn", 4, 80, [1, 1]],
   ] as const) {
     for (const placement of ["above", "below"]) {
       const marks = `<${container}><${tag} placement="${placement}"/></${container}>`;
@@ -278,7 +278,7 @@ test("MusicXML imports basic articulations and turns with placement and playback
       assert(result.script.includes(`${placement === "above" ? "^" : "_"} $${name}`), result.script);
       const notes = playedNotes(result.playback);
       assert(notes.length === noteCount && notes.every(note => note.velocity === velocity), `${name} playback`);
-      assert(notes[0].start.equals(0) && notes.at(-1)!.end.equals(1), "host endpoints must remain unchanged");
+      assert(notes[0].start.equals(0) && notes.at(-1)!.end.equals(end[0], end[1]), "host endpoints must match articulation");
     }
   }
 });
