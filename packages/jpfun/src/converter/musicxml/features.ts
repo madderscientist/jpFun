@@ -2,7 +2,10 @@ import {
     child, children, descendant, descendants, nameOf, number, text,
     type MusicXmlElement,
 } from "./dom.js";
-import type { MusicXmlArpeggio, MusicXmlDiagnostic, MusicXmlDirectionPoint, MusicXmlEvent, MusicXmlPitch, ParsedMusicXmlScore } from "./model.js";
+import type {
+    MusicXmlArpeggio, MusicXmlDiagnostic, MusicXmlDirectionPoint,
+    MusicXmlEvent, MusicXmlPitch, MusicXmlRepeatPoint, MusicXmlRepeatSymbol, ParsedMusicXmlScore,
+} from "./model.js";
 import { NoteNameMap, SHARP_NOTE_NAMES } from "../../parser/parse-utils/note-utils.js";
 
 /** 统一两种 MusicXML 根结构中的小节内容与外层小节容器 */
@@ -13,6 +16,24 @@ export interface MusicXmlMeasureSource {
 
 const DYNAMIC_NAME = /^(?:p+|f+|mp|mf)$/;
 const MAX_ENDING_PASS = 256;
+const SOUND_REPEATS: readonly [string, MusicXmlRepeatSymbol][] = [
+    ["segno", "segno"],
+    ["coda", "coda"],
+    ["dacapo", "dc"],
+    ["dalsegno", "ds"],
+    ["fine", "fine"],
+    ["tocoda", "tocoda"],
+];
+
+/** 识别 <words> 中的标准反复跳转与终止术语 */
+export function repeatWordSymbol(value: string): MusicXmlRepeatSymbol | undefined {
+    const normalized = value.trim().replace(/\s+/g, " ");
+    if (/^(?:d\.\s*c\.?|da\s+capo)(?:\s+al\s+(?:fine|coda)\.?)?$/i.test(normalized)) return "dc";
+    if (/^(?:d\.\s*s\.?|dal\s+segno)(?:\s+al\s+(?:fine|coda)\.?)?$/i.test(normalized)) return "ds";
+    if (/^fine\.?$/i.test(normalized)) return "fine";
+    if (/^(?:to\s+coda|al\s+coda)\.?$/i.test(normalized)) return "tocoda";
+    return undefined;
+}
 
 const DIAGNOSTICS = {
     percussion: ["PERCUSSION_SKIPPED", "MIDI channel 10 percussion note was omitted."],
@@ -376,14 +397,57 @@ export function directionDynamic(dynamics: MusicXmlElement | undefined, diagnost
     return dynamic;
 }
 
-/** 收集排练标记与普通文字，排练标记保留方框语义；空白文字视为空内容 */
-export function directionTexts(direction: MusicXmlReader) {
-    const result: MusicXmlDirectionPoint["texts"] = [];
-    for (const name of ["rehearsal", "words"]) {
+/** 收集排练标记、反复记号与普通文字，排练标记保留方框语义；空白文字视为空内容 */
+export function directionTexts(
+    direction: MusicXmlReader,
+    defaultPlacement: "above" | "below" = "above",
+    location?: MusicXmlDiagnostic["location"],
+) {
+    const texts: MusicXmlDirectionPoint["texts"] = [];
+    const repeats: Omit<MusicXmlRepeatPoint, "at">[] = [];
+    for (const tag of ["segno", "coda"] as const) {
+        for (const node of direction.readAll(tag, true)) {
+            repeats.push({
+                symbol: tag,
+                placement: placementOf(node, defaultPlacement),
+                location: { ...(location ?? { element: tag }), element: tag },
+            });
+            direction.accept(node);
+        }
+    }
+    for (const name of ["rehearsal", "words"] as const) {
         for (const node of direction.readAll(name, true)) {
             const value = node.textContent?.trim();
-            if (value) result.push({ text: value, boxed: name === "rehearsal" });
+            if (value) {
+                const symbol = name === "words" ? repeatWordSymbol(value) : undefined;
+                if (symbol) {
+                    repeats.push({
+                        symbol,
+                        placement: placementOf(node, defaultPlacement),
+                        location: { ...(location ?? { element: name }), element: name },
+                    });
+                } else {
+                    texts.push({ text: value, boxed: name === "rehearsal" });
+                }
+            }
             direction.accept(node);
+        }
+    }
+    return { texts, repeats };
+}
+
+/** 读取 <sound> 上的反复与跳转属性 */
+export function soundRepeats(
+    sound: MusicXmlElement | undefined,
+    placement: "above" | "below",
+    location: MusicXmlDiagnostic["location"],
+): Omit<MusicXmlRepeatPoint, "at">[] {
+    if (!sound) return [];
+    const result: Omit<MusicXmlRepeatPoint, "at">[] = [];
+    for (const [attr, symbol] of SOUND_REPEATS) {
+        const value = sound.getAttribute(attr)?.trim().toLowerCase();
+        if (value && value !== "no") {
+            result.push({ symbol, placement, location: { ...location, element: "sound" } });
         }
     }
     return result;

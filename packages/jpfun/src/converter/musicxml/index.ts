@@ -17,7 +17,7 @@ import {
 import {
     MusicXmlReader, acceptTuplets, directionDynamic, directionTexts, endingPasses, metronomeBpm,
     mergeArpeggio, noteArpeggio, noteGlissandi, noteLyrics, noteModifiers, parsePitch,
-    parseTimeSignature, partMeasures, readInstrument, reportDiagnostic, scoreMetadata, timeModification, transposePitch,
+    parseTimeSignature, partMeasures, readInstrument, reportDiagnostic, scoreMetadata, soundRepeats, timeModification, transposePitch,
 } from "./features.js";
 import type {
     MusicXmlDiagnostic,
@@ -30,6 +30,7 @@ import type {
     MusicXmlEvent as MusicEvent,
     ParsedMusicXmlScore as ParsedScore,
     MusicXmlPitch as Pitch,
+    MusicXmlRepeatPoint as RepeatPoint,
     MusicXmlWedgePoint as WedgePoint,
 } from "./model.js";
 import { attachAbove, quote, renderHead, renderPitch, renderSystems, type PitchMode } from "../source.js";
@@ -163,6 +164,7 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
     const meters = new Map<string, MeterPoint>();
     const keys = new Map<string, KeyPoint>();
     const tempos = new Map<string, ParsedScore["tempos"][number]>();
+    const repeats = new Map<string, RepeatPoint>();
     const directions: DirectionPoint[] = [];
     const wedgePoints: WedgePoint[] = [];
     const endingPoints = new Map<string, EndingPoint>();
@@ -172,6 +174,11 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
     const multipleRests: ParsedScore["multipleRests"] = [];
     let scoreEnd = new Fraction();
     let order = 0;
+
+    const recordRepeat = (point: RepeatPoint) => {
+        const key = `${keyOf(point.at)}\0${point.symbol}`;
+        if (!repeats.has(key)) repeats.set(key, point);
+    };
 
     // 主时间解析：逐 part、逐小节扫描 attributes/direction/note/barline
     const measuresByPart = partMeasures(root);
@@ -241,6 +248,15 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
                         at: at.clone(),
                         type: endingType,
                         passes,
+                    });
+                }
+                for (const tag of ["segno", "coda"] as const) {
+                    const mark = child(barline, tag);
+                    if (mark) recordRepeat({
+                        at: at.clone(),
+                        symbol: tag,
+                        placement: mark.getAttribute("placement") === "below" ? "below" : "above",
+                        location: { ...measureLocation, element: tag },
                     });
                 }
             };
@@ -330,35 +346,41 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
                             ...measureLocation, element: metronome && markedBpm === bpm ? "metronome" : "sound",
                         } });
                     }
-                    if (!reader) continue;
-                    if (bpm !== undefined && markedBpm === bpm) reader.accept(metronome);
+                    const placement = item.getAttribute("placement") === "below" ? "below" : "above";
                     const staff = text(item, "staff") || "1";
                     const voice = text(item, "voice");
                     const location = { ...measureLocation, element: tag, staff, voice: voice || undefined };
-                    const dynamics = reader.read("dynamics", true);
-                    const dynamic = directionDynamic(dynamics, diagnostics, location);
-                    reader.accept(dynamics);
-                    const texts = directionTexts(reader);
-                    if (dynamic || texts.length > 0) directions.push({
-                        location,
-                        at,
-                        placement: item.getAttribute("placement") === "below" ? "below" : "above",
-                        dynamic,
-                        texts,
-                    });
-                    const wedge = reader.read("wedge", true);
-                    const wedgeType = wedge?.getAttribute("type");
-                    if (wedgeType === "crescendo" || wedgeType === "diminuendo" || wedgeType === "stop") {
-                        wedgePoints.push({
-                            location: { ...location, element: "wedge" },
+                    if (reader) {
+                        if (bpm !== undefined && markedBpm === bpm) reader.accept(metronome);
+                        const dynamics = reader.read("dynamics", true);
+                        const dynamic = directionDynamic(dynamics, diagnostics, location);
+                        reader.accept(dynamics);
+                        const { texts, repeats: dirRepeats } = directionTexts(reader, placement, location);
+                        for (const repeat of dirRepeats) recordRepeat({ ...repeat, at: at.clone() });
+                        if (dynamic || texts.length > 0) directions.push({
+                            location,
                             at,
-                            number: wedge?.getAttribute("number") || "1",
-                            type: wedgeType,
+                            placement,
+                            dynamic,
+                            texts,
                         });
-                        reader.accept(wedge);
+                        const wedge = reader.read("wedge", true);
+                        const wedgeType = wedge?.getAttribute("type");
+                        if (wedgeType === "crescendo" || wedgeType === "diminuendo" || wedgeType === "stop") {
+                            wedgePoints.push({
+                                location: { ...location, element: "wedge" },
+                                at,
+                                number: wedge?.getAttribute("number") || "1",
+                                type: wedgeType,
+                            });
+                            reader.accept(wedge);
+                        }
+                        for (const directionType of children(item, "direction-type")) {
+                            reader.report(diagnostics, location, directionType);
+                        }
                     }
-                    for (const directionType of children(item, "direction-type")) {
-                        reader.report(diagnostics, location, directionType);
+                    for (const repeat of soundRepeats(sound, placement, { ...measureLocation, element: "sound" })) {
+                        recordRepeat({ ...repeat, at: at.clone() });
                     }
                     continue;
                 }
@@ -553,6 +575,7 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
         meters: [...meters.values()].sort((left, right) => left.at.compare(right.at)),
         keys: [...keys.values()].sort((left, right) => left.at.compare(right.at)),
         tempos: [...tempos.values()].sort((left, right) => left.at.compare(right.at)),
+        repeats: [...repeats.values()].sort((left, right) => left.at.compare(right.at)),
         wedges,
         endings,
         bars,
@@ -1012,6 +1035,7 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagno
 
     // 初始状态进入 head；中途状态作为精确时间点只写在最上方 lane
     const scoreAdjustments = new Map<string, RenderAdjustment>();
+    const barAdjustments = new Map<string, RenderAdjustment>();
     const addAdjustment = (adjustments: typeof scoreAdjustments, at: Fraction, source: string,
         location?: MusicXmlDiagnostic["location"], placement: "above" | "below" = "above") => {
         const key = keyOf(at);
@@ -1024,6 +1048,10 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagno
     for (const item of keys.slice(1)) addAdjustment(scoreAdjustments, item.at, `@1(${tonicName(item)}4)`);
     for (const item of meters.slice(1)) addAdjustment(scoreAdjustments, item.at, `@meter(${item.numerator}, ${item.denominator})`);
     for (const item of tempos.slice(1)) addAdjustment(scoreAdjustments, item.at, `@tempo(${item.bpm})`, item.location);
+    for (const item of score.repeats) {
+        const target = item.symbol === "segno" || item.symbol === "coda" ? scoreAdjustments : barAdjustments;
+        addAdjustment(target, item.at, `$${item.symbol}`, item.location, item.placement);
+    }
     const adjustmentsByLane = score.lanes.map((lane, index) => {
         const adjustments: typeof scoreAdjustments = index === 0 ? scoreAdjustments : new Map();
         for (const dynamic of lane.dynamics ?? []) {
@@ -1092,6 +1120,7 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagno
             && !meters.some(point => interior(point.at))
             && ![...score.bars].some(([at, bar]) => interior(fractionFromKey(at)) && bar !== "|")
             && !score.endings.some(span => interior(span.from.at) || interior(span.end))
+            && ![...barAdjustments.values()].some(point => interior(point.at))
             && adjustmentsByLane.every(points => ![...points.values()].some(point => interior(point.at)))
             && programsByLane.every(points => ![...points.keys()].some(at => interior(fractionFromKey(at))))
             && covered.length > 0 && covered.every(blocks => blocks.length === count
@@ -1166,6 +1195,11 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagno
         for (const [value, point] of adjustments) {
             if (!insideSpan(atomicBlocks, point.at)) points.set(value, point.at);
         }
+        if (laneIndex === 0) {
+            for (const [value, point] of barAdjustments) {
+                if (!insideSpan(atomicBlocks, point.at)) points.set(value, point.at);
+            }
+        }
         const timeline = [...points.values()].sort((left, right) => left.compare(right));
         let blockIndex = 0;
         for (let index = 0; index < timeline.length; index++) {
@@ -1174,7 +1208,19 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagno
                 blockIndex++;
             }
             const bar = score.bars.get(keyOf(at));
-            if (bar && (!at.isZero() || bar !== "|")) outputs.at(-1)!.push(bar);
+            const barChanges = laneIndex === 0 ? barAdjustments.get(keyOf(at)) : undefined;
+            if (bar && (!at.isZero() || bar !== "|")) {
+                if (barChanges) {
+                    const parts = bar.split(" ");
+                    parts[0] = attachAdjustment(parts[0], barChanges);
+                    outputs.at(-1)!.push(parts.join(" "));
+                } else {
+                    outputs.at(-1)!.push(bar);
+                }
+            } else if (barChanges && at.compare(score.end) <= 0) {
+                outputs.at(-1)!.push(...barChanges.sources, ...(barChanges.below ?? []));
+                barChanges.pendingLocations.length = 0;
+            }
             if (lineBreaks.has(keyOf(at))) {
                 outputs.push([]);
                 lyricTokens.push(new Map(orderedVerses.map(verse => [verse, [] as string[]])));
@@ -1235,7 +1281,7 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagno
     });
 
     const omitted = new Set<MusicXmlDiagnostic["location"]>();
-    for (const adjustments of [scoreAdjustments, ...adjustmentsByLane]) {
+    for (const adjustments of [scoreAdjustments, barAdjustments, ...adjustmentsByLane]) {
         for (const point of adjustments.values()) {
             for (const location of point.pendingLocations) omitted.add(location);
         }

@@ -78,7 +78,7 @@ L: 满天都是小星星。
 @text("符号 ")
 @symbol(fermata)
 $ppp $pp $p $mp $mf $f $ff $fff
-$segno $ds $dc $fine $mordent $prall $tr $tr+++ $accent $tremolo $harmonic $staccato $tenuto $marcato $turn $iturn
+$segno $ds $dc $fine $coda $tocoda $mordent $prall $tr $tr+++ $accent $tremolo $harmonic $staccato $tenuto $marcato $turn $iturn
 
 @text("其他函数与混用：")
 

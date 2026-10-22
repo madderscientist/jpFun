@@ -427,7 +427,8 @@ test("颤音从通用调内位置求每个音符自己的上方二度", () => {
 });
 
 test("内置 symbol 使用固定图形生成稳定几何和绘制命令", () => {
-    const names = ["tr", "fermata", "prall", "mordent", "accent", "tremolo", "harmonic", "dc", "ds", "segno", "fine",
+    const names = ["tr", "fermata", "prall", "mordent", "accent", "tremolo", "harmonic",
+        "dc", "ds", "segno", "fine", "coda", "tocoda",
         "tenuto", "marcato", "staccato", "turn", "iturn",
         "ppp", "pp", "p", "mp", "mf", "f", "ff", "fff"];
     for (const name of names) {
@@ -782,6 +783,29 @@ test("$fine 只在回跳之后生效，不被反复线提前触发", () => {
     assert(played("|: 1 2 $fine :| 3 $dc") === "60 62 60 62 64 60 62", "反复段内的 Fine 不受反复线影响");
     assert(played("|: 1 2 $fine 3 :| 4") === "60 62 64 60 62 64 65", "没有回跳记号时 Fine 不生效");
     assert(played("1 $dc 2 $fine 3") === "60 60 62 64", "写在回跳点之后的 Fine 永远不生效");
+});
+
+test("$tocoda 只在回跳之后跳向后方最近的 $coda，且正常绕过回跳列不报缺失诊断", () => {
+    const played = (source: string) => {
+        const plan = compilePlayback(lower(source));
+        deepStrictEqual(plan.diagnostics, [], `${source} 不应产生未演奏列警告`);
+        return playedNotes(plan).map(note => note.midi).join(" ");
+    };
+
+    assert(played("1 2 | _$tocoda 3 4 | _$dc | ^$coda 5 6") === "60 62 64 65 60 62 67 69",
+        "D.C. al Coda 应在回跳后从 $tocoda 跳到 $coda");
+    assert(played("1 2 ^ $segno 3 | _$tocoda 4 5 | _$ds 6 ^ $coda 7") === "60 62 64 65 67 62 64 69 71",
+        "D.S. al Coda 应先回跳到 $segno，再从 $tocoda 跳到 $coda");
+    assert(played("|: 1 2 $tocoda :| 3 $dc $coda 4") === "60 62 60 62 64 60 62 65",
+        "反复段内的 $tocoda 在首轮普通反复时不提前触发");
+    assert(played("|: 1 2 $tocoda 3 :| $coda 4") === "60 62 64 60 62 64 65",
+        "后方没有 $dc/$ds 时 $tocoda 不生效");
+    assert(played("1 2 $tocoda 3 $dc") === "60 62 64 60 62 64",
+        "后方没有 $coda 时 $tocoda 不生效");
+    assert(played("1 $coda 2 $tocoda 3 $dc") === "60 62 64 60 62 64",
+        "写在 $tocoda 之前的 $coda 不是正向跳转目标");
+    assert(played("1 $dc 2 $tocoda 3 $coda 4") === "60 60 62 64 65",
+        "写在回跳点之后的 $tocoda 永远不生效");
 });
 
 test("symbols 支持分包注册、同名覆盖、清空与回退到 core", (t) => {

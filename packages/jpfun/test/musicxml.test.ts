@@ -1412,3 +1412,82 @@ test("MusicXML first/second ending 生成 volta 并控制反复顺序", () => {
     assert(musicXmlToJpFun(noMargins).includes("top=48px, bottom=48px, left=40px, right=40px"),
       "缺少 page-margins 时应保留尺寸并采用 jpFun 默认边距");
   });
+
+test("MusicXML 导入 D.C. / D.S. / Segno / Fine / To Coda / Coda 并正确展开播放", () => {
+  const dsAlCoda = compileMusicXml(`<?xml version="1.0"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Lead</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+    </measure>
+    <measure number="2">
+      <direction placement="above"><direction-type><segno/></direction-type><sound segno="segno"/></direction>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
+      <direction placement="below"><direction-type><words>To Coda</words></direction-type><sound tocoda="coda"/></direction>
+    </measure>
+    <measure number="3">
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration></note>
+      <direction placement="below"><direction-type><words>D.S. al Coda</words></direction-type><sound dalsegno="segno"/></direction>
+    </measure>
+    <measure number="4">
+      <direction placement="above"><direction-type><coda/></direction-type><sound coda="coda"/></direction>
+      <note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration></note>
+    </measure>
+  </part>
+</score-partwise>`, { barsPerLine: 3 });
+
+  assert(dsAlCoda.script.includes("{D4 ^ $segno}")
+    && dsAlCoda.script.includes("{| _ $tocoda}")
+    && dsAlCoda.script.includes("{| _ $ds}")
+    && dsAlCoda.script.includes("{F4 ^ $coda}"), dsAlCoda.script);
+  assert((dsAlCoda.script.match(/\$segno/g) ?? []).length === 1
+    && (dsAlCoda.script.match(/\$tocoda/g) ?? []).length === 1
+    && (dsAlCoda.script.match(/\$ds/g) ?? []).length === 1
+    && (dsAlCoda.script.match(/\$coda/g) ?? []).length === 1,
+    `direction 与 sound 同时声明的相同反复记号应去重：${dsAlCoda.script}`);
+  deepStrictEqual(playedNotes(dsAlCoda.playback).map(note => note.midi), [60, 62, 64, 62, 65]);
+
+  const dcAlFine = compileMusicXml(`<?xml version="1.0"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Lead</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+      <direction placement="below"><direction-type><words>Fine.</words></direction-type><sound fine="yes"/></direction>
+    </measure>
+    <measure number="2">
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
+      <direction placement="below"><direction-type><words>D.C. al Fine</words></direction-type><sound dacapo="yes"/></direction>
+    </measure>
+  </part>
+</score-partwise>`);
+
+  assert(dcAlFine.script.includes("{| _ $fine}") && dcAlFine.script.includes("{||| _ $dc}"), dcAlFine.script);
+  deepStrictEqual(playedNotes(dcAlFine.playback).map(note => note.midi), [60, 62, 60]);
+
+  const barlineAndSoundOnly = compileMusicXml(`<?xml version="1.0"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Lead</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes>
+      <barline location="left"><segno/></barline>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+      <sound tocoda="coda"/>
+    </measure>
+    <measure number="2">
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
+      <sound dalsegno="segno"/>
+    </measure>
+    <measure number="3">
+      <barline location="left"><coda/></barline>
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration></note>
+    </measure>
+  </part>
+</score-partwise>`);
+
+  deepStrictEqual(playedNotes(barlineAndSoundOnly.playback).map(note => note.midi), [60, 62, 60, 64]);
+});

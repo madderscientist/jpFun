@@ -166,11 +166,11 @@ function linearizeColumns(lowering: LoweringResult, diagnostics: Diagnostic[], m
             index++;
         }
     }
-    // 正常走到文末才报告从未演奏的列；连续缺失区间只报第一列
+    // 正常走到文末才报告从未演奏的正时值列；换行、声部头、回跳小节线等零时值列不算未演奏
     const played = new Set(order);
     let previousMissing = false;
     for (let index = 0; index < columns.length; index++) {
-        const missing = !played.has(index);
+        const missing = !played.has(index) && columns[index].some(node => !node.T.isZero());
         if (missing && !previousMissing) {
             diagnostics.push(new WarningDiagnostic(
                 "W_PLAYBACK_COLUMN_NEVER_PLAYED",

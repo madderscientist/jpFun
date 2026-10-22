@@ -18,6 +18,7 @@ import {
 import { ornament } from "./ornament.js";
 import { paintSymbol, symbolBounds, type SymbolShape } from "./shape.js";
 import { accentSymbol } from "./symbols/accent.js";
+import { codaSymbol } from "./symbols/coda.js";
 import { dcSymbol } from "./symbols/dc.js";
 import { dsSymbol } from "./symbols/ds.js";
 import { dynamicSymbols } from "./symbols/dynamics.js";
@@ -30,6 +31,7 @@ import { prallSymbol } from "./symbols/prall.js";
 import { segnoSymbol } from "./symbols/segno.js";
 import { staccatoSymbol } from "./symbols/staccato.js";
 import { tenutoSymbol } from "./symbols/tenuto.js";
+import { tocodaSymbol } from "./symbols/tocoda.js";
 import { trSymbol } from "./symbols/tr.js";
 import { tremoloSymbol } from "./symbols/tremolo.js";
 import { iturnSymbol, turnSymbol } from "./symbols/turn.js";
@@ -85,7 +87,7 @@ export const symbols = Object.freeze({
     core: Object.freeze<SymbolDefinition[]>([
         trSymbol, fermataSymbol, prallSymbol, mordentSymbol, accentSymbol, tremoloSymbol, harmonicSymbol,
         tenutoSymbol, marcatoSymbol, staccatoSymbol, turnSymbol, iturnSymbol,
-        ...dynamicSymbols, dcSymbol, dsSymbol, segnoSymbol, fineSymbol,
+        ...dynamicSymbols, dcSymbol, dsSymbol, segnoSymbol, fineSymbol, codaSymbol, tocodaSymbol,
     ]),
     /** 当前注册表的只读视图 */
     table: symbolTable as ReadonlyMap<string, SymbolDefinition>,

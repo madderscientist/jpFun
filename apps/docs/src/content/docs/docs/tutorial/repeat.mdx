@@ -76,7 +76,7 @@ export const voltaTieExample = `\
 
 此外，`@volta` 和 `@tie` 都可以被 `@adjust` 函数微调，不过只有 `dx` 和 `dy` 有效。
 
-## D.C.、D.S. 与 Fine
+## D.C.、D.S.、Fine 与 Coda
 这些符号用 `$名称` 创建。`$` 是函数 `@symbol` 的简写，例如 `$dc` 等价于 `@symbol("dc")`。
 
 | 符号 | 播放规则 |
@@ -85,6 +85,8 @@ export const voltaTieExample = `\
 | `$ds` | 第一次遇到时回到前面最近的 Segno，之后直接通过 |
 | `$segno` | 标记 D.S. 的回跳目标，本身不跳转 |
 | `$fine` | 首次顺序演奏时通过；经后面的 D.C. 或 D.S. 回跳后，到这里停止 |
+| `$tocoda` | 首次顺序演奏时通过；经后面的 D.C. 或 D.S. 回跳后，跳向后面最近的 Coda |
+| `$coda` | 标记 To Coda 的跳转目标（尾声），本身不跳转 |
 
 这些符号通常用 `@up`（`^`）放在音符上方，或用 `@down`（`_`）放在小节线下方。
 
@@ -102,6 +104,11 @@ export const dsFineExample = `1 2 | 3^$segno 4 |_$fine 5 6 |||_$ds`;
 
 播放顺序：`1 2 → 3 4 → 5 6 → 3 4`。到 D.S. 后回到带 Segno 的 `3`，再到 Fine 结束。没有 Segno 时，D.S. 会退回曲首。
 
-组合使用时注意：普通反复线的回跳不会触发 Fine；D.C.、D.S. 回跳也不会重置反复线的访问次数，已经回跳过的反复线会直接通过。
+### 从 Segno 反复，跳至 Coda 尾声
+export const dsCodaExample = `1 2 | 3^$segno 4 |_$tocoda 5 6 ||_$ds 7^$coda 1' |||`;
 
-Coda（尾声）与 To Coda（跳至尾声）目前尚未支持；需要时请按实际播放顺序展开乐段，或使用文字标注。
+<ScoreExample title="D.S. al Coda" source={dsCodaExample} />
+
+播放顺序：`1 2 → 3 4 → 5 6 → 3 4 → 7 1'`。首次经过 To Coda 时继续向后，经 D.S. 回跳到 Segno 后再次经过 To Coda，即跳过中间段落直接进入带 Coda 的尾声。
+
+组合使用时注意：普通反复线的回跳不会触发 Fine 或 To Coda；D.C.、D.S. 回跳也不会重置反复线的访问次数，已经回跳过的反复线会直接通过。

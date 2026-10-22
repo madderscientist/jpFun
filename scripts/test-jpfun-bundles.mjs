@@ -41,13 +41,15 @@ test("full and core bundles reference the separately distributed Bravura glyph l
     license, "browser distributions must include the complete license beside the bundles");
   const manifest = JSON.parse(await readFile(new URL("../packages/jpfun/package.json", import.meta.url), "utf8"));
   assert.ok(manifest.files.includes("Bravura-LICENSE.txt") && manifest.files.includes("dist"));
-  const glyphModule = await readFile(new URL(
-    "../packages/jpfun/dist/functions/symbol/symbols/turn.js", import.meta.url), "utf8");
-  const notice = glyphModule.match(/\/\*![\s\S]*?\*\//)?.[0];
-  assert.ok(notice?.includes("OFL-1.1") && notice.includes("Bravura-LICENSE.txt"));
-  for (const bundle of ["jpfun.min.js", "jpfun.core.min.js"]) {
-    const source = await readFile(new URL(`../packages/jpfun/dist/${bundle}`, import.meta.url), "utf8");
-    assert.ok(source.includes(notice), `${bundle} must preserve the short OFL notice`);
+  for (const glyph of ["turn.js", "coda.js"]) {
+    const glyphModule = await readFile(new URL(
+      `../packages/jpfun/dist/functions/symbol/symbols/${glyph}`, import.meta.url), "utf8");
+    const notice = glyphModule.match(/\/\*![\s\S]*?\*\//)?.[0];
+    assert.ok(notice?.includes("OFL-1.1") && notice.includes("Bravura-LICENSE.txt"));
+    for (const bundle of ["jpfun.min.js", "jpfun.core.min.js"]) {
+      const source = await readFile(new URL(`../packages/jpfun/dist/${bundle}`, import.meta.url), "utf8");
+      assert.ok(source.includes(notice), `${bundle} must preserve the short OFL notice for ${glyph}`);
+    }
   }
 });
 

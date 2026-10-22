@@ -88,6 +88,16 @@ export interface MusicXmlKeyPoint {
     mode: string;
 }
 
+export type MusicXmlRepeatSymbol = "segno" | "coda" | "dc" | "ds" | "fine" | "tocoda";
+
+/** 全谱时间流上的反复与跳转记号 */
+export interface MusicXmlRepeatPoint {
+    at: Fraction;
+    symbol: MusicXmlRepeatSymbol;
+    placement: "above" | "below";
+    location: MusicXmlDiagnostic["location"];
+}
+
 /** 尚未附着到事件的力度或文字方向 */
 export interface MusicXmlDirectionPoint {
     location: MusicXmlPartLocation & { staff: string };
@@ -142,6 +152,7 @@ export interface ParsedMusicXmlScore {
     meters: MusicXmlMeterPoint[];
     keys: MusicXmlKeyPoint[];
     tempos: { at: Fraction; bpm: number; location?: MusicXmlDiagnostic["location"] }[];
+    repeats: MusicXmlRepeatPoint[];
     wedges: MusicXmlWedgeSpan[];
     endings: MusicXmlEndingSpan[];
     bars: Map<string, string>;
