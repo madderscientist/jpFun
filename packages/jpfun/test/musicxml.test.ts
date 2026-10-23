@@ -99,7 +99,15 @@ test("MusicXML MuseScore slide and four chord-line articulations retain visual m
   const plain = compileMusicXml(slideScore(["", "", "", ""]));
   const notes = (plan: typeof result.playback) => playedNotes(plan)
     .map(note => [note.midi, note.start.toString(), note.end.toString()]);
-  deepStrictEqual(notes(result.playback), notes(plain.playback));
+  deepStrictEqual(notes(result.playback), [
+    [71, "0", "1/6"],
+    [72, "1/6", "1/3"],
+    [73, "1/3", "1/2"],
+    [74, "1/2", "2/3"],
+    [75, "2/3", "5/6"],
+    [76, "5/6", "1"],
+    ...notes(plain.playback).slice(1),
+  ]);
 });
 
 test("MusicXML glissando kinds and numbers pair independently and report unsupported shapes", () => {

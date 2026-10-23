@@ -103,12 +103,29 @@ test("gliss geometry scales with fontsize and does not accumulate spacing on rel
     }
 });
 
-test("gliss retains the original playback and emits a portable SVG path", () => {
-    const source = "1 -@a 5@b";
+test("gliss plays discrete chromatic steps from the marked note or dash and emits a portable SVG path", () => {
     const notes = (text: string) => playedNotes(compilePlayback(lower(text)))
         .map(note => [note.midi, note.start.toString(), note.end.toString()]);
-    deepStrictEqual(notes(`${source} @gliss(a,b)`), notes(source));
-    deepStrictEqual(notes(`${source} @gliss(b,a)`), notes(source));
+    const pitches = (text: string) => playedNotes(compilePlayback(lower(text))).map(n => n.midi);
+
+    deepStrictEqual(notes("1@a 3@b @gliss(a,b)"), [
+        [60, "0", "1/4"], [61, "1/4", "1/2"], [62, "1/2", "3/4"], [63, "3/4", "1"], [64, "1", "2"],
+    ]);
+    const source = "1 -@a 3@b";
+    const expectedDash = [
+        [60, "0", "5/4"], [61, "5/4", "3/2"], [62, "3/2", "7/4"], [63, "7/4", "2"], [64, "2", "3"],
+    ];
+    deepStrictEqual(notes(`${source} @gliss(a,b)`), expectedDash);
+    deepStrictEqual(notes(`${source} @gliss(b,a)`), expectedDash);
+    deepStrictEqual(pitches("3@a 1@b @gliss(a,b)"), [64, 63, 62, 61, 60]);
+    deepStrictEqual(notes("1@a 1@b @gliss(a,b)"), notes("1 1"));
+    deepStrictEqual(notes("0@a 5@b @gliss(a,b)"), notes("0 5"));
+    deepStrictEqual(notes("9@a 5@b @gliss(a,b)"), notes("9 5"));
+    deepStrictEqual(pitches("1@a 2@b @ottava(a,b,1) @gliss(a,b)"), [72, 73, 74]);
+    deepStrictEqual(pitches("|: 1@a 2@b @gliss(a,b) :|"), [60, 61, 62, 60, 61, 62]);
+    deepStrictEqual(pitches("1@a 3@b @gliss(a,b) @gliss(a,b)"), [60, 61, 62, 63, 64]);
+    deepStrictEqual(pitches("1@a ^ $prall 3@b @gliss(a,b)"), [60, 62, 60, 61, 62, 63, 64]);
+
     const { layout } = compileValid(`${source} @gliss(b,a)`);
     assert(renderLayoutPagesToSvg(layout)[0].includes("<path"), "SVG backend must draw the arrow");
 });

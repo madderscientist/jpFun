@@ -288,6 +288,10 @@ ornament 用 `stateAt(note.start).effectiveBpm` 决定极端速度下的密度�
 - **单音震音**：将目标音段（含后续增时线或无修饰连音合并后的完整时值）按 $1/2^n$ 四分音符（至少 2 个子音）等分为同音重复子音。
 - **双音震音**：在第二个目标发布完成后，结合紧邻的前一目标将两段区间扩展到共同总窗口 $[t_0, t_2]$（第二段起点置于 $t_0 + \text{step}$），再分别以奇偶槽位展开为交替子音（至少 2 对交替）。
 
+### Gliss
+
+`@gliss(from, to)` 在两端均具有有效音高且起点为音符或延续音符的增时线时，通过 `defer` 与 `context.transform` 将起点（或所标增时线及其后续延音）区间按半音阶等分为 $|midi_{to} - midi_{from}|$ 个离散步进子音；标在增时线上时，增时线之前的本音部分与首个同音步进子音保持连续，不产生二次起音。
+
 ### Dyn
 
 `@dyn(from, to, dv)` 在 Lowering 阶段计算力度，不生成运行期 relation。所有 `onTimeState` 完成后，Lowering 遍历 `astToTemporal`，为普通音符以及 up/grace 的折叠成员累计力度增量。

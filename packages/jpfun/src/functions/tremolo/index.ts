@@ -23,12 +23,8 @@ import { isVisualTemporalNode, type TemporalNodeBase, type VisualTemporalNode } 
 
 const MAX_SUBNOTES = 256;
 
-function callName(node: TemporalNodeBase): string {
-    return node.ast instanceof ASTFunctionNode ? node.ast.callName : "";
-}
-
 function isDash(node: TemporalNodeBase): boolean {
-    return callName(node) === "dash";
+    return node.ast instanceof ASTFunctionNode && node.ast.callName === "dash";
 }
 
 function isAudibleNote(item: PlaybackSpan): item is PlaybackNote {
@@ -52,9 +48,7 @@ function collectNoteAxes(node: VisualTemporalNode, axes: number[] = []): number[
 
 function visualCenterY(node: VisualTemporalNode): number {
     const axes = collectNoteAxes(node);
-    return axes.length > 0
-        ? (Math.min(...axes) + Math.max(...axes)) / 2
-        : node.box.y + node.box.visualAxis;
+    return (Math.min(...axes) + Math.max(...axes)) / 2;
 }
 
 function collectVisitSpans(
@@ -152,7 +146,7 @@ class TremoloFunction extends ASTFunctionNode {
         }
         const group: TremoloGroup = {
             nodes: [],
-            onTemporal(node) { group.nodes.push(node); },
+            onTemporal(node) { if (isVisualTemporalNode(node)) group.nodes.push(node); },
         };
         ctx.beginLoweringGroup(this, group);
         return [];
@@ -160,43 +154,27 @@ class TremoloFunction extends ASTFunctionNode {
 
     override loweringExit(ctx: LoweringContext) {
         const { nodes } = ctx.endLoweringGroup(this) as TremoloGroup;
-        if (nodes.some(node => (node.addon?.breakBefore ?? 0) > 0)) {
-            throw new ErrorDiagnostic(
-                "E_TREMOLO_CROSS_LINE",
-                "@tremolo 不支持跨谱面行",
-                this.sourceSpan,
-            );
-        }
-        const visual = nodes.filter(isVisualTemporalNode);
-        if (visual.length === 0 || visual.some(node => node.T.compare(0) <= 0 || callName(node) === "rest")) {
+        const isSingle = nodes.length >= 1 && !isDash(nodes[0]) && nodes.slice(1).every(isDash);
+        const isPair = nodes.length === 2 && !isDash(nodes[0]) && !isDash(nodes[1]);
+        if ((!isSingle && !isPair) || nodes.some(node => node.T.compare(0) <= 0)) {
             throw new ErrorDiagnostic(
                 "E_TREMOLO_CONTENT",
                 "@tremolo 的内容必须是单个音符（可带增时线）或两个等时值的音符/和弦",
                 this.sourceSpan,
             );
         }
-        const track = visual[0].track;
-        if (visual.some(node => node.track !== track)) {
+        if (nodes.some(node => node.track !== nodes[0].track)) {
             throw new ErrorDiagnostic(
                 "E_TREMOLO_CROSS_TRACK",
                 "@tremolo 的内容必须位于同一音轨",
                 this.sourceSpan,
             );
         }
-        const isSingle = !isDash(visual[0]) && visual.slice(1).every(isDash);
-        const isPair = visual.length === 2 && !isDash(visual[0]) && !isDash(visual[1]);
-        if (!isSingle && !isPair) {
-            throw new ErrorDiagnostic(
-                "E_TREMOLO_CONTENT",
-                "@tremolo 的内容必须是单个音符（可带增时线）或两个等时值的音符/和弦",
-                this.sourceSpan,
-            );
-        }
 
-        const attachment = new TremoloAttachment(visual, this);
+        const attachment = new TremoloAttachment(nodes, this);
         ctx.addAttachment(attachment);
         ctx.deferFinalize(() => attachment.finalize());
-        const anchorHost = isSingle ? visual.at(-1)! : visual[0];
+        const anchorHost = isSingle ? nodes.at(-1)! : nodes[0];
         const prepare = anchorHost.prepareHorizontal;
         anchorHost.prepareHorizontal = line => {
             prepare?.call(anchorHost, line);
@@ -213,7 +191,7 @@ class TremoloFunction extends ASTFunctionNode {
 export const TremoloNode: ASTFunctionClass = TremoloFunction;
 
 interface TremoloGroup extends LoweringGroup {
-    nodes: TemporalNodeBase[];
+    nodes: VisualTemporalNode[];
 }
 
 class TremoloAttachment implements LayoutAttachment {
@@ -271,19 +249,13 @@ class TremoloAttachment implements LayoutAttachment {
         const emitSecond = second.emitPlayback;
         second.emitPlayback = emitter => {
             emitSecond?.call(second, emitter);
-            const secondStart = emitter.start.clone();
-            const secondEnd = emitter.end.clone();
+            const { start: secondStart, end: t2 } = emitter;
             emitter.defer(context => {
                 const firstSpans = collectVisitSpans(context.spans, first, secondStart);
                 const secondSpans = collectVisitSpans(context.spans, second);
                 if (firstSpans.length === 0 || secondSpans.length === 0) return;
 
-                let minStart = firstSpans[0].start;
-                for (let i = 1; i < firstSpans.length; i++) {
-                    if (firstSpans[i].start.compare(minStart) < 0) minStart = firstSpans[i].start;
-                }
-                const t0 = minStart.clone();
-                const t2 = secondEnd;
+                const t0 = firstSpans.reduce((min, s) => s.start.compare(min) < 0 ? s.start : min, firstSpans[0].start).clone();
                 const total = t2.clone().sub(t0);
                 const pairs = Math.min(
                     MAX_SUBNOTES / 2,

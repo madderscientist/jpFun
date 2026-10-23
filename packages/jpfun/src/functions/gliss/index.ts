@@ -1,18 +1,31 @@
-import { ErrorDiagnostic, WarningDiagnostic, type Diagnostic } from "../../diagnostic.js";
+import { ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { pathBounds } from "../../layout/path.js";
 import type { HorizontalLineView, LayoutAttachment } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
+import type { LoweringResult } from "../../lowering/types.js";
 import type { Painter, PathCommand } from "../../render/types.js";
 import {
     ASTFunctionNode, type ASTFunctionClass, type ASTNodeBase, type FunctionArgs,
     type ParserContext, type SourceSpan,
 } from "../ASTtypes.js";
-import { isVisualTemporalNode, type VisualTemporalNode } from "../temporal.js";
+import { isVisualTemporalNode, type TemporalNodeBase, type VisualTemporalNode } from "../temporal.js";
 
 // gliss 判断音高的准则是 resolvedMidi 属性
 function pitchOf(node: object): number | undefined {
     const { resolvedMidi } = node as { resolvedMidi?: unknown };
     return typeof resolvedMidi === "number" ? resolvedMidi : undefined;
+}
+
+function findPitchNode(
+    columns: readonly (readonly TemporalNodeBase[])[],
+    node: VisualTemporalNode,
+): TemporalNodeBase | undefined {
+    if ("resolvedMidi" in node) return pitchOf(node) !== undefined ? node : undefined;
+    const host = layoutHost(node);
+    for (let i = columns.findIndex(col => col.includes(host)) - 1; i >= 0; i--) {
+        const previous = columns[i].find(item => item.track === host.track && "resolvedMidi" in item);
+        if (previous) return pitchOf(previous) !== undefined ? previous : undefined;
+    }
 }
 
 class GlissFunction extends ASTFunctionNode {
@@ -23,7 +36,7 @@ class GlissFunction extends ASTFunctionNode {
 ~~~jpfun
 1 -@a 5@b @gliss(a, b)
 ~~~
-若附属对象无音高，将使用前面最近的的同轨有音高对象的音高`,
+若附属对象无音高，将使用前面最近的同轨有音高对象的音高；播放时从起点音段按半音阶离散过渡至终点音高。`,
         allowExtraArgs: false,
         args: [
             {
@@ -57,7 +70,9 @@ class GlissFunction extends ASTFunctionNode {
                 this.sourceSpan
             );
         }
-        ctx.addAttachment(new GlissAttachment(from, to, this.sourceSpan, ctx.diagnostics));
+        const attachment = new GlissAttachment(from, to, this.sourceSpan);
+        ctx.addAttachment(attachment);
+        ctx.deferFinalize(result => attachment.finalize(result), 1);
         return [];
     }
 
@@ -79,45 +94,81 @@ function layoutHost(node: VisualTemporalNode, line?: HorizontalLineView): Visual
 
 class GlissAttachment implements LayoutAttachment {
     readonly layer = "foreground" as const;
-    readonly endPoints: readonly [VisualTemporalNode, VisualTemporalNode];
+    endPoints: [VisualTemporalNode, VisualTemporalNode];
     private direction: number | undefined;
-    private warned = false;
 
     constructor(
-        readonly from: VisualTemporalNode,
-        readonly to: VisualTemporalNode,
+        from: VisualTemporalNode,
+        to: VisualTemporalNode,
         readonly sourceSpan: SourceSpan,
-        private readonly diagnostics: Diagnostic[],
     ) {
         this.endPoints = [from, to];
     }
 
-    private get orderedEndpoints() {
+    finalize({ columns, diagnostics }: LoweringResult) {
         const [a, b] = this.endPoints;
         const fromHost = layoutHost(a);
         const toHost = layoutHost(b);
-        const { sourceSpan } = this;
-        if (fromHost.t.equals(toHost.t))
-            throw new ErrorDiagnostic(
-                "E_GLISS_ORDER",
-                "@gliss 两个端点不能位于同一时刻",
-                sourceSpan
-            );
-        if (fromHost.layoutLine !== toHost.layoutLine)
-            throw new ErrorDiagnostic(
-                "E_GLISS_CROSS_LINE",
-                "@gliss 不支持跨谱面行",
-                sourceSpan
-            );
-        return fromHost.t.compare(toHost.t) > 0 ? [b, a] as const : [a, b] as const;
+        if (fromHost.t.equals(toHost.t)) {
+            throw new ErrorDiagnostic("E_GLISS_ORDER", "@gliss 两个端点不能位于同一时刻", this.sourceSpan);
+        }
+        if (fromHost.layoutLine !== toHost.layoutLine) {
+            throw new ErrorDiagnostic("E_GLISS_CROSS_LINE", "@gliss 不支持跨谱面行", this.sourceSpan);
+        }
+        if (fromHost.t.compare(toHost.t) > 0) this.endPoints = [b, a];
+        const [endpoint, target] = this.endPoints;
+        const sourcePitchNode = findPitchNode(columns, endpoint);
+        const targetPitchNode = findPitchNode(columns, target);
+        if (!sourcePitchNode || !targetPitchNode) {
+            diagnostics.push(new WarningDiagnostic(
+                "W_GLISS_NO_PITCH",
+                "@gliss 端点没有可用音高",
+                this.sourceSpan,
+            ));
+            return;
+        }
+        this.direction = Math.sign(pitchOf(targetPitchNode)! - pitchOf(sourcePitchNode)!);
+
+        const emit = endpoint.emitPlayback;
+        const targetMidi = pitchOf(targetPitchNode)! + (targetPitchNode.playbackState?.pitchShift ?? 0);
+        endpoint.emitPlayback = emitter => {
+            emit?.call(endpoint, emitter);
+            const { start: glissStart, end: glissEnd } = emitter;
+            emitter.defer(context => {
+                for (let i = context.notes.length - 1; i >= 0; i--) {
+                    const note = context.notes[i];
+                    if (note.track !== emitter.track) continue;
+                    if (note.end.equals(glissEnd)) {
+                        context.transform(note, (_ctx, owned) => {
+                            const item = owned.at(-1)!;
+                            const startFrom = glissStart.compare(item.start) > 0 ? glissStart : item.start;
+                            const fromMidi = item.midi;
+                            const steps = Math.abs(targetMidi - fromMidi);
+                            if (item.end.compare(startFrom) <= 0 || steps <= 1) return;
+                            const dir = targetMidi > fromMidi ? 1 : -1;
+                            const step = item.end.clone().sub(startFrom).div(steps);
+                            const out = owned.slice(0, -1);
+                            for (let k = 0; k < steps; k++) {
+                                out.push({
+                                    ...item,
+                                    start: k === 0 ? item.start.clone() : step.clone().mul(k).add(startFrom),
+                                    end: step.clone().mul(k + 1).add(startFrom),
+                                    midi: fromMidi + k * dir,
+                                });
+                            }
+                            return out;
+                        });
+                    }
+                    break;
+                }
+            });
+        };
     }
 
-    /** 定位端点所在时间列，按需解析音高，并为箭头登记水平留白 */
+    /** 定位端点所在时间列，并为箭头登记水平留白 */
     prepareHorizontal(lines: HorizontalLineView[]) {
-        const [endpoint, target] = this.orderedEndpoints;
-        const { sourceSpan } = this;
-        const index = endpoint.layoutLine;
-        const line = lines[index];
+        const [endpoint, target] = this.endPoints;
+        const line = lines[endpoint.layoutLine];
         const from = line && layoutHost(endpoint, line);
         const to = line && layoutHost(target, line);
         const start = from ? line.columnOf(from) : -1;
@@ -126,35 +177,10 @@ class GlissAttachment implements LayoutAttachment {
             throw new ErrorDiagnostic(
                 "E_GLISS_DOMAIN",
                 "@gliss 的端点必须位于同一排版域的不同时间列",
-                sourceSpan
+                this.sourceSpan,
             );
         }
-        const resolvePitch = (node: VisualTemporalNode, column: number) => {
-            if ("resolvedMidi" in node) return pitchOf(node);
-            const track = layoutHost(node, line).track;
-            // 当前行找不到时继续查找前面的谱面行，不要求时值连续
-            for (let i = index; i >= 0; i--) {
-                const columns = lines[i].columns;
-                // 从端点前一列倒查同轨对象；首个带音高属性的对象即终止搜索，空值也不跳过
-                for (let j = i === index ? column - 1 : columns.length - 1; j >= 0; j--) {
-                    const previous = columns[j].find(item => item.track === track && "resolvedMidi" in item);
-                    if (previous) return pitchOf(previous);
-                }
-            }
-        };
-        const sourcePitch = resolvePitch(endpoint, start);
-        const targetPitch = resolvePitch(target, end);
-        this.direction = sourcePitch === undefined || targetPitch === undefined
-            ? undefined : Math.sign(targetPitch - sourcePitch);
-        if (this.direction === undefined && !this.warned) {
-            this.diagnostics.push(new WarningDiagnostic(
-                "W_GLISS_NO_PITCH",
-                "@gliss 端点没有可用音高",
-                sourceSpan,
-            ));
-            this.warned = true; // prepareHorizontal 不一定只执行一次 所以要防抖
-        }
-        const right = from.box.w - from.box.anchor + this.size * 1.4;
+        const right = from.box.w - from.box.anchor + Math.max(endpoint.ast.size, target.ast.size) * 1.4;
         // 只扩张求解器占位，不改变端点图形、附点位置或下一轮的 box
         line.registerHorizontalLayoutHook(from, to, ({ columns }) => {
             // 留白作用于起点整列；取最大值，避免多条关系重复累加占位。
@@ -162,14 +188,9 @@ class GlissAttachment implements LayoutAttachment {
         });
     }
 
-    private get size() {
-        return Math.max(this.from.ast.size, this.to.ast.size);
-    }
-
     createGeometry() {
-        // 子域附件可能直接进入几何测量，未经过 prepareHorizontal
-        const [from, to] = this.orderedEndpoints;
-        const size = this.size;
+        const [from, to] = this.endPoints;
+        const size = Math.max(from.ast.size, to.ast.size);
         const gap = size * 0.12;
         const start = { x: from.box.x + from.box.w + gap, y: from.box.y + from.box.visualAxis };
         const end = { x: to.box.x - gap, y: to.box.y + to.box.visualAxis };
