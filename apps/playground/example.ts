@@ -62,10 +62,11 @@ L: 满天都是小星星。
 2, ^ 4' ^ 6      5 _ 3 _ 1     % 语法糖 ^ 与 _
 @arp(1 ^ 3 ^ 5)  @arp(1 ^ 3 ^ 5, up)  @arp(1 ^ 3 ^ 5, down) % 琶音（别名 @arpeggio）
 
-@text("倚音与滑音 ")
+@text("倚音、滑音与震音 ")
 @grace(C4, D4, pre) @grace(E4, F4, post) % 倚音 标准函数调用
 1 > {2 < 4} > 3 > 4 < 3 > 5 < 6 < 7      % 倚音语法糖
 @slide(5)  @slide(5, direction=down)  @slide(5, side=post)  @slide(5, post, down) % 装饰滑音
+@tremolo(5)  @tremolo({5 -}, n=2)  @tremolo({#5,^7, 2^4})  @tremolo({#5,/^7,/ 2/^4/}) % 单音与双音震音
 
 @text("延音线与滑音连线 ")
 1@ 2@ @tie()

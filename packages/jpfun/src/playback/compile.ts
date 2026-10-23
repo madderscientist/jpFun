@@ -228,7 +228,19 @@ export function compilePlayback(
     const changes: StateChange[] = [{ kind: "initial", at: new Fraction(), origins: [] }];
     const factors = new Map<object, Fraction>();
     const spanScales = new Map<PlaybackSpan, readonly BpmScale[]>();
-    const structureContext: PlaybackHookContext = { spans, notes, diagnostics };
+    const structureContext: PlaybackHookContext = {
+        spans,
+        notes,
+        diagnostics,
+        transform(note, transform) {
+            if (notes.lastIndexOf(note) < 0) {
+                throw new ErrorDiagnostic("E_PLAYBACK_TRANSFORM_TARGET", "声音变换目标必须属于当前计划的已发布音段",
+                    note.sourceSpans?.[0] ?? { start: 0, end: 0 });
+            }
+            const list = transforms.get(note);
+            transforms.set(note, list ? [...list, transform] : [transform]);
+        },
+    };
     /** 固化控制的演奏时刻和来源，回调留到最终状态扫描时统一执行 */
     const scheduleControl = (at: Fraction, origins: readonly PlaybackOrigin[], apply: PlaybackControl) => {
         if (!Number.isFinite(at.toNumber()) || at.compare(0) < 0) {

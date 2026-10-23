@@ -703,6 +703,23 @@ test("声音变换替换自己的音段列表", () => {
         "transform 改变输入数组长度后仍只能替换目标音段");
 });
 
+test("结构阶段可通过 context.transform 挂载变换并拒绝外来音段", () => {
+    const lowering = lower(`1 ^ $accent`);
+    const host = lowering.columns[0][0];
+    const emit = host.emitPlayback!.bind(host);
+    host.emitPlayback = emitter => {
+        emit(emitter);
+        emitter.defer(context => {
+            const target = context.notes[0];
+            expectPlaybackError(() => context.transform({ ...target }, () => undefined), "E_PLAYBACK_TRANSFORM_TARGET");
+            context.transform(target, (_ctx, owned) => owned.map(note => ({ ...note, velocity: note.velocity + 5 })));
+        });
+    };
+    const notes = playedNotes(compilePlayback(lowering));
+    assert(notes.length === 1 && notes[0].velocity === 105,
+        "context.transform 应追加在既有变换之后按顺序执行");
+});
+
 test("速度由记谱位置决定，而不是上一次实际演到的速度", () => {
     const notes = playedNotes(compilePlayback(lower(`@tempo(180) 1 |: 2 @tempo(60) 3 :| 4`)));
     assert(notes.map(note => note.bpm).join(" ") === "180 180 60 180 60 60",

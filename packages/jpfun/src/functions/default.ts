@@ -27,6 +27,7 @@ import { SymbolNode } from "./symbol/index.js";
 import { SetNode } from "./set/index.js";
 import { TempoNode } from "./tempo/index.js";
 import { TextNode } from "./text/index.js";
+import { TremoloNode } from "./tremolo/index.js";
 import { VoltaNode } from "./volta/index.js";
 import { TieNode } from "./tie/index.js";
 import { TupletNode } from "./tuplet/index.js";
@@ -34,7 +35,7 @@ import { VoiceNode, VoicesNode } from "./voice/index.js";
 
 export const defaultFunctions: ASTFunctionClass[] = [
     NoteNode, DashNode, RestNode, BarNode,
-    DivNode, DotNode, TupletNode,   // 装饰性
+    DivNode, DotNode, TupletNode, TremoloNode,   // 装饰性
     VoiceNode, VoicesNode,  // 歌词和声部
     BrNode, PageBreakNode,  // 排版
     PageNode, HeadNode,   // 文档页面与谱头

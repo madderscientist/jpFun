@@ -214,7 +214,7 @@ accent 原地修改 velocity；ornament 返回多个子音段，下一层 transf
 
 | 阶段与上下文 | 可读取的数据 | 可执行的修改 |
 | --- | --- | --- |
-| 结构：`PlaybackHookContext` | 此前发布的 `spans` 与有声子集 `notes`，两者共享对象 | 修改区间边界与音段属性，或通过 `extend` 接续已有区间 |
+| 结构：`PlaybackHookContext` | 此前发布的 `spans` 与有声子集 `notes`，两者共享对象 | 修改区间边界与音段属性，通过 `extend` 接续已有区间，或通过 `transform` 为已发布音段追加声音变换 |
 | 关系：`PlaybackRelationContext` | 全部冻结的有声音段 `notes` | 通过 `connect(from, to)` 尝试建立连接 |
 | 声音：`PlaybackTransformContext` | 输入音段的副本，以及 `stateAt(time)` 返回的最终状态快照 | 修改或替换自己的音段列表，保持原起点且不超出原音段终点 |
 
@@ -238,6 +238,7 @@ core 只认识音段、连接、区间效果和声音展开协议。具体函数
 | `E_PLAYBACK_CONTROL_TIME` | 系统控制的时刻为负或非有限值 |
 | `E_PLAYBACK_BPM_SCALE` | 比例的分子或分母不是正安全整数，或同 key 声明不同的比例 |
 | `E_PLAYBACK_BPM` | 最终有效 BPM 不是有限正数 |
+| `E_PLAYBACK_TRANSFORM_TARGET` | `PlaybackHookContext.transform` 的目标不属于当前计划已发布的有声音段 |
 | `E_PLAYBACK_TRANSFORM_RANGE` | 声音展开越界、移动起点、生成非正时值子音或返回空结果 |
 
 函数还可以向上下文的 `diagnostics` 添加可恢复问题。例如增时线找不到可接续区间时添加 `W_PLAYBACK_SUSTAIN_WITHOUT_TARGET`，计划仍可生成。应用将这些诊断与编译、排版诊断一起展示。
@@ -279,6 +280,13 @@ ornament 用 `stateAt(note.start).effectiveBpm` 决定极端速度下的密度�
 ### Arpeggio
 
 琶音在结构阶段按方向错开成员起点，成员的内部区间等比压缩到剩余窗口，共同终点保持不变。这样多倚音不会因末端裁切产生非正时值，颤音也会在缩放后的完整窗口内展开。无声成员同样占用延迟槽并缩放区间，其速度效果使用缩放后的边界；系统控制事件保留原时刻。
+
+### Tremolo
+
+`@tremolo(content, n=3)` 在结构阶段通过 `defer` 定位本次访问发布的音段，并通过 `context.transform` 挂载声音展开变换：
+
+- **单音震音**：将目标音段（含后续增时线或无修饰连音合并后的完整时值）按 $1/2^n$ 四分音符（至少 2 个子音）等分为同音重复子音。
+- **双音震音**：在第二个目标发布完成后，结合紧邻的前一目标将两段区间扩展到共同总窗口 $[t_0, t_2]$（第二段起点置于 $t_0 + \text{step}$），再分别以奇偶槽位展开为交替子音（至少 2 对交替）。
 
 ### Dyn
 

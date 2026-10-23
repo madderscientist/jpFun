@@ -120,6 +120,8 @@ export interface PlaybackHookContext {
     /** 按发布顺序排列，仅包含当前位置此前已发布的有声音段 */
     readonly notes: readonly PlaybackNote[];
     readonly diagnostics: Diagnostic[];
+    /** 为当前计划内的已发布音段追加声音展开变换 */
+    transform(note: PlaybackNote, transform: PlaybackTransform): void;
 }
 
 /** 声音阶段只查询最终状态，接口不提供全局区间的写入口 */
