@@ -1,7 +1,7 @@
 import { ASTNodeBase, ASTBraceNode, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../ASTtypes.js";
 import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { findRightParen } from "../../parser/parse-utils/call-utils.js";
-import { findClosingQuote, quote, removeQuote } from "../../parser/parse-utils/string-utils.js";
+import { findClosingQuote, quote } from "../../parser/parse-utils/string-utils.js";
 import { GrammarNode, GrammarSugarNode, type CallArgumentInfo } from "../../parser/grammarType.js";
 import { ParserContext, skipSpaces } from "../../parser/parserContext.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
@@ -115,12 +115,12 @@ L: la la la
     static override deSugarAtom(source: string, start: number, end: number) {
         if (source[start] !== 'N' && source[start] !== 'L') return null;
         let pos = start + 1;
-        let name = '';
+        let name: SourceSpan = { start: pos, end: pos };
         if (source[pos] === '(') {
             // `X(name)` 提取括号
             const at = findRightParen(source, pos + 1, end);
             if (at < 0) return null;    // 没有找到匹配的右括号 不去糖
-            name = removeQuote(source.slice(pos + 1, at).trim());
+            name = { start: pos + 1, end: at };
             pos = at + 1;
         }
         if (source[pos++] !== ':') return null;   // `:` 之前不允许有空格
@@ -139,19 +139,19 @@ L: la la la
             // 字符串收集
             pos = skipSpaces(source, pos, end);
             if (pos >= end) return null;    // 没有内容了 不去糖
-            let lyric: string;
+            let lyric: SourceSpan;
             // 双引号才是字符串，单引号不是
             if (source[pos] === '"') {
                 // 未闭合就不去糖，词法层每次击键都跑，不能抛
                 const close = findClosingQuote(source, pos, end);
                 if (close < 0) return null;
-                lyric = removeQuote(source.slice(pos, close + 1));
+                lyric = { start: pos, end: close + 1 };
                 pos = close + 1;
             } else {
                 // 没有引号的 以换行符为界切分 预处理已经跳过了转义的换行符了
                 const from = pos;
                 while (pos < end && source[pos] !== '\n') pos++;
-                lyric = source.slice(from, pos).trim();
+                lyric = { start: from, end: pos };
             }
             const node: GrammarSugarNode = {
                 kind: "sugar",
@@ -168,6 +168,7 @@ L: la la la
     static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number, members?: VoiceFunction[]) {
         const n = nodes[at++] as GrammarSugarNode;
         if (n.data?.class !== VoiceFunction) return null;
+        const parseStr = (span: SourceSpan) => (ctx.parseArgWithType(span, "string") as string | null) ?? "";
         if (n.data?.lyric !== void 0) {
             // 歌词 需要找到最近的voice节点并添加歌词
             let voiceNode: VoiceFunction | null = null;
@@ -194,12 +195,13 @@ L: la la la
                     n.span
                 );
             }
-            voiceNode.addLyric(n.data.name, n.data.lyric, n.span, ctx);
+            voiceNode.addLyric(parseStr(n.data.name), parseStr(n.data.lyric), n.span, ctx);
             ctx.nodes.length = voiceNodeAt + 1;   // 清除voiceNodeAt之后的TextNode 因为被夹在N和L之间
             // 消费后面可能的换行符 只消费一个
             if (at < nodes.length && typeof nodes[at] === "number" && ctx.source[nodes[at] as number] === '\n') at++;
             return at;
         }
+        const name = parseStr(n.data.name);
         // 当前层的换行或 N/L/V 声明结束音符内容，不能把下一组吞进声部
         let breakAt = at;
         let endWithBr = 0;
@@ -227,7 +229,7 @@ L: la la la
         if (newCtx.nodes.length === 1 && newCtx.nodes[0] instanceof ASTBraceNode) argMap.set(0, newCtx.nodes[0]);
         // 复制一份：voice 的 span 之后会被歌词撑大，内容 brace 不该跟着长
         else argMap.set(0, new ASTBraceNode({ ...span }, newCtx.nodes));
-        argMap.set("name", n.data.name);
+        argMap.set("name", name);
         const newVoice = new VoiceFunction(span, argMap, ctx, null);
 
         // V 声明直接收集成员，最后统一组装，避免创建临时 voices

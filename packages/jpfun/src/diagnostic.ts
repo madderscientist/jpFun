@@ -145,6 +145,11 @@ Diagnostic.error = {
 };
 
 Diagnostic.warning = {
+    InvalidUnicodeEscape: (span: SourceSpan) =>
+        new WarningDiagnostic(
+            "W_STRING_INVALID_UNICODE_ESCAPE",
+            "无效的 Unicode 转义：请使用 \\uXXXX（四位十六进制数字）；将保留该字符串原文", span
+        ),
     UnknownFunction: (functionName: string, span: SourceSpan) =>
         new WarningDiagnostic(
             "W_UNKNOWN_FUNCTION",

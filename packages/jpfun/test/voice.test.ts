@@ -5,7 +5,7 @@ import { compileScore } from "../src/pipeline.js";
 import { pathBounds } from "../src/layout/path.js";
 import { ASTFunctionNode, ASTNodeBase } from "../src/functions/ASTtypes.js";
 import { parseConnections } from "../src/functions/voice/connections.js";
-import { quote, removeQuote } from "../src/parser/parse-utils/string-utils.js";
+import { parseString, quote } from "../src/parser/parse-utils/string-utils.js";
 import { assert, attachmentCommands, commandsOfKind, compileValid, expectCompileError, expectDiagnostic, layoutContext, layoutOf, nearly, parse, recordCommands } from "./helpers.js";
 
 const axisOf = (object: { box: { y: number; visualAxis: number } }) => object.box.y + object.box.visualAxis;
@@ -30,6 +30,17 @@ test("lyrics preserve supplementary Unicode characters as single slots", () => {
     deepStrictEqual(lyrics.map(command => command.text), [...word]);
 });
 
+test("quoted voice names and lyrics share Unicode escapes across explicit calls and sugar", () => {
+    for (const source of [
+        String.raw`@voice({1 2}, "\u004Cead", row="\uD842\uDFB7\u91CE")`,
+        String.raw`N("\u004Cead"): 1 2` + "\n" + String.raw`L("\u0072ow"): "\uD842\uDFB7\u91CE"`,
+    ]) {
+        const node = compileValid(source).ast.content[0];
+        assert("name" in node && node.name === "Lead" && "lyrics" in node, "voice name must decode");
+        deepStrictEqual(node.lyrics, [{ name: "row", tokens: ["\uD842\uDFB7", "野"] }]);
+    }
+});
+
 test("voice serialization roundtrips names, lyric slots and nested LF/tab", () => {
     const lyric = String.raw`{你好} {hello world} @ \@ {你\}好} {\{brace\}} {back\\slash} {hel\-lo} {"quoted",word} @`;
     const multiline = "{line\n\tbreak} {tab\tinside} {back\\\\slash\nline} @";
@@ -48,7 +59,7 @@ test("voice serialization roundtrips names, lyric slots and nested LF/tab", () =
         ]],
     ];
     for (const [name, args, lyrics] of cases) {
-        strictEqual(removeQuote(quote(name)), name);
+        strictEqual(parseString(quote(name)), name);
         const voice = `@voice({1 2}, ${quote(name)}${args})`;
         const check = (node: ASTNodeBase): number => {
             if ("name" in node && node.name === name && "lyrics" in node) {

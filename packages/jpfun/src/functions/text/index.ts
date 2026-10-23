@@ -1,7 +1,7 @@
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, ParserContext, SourceSpan, LengthValue } from "../ASTtypes.js";
 import { ErrorDiagnostic } from "../../diagnostic.js";
-import { findClosingQuote, quote, removeQuote } from "../../parser/parse-utils/string-utils.js";
-import type { GrammarCallNodeTyped } from "../../parser/grammarType.js";
+import { findClosingQuote, quote } from "../../parser/parse-utils/string-utils.js";
+import type { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { DEFAULT_KEY, TemporalNodeBase } from "../temporal.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
@@ -16,7 +16,9 @@ class TextFunction extends ASTFunctionNode {
 ~~~jpfun
 @text(进入主题, size=0.8em, align=center)
 ~~~
-**简写**：直接写双引号文本，如 \`"进入主题"\`；可跨行，双引号须配对`,
+**简写**：直接写双引号文本，如 \`"进入主题"\`；可跨行，双引号须配对。
+
+支持 JSON 风格的 Unicode 转义，如 \`\\uE050\`；显示字面反斜杠须写 \`\\\\\`。`,
         allowExtraArgs: false,
         args: [
             {
@@ -58,15 +60,22 @@ class TextFunction extends ASTFunctionNode {
         if (source[start] !== '"') return null;
         const close = findClosingQuote(source, start, end);
         if (close < 0) return null; // 未闭合就不去糖，与预处理“配对才算字符串”一致
-        const node: GrammarCallNodeTyped = {
-            kind: "call",
-            typed: true,
-            name: "text",
-            args: new Map([[0, removeQuote(source.slice(start, close + 1))]]),
+        const node: GrammarSugarNode = {
+            kind: "sugar",
+            data: TextFunction,
             span: { start, end: close + 1 },
             syntaxKind: "string",
         };
         return { next: close + 1, node };
+    }
+
+    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
+        const node = nodes[at] as GrammarSugarNode;
+        if (node.data !== TextFunction) return null;
+        // 之所以不在 deSugarAtom 里直接解码返回 typed call，是因为字符串转义可能产生诊断（如非法 \u 转义）：
+        // 第一轮 deSugarAtom 没有 ctx（抛异常则会中断词法扫描），放到第二轮才能复用 parseArgWithType 记录警告并回退原文
+        ctx.pushNode(new TextFunction(node.span, new Map([[0, ctx.parseArgWithType(node.span, "string")!]]), ctx, null));
+        return at + 1;
     }
 
     lines: string[];

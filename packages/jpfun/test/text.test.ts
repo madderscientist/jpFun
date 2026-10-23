@@ -1,9 +1,11 @@
 import { test } from "node:test";
+import { deepStrictEqual } from "node:assert/strict";
 
 import { ASTFunctionNode } from "../src/functions/ASTtypes.js";
-import { analyzeScoreSyntax } from "../src/pipeline.js";
-import { quote } from "../src/parser/parse-utils/string-utils.js";
-import { assert, commandsOfKind, expectCompileError, layoutOf, nearly, parse, recordCommands } from "./helpers.js";
+import { WarningDiagnostic } from "../src/diagnostic.js";
+import { analyzeScoreSyntax, compileScore } from "../src/pipeline.js";
+import { parseString, quote } from "../src/parser/parse-utils/string-utils.js";
+import { assert, commandsOfKind, compileValid, expectCompileError, layoutOf, nearly, parse, recordCommands } from "./helpers.js";
 
 /** 只写一个 @text 时它就是唯一的可见对象 */
 function textBox(source: string) {
@@ -94,8 +96,59 @@ test("字符串把 \\X 反转义成 X", () => {
     assert(explicit[0].text === sugar[0].text, "both paths must share one unescape rule");
 });
 
+test("Unicode 转义解码且只处理一次", () => {
+    for (const [literal, expected] of [
+        [String.raw`"\uE050"`, "\uE050"],
+        [String.raw`"\uD834\uDD1E"`, "\uD834\uDD1E"],
+        [String.raw`"\\uE050"`, String.raw`\uE050`],
+        [String.raw`"\u005CuE050"`, String.raw`\uE050`],
+    ]) {
+        for (const source of [literal, `@text(${literal})`]) {
+            const commands = recordCommands(compileValid(source).layout).filter(command => command.kind === "text");
+            deepStrictEqual(commands.map(command => command.text).join("\n"), expected, source);
+        }
+    }
+    const music = commandsOfKind(String.raw`@text("\uE050", font="\u0042ravura")`, "text")[0];
+    assert(music.text === "\uE050" && music.style.fontFamily === "Bravura", "music glyph and font must reach the painter");
+    assert(parseString(String.raw`\uE050`) === String.raw`\uE050`, "bare strings must remain unchanged");
+    assert(parseString(String.raw`"\n\t\q"`) === "ntq", "other escape rules must remain unchanged");
+});
+
+test("非法 Unicode 转义始终警告，且不打断词法分析", () => {
+    for (const escape of [String.raw`\u123`, String.raw`\u12G4`, String.raw`\u{E050}`]) {
+        const decoded = parseString(`"${escape}"`);
+        assert(decoded instanceof WarningDiagnostic, "decoder must return a warning, not throw");
+        for (const source of [
+            `1\r\n  @text("\\u0041${escape}")`,
+            `1\r\n  "${escape}"`,
+            `N(  "${escape}"  ): 1`,
+            `N: 1\nL: "${escape}"`,
+        ]) {
+            for (const prefix of ["", "@set(strict=true) "]) {
+                const input = prefix + source;
+                const result = compileScore(input);
+                const [warning] = result.diagnostics;
+                assert(result.diagnostics.length === 1 && warning instanceof WarningDiagnostic
+                    && warning.code === "W_STRING_INVALID_UNICODE_ESCAPE", "invalid escapes must produce a warning");
+                const start = input.indexOf(escape);
+                deepStrictEqual(warning.span, { start, end: start + Math.min(escape.length, 6) }, input);
+                const syntaxSource = `${input}\n2`;
+                const { syntax } = analyzeScoreSyntax(syntaxSource);
+                assert(syntax.tokens.some(token => token.kind === "atom"
+                    && syntaxSource.slice(token.span.start, token.span.end) === "2"), "later notes remain available");
+            }
+        }
+    }
+    const result = compileScore(String.raw`@text("\u0041\u12G4")`);
+    const texts = recordCommands(result.layout).filter(command => command.kind === "text");
+    deepStrictEqual(texts.map(command => command.text), [String.raw`\u0041\u12G4`], "failed strings stay unchanged");
+});
+
 test("文本源码往返保留换行、制表符和字体字符串", () => {
-    for (const value of ["上行\n下行", "a\tb", '"Font Name", sans-serif', 'a\\b/"c"']) {
+    for (const value of [
+        "上行\n下行", "a\tb", '"Font Name", sans-serif', 'a\\b/"c"',
+        "\uE050\uD834\uDD1E \\uE050",
+    ]) {
         const source = `@text(${quote(value)}, font=${quote(value)})`;
         const restored = parse(source).content[0].toString(source);
         const commands = commandsOfKind(restored, "text");

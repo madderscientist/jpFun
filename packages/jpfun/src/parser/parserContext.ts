@@ -3,7 +3,7 @@ import { Diagnostic } from "../diagnostic.js";
 import { DEFAULT_TEXT_FONT, JIANPU_NUMBER_FONT } from "../render/text.js";
 import { GrammarBraceNode, GrammarCallNode, GrammarCallNodeRaw, GrammarLabelNode, GrammarNode, type CallArgumentInfo, type SyntaxAnalysis, type SyntaxTokenKind } from "./grammarType.js";
 import { readCall, trimRange } from "./parse-utils/call-utils.js";
-import { removeQuote } from "./parse-utils/string-utils.js";
+import { parseString } from "./parse-utils/string-utils.js";
 import { readBrace } from "./parse-utils/brace-utils.js";
 import { readLabel } from "./parse-utils/label-utils.js";
 import { parseLength } from "./parse-utils/length-utils.js";
@@ -521,7 +521,13 @@ export class ParserContext {
                 } return l;
             // 其他类型一律视为string
             default:
-                return removeQuote(text);
+                const s = parseString(text);
+                if (s instanceof Diagnostic) {
+                    s.span.start += start;
+                    s.span.end += start;
+                    this.diagnostics.push(s);
+                    return text.slice(1, -1);
+                } return s;
         }
     }
 
