@@ -58,7 +58,7 @@ class DynFunction extends ASTFunctionNode {
         ],
     };
 
-    static override loweringFinalize = (result: LoweringResult) => {
+    private static loweringFinalize(result: LoweringResult) {
         const dynamics = result.attachments.filter(
             (attachment): attachment is DynAttachment => attachment instanceof DynAttachment,
         );
@@ -124,7 +124,7 @@ class DynFunction extends ASTFunctionNode {
                 record.node.playbackState = { ...record.node.playbackState, velocity };
             }
         }
-    };
+    }
 
     readonly from: ASTNodeBase;
     readonly to: ASTNodeBase;
@@ -166,6 +166,7 @@ class DynFunction extends ASTFunctionNode {
         } else {
             ctx.addAttachment(new DynAttachment(this, from, toHost, fromHost));
         }
+        ctx.deferFinalize(DynFunction.loweringFinalize);
         return [];
     }
 

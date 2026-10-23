@@ -3,7 +3,7 @@ import type { Fraction } from "../../fraction.js";
 import { pathBounds } from "../../layout/path.js";
 import type { HorizontalLineView, LayoutAttachment } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
-import type { LoweringGroup, LoweringResult } from "../../lowering/types.js";
+import type { LoweringGroup } from "../../lowering/types.js";
 import type {
     PlaybackNote,
     PlaybackOrigin,
@@ -120,12 +120,6 @@ class TremoloFunction extends ASTFunctionNode {
         ],
     };
 
-    static override loweringFinalize = (result: LoweringResult) => {
-        for (const attachment of result.attachments) {
-            if (attachment instanceof TremoloAttachment) attachment.finalize();
-        }
-    };
-
     readonly content: ASTNodeBase;
     readonly n: number;
     override get children() { return [this.content]; }
@@ -201,6 +195,7 @@ class TremoloFunction extends ASTFunctionNode {
 
         const attachment = new TremoloAttachment(visual, this);
         ctx.addAttachment(attachment);
+        ctx.deferFinalize(() => attachment.finalize());
         const anchorHost = isSingle ? visual.at(-1)! : visual[0];
         const prepare = anchorHost.prepareHorizontal;
         anchorHost.prepareHorizontal = line => {

@@ -1,6 +1,7 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { ParserContext, skipSpaces, skipSpacesBack } from "../../parser/parserContext.js";
 import { TemporalNodeBase } from "../temporal.js";
+import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { LoweringResult } from "../../lowering/types.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
 import { Diagnostic, WarningDiagnostic } from "../../diagnostic.js";
@@ -48,7 +49,8 @@ class BrFunction extends ASTFunctionNode {
 
     readonly offset: number;
 
-    override loweringEnter() {
+    override loweringEnter(ctx: LoweringContext) {
+        ctx.deferFinalize(BrFunction.loweringFinalize);
         const br = new TemporalNodeBase();
         br.ast = this;
         br.mergeKey = -1;
@@ -59,7 +61,7 @@ class BrFunction extends ASTFunctionNode {
     /**
      * 换行与换页共享校验；边界会切开全谱，不能截断持续事件
      */
-    static override loweringFinalize = (result: LoweringResult) => {
+    static loweringFinalize(result: LoweringResult) {
         const latestEnd = new Fraction();
         const candidateEnd = new Fraction();
         let latestNode: TemporalNodeBase | null = null;
@@ -78,7 +80,7 @@ class BrFunction extends ASTFunctionNode {
                 }
             }
         }
-    };
+    }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
@@ -97,4 +99,4 @@ class BrFunction extends ASTFunctionNode {
     override toString() { return `@br(${this.offset})`; }
 }
 
-export const BrNode: ASTFunctionClass = BrFunction;
+export const BrNode = BrFunction satisfies ASTFunctionClass;

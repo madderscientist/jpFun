@@ -3,11 +3,7 @@ import type { CallArgumentInfo } from "../parser/grammarType.js";
 import type { ParserContext } from "../parser/parserContext.js";
 import { Diagnostic } from "../diagnostic.js";
 import type { Fraction } from "../fraction.js";
-import type {
-    LoweringAugmenter,
-    LoweringFinalizer,
-    TimeFlowModel,
-} from "../lowering/types.js";
+import type { TimeFlowModel } from "../lowering/types.js";
 import type { TemporalNodeBase } from "./temporal.js";
 import type { LoweringContext } from "../lowering/loweringContext.js";
 import type { Track } from "../lowering/track.js";
@@ -231,24 +227,6 @@ export class ASTFunctionNode extends ASTNodeBase {
     }
 
     /**
-     * lowering 固化后的 attachment 生成钩子
-     *
-     * 普通 loweringEnter/loweringExit 在递归遍历 AST 时执行，
-     * 此时尚未完成锚点归并，事件的 t、track 和 layoutLine 不可用，因此需要观察完整事件流的功能不能在普通 hook 中可靠决定分组。
-     * 该 hook 读取 LoweringResult 并返回新建的 LoweringAttachment，LoweringContext 将返回值追加到当前文档或 fragment 的 attachments，不会把它们放入时间列或推进时间。
-     *
-     * 例：autobeam 扫描最终列，按轨道、谱面行、拍点和显式 beam 端点决定分组，再生成 BeamLayoutAttachment
-     */
-    static loweringAugment?: LoweringAugmenter;
-
-    /**
-     * 所有 loweringAugment 结果追加完成后的最终处理；此时已经得到了完整的 lowering 语义
-     * 所有派生 attachment 追加完成后，按函数注册顺序处理完整结果
-     * 可以进行校验（如 beam 和 tie）或者修改某些值
-     */
-    static loweringFinalize?: LoweringFinalizer;
-
-    /**
      * 装饰函数可选的排版声明
      * layout 引擎按 key 收集，不需要识别具体函数类
      * addon 中的 `@key` 标志会使用该装饰
@@ -290,5 +268,5 @@ export type ASTFunctionClass = (new (
     parent: ASTNodeBase | null
 ) => ASTFunctionNode) & Pick<typeof ASTFunctionNode,
     "prototype" | "def" | "deSugarAtom" | "deSugarRelation"
-    | "loweringAugment" | "loweringFinalize" | "layoutDecorationHandler"
+    | "layoutDecorationHandler"
 >;

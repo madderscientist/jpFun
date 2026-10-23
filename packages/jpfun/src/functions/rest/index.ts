@@ -1,6 +1,7 @@
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import { Fraction } from "../../fraction.js";
 import type { HorizontalLineView, LayoutBox, LayoutPrepareContext, TimeLineEvent } from "../../layout/types.js";
+import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { LoweringResult } from "../../lowering/types.js";
 import type { Track } from "../../lowering/track.js";
 import type { PlaybackEmitter } from "../../playback/types.js";
@@ -70,11 +71,13 @@ class RestFunction extends ASTFunctionNode {
     // 可以被 volta 这样的标记
     override labelable() { return this; }
 
-    override loweringEnter() {
+    override loweringEnter(ctx: LoweringContext) {
+        // 先于拍号校验（默认 order=0）补入多小节休止内部的虚拟小节边界
+        ctx.deferFinalize(RestFunction.loweringFinalize, -10);
         return [new RestTemporal(this)];
     }
 
-    static override loweringFinalize(result: LoweringResult) {
+    private static loweringFinalize(result: LoweringResult) {
         // 没有全局休止列时，跳过索引扫描和边界补入
         if (!result.columns.some(column => column.some(node => node.mergeKey === REST_KEY))) return;
         let order = 0;

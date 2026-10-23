@@ -271,12 +271,12 @@ function createAdjacentBeams(
 }
 
 /** beam 域在 lowering 固化后统一生成作用域连接和相邻自动连接 */
-export function createAutomaticBeamAttachments(result: LoweringResult): LayoutAttachment[] {
+export function createAutomaticBeamAttachments(result: LoweringResult): void {
     const { scopes, nodeScopes } = collectDivScopes(result);
-    if (scopes.length === 0) return [];
+    if (scopes.length === 0) return;
     const explicitEndpoints = collectExplicitBeamEndpoints(result.attachments);
-    return [
+    result.attachments.push(
         ...createScopeBeams(scopes, nodeScopes, explicitEndpoints),
         ...createAdjacentBeams(result, nodeScopes, explicitEndpoints),
-    ];
+    );
 }

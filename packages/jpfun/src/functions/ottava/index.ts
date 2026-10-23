@@ -46,7 +46,7 @@ class OttavaFunction extends ASTFunctionNode {
         ],
     };
 
-    static override loweringFinalize = (result: LoweringResult) => {
+    private static loweringFinalize(result: LoweringResult) {
         const ottavasByTrack = new Map<TemporalNodeBase["track"], { start: TemporalNodeBase["t"]; end: TemporalNodeBase["t"]; shift: number }[]>();
         for (const attachment of result.attachments) {
             if (!(attachment instanceof OttavaAttachment)) continue;
@@ -81,7 +81,7 @@ class OttavaFunction extends ASTFunctionNode {
                 }
             }
         }
-    };
+    }
 
     readonly from: ASTNodeBase;
     readonly to: ASTNodeBase;
@@ -115,6 +115,7 @@ class OttavaFunction extends ASTFunctionNode {
             throw new ErrorDiagnostic("E_OTTAVA_CROSS_TRACK", "@ottava 的两个端点必须位于同一音轨", this.sourceSpan);
         }
         ctx.addAttachment(new OttavaAttachment(this, head, tail));
+        ctx.deferFinalize(OttavaFunction.loweringFinalize);
         return [];
     }
 

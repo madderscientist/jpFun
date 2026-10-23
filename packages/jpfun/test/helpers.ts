@@ -50,9 +50,7 @@ export function parse(source: string) {
 }
 
 export function createLowering() {
-    const lowering = new LoweringContext();
-    lowering.registerFunctions(defaultFunctions);
-    return lowering;
+    return new LoweringContext();
 }
 
 export function lower(source: string) {

@@ -1,7 +1,6 @@
 import { deepStrictEqual, strictEqual } from "node:assert/strict";
 import { test } from "node:test";
 import { renderLayoutPagesToSvg } from "../src/render/svg.js";
-import { SlideNode } from "../src/functions/slide/index.js";
 import { layoutDocument } from "../src/layout/engine.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import { assert, attachmentCommands, compileValid, expectCompileError, layoutContext, lower, nearly, playedNotes } from "./helpers.js";
@@ -60,7 +59,6 @@ test("slide preserves playback and is stable on repeated layout", () => {
     const second = layoutDocument(document, layoutContext);
     deepStrictEqual(attachmentCommands(second.attachments[0]), commands);
     deepStrictEqual(second.objects.map(node => node.box), boxes);
-    strictEqual(SlideNode.loweringFinalize, undefined);
 });
 
 test("slide supports local layouts, nesting and multi-line content", () => {

@@ -7,7 +7,7 @@ import {
     isVisualTemporalNode,
     type VisualTemporalNode,
 } from "../temporal.js";
-import type { LoweringContent, LoweringGroup, LoweringResult } from "../../lowering/types.js";
+import type { LoweringContent, LoweringGroup } from "../../lowering/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
 import {
     ASTFunctionNode,
@@ -46,12 +46,6 @@ class TupletFunction extends ASTFunctionNode {
                 default: null,
             },
         ],
-    };
-
-    static override loweringFinalize = (result: LoweringResult) => {
-        for (const attachment of result.attachments) {
-            if (attachment instanceof TupletLayoutAttachment) attachment.validate();
-        }
     };
 
     readonly content: ASTNodeBase;
@@ -146,7 +140,9 @@ class TupletFunction extends ASTFunctionNode {
         // 括线只依附可见主体；时值缩放本身仍覆盖所有收集到的事件。
         const visible = positive.filter(isVisualTemporalNode);
         if (visible.length >= 2) {
-            ctx.addAttachment(new TupletLayoutAttachment(visible, actual, this.sourceSpan, this.font, content));
+            const attachment = new TupletLayoutAttachment(visible, actual, this.sourceSpan, this.font, content);
+            ctx.addAttachment(attachment);
+            ctx.deferFinalize(() => attachment.validate());
         }
         return [];
     }

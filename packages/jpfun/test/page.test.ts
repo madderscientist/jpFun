@@ -458,29 +458,28 @@ test("函数 addon 转交保留核心声明与目标语义，不重建核心对�
     deepStrictEqual(target.addon, { breakBefore: 2, "@dot": 3, "@div": 2 });
 });
 
-test("仅注册 pagebreak 时仍校验跨持续事件，共享校验器每轮只执行一次", () => {
+test("仅注册 pagebreak 时仍校验跨持续事件，同时含 br 与 pb 时每轮只校验一次", () => {
     const functions = defaultFunctions.filter(node => node !== BrNode);
     for (const name of ["pagebreak", "pb"]) {
         expectDiagnostic(() => compileScore(`@stack({1.}, {2 @${name}() 3})`, { functions }), "E_BREAK_INSIDE_EVENT");
         assert(compileValid(`1 @${name}() 2`, { functions }).layout.pages.length === 2,
             "pagebreak must work independently of br registration");
     }
-    assert(BrNode.loweringFinalize && BrNode.loweringFinalize === PageBreakNode.loweringFinalize,
-        "line and page breaks must share the same validator");
     let calls = 0;
-    const finalize = BrNode.loweringFinalize;
-    const shared = (result: Parameters<typeof finalize>[0]) => {
-        calls++;
-        finalize(result);
-    };
     const context = createLowering();
-    context.registerFunctions([BrNode, PageBreakNode].map(node => Object.assign(
-        class extends node {}, { loweringFinalize: shared },
-    )));
-    context.lowerDocument(parse("1 @pb() 2"));
-    deepStrictEqual(calls, 1, "the shared finalizer must run once, not once per function");
-    context.lowerDocument(parse("1 @br() 2"));
-    deepStrictEqual(calls, 2, "the validator must run again for a fresh lowering");
+    const shared = () => { calls++; };
+    for (const source of ["1 @pb() 2 @br() 3", "1 @br() 2"]) {
+        const ast = parse(source);
+        for (const child of ast.children) {
+            const enter = child.loweringEnter.bind(child);
+            child.loweringEnter = (ctx, track) => {
+                ctx.deferFinalize(shared);
+                return enter(ctx, track);
+            };
+        }
+        context.lowerDocument(ast);
+    }
+    deepStrictEqual(calls, 2, "the shared finalizer must run once per lowering pass");
 });
 
 test("折叠前校验可见成员的 addon 换行声明，不因清空 addon 而吞掉边界", () => {

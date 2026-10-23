@@ -12,7 +12,6 @@ import type {
 /**
  * 从函数类声明创建排版上下文
  *
- * 与 LoweringContext.registerFunctions 使用相同的注册思想
  * 新增装饰函数只修改自己的类，不修改 layout 引擎
  */
 export function createLayoutPrepareContext(

@@ -17,10 +17,7 @@ export interface LoweringContent {
     attachments: LoweringAttachment[];
 }
 
-/** 时间流固化后生成额外 attachment；读取统一追加前的结果，不直接修改结果 */
-export type LoweringAugmenter = (result: LoweringResult) => Iterable<LoweringAttachment>;
-
-/** 所有 augmenter 结果追加完成后的最终处理；按注册顺序执行，可修改完整结果或抛出语义错误 */
+/** 收尾阶段回调；按显式 order 升序执行，可追加派生 attachment、修改结果或抛出语义错误 */
 export type LoweringFinalizer = (result: LoweringResult) => void;
 
 /**

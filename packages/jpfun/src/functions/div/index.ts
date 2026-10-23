@@ -3,6 +3,7 @@ import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import type { LayoutDecorationHandler, LayoutHost, LayoutPoint } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import { WarningDiagnostic } from "../../diagnostic.js";
+import { createAutomaticBeamAttachments } from "../beam/auto.js";
 
 const DIV_FUNC_NAME = "div";
 export const DIV_ADDON_KEY = functionAddonKey(DIV_FUNC_NAME);
@@ -190,9 +191,10 @@ class DivFunction extends ASTFunctionNode {
 
     override loweringEnter(ctx: LoweringContext) {
         const count = this.n;
+        if (count === 0) return [];
+        ctx.deferFinalize(DivFunction.loweringFinalize, -5);
         ctx.beginLoweringGroup(this, {
             onTemporal(node) {
-                if (count === 0) return;
                 const addon = node.addon ??= {};
                 addon[DIV_ADDON_KEY] = (Number(addon[DIV_ADDON_KEY]) || 0) + count;
                 node.T.divPow2(count);
@@ -201,9 +203,11 @@ class DivFunction extends ASTFunctionNode {
         return [];
     }
     override loweringExit(ctx: LoweringContext) {
-        ctx.endLoweringGroup(this);
+        if (this.n > 0) ctx.endLoweringGroup(this);
         return [];
     }
+
+    private static loweringFinalize = createAutomaticBeamAttachments;
 
     content: ASTNodeBase;
     n: number;

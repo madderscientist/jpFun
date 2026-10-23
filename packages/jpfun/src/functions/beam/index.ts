@@ -4,15 +4,13 @@ import type { CallArgumentInfo } from "../../parser/grammarType.js";
 import { Diagnostic, ErrorDiagnostic } from "../../diagnostic.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { TemporalNodeBase } from "../temporal.js";
-import { createAutomaticBeamAttachments } from "./auto.js";
 import {
     createBeamLayoutAttachment,
     validateExplicitBeamAttachments,
 } from "./layout.js";
 
 class BeamFunction extends ASTFunctionNode {
-    static override loweringAugment = createAutomaticBeamAttachments;
-    static override loweringFinalize = validateExplicitBeamAttachments;
+    private static loweringFinalize = validateExplicitBeamAttachments;
 
     static override def = {
         name: ["beam"],
@@ -68,6 +66,7 @@ class BeamFunction extends ASTFunctionNode {
             return [];
         }
         ctx.addAttachment(createBeamLayoutAttachment(endPoints, true, this.sourceSpan));
+        ctx.deferFinalize(BeamFunction.loweringFinalize);
         return [];
     }
 }

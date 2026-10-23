@@ -3,7 +3,6 @@ import { test } from "node:test";
 
 import { WarningDiagnostic } from "../src/diagnostic.js";
 import { ASTFunctionNode } from "../src/functions/ASTtypes.js";
-import { GlissNode } from "../src/functions/gliss/index.js";
 import { layoutDocument } from "../src/layout/engine.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import { compileScore } from "../src/pipeline.js";
@@ -89,7 +88,6 @@ test("gliss crosses tracks in either vertical direction on the same score line",
 });
 
 test("gliss geometry scales with fontsize and does not accumulate spacing on relayout", () => {
-    strictEqual(GlissNode.loweringFinalize, undefined);
     strictEqual(lower("1 2 3").attachments.length, 0);
     const small = gliss("@set(fontsize=20) 1@a 5@b @gliss(a,b)");
     const large = compileValid("1@a 5@b @gliss(a,b)", { variables: { fontsize: 40 } });

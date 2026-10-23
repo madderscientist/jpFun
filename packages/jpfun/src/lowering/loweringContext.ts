@@ -1,6 +1,6 @@
 import { Diagnostic } from "../diagnostic.js";
 import { Fraction } from "../fraction.js";
-import { ASTFunctionClass, ASTNodeBase } from "../functions/ASTtypes.js";
+import { ASTNodeBase } from "../functions/ASTtypes.js";
 import type { PageConfig } from "../layout/types.js";
 import {
     ANCHOR_KEY,
@@ -12,7 +12,6 @@ import {
     type TimeState,
 } from "../functions/temporal.js";
 import type {
-    LoweringAugmenter,
     LoweringFinalizer,
     LoweringGroup,
     LoweringAttachment,
@@ -25,22 +24,19 @@ import { Track } from "./track.js";
  *
  * 标准用法：
  * 1. 创建 LoweringContext
- * 2. 调用 registerFunctions，传入与 parser 相同的函数类列表
- * 3. 调用 lowerDocument(root)，得到 LoweringResult
- * 4. 把结果交给 layoutDocument
+ * 2. 调用 lowerDocument(root)，得到 LoweringResult
+ * 3. 把结果交给 layoutDocument
  *
  * 大多数 AST 函数通过以下入口参与 lowering（按时间顺序）：
  * - [hook] loweringEnter/loweringExit：进入或离开节点时生成 TemporalNode、管理作用域
  * - [API] LoweringContext.beginLoweringGroup/endLoweringGroup：通常在 enter/exit 中被调用，以栈方式观察当前子树产生的 TemporalNode 和 attachment
  * - [API] LoweringContext.addAttachment：注册不推进时间的附属对象；当前外层分组会收到该对象
+ * - [API] LoweringContext.deferFinalize：在 enter/exit 中按需登记本轮收尾回调，支持通过 order 指定执行优先级
  * - [config] timeFlowModel：声明子节点按 sequence 或 parallel 推进时间；parallel 还要声明音轨复用键与纵向排列策略
  * - [hook] Temporal.onTimeState：锚点归并后固化调性、速度等状态
- * - [hook] loweringAugment：最终列和 layoutLine 固化后扫描结果并生成要追加的 attachment
- * - [hook] loweringFinalize：所有派生 attachment 追加完成后，按注册顺序处理完整结果
  */
 export class LoweringContext {
-    private loweringAugmenters: LoweringAugmenter[] = [];
-    private loweringFinalizers: LoweringFinalizer[] = [];
+    private activeFinalizers = new Map<LoweringFinalizer, number>();
     private cnt = 0;  // 生成唯一id的计数器
     private usedTracks = new Set<Track>();
 
@@ -72,17 +68,6 @@ export class LoweringContext {
         this.diagnostics = diagnostics;
     }
 
-    /** 供外部调用: 初始化 hook */
-    registerFunctions(functionClasses: ASTFunctionClass[]) {
-        const augmenters: LoweringAugmenter[] = this.loweringAugmenters = [];
-        const finalizers: LoweringFinalizer[] = this.loweringFinalizers = [];
-        for (const functionClass of functionClasses) {
-            if (functionClass.loweringAugment) augmenters.push(functionClass.loweringAugment);
-            const finalize = functionClass.loweringFinalize;
-            if (finalize && !finalizers.includes(finalize)) finalizers.push(finalize);  // 判重是因为pb直接引用了br的实现
-        }
-    }
-
     /** 供 page 函数调用 */
     setPageConfig(page: PageConfig) {
         this.page = page;
@@ -97,6 +82,7 @@ export class LoweringContext {
     lowerDocument(node: ASTNodeBase): LoweringResult {
         this.cnt = 0;
         this.usedTracks.clear();
+        this.activeFinalizers.clear();
         this.attachments = [];
         this.page = void 0;
         this.astToTemporal = new Map();
@@ -209,19 +195,29 @@ export class LoweringContext {
         return active.group;
     }
 
-    /** 先统一生成派生 attachment，再按注册顺序执行最终处理 */
+    /** 按显式 order 升序执行本轮登记的收尾回调 */
     private postprocessResult(result: LoweringResult): LoweringResult {
         if (this.activeLoweringGroups.length > 0)
             throw new Error("Lowering groups must be closed before post-processing");
 
-        const additions: LoweringAttachment[] = [];
-        for (const augment of this.loweringAugmenters) {
-            for (const attachment of augment(result)) additions.push(attachment);
+        const size = this.activeFinalizers.size;
+        if (size === 0) return result;
+        if (size === 1) {
+            this.activeFinalizers.keys().next().value!(result);
+            return result;
         }
-        for (const attachment of additions) this.addAttachment(attachment);
-        // 进行校验或者其他动作
-        for (const finalize of this.loweringFinalizers) finalize(result);
+        const scheduled = [...this.activeFinalizers.entries()]
+            .sort((left, right) => left[1] - right[1]);
+        for (const [finalize] of scheduled) finalize(result);
         return result;
+    }
+
+    /** 登记本轮需要执行的收尾回调；order 越小越先执行，默认 0 */
+    deferFinalize(finalize: LoweringFinalizer, order = 0) {
+        const current = this.activeFinalizers.get(finalize);
+        if (current === undefined || order < current) {
+            this.activeFinalizers.set(finalize, order);
+        }
     }
 
     /**

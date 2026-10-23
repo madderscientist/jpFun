@@ -2,6 +2,7 @@ import { ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { Fraction } from "../../fraction.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import { ANCHOR_KEY, TemporalNodeBase, type TimeState } from "../temporal.js";
+import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { LoweringResult } from "../../lowering/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
 import type { PlaybackEmitter } from "../../playback/types.js";
@@ -98,7 +99,8 @@ class MeterFunction extends ASTFunctionNode {
         this.strict = ctx.variables.strict;
     }
 
-    override loweringEnter() {
+    override loweringEnter(ctx: LoweringContext) {
+        ctx.deferFinalize(MeterFunction.loweringFinalize);
         return [new MeterTemporal(this)];
     }
 
@@ -106,7 +108,7 @@ class MeterFunction extends ASTFunctionNode {
      * 校验小节拍数
      * 第一小节特殊规则：只允许不满拍，但不能超拍
      */
-    static override loweringFinalize = (result: LoweringResult) => {
+    private static loweringFinalize(result: LoweringResult) {
         const measureStart = new Fraction();
         const measureLength = new Fraction();
         let active: MeterFunction | null = null;
@@ -151,7 +153,7 @@ class MeterFunction extends ASTFunctionNode {
             const span = result.columns.at(-1)?.at(-1)?.ast.sourceSpan ?? active.sourceSpan;
             closeMeasure(result.duration, span.end);
         }
-    };
+    }
 
     override toString() {
         return `@meter(${this.numerator}, ${this.denominator})`;

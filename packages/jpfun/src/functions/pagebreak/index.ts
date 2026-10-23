@@ -1,5 +1,6 @@
 import { TemporalNodeBase } from "../temporal.js";
 import { BrNode } from "../br/index.js";
+import type { LoweringContext } from "../../lowering/loweringContext.js";
 import {
     ASTFunctionNode,
     type ASTFunctionClass,
@@ -27,8 +28,6 @@ class PageBreakFunction extends ASTFunctionNode {
         }],
     };
 
-    static override loweringFinalize = BrNode.loweringFinalize;
-
     readonly justify: boolean;
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
@@ -36,7 +35,8 @@ class PageBreakFunction extends ASTFunctionNode {
         [this.justify] = this.getArgValue(args, ctx) as [boolean];
     }
 
-    override loweringEnter() {
+    override loweringEnter(ctx: LoweringContext) {
+        ctx.deferFinalize(BrNode.loweringFinalize);
         const node = new TemporalNodeBase();
         node.ast = this;
         node.mergeKey = -1;

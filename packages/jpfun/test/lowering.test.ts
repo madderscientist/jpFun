@@ -75,43 +75,39 @@ test("复用 LoweringContext 时每轮重新收集实际 Track", () => {
         "a reused context must not retain the previous run's track registration");
 });
 
-test("all augmenters finish before any finalizer sees their attachments", () => {
+test("deferFinalize executes in explicit order and resets on context reuse", () => {
     const calls: string[] = [];
     const firstAttachment = { sourceSpan: { start: 0, end: 1 } };
     const secondAttachment = { sourceSpan: { start: 1, end: 2 } };
-    class Consumer extends ASTFunctionNode {
-        constructor() { super({ start: 0, end: 0 }); }
-        static override loweringFinalize(result: LoweringResult) {
+    const context = new LoweringContext();
+    const ast = parse("1");
+    const enter = ast.loweringEnter.bind(ast);
+    ast.loweringEnter = (ctx, track) => {
+        ctx.deferFinalize(() => calls.push("finalize:second"), 10);
+        ctx.deferFinalize(result => {
             calls.push("finalize:consumer");
             deepStrictEqual(result.attachments, [firstAttachment, secondAttachment]);
-        }
-    }
-    class FirstProducer extends ASTFunctionNode {
-        constructor() { super({ start: 0, end: 0 }); }
-        static override loweringAugment(result: LoweringResult) {
+        }, 0);
+        ctx.deferFinalize(result => {
             calls.push("augment:first");
-            deepStrictEqual(result.attachments, []);
-            return [firstAttachment];
-        }
-        static override loweringFinalize() { calls.push("finalize:first"); }
-    }
-    class SecondProducer extends ASTFunctionNode {
-        constructor() { super({ start: 0, end: 0 }); }
-        static override loweringAugment(result: LoweringResult) {
+            result.attachments.push(firstAttachment);
+        }, -5);
+        ctx.deferFinalize(result => {
             calls.push("augment:second");
-            deepStrictEqual(result.attachments, []);
-            return [secondAttachment];
-        }
-        static override loweringFinalize() { calls.push("finalize:second"); }
-    }
-    const context = new LoweringContext();
-    context.registerFunctions([Consumer, FirstProducer, SecondProducer]);
-    const result = context.lowerDocument(parse("1"));
+            result.attachments.push(secondAttachment);
+        }, -5);
+        return enter(ctx, track);
+    };
+    const result = context.lowerDocument(ast);
     deepStrictEqual(calls, [
         "augment:first", "augment:second",
-        "finalize:consumer", "finalize:first", "finalize:second",
+        "finalize:consumer", "finalize:second",
     ]);
     assert(result.duration.equals(1), "postprocessing must not advance the time cursor");
+
+    calls.length = 0;
+    context.lowerDocument(parse("1"));
+    deepStrictEqual(calls, []);
 });
 
 test("lowering groups observe inside out and resume after isolation", () => {

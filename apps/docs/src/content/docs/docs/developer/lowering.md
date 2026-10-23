@@ -141,20 +141,16 @@ type TimeFlowModel =
 
 `head` 在末边界的 `onTimeState` 中校验成员的最终时值，确保延迟确定时值的内容也遵守零时长约束。
 
-`rest` 要求显式拍号，按起点拍号确定时长，并独立于普通音符合列；其偏移使后续所有声部共同后移。在 `loweringFinalize` 中为同列最长休止补入 n−1 个普通不可见小节边界，供 `meter` 校验。注册时须保证 `rest` 的最终处理先于 `meter`。
+`rest` 要求显式拍号，按起点拍号确定时长，并独立于普通音符合列；其偏移使后续所有声部共同后移。在 `loweringEnter` 中通过 `ctx.deferFinalize(RestFunction.loweringFinalize, -10)` 登记收尾回调，为同列最长休止补入 n−1 个普通不可见小节边界，确保先于默认优先级（`0`）的 `meter` 校验，不依赖函数注册数组顺序。
 
-### 4. 生成附属对象
-时间列、Track 和行号确定后，就可以生成依赖完整结果的附属对象（attachment）：
+### 4. 按需收尾与派生附属对象
+时间列、Track 和行号确定后，执行本轮通过 `ctx.deferFinalize(fn, order)` 登记的收尾回调，严格按显式 `order`（默认 `0`，越小越先执行）升序调度：
 
-1. 所有 `loweringAugment` 读取统一追加前的结果，返回额外 attachment，不直接修改结果。
-2. 新 attachment 统一加入结果。
-3. `loweringFinalize` 按函数注册顺序执行最终校验或收尾。
+- `rest`（`order = -10`）先补入多小节休止内部的虚拟小节边界；
+- `div`（`order = -5`）根据完整列与显式 beam 端点生成自动连梁 attachment；
+- `meter`、`br`、`beam`、`dyn`、`ottava`、`tuplet`、`tremolo`、`gliss`（默认 `order = 0`）执行最终校验或状态收尾。
 
-所有 `loweringAugment` 都读取追加前的结果，这里不会创建深拷贝。它们返回的附属对象收集完毕后统一追加，再进入 `loweringFinalize`。
-
-因此，无论函数在注册列表中的位置如何，它的 `loweringFinalize` 都能看到全部派生对象。各个 finalizer 仍按注册顺序执行，后执行的回调可以看到前面回调的修改。
-
-例如自动 beam 需要先看到最终的事件顺序、Track 和谱面行；显式 beam 也要到此时才能检查端点是否相邻。
+所有收尾回调由各函数在 `loweringEnter` / `loweringExit` 中按需登记（相同函数引用自动去重并取最小 `order`）。未在本轮文档中调用的函数不会登记回调，也不会触发全谱扫描。
 
 ### 分组观察与隔离
 
@@ -165,7 +161,7 @@ type TimeFlowModel =
 折叠函数通过 `isolateFromLoweringGroups` 展开内部成员。隔离期间，外层分组只会看到最终的折叠宿主，不会同时修饰成员和宿主；结束后恢复原来的作用域。
 
 ## 函数接入
-一个函数通常用 AST 类表达语法，需要进入时间流时，再定义 Temporal 类。函数列表会依次注册给 parser、lowering 和 layout：parser 读取语法声明，lowering 收集静态后处理 hook，layout 收集装饰处理器。
+一个函数通常用 AST 类表达语法，需要进入时间流时，再定义 Temporal 类。函数列表会依次注册给 parser 和 layout：parser 读取语法声明，layout 收集装饰处理器；lowering 在遍历 AST 时按需执行各节点的实例方法。
 
 内置函数加入 `defaultFunctions` 即可。也可以通过 `compileScore(source, { functions })` 传入自定义列表，该列表会替换默认列表。扩展内置能力时，应将 `defaultFunctions` 一并包含在自定义列表中。
 
@@ -177,7 +173,7 @@ type TimeFlowModel =
 | 包裹并修饰一段内容 | `timeFlowModel` + `LoweringGroup` |
 | 让多个分支同时发生 | `timeFlowModel` 的 `parallel` 模式 |
 | 创建布局附件或声明跨事件语义 | `LoweringAttachment` + 能力接口 |
-| 必须观察最终事件流 | `loweringAugment` / `loweringFinalize` |
+| 必须观察最终事件流 | `ctx.deferFinalize(fn, order)` |
 
 下面用简化代码说明三种常见接入方式，省略了解析和绘制部分。
 
@@ -258,22 +254,27 @@ LoweringContext 会让所有分支从同一时间开始、分配 Track、归并�
 
 `stack` 只声明并行关系、组内排列方式，以及可选的整组定位方式。递归、时间对齐和列归并都由引擎完成。新增另一种并行结构时，可以提供不同的 Track 声明，复用同一套时间算法。
 
-### 何时使用全局后处理
-普通 enter/exit 执行时，锚点归并和谱面行号还未完成。像自动 beam 这样依赖最终相邻关系的功能，应注册静态 hook：
+### 何时使用按需收尾
+普通 enter/exit 执行时，锚点归并和谱面行号还未完成。像显式 beam 校验这样依赖最终相邻关系的功能，可在 `loweringEnter` 中通过 `ctx.deferFinalize` 登记静态 `loweringFinalize`：
 ```ts
 class BeamFunction extends ASTFunctionNode {
-    static override loweringAugment = createAutomaticBeamAttachments;
-    static override loweringFinalize = validateExplicitBeamAttachments;
+    private static loweringFinalize = validateExplicitBeamAttachments;
+
+    override loweringEnter(ctx: LoweringContext) {
+        ...
+        ctx.deferFinalize(BeamFunction.loweringFinalize);
+        return [];
+    }
 }
 ```
 
-`loweringAugment` 根据完整列生成 attachment，`loweringFinalize` 则在全部追加完成后做校验。此时 `t`、`track` 和 `layoutLine` 已经确定，可以据此判断相邻关系和跨行情况。
+收尾回调在时间列、Track 和 `layoutLine` 全部确定后按 `order` 优先级执行，可以据此派生 attachment、判断相邻关系或检查跨行情况。
 
 ### 最小接入步骤
 1. 将函数类放入传给 `compileScore` 的函数列表。
 2. 若函数产生时间主体，定义 Temporal，并从 `loweringEnter` 或 `loweringExit` 返回。
 3. 用 `timeFlowModel` 声明子节点是 `sequence`、`parallel`，还是不由通用引擎展开。
 4. 范围修饰使用 `LoweringGroup`；附属对象使用 `LoweringAttachment`，并实现需要的 layout/playback 能力接口。
-5. 依赖最终时间流的逻辑放入静态 augment/finalize hook。
+5. 依赖最终时间流的逻辑在 `loweringEnter` / `loweringExit` 中通过 `ctx.deferFinalize` 按需登记。
 
 实现入口见 [`src/lowering/loweringContext.ts`](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/lowering/loweringContext.ts)，数据结构见 [`src/lowering/types.ts`](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/lowering/types.ts)，音轨模型见 [`src/lowering/track.ts`](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/lowering/track.ts)。下一阶段参见 [Layout](../layout/)。
