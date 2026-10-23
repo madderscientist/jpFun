@@ -395,7 +395,7 @@ export class LoweringContext {
         const result: TimeColumn[] = [];
 
         // 归并多个轨道
-        const p = new Uint16Array(l);   // 当前指向第几个
+        const p = new Uint32Array(l);   // 当前指向第几个
         const dt = Array.from({ length: l }, () => new Fraction()); // 每个轨道的偏移量
         const anchorBuffer: heapItem[] = [];
         const heap = new HeapSort(l); // 保证每个轨在堆里最多一个

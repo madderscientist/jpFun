@@ -101,16 +101,6 @@ Diagnostic.error = {
             "函数@{fn} 缺少必需的参数 {arg}", span,
             { fn: functionName, arg: formatArg(argumentName) }
         ),
-    InvalidArgType: (
-        functionName: string, argumentName: string | number,
-        expectedType: string, actualType: string,
-        span: SourceSpan,
-    ) =>
-        new ErrorDiagnostic(
-            "E_WRONG_ARG_TYPE",
-            "函数 @{fn} 的参数 {arg} 类型错误: 得到了 {actual}，但期望 {expected}", span,
-            { fn: functionName, arg: formatArg(argumentName), expected: expectedType, actual: actualType }
-        ),
     PosAfterNamedArg: (functionName: string, span: SourceSpan) =>
         new ErrorDiagnostic(
             "E_POSARG_AFTER_KWARG",
@@ -129,11 +119,6 @@ Diagnostic.error = {
             "函数调用未闭合: @{fn}(...)", span,
             { fn: functionName }
         ),
-    UnterminatedString: (span: SourceSpan) =>
-        new ErrorDiagnostic(
-            "E_UNTERMINATED_String",
-            "引号未闭合", span
-        ),
     UnknownFunction: (functionName: string, span: SourceSpan) =>
         new ErrorDiagnostic(
             "E_UNKNOWN_FUNCTION",
@@ -145,12 +130,6 @@ Diagnostic.error = {
             "E_UNKNOWN_LABEL",
             '未知标签: "{label}"', span,
             { label: labelName }
-        ),
-    InvalidTonality: (tonality: string, span: SourceSpan) =>
-        new ErrorDiagnostic(
-            "E_INVALID_TONALITY",
-            '无效的调性: "{tonality}"，请提供有效的调性名称，必须 [一个大写字母][变音记号#bn只能一个][绝对八度数字]，后二者可选', span,
-            { tonality }
         ),
     BreakInsideEvent: (span: SourceSpan) =>
         new ErrorDiagnostic(
@@ -171,12 +150,6 @@ Diagnostic.warning = {
             "W_UNKNOWN_FUNCTION",
             "未知函数: @{fn}，将被当作普通文本处理", span,
             { fn: functionName }
-        ),
-    UnknownNamedArg: (functionName: string, argumentName: string, span: SourceSpan) =>
-        new WarningDiagnostic(
-            "W_UNKNOWN_NAMED_ARG",
-            '函数 @{fn} 收到未知的命名参数 "{arg}"', span,
-            { fn: functionName, arg: argumentName }
         ),
     TooManyPosArgs: (functionName: string, expected: number, actual: number, span: SourceSpan) =>
         new WarningDiagnostic(
@@ -212,12 +185,6 @@ Diagnostic.warning = {
         new WarningDiagnostic(
             "W_INVALID_CONTENT",
             "内容解析失败，错误原因见上；将使用默认值(但往往不存在，极有可能导致错误)", span
-        ),
-    EmptyContent: (functionName: string, argumentName: string, span: SourceSpan) =>
-        new WarningDiagnostic(
-            "W_EMPTY_CONTENT",
-            '函数 @{fn} 的参数 "{arg}" 内容为空(或无可用内容)', span,
-            { fn: functionName, arg: argumentName }
         ),
     UnmatchedBrace: (span: SourceSpan) =>
         new WarningDiagnostic(

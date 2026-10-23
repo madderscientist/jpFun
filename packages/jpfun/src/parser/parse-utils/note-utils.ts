@@ -1,5 +1,3 @@
-import { Diagnostic } from "../../diagnostic.js";
-
 export const SHARP_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
 export const FLAT_NOTE_NAMES = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"] as const;
 
@@ -36,9 +34,9 @@ export interface RelativeJianpuPitch {
     renderOctave: number;
 }
 
-// 输入 C4 D#3 B3b G, A 等音符字符串，输出 MIDI 数值
-// 要求非常严格：必须 [大写字母][升降号#bn只能一个][绝对八度]
-export function tonality2Midi(tonality: string, defaultOctave: number): number {
+// 输入 C4 D#3 B3b G, A 等音符字符串，输出 MIDI 数值；格式不合法返回 null
+// 要求非常严格：必须 [大写字母或数字][升降号#bn只能一个][绝对八度]
+export function tonality2Midi(tonality: string, defaultOctave = 4): number | null {
     // 解析音名
     const note = tonality[0];
     let acc = "";
@@ -50,13 +48,13 @@ export function tonality2Midi(tonality: string, defaultOctave: number): number {
     }
     // 组合音名和升降号
     let noteValue = NoteNameMap[note + acc];
-    if (noteValue === undefined) throw Diagnostic.error.InvalidTonality(tonality, { start: 0, end: i });
+    if (noteValue === undefined) return null;
     // 解析八度
     if (i < tonality.length) {
         const octave = tonality.slice(i);
         defaultOctave = Number(octave);
         if (!/^-?\d+$/.test(octave) || !Number.isSafeInteger(defaultOctave)) {
-            throw Diagnostic.error.InvalidTonality(tonality, { start: i, end: tonality.length });
+            return null;
         }
     }
     return (defaultOctave + 1) * 12 + noteValue;
@@ -77,7 +75,7 @@ export function resolveNoteMidi(name: string, acc: string, octave: number, keySi
     if (noteValue === undefined) return null;
     const offset = acc2Offset(acc);
     if (name >= "1" && name <= "7") {
-        return tonality2Midi(keySignature, 4) + noteValue + offset + octave * 12;
+        return tonality2Midi(keySignature)! + noteValue + offset + octave * 12;
     }
     return (octave + 1) * 12 + noteValue + offset;
 }
@@ -105,7 +103,7 @@ export function createDiatonicTranspose(
         degreeIndex = Number(relative.renderName) - 1;
         relativeOctave = relative.renderOctave;
     }
-    const tonicMidi = tonality2Midi(keySignature, 4);
+    const tonicMidi = tonality2Midi(keySignature)!;
     const base = relativeOctave * 7 + degreeIndex;
     return steps => {
         const total = base + steps;
@@ -137,7 +135,7 @@ export function resolveLetterNameToJianpu(name: string, acc: string, octave: num
     const actualMidi = resolveNoteMidi(name, acc, octave, keySignature);
     if (tonicIndex < 0 || noteIndex < 0 || actualMidi === null) return null;
 
-    const tonicMidi = tonality2Midi(keySignature, 4);
+    const tonicMidi = tonality2Midi(keySignature)!;
     const degreeIndex = (noteIndex - tonicIndex + LETTER_ORDER.length) % LETTER_ORDER.length;
     const expectedPitchClass = wrapPitchClass(tonicMidi + MAJOR_SCALE_OFFSETS[degreeIndex]);
     const accidentalOffset = normalizeAccidentalOffset(wrapPitchClass(actualMidi) - expectedPitchClass);

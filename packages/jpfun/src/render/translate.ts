@@ -25,29 +25,11 @@ export class TranslatingPainter implements Painter {
     }
 
     drawPath(commands: readonly PathCommand[], style?: PaintStyle, transform?: PathTransform) {
-        if (transform) {
-            const moved: PathTransform = { ...transform, x: transform.x + this.dx, y: transform.y + this.dy };
-            this.target.drawPath(commands, style, moved);
-            return;
-        }
-        this.target.drawPath(commands.map(command => this.translateCommand(command)), style);
-    }
-
-    private translateCommand(command: PathCommand): PathCommand {
-        switch (command.op) {
-            case "Z": return command;
-            case "Q": return {
-                op: "Q",
-                cx: command.cx + this.dx, cy: command.cy + this.dy,
-                x: command.x + this.dx, y: command.y + this.dy,
-            };
-            case "C": return {
-                op: "C",
-                cx1: command.cx1 + this.dx, cy1: command.cy1 + this.dy,
-                cx2: command.cx2 + this.dx, cy2: command.cy2 + this.dy,
-                x: command.x + this.dx, y: command.y + this.dy,
-            };
-            default: return { op: command.op, x: command.x + this.dx, y: command.y + this.dy };
-        }
+        this.target.drawPath(commands, style, {
+            x: (transform?.x ?? 0) + this.dx,
+            y: (transform?.y ?? 0) + this.dy,
+            scaleX: transform?.scaleX ?? 1,
+            scaleY: transform?.scaleY ?? 1,
+        });
     }
 }

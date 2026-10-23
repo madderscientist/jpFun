@@ -14,10 +14,7 @@ import type { Painter, TextStyle } from "../../render/types.js";
  * `C###` 这种超过一个变音记号的写法按实际音高换字母（→ D#4），落在黑键上则跟随原来的升降方向拼写
  */
 function normalizeTonality(tonality: string): string | null {
-    try {
-        tonality2Midi(tonality, 4);
-        return tonality;
-    } catch { /* 落到下面归一化 */ }
+    if (tonality2Midi(tonality) !== null) return tonality;
 
     const normalizedInput = tonality.replace(/^[a-g]/, letter => letter.toUpperCase());
     const parsed = parseNoteName(normalizedInput, 0, normalizedInput.length, false);

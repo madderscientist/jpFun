@@ -76,9 +76,6 @@ function transformPathCommand(command: PathCommand, transform?: PathTransform): 
 
     const x = (value: number) => transform.x + value * transform.scaleX;
     const y = (value: number) => transform.y + value * transform.scaleY;
-    if (command.op === "M" || command.op === "L") {
-        return { op: command.op, x: x(command.x), y: y(command.y) };
-    }
     if (command.op === "Q") {
         return {
             op: "Q",
@@ -99,5 +96,5 @@ function transformPathCommand(command: PathCommand, transform?: PathTransform): 
             y: y(command.y),
         };
     }
-    return { ...command };
+    return { op: command.op, x: x(command.x), y: y(command.y) };
 }

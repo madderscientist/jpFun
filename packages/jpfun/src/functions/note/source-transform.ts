@@ -29,7 +29,7 @@ function targetPitch(note: NoteSource, operation: NoteTransform) {
     const absolute = operation === "to-absolute"
         || operation !== "to-relative" && LETTERS.includes(note.ast.name);
     const midi = note.resolvedMidi! + (operation === "semitone-up" ? 1 : operation === "semitone-down" ? -1 : 0);
-    const tonic = tonality2Midi(note.keySignature, 4);
+    const tonic = tonality2Midi(note.keySignature)!;
     if (![midi, tonic, note.ast.octave, note.ast.jeOctaveOffset].every(Number.isSafeInteger)) fail(note.ast.sourceSpan);
     const spelling = operation === "semitone-down" ? FLAT_NOTE_NAMES : SHARP_NOTE_NAMES;
     let name: string, acc: string, octave: number;
