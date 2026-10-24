@@ -120,6 +120,7 @@ export class TemporalNodeBase implements TimeLineEvent {
      * - div.{level}.left / div.{level}.right：从 0 编号的减时线端点，由 div.place 发布，供 beam 接管。
      * - dot：附点起点；缺省为盒右边界与 visualAxis，音符覆盖为字形附近的位置。
      * - lyric：歌词对齐点（voice 只读 x）；未提供则不作为歌词目标，note 在 finalizeLayout 发布。
+     * - bar.number：多声部连谱号顶部的行首小节号锚点。
      *
      * up、grace、arpeggio 转发宿主端口并换算局部坐标；端口不表达装饰是否存在。
      */

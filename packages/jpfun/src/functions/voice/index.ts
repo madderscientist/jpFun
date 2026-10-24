@@ -829,6 +829,11 @@ class VoicesBraceAttachment implements LayoutAttachment {
             }
         }
         bars.push(line);
+        // 在首声部名称宿主上发布连谱号细竖线顶端坐标，供行首小节号直接居中对齐
+        this.names[0].ports["bar.number"] = {
+            x: x + stem * 1.33 - first.x,
+            y: Math.min(top, ...regions.map(region => region.y)) - first.y,
+        };
         return {
             regions,
             paint(painter: Painter) {

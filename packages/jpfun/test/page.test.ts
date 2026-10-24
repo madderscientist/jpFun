@@ -265,6 +265,57 @@ test("页码是 @page 自己注册的 attachment，逐页浮在下边距带内",
         "a single counting symbol must render the current page only, and bottom may equal the font size");
 });
 
+test("page.barNumbering 从第二行起在行首显示小节号，默认隐藏，支持模板", () => {
+    for (const [setting, expected] of [
+        ["", []],
+        ['@page(barNumbering="")', []],
+        ['@page(barNumbering="1")', ["3", "6"]],
+        ['@page(barNumbering="(1)")', ["(3)", "(6)"]],
+    ] as const) {
+        const layout = layoutOf([
+            setting,
+            "@meter(2,4) 1 2 | 3 4 |",
+            "",
+            "@rest(3) |",
+            "",
+            "5 6 |",
+        ].join("\n"));
+        const texts = layout.attachments.flatMap(att => attachmentCommands(att)).filter(cmd => cmd.kind === "text");
+        deepStrictEqual(texts.map(cmd => cmd.text), [...expected]);
+    }
+
+    // 单行曲谱即使开启 barNumbering 也不生成小节号附件
+    assert(layoutOf('@page(barNumbering="(1)") 1 2 | 3 4 |').attachments.length === 0,
+        "single-line score must not emit bar numbers");
+
+    // 单声部行首无连谱号时，小节号错开在首个音符左上方且未闭合小节跨行不重复标号
+    const singleLayout = layoutOf('@page(barNumbering="(1)")\nN: 1 2 4 5 | 1 2 3 4 |\n\nN: 1 2 4 5 | 1 2 3 4\n\nN: 1 2 4 5 | 1 2 3 4');
+    const singleTexts = singleLayout.attachments.flatMap(att => attachmentCommands(att)).filter(cmd => cmd.kind === "text");
+    deepStrictEqual(singleTexts.map(cmd => cmd.text), ["(3)"]);
+    const secondLineNote = singleLayout.objects.find(obj => obj.layoutLine === 1 && !obj.T.isZero())!;
+    assert(singleTexts[0].x < secondLineNote.box.x && singleTexts[0].y < secondLineNote.box.y,
+        "single-voice bar numbers must sit to the upper-left of the line");
+
+    // 多声部行首锚定在连谱号正上方居中
+    const mvLayout = layoutOf([
+        '@page(barNumbering="(1)")',
+        "N: 1 2 | 3 4 |",
+        "N: 5 6 | 1 2 |",
+        "",
+        "N: 2 3 | 4 5 |",
+        "N: 6 7 | 1 2 |",
+    ].join("\n"));
+    const mvAttachment = mvLayout.attachments.find(att => att.layer === "foreground" && att.regions.length === 1)!;
+    const mvTexts = attachmentCommands(mvAttachment).filter(cmd => cmd.kind === "text");
+    deepStrictEqual(mvTexts.map(cmd => cmd.text), ["(3)"]);
+    const topName = mvLayout.objects.find(obj => obj.layoutLine === 1 && obj.mergeKey === -2)!;
+    const topNote = mvLayout.objects.find(obj => obj.layoutLine === 1 && obj.T.compare(0) > 0)!;
+    assert(mvAttachment.regions.every(region => region.track === topNote.track),
+        "multi-voice bar numbers must only claim the topmost track");
+    assert(mvTexts[0].x < topNote.box.x && mvTexts[0].x > topName.box.x + topName.box.anchor,
+        "multi-voice bar numbers must sit directly above the system connector (连谱号)");
+});
+
 test("pb 自动换行换页，不绘制内容也不改变播放时间", () => {
     const source = `1 2 @pb() 3 4`;
     const result = compileValid(source);

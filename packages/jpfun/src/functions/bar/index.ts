@@ -1,9 +1,56 @@
 import { LengthValue, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { Fraction } from "../../fraction.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
 import { ANCHOR_KEY, isVisualTemporalNode, TemporalNodeBase } from "../temporal.js";
+import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { PlaybackColumnOf, PlaybackCursor, PlaybackFlow, PlaybackFlowHook } from "../../playback/types.js";
-import type { HorizontalLineView, LayoutBox } from "../../layout/types.js";
-import type { Painter } from "../../render/types.js";
+import type {
+    AttachmentGeometry,
+    AttachmentLayoutContext,
+    HorizontalLineView,
+    LayoutAttachment,
+    LayoutBox,
+} from "../../layout/types.js";
+import type { Painter, TextStyle } from "../../render/types.js";
+
+/**
+ * 按需注册行首小节号：统计从第二行起每条谱面行首小节的序号，并生成行首小节号附件
+ *
+ * 小节边界仅在正时值事件之后遇到 ANCHOR_KEY 时推进（兼容 @rest 补入的虚拟边界，且曲首 |: 不多计）；
+ * 若上一行末尾未写小节线，当前小节跨行延续，新行行首因 measureRecorded 为 true 不重复标号。
+ */
+export function registerBarNumbering(ctx: LoweringContext, pattern: string, font: string) {
+    ctx.deferFinalize(result => {
+        const items: { line: number; number: number }[] = [];
+        const measureStart = new Fraction();
+        let measureNumber = 1;
+        let measureRecorded = false;
+        let lastLine = -1;
+
+        for (const column of result.columns) {
+            const time = column[0].t;
+            if (column.some(node => node.mergeKey === ANCHOR_KEY)) {
+                // 只有当前小节已走过正时值才闭合进入下一小节
+                if (time.compare(measureStart) > 0) {
+                    measureNumber++;
+                    measureStart.copyFrom(time);
+                    measureRecorded = false;
+                }
+            } else if (column.some(node => !node.T.isZero() && isVisualTemporalNode(node))) {
+                const line = column[0].layoutLine;
+                if (line !== lastLine) {
+                    // 首行（lastLine < 0）与单行谱不标号；跨行未闭合的小节不重复标号
+                    if (lastLine >= 0 && !measureRecorded) items.push({ line, number: measureNumber });
+                    lastLine = line;
+                }
+                measureRecorded = true;
+            }
+        }
+        if (items.length > 0) {
+            result.attachments.push(new BarNumberAttachment(items, pattern, font));
+        }
+    });
+}
 
 class BarFunction extends ASTFunctionNode {
     static override def = {
@@ -79,6 +126,69 @@ class BarFunction extends ASTFunctionNode {
 
     override toString() {
         return `@bar(${this.type}, ${this.size}px)`;
+    }
+}
+
+/**
+ * 每行行首的小节号附件
+ *
+ * 多声部行首锚定在连谱号细竖线正上方居中（通过首声部名称宿主发布的 bar.number 端口）；
+ * 单声部行首无连谱号时统一右对齐到版心左边界 originX 外侧，保证各行纵向对齐且不压住行首升降号或记号。
+ */
+class BarNumberAttachment implements LayoutAttachment {
+    readonly layer = "foreground" as const;
+    readonly sourceSpan = undefined;
+
+    constructor(
+        private readonly items: readonly { line: number; number: number }[],
+        private readonly pattern: string,
+        private readonly font: string,
+    ) {}
+
+    createGeometry(context: AttachmentLayoutContext): AttachmentGeometry {
+        const draws = this.items.map(({ line, number }) => {
+            const firstCol = context.lines[line].columns[0];
+            // 选取行首列中视觉轴最靠上的宿主，确保小节号只挂在最顶层声部上方
+            const topHost = firstCol.reduce((top, host) =>
+                context.getVisualAxis(line, host.track) < context.getVisualAxis(line, top.track) ? host : top);
+            const fontSize = topHost.ast.size;
+            const port = topHost.ports["bar.number"];
+            const style: TextStyle = {
+                fontSize: fontSize * 0.5,
+                fontFamily: this.font,
+                textAlign: port ? "center" : "right",
+                fill: "#000",
+            };
+            // 仅将模板中的首个 1 替换为当前小节序号
+            const text = this.pattern.replace("1", String(number));
+            const metrics = context.textMeasurer.measureText(text, style);
+            const x = port ? topHost.box.x + port.x : context.originX - fontSize * 0.15;
+            const topY = port
+                ? topHost.box.y + port.y
+                : Math.min(topHost.box.y, context.getVisualAxis(line, topHost.track) - fontSize * 0.5);
+            const baselineY = topY - fontSize * 0.04;
+            return {
+                text,
+                x,
+                y: baselineY,
+                style,
+                region: {
+                    x: port ? x - metrics.w / 2 : x - metrics.w,
+                    y: baselineY - metrics.baseline,
+                    w: metrics.w,
+                    h: metrics.baseline,
+                    line,
+                    track: topHost.track,
+                },
+            };
+        });
+
+        return {
+            regions: draws.map(draw => draw.region),
+            paint(painter: Painter) {
+                for (const draw of draws) painter.drawText(draw.text, draw.x, draw.y, draw.style);
+            },
+        };
     }
 }
 

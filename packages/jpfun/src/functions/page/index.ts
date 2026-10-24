@@ -12,6 +12,7 @@ import type {
 import type { TextStyle } from "../../render/types.js";
 import { ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { quote } from "../../parser/parse-utils/string-utils.js";
+import { registerBarNumbering } from "../bar/index.js";
 import {
     ASTFunctionNode,
     type ASTFunctionClass,
@@ -71,10 +72,11 @@ export class PageFunction extends ASTFunctionNode {
 ~~~jpfun
 @page(
     width=794px, height=1123px, top=48px, bottom=48px,
-    left=40px, right=40px, gap=1em, numbering="1/1", fillRatio=0.5
+    left=40px, right=40px, gap=1em, fillRatio=0.5,
+    numbering="1/1", barNumbering="(1)"
 )
 ~~~
-尺寸接受 \`px\` 或 \`em\`。页边距和行距须非负；左右边距之和须小于页宽，固定页高时上下边距之和须小于页高。`,
+页边距和行距须非负；左右边距之和须小于页宽，固定页高时上下边距之和须小于页高。`,
         allowExtraArgs: false,
         args: [
             { name: "width", description: "页面宽度，须大于左右页边距之和", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.width) },
@@ -86,13 +88,15 @@ export class PageFunction extends ASTFunctionNode {
             { name: "gap", description: "谱面行之间的最小间距", type: "length" as const, default: { value: 1, unit: "em" as const } },
             // 单个 1 取当前页；多个 1 中最后一个取总页数
             { name: "numbering", description: "页码格式，空值隐藏；`1` 显示当前页，`1/1` 显示当前页/总页数", type: "string" as const, default: "" },
-            { name: "font", description: "页码字体，空值沿用当前字体设置", type: "string" as const, default: "" },
+            { name: "barNumbering", description: "行首小节号格式，默认空值隐藏；`1` 显示当前小节号，`(1)` 显示带括号的小节号", type: "string" as const, default: "" },
+            { name: "font", description: "页码/小节号字体，空值沿用当前字体设置", type: "string" as const, default: "" },
             { name: "fillRatio", description: "自然宽度达到该比例后撑满", type: "number" as const, default: DEFAULT_PAGE_CONFIG.fillRatio },
         ],
     };
 
     readonly config: PageConfig | null;
     private readonly numbering: string = "";
+    private readonly barNumbering: string = "";
     readonly font: string;
 
     constructor(
@@ -128,6 +132,7 @@ export class PageFunction extends ASTFunctionNode {
         const values = this.getArgValue(args, ctx);
         const fillRatio = values.pop() as number;
         this.font = (values.pop() as string) || ctx.variables.font;
+        const barNumbering = values.pop() as string;
         const numbering = values.pop() as string;
         const [width, height, top, bottom, left, right, gap] =
             (values as LengthValue[]).map(value => ctx.length2px(value));
@@ -160,6 +165,7 @@ export class PageFunction extends ASTFunctionNode {
             fillRatio,
         });
         this.numbering = numbering;
+        this.barNumbering = barNumbering;
     }
 
     override loweringEnter(ctx: LoweringContext) {
@@ -173,13 +179,16 @@ export class PageFunction extends ASTFunctionNode {
                 ),
             );
         }
+        if (this.barNumbering) {
+            registerBarNumbering(ctx, this.barNumbering, this.font);
+        }
         return [];
     }
 
     override toString() {
         if (!this.config) return "@page()";
         const { width, height, marginTop, marginBottom, marginLeft, marginRight, lineGap, fillRatio } = this.config;
-        return `@page(width=${width}px, height=${Number.isFinite(height) ? height : 0}px, top=${marginTop}px, bottom=${marginBottom}px, left=${marginLeft}px, right=${marginRight}px, gap=${lineGap}px, numbering=${quote(this.numbering)}, font=${quote(this.font)}, fillRatio=${fillRatio})`;
+        return `@page(width=${width}px, height=${Number.isFinite(height) ? height : 0}px, top=${marginTop}px, bottom=${marginBottom}px, left=${marginLeft}px, right=${marginRight}px, gap=${lineGap}px, numbering=${quote(this.numbering)}, barNumbering=${quote(this.barNumbering)}, font=${quote(this.font)}, fillRatio=${fillRatio})`;
     }
 }
 

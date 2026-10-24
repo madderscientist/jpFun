@@ -57,6 +57,7 @@ export const blankLineExample = `% 等价于 1 2 | @br() 3 4 |
     right=40px,
     gap=1em,
     numbering="",
+    barNumbering="",
     fillRatio=0.5
 )
 ```
@@ -71,6 +72,7 @@ export const blankLineExample = `% 等价于 1 2 | @br() 3 4 |
 | `left`、`right` | 左、右边距 |
 | `gap` | 相邻谱面行之间的最小间距，不是同一行中各个声部之间的距离 |
 | `numbering` | 页码格式，空字符串表示不显示页码 |
+| `barNumbering` | 从第二行起每行行首的小节号格式，如 `"1"` 或 `"(1)"`，空字符串表示不显示 |
 | `fillRatio` | 自然宽度达到多少倍版心宽度时横向撑满，默认 `0.5` |
 
 长度可以使用 `px` 或 `em`，其中 `em` 相对于声明 `@page` 时的字号。边距和 `gap` 不能为负，扣除边距后也必须留下可用的内容区域。例如宽度 `320px`、左右各留 `20px`，谱面行实际可用的宽度就是 `280px`。

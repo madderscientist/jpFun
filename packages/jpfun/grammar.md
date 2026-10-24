@@ -58,12 +58,13 @@ sidebar:
 
 ### 页面与谱头
 
-- `@page(width, height, top, bottom, left, right, gap, numbering, font, fillRatio)`：页面布局。
+- `@page(width, height, top, bottom, left, right, gap, numbering, barNumbering, font, fillRatio)`：页面布局。
     - 仅顶层首次声明有效，其余警告并忽略；`em` 按声明时字号计算。
     - 默认：宽 `794px`、高 `0px`、上 `45px`、下 `48px`、左右 `40px`、行距 `1em`、`fillRatio=0.5`。
     - `height <= 0` 不自动分页，仍可手动换页；正值按整行分页，单行超高报错。自动封页均分剩余高度，末页保持最小行距。
     - `fillRatio`：自然宽度达到版心宽度的该比例时撑满；负值始终撑满，`>= 1` 不自动拉开。
-    - `numbering`：页码格式，如 `"1/1"`，默认 `""` 不显示；`font`：页码字体，默认 `""` 沿用当前字体。
+    - `numbering`：页码格式，如 `"1/1"`，默认 `""` 不显示；`font`：页码/小节号字体，默认 `""` 沿用当前字体。
+    - `barNumbering`：从第二行起每行行首的小节号格式，如 `"1"`、`"(1)"`，默认 `""` 不显示。
 
 - `@head(left={}, center={}, right={}, gap=5px)`：谱头，`gap` 为栏内行距。
     - 只接受零时长内容；可嵌套，不自动换行。
