@@ -366,14 +366,14 @@ test("增时线上的 fermata 保留自身起点，并覆盖后续完整延音",
     const lowerVoice = playedNotes(parallel).filter(note => note.track === 1);
     assert(lowerVoice.length === 32 && lowerVoice.every(note => note.duration.equals(1, 32)),
         "另一声部应根据增时线声明的最终 15 BPM 展开颤音");
-    for (const [content, onset] of [
-        [`1 - ^ $fermata`, "29/64"],
-        [`0 - ^ $fermata`, "29/64"],
-        [`1 - ^ $fermata -`, "11/32"],
+    for (const [content, onset, end] of [
+        [`1 - ^ $fermata`, "15/64", "11/32"],
+        [`0 - ^ $fermata`, "15/64", "11/32"],
+        [`1 - ^ $fermata -`, "15/64", "29/64"],
     ]) {
         const arpeggiated = compilePlayback(lower(`@arp({3 ^ {{${content}}>2}})`));
         assert(arpeggiated.events.filter(event => event.kind === "tempo")
-            .map(event => `${event.at}:${event.bpm}`).join(" ") === `0:120 ${onset}:60 25/32:120`,
+            .map(event => `${event.at}:${event.bpm}`).join(" ") === `0:120 ${onset}:60 ${end}:120`,
         "新增部分的效果起点应在连续延长时保持原位，随所属音段整体缩放");
     }
 });

@@ -57,15 +57,17 @@ test("倚音比宿主小一级字号，坐在宿主基线之上的左侧", () =>
 });
 
 // 倚音默认就是八分音符，因此裸写也会有一条减时线；再写一个 '/' 变成十六分
-test("倚音的时值决定减时线数量与偷取的宿主时长", () => {
+test("倚音按书写时值的四分之一播放，增加减时线也缩短播放时长", () => {
     assert(preGrace.commands.filter(command => command.kind === "line").length === 1,
         "a bare grace note must render its default eighth-note beam line");
     assert(layoutGrace(`2/>1`).commands.filter(command => command.kind === "line").length === 2,
         "an explicit div inside the grace must add a second line");
     assert(preGraceNode.graces[0].T.equals(1, 2), "the grace member must keep its written duration for playback");
-    assert(nearly(stealOf(`2>1`), 0.5), "a bare grace steals half of the host duration");
-    assert(nearly(stealOf(`2/>1`), 0.25),
-        "a sixteenth grace steals a quarter of the host duration");
+    for (const [source, duration] of [
+        ["1>2", 1 / 8], ["1/>2", 1 / 16], ["2.>1", 3 / 16], ["2>1////", 1 / 32],
+    ] as const) {
+        assert(nearly(stealOf(source), duration), `${source}: unexpected quarter-duration steal or host-half cap`);
+    }
 });
 
 test("宿主的修饰在 loweringFinalize 还给宿主自己", () => {

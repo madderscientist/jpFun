@@ -291,38 +291,43 @@ test("前后倚音在宿主时值内按发声顺序排程", () => {
     const pre = playedNotes(compilePlayback(lower(`2>1 3`)));
     assert(pre.length === 3, "前倚音、宿主和后继音都应发声");
     assert(pre[0].midi === 62 && pre[0].start.equals(0)
-        && pre[0].duration.equals(1, 2), "前倚音应占宿主开头的一半");
-    assert(pre[1].midi === 60 && pre[1].start.equals(1, 2)
-        && pre[1].duration.equals(1, 2), "前倚音宿主应使用剩余时值");
+        && pre[0].duration.equals(1, 8), "八分前倚音应从拍点借用 1/8 QN");
+    assert(pre[1].midi === 60 && pre[1].start.equals(1, 8)
+        && pre[1].duration.equals(7, 8), "前倚音宿主应使用剩余时值");
     assert(pre[2].start.equals(1), "倚音不能移动后继乐谱事件");
 
     const post = playedNotes(compilePlayback(lower(`1<2`)));
-    assert(post[0].midi === 60 && post[0].duration.equals(1, 2),
+    assert(post[0].midi === 60 && post[0].duration.equals(7, 8),
         "后倚音应先播放缩短后的宿主");
-    assert(post[1].midi === 62 && post[1].start.equals(1, 2),
-        "后倚音应占宿主末尾");
+    assert(post[1].midi === 62 && post[1].start.equals(7, 8) && post[1].duration.equals(1, 8),
+        "八分后倚音应占宿主末尾的 1/8 QN");
 
-    const capped = playedNotes(compilePlayback(lower(`{3 2}>1`)));
-    assert(capped[0].duration.equals(3, 8)
-        && capped[1].duration.equals(3, 8)
-        && capped[2].duration.equals(1, 4),
-        "多倚音总借时必须封顶为宿主的四分之三并保持比例");
+    for (const [source, expected] of [
+        ["{3 2}>1", "0:1/8 1/8:1/8 1/4:3/4"],
+        ["{@text(A) 2 3/}>1//", "0:1/12 1/12:1/24 1/8:1/8"],
+        ["{@text(A)}>1", "0:1"],
+        ["1>2>3<4", "0:1/16 1/16:1/16 1/8:3/4 7/8:1/8"],
+    ]) {
+        const plan = compilePlayback(lower(source));
+        deepStrictEqual(plan.diagnostics, [], source);
+        deepStrictEqual(playedNotes(plan).map(note => `${note.start}:${note.duration}`).join(" "), expected, source);
+    }
 });
-test("多声部倚音同时起奏，借时按整块字面时长计算，全部在宿主轨上发声", () => {
+test("多声部倚音同时起奏，借时按最长分支书写时值的四分之一计算，全部在宿主轨上发声", () => {
     const byMidi = (plan: ReturnType<typeof compilePlayback>) =>
         new Map(playedNotes(plan).map(note => [note.midi, note]));
     const plan = compilePlayback(lower(`{1 & {3 4}}>5`));
     const voices = byMidi(plan);
     const [main, upper, later, host] = [60, 64, 65, 67].map(midi => voices.get(midi)!);
-    assert(main.start.equals(0) && upper.start.equals(0) && main.duration.equals(3, 8) && upper.duration.equals(3, 8),
+    assert(main.start.equals(0) && upper.start.equals(0) && main.duration.equals(1, 8) && upper.duration.equals(1, 8),
         "simultaneous grace voices must start together on one local time scale");
-    assert(later.start.equals(3, 8) && later.duration.equals(3, 8) && host.start.equals(3, 4) && host.duration.equals(1, 4),
-        "the steal ratio must use the whole block length and keep its cap");
+    assert(later.start.equals(1, 8) && later.duration.equals(1, 8) && host.start.equals(1, 4) && host.duration.equals(3, 4),
+        "the steal must quarter the whole block length and preserve the block's proportions");
     assert(plan.tracks.length === 1 && [main, upper, later].every(note => note.track === host.track),
         "every grace voice must play on the host track so exports gain no extra tracks");
 
     const sustained = byMidi(compilePlayback(lower(`1<{2 & 3} -`)));
-    assert(sustained.get(62)!.duration.equals(3, 2) && sustained.get(64)!.duration.equals(3, 2),
+    assert(sustained.get(62)!.duration.equals(9, 8) && sustained.get(64)!.duration.equals(9, 8),
         "a following dash must sustain every voice that ends with the post grace");
 });
 

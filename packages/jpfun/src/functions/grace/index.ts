@@ -336,9 +336,6 @@ const HOOK_COMMANDS: readonly PathCommand[] = [
 const HOOK_WIDTH = 0.07;
 /** 倚音块底边到宿主肩线的视觉间隙；倚音线会探进这段空间指向宿主 */
 const GRACE_RISE = 0.18;
-/** 倚音向宿主借时值的上限，防止宿主被偷光；只读 */
-const MAX_STEAL_RATIO = new Fraction(3, 4);
-
 
 /** 倚音复合体：宿主与倚音都折叠在这一个盒子里，对外只是一个可见事件 */
 export class GraceTemporal extends TemporalNodeBase {
@@ -457,13 +454,7 @@ export class GraceTemporal extends TemporalNodeBase {
         this.host.prepareHorizontal?.(line);
     }
 
-    /**
-     * 播放时倚音从宿主借走的时值（前倚音从开头、后倚音从末尾）
-     *
-     * 比例 = 倚音块字面时长 / 四分音符，而四分音符 T=1，所以直接取各声部最晚的局部终点。
-     * 基准取宿主经过 div 与 dot 后的实际时值；延时线是独立事件、tie 不改 T，天然不计入。
-     * 局部时间按同一比例映射进借走的时值，各声部因此同时起奏。
-     */
+    /** 按最长声部的书写时长 × 1/4 借时，最多占宿主一半；前倚音借开头，后倚音借末尾。 */
     override emitPlayback(emitter: PlaybackEmitter) {
         const written = new Fraction();
         const end = new Fraction();
@@ -471,12 +462,15 @@ export class GraceTemporal extends TemporalNodeBase {
             end.copyFrom(this.starts[index]).add(event.T);
             if (end.compare(written) > 0) written.copyFrom(end);
         });
-        const ratio = written.compare(MAX_STEAL_RATIO) > 0 ? MAX_STEAL_RATIO : written;
         const total = emitter.end.clone().sub(emitter.start);
-        const steal = total.clone().mul(ratio);
+        const scale = new Fraction(1, 4);
+        const steal = written.clone().mul(scale);
+        const limit = total.clone().divPow2();
+        if (steal.compare(limit) > 0) {
+            scale.copyFrom(limit).div(written);
+            steal.copyFrom(limit);
+        }
         const hostDuration = total.sub(steal);
-        // 全是零时长标记时块长为 0，成员都落在借时起点
-        const scale = written.isZero() ? new Fraction() : steal.clone().div(written);
         const base = this.side === "pre" ? emitter.start.clone() : emitter.start.clone().add(hostDuration);
 
         if (this.side === "post") emitter.play(this.host, emitter.start.clone(), hostDuration);
