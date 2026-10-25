@@ -23,14 +23,24 @@ type FoldShape = VisualTemporalNode & {
 };
 
 /** Fold 保持模块私有；琶音只在自己的边界读取它已经公开在实例上的结构。 */
-function readFold(node: VisualTemporalNode): FoldShape | null {
-    const candidate = node as unknown as Partial<FoldShape>;
-    const ast = node.ast as unknown as { callName?: string; contents?: unknown };
-    return (ast.callName === "up" || ast.callName === "down")
-        && Array.isArray(candidate.members)
+function readFold(node: TemporalNodeBase | undefined): FoldShape | null {
+    const candidate = node as unknown as Partial<FoldShape> | undefined;
+    const ast = candidate?.ast as unknown as { callName?: string; contents?: unknown } | undefined;
+    return (ast?.callName === "up" || ast?.callName === "down")
+        && Array.isArray(candidate?.members)
         && Array.isArray(ast.contents)
         ? candidate as FoldShape
         : null;
+}
+
+/** 折叠成员共享同一对齐锚点，取最宽左半宽才能避免升降号等越过宿主左界压住琶音线 */
+function foldAnchor(fold: FoldShape): number {
+    let anchor = fold.box.anchor;
+    for (const member of fold.members) {
+        const nested = readFold(member);
+        anchor = Math.max(anchor, nested ? foldAnchor(nested) : member.box.anchor);
+    }
+    return anchor;
 }
 
 class ArpeggioFunction extends ASTFunctionNode {
@@ -83,20 +93,10 @@ class ArpeggioFunction extends ASTFunctionNode {
     }
 
     override loweringEnter(ctx: LoweringContext, track: Track) {
-        const host = ctx.isolateFromLoweringGroups(() => {
-            const events = ctx.trackedEvents(this.content, new Fraction(), track).flat();
-            if (events.length !== 1 || !events[0].box) {
-                throw new ErrorDiagnostic(
-                    "E_ARPEGGIO_INVALID_CONTENT",
-                    "@arp 的内容必须恰好产生一个同轨和弦",
-                    this.content.sourceSpan,
-                );
-            }
-            return events[0] as VisualTemporalNode;
-        });
-
-        const fold = readFold(host);
-        if (!fold || fold.members.length < 2 || fold.members.some(member => member.track !== track)) {
+        const events = ctx.isolateFromLoweringGroups(() =>
+            ctx.trackedEvents(this.content, new Fraction(), track).flat());
+        const fold = events.length === 1 ? readFold(events[0]) : null;
+        if (!fold || fold.members.length < 2) {
             throw new ErrorDiagnostic(
                 "E_ARPEGGIO_INVALID_CONTENT",
                 "@arp 只接受至少包含两个成员的同轨 @up/@down 折叠体",
@@ -118,11 +118,10 @@ class ArpeggioTemporal extends TemporalNodeBase {
     declare ast: ArpeggioFunction;
     declare box: LayoutBox;
 
-    private readonly host: FoldShape;
+    readonly host: FoldShape;
     /** 槽位取自成员顺序；无声成员也占槽，不能按实际发声音符重新编号 */
     private readonly slots: ReadonlyMap<TemporalNodeBase, number>;
     private hostX = 0;
-    private markX = 0;
     private markCommands: PathCommand[] = [];
 
     constructor(ast: ArpeggioFunction, host: FoldShape) {
@@ -132,8 +131,7 @@ class ArpeggioTemporal extends TemporalNodeBase {
         const aboveCount = host.ast.contents.length;
         const bottomToTop = [
             ...host.members.slice(aboveCount).reverse(),
-            host.members[0],
-            ...host.members.slice(1, aboveCount),
+            ...host.members.slice(0, aboveCount),
         ];
         const members = ast.direction === "down" ? bottomToTop.reverse() : bottomToTop;
         this.slots = new Map(members.map((member, index) => [member, index]));
@@ -160,25 +158,24 @@ class ArpeggioTemporal extends TemporalNodeBase {
     }
 
     override prepareLayout(context: LayoutPrepareContext) {
-        transferFunctionAddons(this, this.host);
-        prepareLayoutHost(this.host, context);
-        this.springConfig = { ...this.host.springConfig, ...this.springConfig };
+        const { host } = this;
+        transferFunctionAddons(this, host);
+        prepareLayoutHost(host, context);
+        this.springConfig = { ...host.springConfig, ...this.springConfig };
 
         const em = this.ast.size;
-        const gap = em * 0.16;
-        const contentBounds = getLayoutBounds(this.host, true);
-        const bounds = getLayoutBounds(this.host);
-        const { commands, bounds: markBounds } = prepareArpeggioShape(contentBounds.h, em, this.ast.direction);
+        const contentBounds = getLayoutBounds(host, true);
+        const bounds = getLayoutBounds(host);
+        const { commands, width } = prepareArpeggioShape(contentBounds.h, em, this.ast.direction);
         this.markCommands = commands;
-        this.markX = -markBounds.x;
-        this.hostX = markBounds.w + gap;
-        this.box.w = this.hostX + this.host.box.w;
+        this.hostX = width + em * 0.16 + foldAnchor(host) - host.box.anchor;
+        this.box.w = this.hostX + host.box.w;
         this.box.h = bounds.h;
-        this.box.anchor = this.hostX + this.host.box.anchor;
-        this.box.visualAxis = this.host.box.visualAxis - bounds.y;
-        for (const name in this.host.ports) {
-            const port = this.host.ports[name];
-            this.ports[name] = { x: this.hostX + port.x, y: port.y - bounds.y };
+        this.box.anchor = this.hostX + host.box.anchor;
+        this.box.visualAxis = host.box.visualAxis - bounds.y;
+        for (const name in host.ports) {
+            const port = host.ports[name];
+            this.ports[name] = { ...port, x: this.hostX + port.x, y: port.y - bounds.y };
         }
     }
 
@@ -195,6 +192,7 @@ class ArpeggioTemporal extends TemporalNodeBase {
     override emitPlayback(emitter: PlaybackEmitter) {
         emitter.play(this.host);
         const total = emitter.end.clone().sub(emitter.start);
+        if (total.compare(0) <= 0) return;
         const step = new Fraction(1, 8);
         // 短音段限制总延迟，让最后一个成员仍保留至少一半的宿主窗口。
         const maxStep = total.clone().div(2).div(this.slots.size - 1);
@@ -206,29 +204,24 @@ class ArpeggioTemporal extends TemporalNodeBase {
             // 宿主刚在上面发布，其全部子区间连续排在 spans 末尾；命中后处理完同组即停。
             for (let index = context.spans.length - 1; index >= 0; index--) {
                 const note = context.spans[index];
-                if (!rootOrigin) {
-                    if (!note.origins.some(origin => origin.node === owner)) continue;
-                    rootOrigin = note.origins[0];
-                } else if (note.origins[0] !== rootOrigin) {
-                    break;
-                }
-                const member = note.origins.find(origin => slots.has(origin.node))?.node;
+                const origin = note.origins.find(item => item.node === owner);
+                if (!origin || (rootOrigin && origin !== rootOrigin)) break;
+                rootOrigin = origin;
+                const member = note.origins.find(item => slots.has(item.node))?.node;
                 const slot = member ? slots.get(member) : undefined;
                 if (!slot) continue;
                 // 起止一起缩放再平移，保留宿主终点及成员内部节奏，避免只钳制尾部造成负时值。
-                const delay = step.clone().mul(slot);
-                const scale = total.clone().sub(delay).div(total);
-                note.start.sub(emitter.start).mul(scale).add(emitter.start).add(delay);
-                note.end.sub(emitter.start).mul(scale).add(emitter.start).add(delay);
+                const offset = step.clone().mul(slot).add(emitter.start);
+                const scale = emitter.end.clone().sub(offset).div(total);
+                note.start.sub(emitter.start).mul(scale).add(offset);
+                note.end.sub(emitter.start).mul(scale).add(offset);
             }
         });
     }
 
     override paint(painter: Painter) {
-        const originX = this.box.x;
-        const originY = getLayoutBounds(this.host, true).y;
         painter.drawPath(this.markCommands, { fill: "#000" }, {
-            x: originX + this.markX, y: originY, scaleX: 1, scaleY: 1,
+            x: this.box.x, y: getLayoutBounds(this.host, true).y, scaleX: 1, scaleY: 1,
         });
         this.host.paint(painter);
         for (const decoration of this.host.decorations) decoration.paint?.(painter);

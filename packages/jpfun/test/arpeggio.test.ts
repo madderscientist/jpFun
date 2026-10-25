@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { pathBounds } from "../src/layout/path.js";
 import { compileScore } from "../src/pipeline.js";
 import { compilePlayback } from "../src/playback/compile.js";
-import { assert, expectCompileError, layoutOf, lower, playedNotes, recordCommands } from "./helpers.js";
+import { assert, expectCompileError, layoutOf, lower, nearly, playedNotes, recordCommands } from "./helpers.js";
 
 test("琶音省略方向时无箭头，显式方向时绘制对应箭头", () => {
     const plain = recordCommands(layoutOf(`@arp({1 ^ 3 ^ 5})`));
@@ -99,22 +99,30 @@ test("波浪线和箭头完整落在复合盒内", () => {
     for (const source of [
         `@arpeggio({1 ^ 3 ^ 5})`,
         `@arpeggio({1 ^ 3 ^ 5}, direction=down)`,
+        `@arp(7^b6)`,
+        `@arp({1 ^ {3 ^ b5}})`,
     ]) {
         const layout = layoutOf(source);
         const host = layout.objects[0];
         const commands = recordCommands(layout);
         const paths = commands.filter(command => command.kind === "path");
         assert(paths.length > 0, "arpeggio must paint a path");
-        for (const path of paths) {
+        const markBounds = pathBounds(paths[0].commands);
+        assert(markBounds.x >= host.box.x && markBounds.x + markBounds.w <= host.box.x + host.box.w,
+            "arpeggio path must stay inside the composite box horizontally");
+        assert(markBounds.y >= host.box.y && markBounds.y + markBounds.h <= host.box.y + host.box.h,
+            "arpeggio path must stay inside the composite box vertically");
+        for (const path of paths.slice(1)) {
             const bounds = pathBounds(path.commands);
+            assert(bounds.x > markBounds.x + markBounds.w,
+                `${source}: member accidentals must stay to the right of the arpeggio mark`);
             assert(bounds.x >= host.box.x && bounds.x + bounds.w <= host.box.x + host.box.w,
-                "arpeggio path must stay inside the composite box horizontally");
-            assert(bounds.y >= host.box.y && bounds.y + bounds.h <= host.box.y + host.box.h,
-                "arpeggio path must stay inside the composite box vertically");
+                `${source}: member paths must stay inside the composite box horizontally`);
         }
-        const firstNumber = commands.find(command => command.kind === "text");
-        assert(firstNumber?.kind === "text" && firstNumber.x > host.box.x,
-            "the chord must be shifted right to reserve the arpeggio mark");
+        for (const text of commands.filter(command => command.kind === "text")) {
+            assert(text.x > markBounds.x + markBounds.w,
+                `${source}: chord digits must stay to the right of the arpeggio mark`);
+        }
     }
 });
 
@@ -145,4 +153,19 @@ test("琶音中的颤音与多倚音在剩余窗口内保持正时值", () => {
             && note.start.compare(0) >= 0 && note.end.compare(1) <= 0),
         "琶音应保留全部内部音符并将其排入剩余时值");
     }
+});
+
+test("琶音转发减时线端口状态，参与自动连梁时不重复画线", () => {
+    const lines = recordCommands(layoutOf(`{@arp(1^3) 2}/`)).filter(command => command.kind === "line");
+    assert(lines.length === 1, "beamed arpeggio and following note must share one beam line");
+});
+
+test("琶音保留内层单主体 box 的上下留白，且波形只对齐和弦内容高度", () => {
+    const plain = layoutOf(`@arp(3^5)`);
+    const boxed = layoutOf(`@arp(@box(3^5, padding=10px, stroke=2px))`);
+    const plainWave = pathBounds(recordCommands(plain).find(command => command.kind === "path")!.commands);
+    const boxedWave = pathBounds(recordCommands(boxed).find(command => command.kind === "path")!.commands);
+    assert(nearly(boxedWave.h, plainWave.h), "inner box padding must not stretch the arpeggio wave");
+    assert(nearly(boxed.objects[0].box.h, plain.objects[0].box.h + 22),
+        "arpeggio composite box must reserve the inner box's vertical padding");
 });

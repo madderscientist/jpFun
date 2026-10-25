@@ -1,17 +1,18 @@
-import { pathBounds } from "../../layout/path.js";
-import type { Rect } from "../../layout/types.js";
 import type { PathCommand } from "../../render/types.js";
+
+type ArpeggioCommand = Exclude<PathCommand, { op: "Q" | "Z" }>;
 
 const TILE_WIDTH = 54.2813;
 const TILE_HEIGHT = 87.37505;
 const TILE_STEP = 72.8125;
+const ARROW_WIDTH = 113.5313;
 const ARROW_HEIGHT = 93.6719;
-const ARROW_X = -27.4688;
+const ARROW_OFFSET_X = 27.4688;
 const ARROW_Y = -7.9375;
 const ARROW_BOTTOM = ARROW_Y + ARROW_HEIGHT;
 
 /** MuseScore 4.7.4 导出的琶音波形块，已旋转到自上而下的局部坐标 */
-const TILE: readonly PathCommand[] = [
+const TILE: readonly ArpeggioCommand[] = [
     { op: "M", x: 28.1406, y: 86.06255 },
     { op: "C", cx1: 28.1406, cy1: 86.06255, cx2: 30.4531, cy2: 84.07815, x: 32.7656, y: 81.42185 },
     { op: "C", cx1: 33.7656, cy1: 80.43755, cx2: 34.0938, cy2: 79.10935, x: 34.0938, y: 78.10935 },
@@ -40,7 +41,7 @@ const TILE: readonly PathCommand[] = [
 ];
 
 /** MuseScore 下行琶音的末端箭头轮廓，坐标方向同 TILE。 */
-const DOWN_ARROW: readonly PathCommand[] = [
+const DOWN_ARROW: readonly ArpeggioCommand[] = [
     { op: "M", x: 111.8751, y: 21.5156 },
     { op: "C", cx1: 112.5313, cy1: 20.1875, cx2: 113.5313, cy2: 18.2031, x: 113.5313, y: 16.875 },
     { op: "C", cx1: 113.5313, cy1: 12.23438, cx2: 109.8907, cy2: 8.9375, x: 105.2501, y: 8.9375 },
@@ -68,76 +69,51 @@ const DOWN_ARROW: readonly PathCommand[] = [
 
 function appendShape(
     output: PathCommand[],
-    shape: readonly PathCommand[],
-    offsetX: number,
-    offsetY: number,
-    scale: number,
-    reverse: boolean,
+    shape: readonly ArpeggioCommand[],
+    x: (value: number) => number,
+    y: (value: number) => number,
 ) {
-    const x = (value: number) => offsetX + (reverse ? TILE_WIDTH - value : value) * scale;
-    const y = (value: number) => offsetY + (reverse ? TILE_HEIGHT - value : value) * scale;
     for (const command of shape) {
-        if (command.op === "Z") output.push(command);
-        else if (command.op === "C") output.push({
+        if (command.op === "C") output.push({
             op: "C",
             cx1: x(command.cx1), cy1: y(command.cy1),
             cx2: x(command.cx2), cy2: y(command.cy2),
-            x: x(command.x), y: y(command.y),
-        });
-        else if (command.op === "Q") output.push({
-            op: "Q",
-            cx: x(command.cx), cy: y(command.cy),
             x: x(command.x), y: y(command.y),
         });
         else output.push({ op: command.op, x: x(command.x), y: y(command.y) });
     }
 }
 
-/** 按 MuseScore 的原始重叠比例铺满指定高度，并一次性返回最终边界 */
+/** 按 MuseScore 的原始重叠比例铺满指定高度，直接生成左上角对齐原点的局部路径 */
 export function prepareArpeggioShape(
     height: number,
     em: number,
     direction: "" | "up" | "down",
-): { commands: PathCommand[]; bounds: Rect } {
-    const arrow = direction === "up" || direction === "down";
-    const segments = Math.max(1, Math.round(height / (em * 0.3)));
-    const regularCount = arrow ? Math.max(0, segments - 1) : segments;
-    const naturalHeight = !arrow
-        ? TILE_HEIGHT + TILE_STEP * (regularCount - 1)
-        : ARROW_BOTTOM + TILE_STEP * regularCount;
+): { commands: PathCommand[]; width: number } {
+    const arrow = direction !== "";
+    const count = Math.max(1, Math.round(height / (em * 0.3)) - (arrow ? 1 : 0));
+    const naturalWidth = arrow ? ARROW_WIDTH : TILE_WIDTH;
+    const naturalHeight = arrow
+        ? ARROW_BOTTOM + TILE_STEP * count
+        : TILE_HEIGHT + TILE_STEP * (count - 1);
     const scale = height / naturalHeight;
+    const reverse = direction !== "down";
+    const place = (span: number, offset: number) => reverse
+        ? (value: number) => (span - offset - value) * scale
+        : (value: number) => (offset + value) * scale;
+
     const commands: PathCommand[] = [];
-    for (let index = 0; index < regularCount; index++) {
-        appendShape(commands, TILE, 0, index * TILE_STEP * scale, scale, direction === "");
+    const tileX = place(naturalWidth, arrow ? ARROW_OFFSET_X : 0);
+    for (let index = 0; index < count; index++) {
+        appendShape(commands, TILE, tileX, place(naturalHeight, index * TILE_STEP));
     }
     if (arrow) {
         appendShape(
             commands,
             DOWN_ARROW,
-            ARROW_X * scale,
-            (regularCount * TILE_STEP + ARROW_Y) * scale,
-            scale,
-            false,
+            place(naturalWidth, 0),
+            place(naturalHeight, count * TILE_STEP + ARROW_Y),
         );
     }
-    const bounds = pathBounds(commands);
-    if (direction !== "up") return { commands, bounds };
-    const right = bounds.x + bounds.w;
-    const mirrorX = (value: number) => right - (value - bounds.x);
-    // 命令尚未发布，直接镜像，避免再分配整条路径及每个命令对象
-    for (const command of commands) {
-        if (command.op === "Z") continue;
-        if (command.op === "C") {
-            command.cx1 = mirrorX(command.cx1); command.cy1 = height - command.cy1;
-            command.cx2 = mirrorX(command.cx2); command.cy2 = height - command.cy2;
-        } else if (command.op === "Q") {
-            command.cx = mirrorX(command.cx); command.cy = height - command.cy;
-        }
-        command.x = mirrorX(command.x);
-        command.y = height - command.y;
-    }
-    return {
-        commands,
-        bounds: { x: bounds.x, y: height - bounds.y - bounds.h, w: bounds.w, h: bounds.h },
-    };
+    return { commands, width: naturalWidth * scale };
 }
