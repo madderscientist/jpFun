@@ -66,7 +66,7 @@ class SlideFunction extends ASTFunctionNode {
     }
 
     override loweringExit(ctx: LoweringContext) {
-        const { host } = ctx.endLoweringGroup(this) as SlideGroup;
+        const { host } = ctx.endLoweringGroup<SlideGroup>(this);
         if (!host) throw new ErrorDiagnostic(
             "E_SLIDE_CONTENT",
             "@slide 的内容必须包含可绘制对象",

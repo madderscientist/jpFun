@@ -84,7 +84,7 @@ class BoxFunction extends ASTFunctionNode {
 
     /** 退出时把注册入口接到首成员；嵌套框按退出顺序由内向外组合 */
     override loweringExit(ctx: LoweringContext) {
-        const content = ctx.endLoweringGroup(this) as LoweringGroup & BoxContent;
+        const content = ctx.endLoweringGroup<LoweringGroup & BoxContent>(this);
         const attachment = new BoxLayoutAttachment(content, this);
         ctx.addAttachment(attachment);
         const first = content.nodes[0];

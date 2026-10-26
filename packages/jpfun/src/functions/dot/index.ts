@@ -144,7 +144,7 @@ class DotFunction extends ASTFunctionNode {
         return [];
     }
     override loweringExit(ctx: LoweringContext) {
-        const group = ctx.endLoweringGroup(this) as DotLoweringGroup;
+        const group = ctx.endLoweringGroup<DotLoweringGroup>(this);
         if (group.temporalCount !== 1) {
             throw new ErrorDiagnostic(
                 "E_DOT_INVALID_CONTENT",

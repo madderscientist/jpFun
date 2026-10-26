@@ -153,7 +153,7 @@ class TremoloFunction extends ASTFunctionNode {
     }
 
     override loweringExit(ctx: LoweringContext) {
-        const { nodes } = ctx.endLoweringGroup(this) as TremoloGroup;
+        const { nodes } = ctx.endLoweringGroup<TremoloGroup>(this);
         const isSingle = nodes.length >= 1 && !isDash(nodes[0]) && nodes.slice(1).every(isDash);
         const isPair = nodes.length === 2 && !isDash(nodes[0]) && !isDash(nodes[1]);
         if ((!isSingle && !isPair) || nodes.some(node => node.T.compare(0) <= 0)) {

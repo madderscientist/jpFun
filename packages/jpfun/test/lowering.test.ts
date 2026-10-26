@@ -119,7 +119,6 @@ test("lowering groups observe inside out and resume after isolation", () => {
     const outerAttachment = { sourceSpan: { start: 0, end: 3 } };
     const calls: string[] = [];
     context.beginLoweringGroup(outer, {
-        attachment: outerAttachment,
         onTemporal(node) {
             calls.push("outer:temporal");
             assert(node.T.equals(1, 2), "outer observers must see inner modifications");
@@ -127,7 +126,6 @@ test("lowering groups observe inside out and resume after isolation", () => {
         onAttachment(attachment) { calls.push(`outer:attachment:${attachment.sourceSpan!.end}`); },
     });
     context.beginLoweringGroup(inner, {
-        attachment: innerAttachment,
         onTemporal(node) {
             calls.push("inner:temporal");
             assert(context.getTemporalNodes(node.ast).includes(node), "events must be indexed before observers run");
@@ -148,7 +146,9 @@ test("lowering groups observe inside out and resume after isolation", () => {
     assert(columns[1][0].t.equals(1, 2) && cursor.equals(1), "modified durations must drive cursor advancement");
     context.addAttachment(leafAttachment);
     context.endLoweringGroup(inner);
+    context.addAttachment(innerAttachment);
     context.endLoweringGroup(outer);
+    context.addAttachment(outerAttachment);
     deepStrictEqual(calls, [
         "inner:temporal", "outer:temporal", "inner:temporal", "outer:temporal",
         "inner:attachment:1", "outer:attachment:1", "outer:attachment:2",

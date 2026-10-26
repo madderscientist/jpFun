@@ -91,7 +91,7 @@ class AdjustFunction extends ASTFunctionNode {
     }
 
     override loweringExit(ctx: LoweringContext) {
-        const group = ctx.endLoweringGroup(this) as AdjustGroup;
+        const group = ctx.endLoweringGroup<AdjustGroup>(this);
         if (group.targets.temporal === 0 && group.targets.attachment === 0) {
             ctx.diagnostics.push(new WarningDiagnostic(
                 "W_ADJUST_NO_TARGET",

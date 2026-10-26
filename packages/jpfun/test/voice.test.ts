@@ -324,8 +324,8 @@ test("多声部括线画在声部名与音符之间，纵向跨足首末声部",
         && bracket.box.x > bracketName.box.x + bracketName.box.anchor
         && bracket.box.x + bracket.box.w < bracketVoices[0].box.x,
         "the bracket must sit between the voice names and the notes");
-    assert(layoutOf(`@voices(@voice({1}, 上))`).attachments.every(item => item.box.h === 0),
-        "a single-voice block must not draw a bracket");
+    assert(layoutOf(`@voices(@voice({1}, 上))`).attachments.length === 0,
+        "a single-voice block without lyrics must not register empty attachments");
 });
 
 const fourVoices = '@voice({1 2}, A), @voice({3 4}, B), @voice({5 6}, C), @voice({7 1}, D)';

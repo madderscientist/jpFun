@@ -517,7 +517,7 @@ H.tempo: 94
     }
 
     override loweringExit(ctx: LoweringContext) {
-        const head = ctx.endLoweringGroup(this) as HeadBoundaryTemporal;
+        const head = ctx.endLoweringGroup<HeadBoundaryTemporal>(this);
         head.slots = this.slots.map(ast => {
             const [start, end] = ctx.getTemporalNodes(ast) as readonly HeadBoundaryTemporal[];
             return { ast, start, end };

@@ -154,9 +154,9 @@ type TimeFlowModel =
 
 ### 分组观察与隔离
 
-`LoweringGroup.onTemporal` 接收作用域内的事件，`onAttachment` 接收嵌套的附属对象，分组结束时还可以添加自己的 attachment。
+`LoweringGroup.onTemporal` 接收作用域内的事件，`onAttachment` 接收嵌套的附属对象。
 
-分组按栈顺序结束：先移出当前分组，再把它的 attachment 交给外层分组。因此，内部附属对象总是先于外层对象注册。
+分组按栈顺序结束：`loweringExit` 先调用 `endLoweringGroup` 移出当前分组，再按需调用 `addAttachment` 注册自身附件并通知外层分组。因此，内部附属对象总是先于外层对象注册。
 
 折叠函数通过 `isolateFromLoweringGroups` 展开内部成员。隔离期间，外层分组只会看到最终的折叠宿主，不会同时修饰成员和宿主；结束后恢复原来的作用域。
 

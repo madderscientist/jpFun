@@ -5,11 +5,13 @@ import { findClosingQuote, quote } from "../../parser/parse-utils/string-utils.j
 import { GrammarNode, GrammarSugarNode, type CallArgumentInfo } from "../../parser/grammarType.js";
 import { ParserContext, skipSpaces } from "../../parser/parserContext.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
+import type { LoweringGroup } from "../../lowering/types.js";
 import { isLayoutAttachment } from "../../layout/types.js";
 import { getLayoutBounds } from "../../layout/engine.js";
 import {
     isVisualTemporalNode,
     TemporalNodeBase,
+    type VisualTemporalNode,
 } from "../temporal.js";
 import type { MeasureFn, Track } from "../../lowering/track.js";
 import type {
@@ -300,7 +302,7 @@ L: la la la
 
     /**
      * voice 的音符内容仍按普通 sequence 进入全局时间列
-     * 此处只建立歌词作用域，并按需在内容前创建声部名对象
+     * 此处按需建立歌词作用域，并在内容前创建声部名对象
      */
     override loweringEnter(ctx: LoweringContext) {
         // 无名声部也要产出一个（不可见的）名称事件，才能保证同一个 voices 块内
@@ -311,23 +313,28 @@ L: la la la
             ? parent.braceSpace
             : 0;
         const nameHost = new VoiceNameTemporal(this, braceSpace);
-
-        // 收集范围内的
-        const temporalMembers: TemporalNodeBase[] = [];
-        const frames: LayoutAttachment[] = [];
-        ctx.beginLoweringGroup(this, {
-            attachment: new VoiceLyricsAttachment(temporalMembers, nameHost, frames),
-            onAttachment(attachment) {
-                if (isLayoutAttachment(attachment) && attachment.layer === "background") frames.push(attachment);
-            },
-            onTemporal(node) { temporalMembers.push(node); },
-        });
-
+        if (this.lyrics.length > 0) {
+            const group: VoiceLyricsGroup = {
+                nameHost,
+                nodes: [],
+                frames: [],
+                onTemporal(node) {
+                    if (isVisualTemporalNode(node)) group.nodes.push(node);
+                },
+                onAttachment(attachment) {
+                    if (isLayoutAttachment(attachment) && attachment.layer === "background") group.frames.push(attachment);
+                },
+            };
+            ctx.beginLoweringGroup(this, group);
+        }
         return [nameHost];
     }
 
     override loweringExit(ctx: LoweringContext) {
-        ctx.endLoweringGroup(this);
+        if (this.lyrics.length > 0) {
+            const { nodes, nameHost, frames } = ctx.endLoweringGroup<VoiceLyricsGroup>(this);
+            ctx.addAttachment(new VoiceLyricsAttachment(nodes, nameHost, frames));
+        }
         return [];
     }
 
@@ -608,20 +615,13 @@ N(女低): 1 2 3
         };
     }
 
-    /** 收集本块产生的声部名事件，退出时注册左侧大括号 */
-    override loweringEnter(ctx: LoweringContext) {
-        const names: VoiceNameTemporal[] = [];
-        ctx.beginLoweringGroup(this, {
-            attachment: new VoicesBraceAttachment(names, this, resolveConnections(this.connectionSpecs, this.voices.length, this.sourceSpan)),
-            onTemporal: node => {
-                if (node instanceof VoiceNameTemporal && node.ast.parent === this) names.push(node);
-            },
-        });
-        return [];
-    }
-
+    /** 退出时按本块各声部的名称事件注册左侧连谱号 */
     override loweringExit(ctx: LoweringContext) {
-        ctx.endLoweringGroup(this);
+        const connections = resolveConnections(this.connectionSpecs, this.voices.length, this.sourceSpan);
+        if (this.voices.length >= 2) {
+            const names = this.voices.map(voice => ctx.getTemporalNodes(voice)[0] as VoiceNameTemporal);
+            ctx.addAttachment(new VoicesBraceAttachment(names, this, connections));
+        }
         return [];
     }
 
@@ -673,6 +673,12 @@ N(女低): 1 2 3
 
 export const VoiceNode: ASTFunctionClass = VoiceFunction;
 export const VoicesNode: ASTFunctionClass = VoicesFunction;
+
+interface VoiceLyricsGroup extends LoweringGroup {
+    readonly nameHost: VoiceNameTemporal;
+    readonly nodes: VisualTemporalNode[];
+    readonly frames: LayoutAttachment[];
+}
 
 /** 歌词与歌词行名称相对声部字号的字号 */
 const LYRIC_SIZE_RATIO = 0.82;
@@ -762,18 +768,15 @@ class VoiceNameTemporal extends TemporalNodeBase {
 class VoicesBraceAttachment implements LayoutAttachment {
     layer = "background" as const;
 
-    private readonly names: VoiceNameTemporal[];
-    private readonly ast: VoicesFunction;
     get sourceSpan() { return this.ast.sourceSpan; }
 
-    constructor(names: VoiceNameTemporal[], ast: VoicesFunction, private readonly connections: VoiceConnection[]) {
-        this.names = names;
-        this.ast = ast;
-    }
+    constructor(
+        private readonly names: readonly VoiceNameTemporal[],
+        private readonly ast: VoicesFunction,
+        private readonly connections: readonly VoiceConnection[],
+    ) {}
 
     createGeometry() {
-        if (this.names.length < 2) return { regions: [], paint() {} };
-
         const first = this.names[0].box;
         const last = this.names[this.names.length - 1].box;
         const em = this.ast.size;
@@ -860,19 +863,16 @@ class VoiceLyricsAttachment implements LayoutAttachment {
 
     get sourceSpan() { return this.nameHost.ast.sourceSpan; }
 
-    /** lowering 持续填入成员与内层框，布局阶段再读取 */
     constructor(
-        private readonly temporalMembers: readonly TemporalNodeBase[],
+        private readonly nodes: readonly VisualTemporalNode[],
         private readonly nameHost: VoiceNameTemporal,
         private readonly frames: readonly LayoutAttachment[],
     ) {}
 
     prepareHorizontal(lines: HorizontalLineView[], context: LayoutPrepareContext) {
-        const targets = this.temporalMembers
-            .filter(isVisualTemporalNode)
-            .filter(node => node.ports?.["lyric"]);
+        const targets = this.nodes.filter(node => node.ports?.["lyric"]);
+        if (targets.length === 0) return;
         const { lyrics, size } = this.nameHost.ast;
-        if (targets.length === 0 || lyrics.length === 0) return;
 
         const style: TextStyle = { fontSize: size * LYRIC_SIZE_RATIO, fontFamily: this.nameHost.ast.font, fill: "#000" };
         for (let i = 0; i < targets.length; i++) {
@@ -914,10 +914,8 @@ class VoiceLyricsAttachment implements LayoutAttachment {
         const { lyrics, size } = this.nameHost.ast;
         const preparedText: PreparedLyricText[] = [];
 
-        const targets = this.temporalMembers
-            .filter(isVisualTemporalNode)
-            .filter(node => node.ports?.["lyric"]);
-        if (targets.length === 0 || lyrics.length === 0) return preparedText;
+        const targets = this.nodes.filter(node => node.ports?.["lyric"]);
+        if (targets.length === 0) return preparedText;
 
         // 同一行、原始轨共用下沿，跨轨框外的占用可归属另一条轨
         const baselines = new Map<number, Map<Track, { bottom: number; owner: Track }>>();

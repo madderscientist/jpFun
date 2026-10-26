@@ -174,7 +174,7 @@ export class LoweringContext {
 
     /**
      * 开始一个 lowering 分组作用域
-     * group 可以收集并提交新增 temporal，也可以观察成员并携带一个 attachment
+     * group 可以观察当前子树产生的 TemporalNode 和 attachment
      */
     beginLoweringGroup(
         owner: ASTNodeBase,
@@ -184,15 +184,14 @@ export class LoweringContext {
     }
 
     /**
-     * 结束最近的分组并注册其辅助排版对象
-     * 嵌套分组按退出顺序注册，因此天然是由内向外计算边界
+     * 结束最近的分组并返回它
+     * 调用方可在退出分组后按需注册自身 attachment，天然实现由内向外计算边界
      */
-    endLoweringGroup(owner: ASTNodeBase): LoweringGroup {
+    endLoweringGroup<T extends LoweringGroup = LoweringGroup>(owner: ASTNodeBase): T {
         const active = this.activeLoweringGroups.pop();
         if (!active) throw new Error("No active lowering group to end");
         if (active.owner !== owner) throw new Error("Lowering groups must end in reverse order");
-        if (active.group.attachment) this.addAttachment(active.group.attachment);
-        return active.group;
+        return active.group as T;
     }
 
     /** 按显式 order 升序执行本轮登记的收尾回调 */

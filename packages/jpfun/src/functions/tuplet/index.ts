@@ -73,7 +73,7 @@ class TupletFunction extends ASTFunctionNode {
     }
 
     override loweringExit(ctx: LoweringContext, _track: Track, timeOffset: Fraction) {
-        const content = ctx.endLoweringGroup(this) as LoweringGroup & LoweringContent;
+        const content = ctx.endLoweringGroup<LoweringGroup & LoweringContent>(this);
 
         // 零时长控制事件不构成连音单位，但稍后仍要随整组移动其开始位置。
         const positive = content.nodes.filter(event => event.T.compare(0) > 0);

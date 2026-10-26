@@ -45,13 +45,6 @@ export interface LoweringResult {
  * 回调按当前作用域栈由内向外执行；onTemporal 在事件加入时间列、推进时间游标前调用。
  */
 export interface LoweringGroup {
-    /**
-     * 当前分组退出后会自动注册的 attachment
-     *
-     * attachment 在 layout 的时候会按照顺序求解，对于 box 这样的必须让子元素先被测量，才能确定尺寸，所以需要最后加入
-     * 之所以有这个字段（而不是在 endLoweringGroup 之后手动 push）是为了收集到的信息可以直接传递，参考 box
-     */
-    attachment?: LoweringAttachment;
     /** 观察组内生成的事件 */
     onTemporal?(node: TemporalNodeBase): void;
     /** 观察组内注册的附属对象 */
