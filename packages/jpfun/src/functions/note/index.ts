@@ -325,7 +325,6 @@ class NoteTemporalNode extends TemporalNodeBase {
         const keySignature = this.keySignature = state.keySignature;
         this.playbackState = { bpm: state.bpm, velocity: state.velocity, program: state.program };
         this.resolvedMidi = resolveNoteMidi(this.name, this.acc, this.octave, keySignature);
-        this.transposeDiatonic = createDiatonicTranspose(this.name, this.acc, this.octave, keySignature);
         // 数字音名本身就是简谱显示形式，直接保留原始数字和相对八度
         if (this.name >= "0" && this.name <= "9") {
             if (this.name === "0" || this.name >= "8") {
@@ -341,6 +340,7 @@ class NoteTemporalNode extends TemporalNodeBase {
                 this.octave = jianpuPitch.renderOctave;
             }
         }
+        this.transposeDiatonic = createDiatonicTranspose(this.name, this.octave, keySignature);
     }
 
     /** 发布完整音段或无声区间，实际 NoteOn/NoteOff 留到声音展开完成后生成 */

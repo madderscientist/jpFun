@@ -84,27 +84,16 @@ export function resolveNoteMidi(name: string, acc: string, octave: number, keySi
  * 固化音符在当前大调中的位置，返回“沿调内音级移动”的闭包
  *
  * 交出闭包而不是数据结构，播放层因此无需认识任何调性模型。
- * 基准位置不包含主体的临时升降号。
+ * 基准位置基于已归一化的简谱级数与相对八度，不包含主体的临时升降号。
  */
 export function createDiatonicTranspose(
     name: string,
-    acc: string,
     octave: number,
     keySignature: string,
 ): ((steps: number) => number) | undefined {
-    let degreeIndex: number;
-    let relativeOctave: number;
-    if (name >= "1" && name <= "7") {
-        degreeIndex = Number(name) - 1;
-        relativeOctave = octave;
-    } else {
-        const relative = resolveLetterNameToJianpu(name, acc, octave, keySignature);
-        if (!relative) return undefined;
-        degreeIndex = Number(relative.renderName) - 1;
-        relativeOctave = relative.renderOctave;
-    }
+    if (name < "1" || name > "7") return undefined;
     const tonicMidi = tonality2Midi(keySignature)!;
-    const base = relativeOctave * 7 + degreeIndex;
+    const base = octave * 7 + Number(name) - 1;
     return steps => {
         const total = base + steps;
         const shift = Math.floor(total / 7);
