@@ -63,7 +63,7 @@ const DIAGNOSTICS = {
     glissStart: ["UNRESOLVED_RELATION", "Glissando stop has no matching start and was omitted."],
     glissStop: ["UNRESOLVED_RELATION", "Glissando start has no matching stop and was omitted."],
     glissReplaced: ["UNRESOLVED_RELATION", "Glissando start was replaced before a matching stop and was omitted."],
-    glissEndpoints: ["UNRESOLVED_RELATION", "Glissando endpoints are simultaneous or cross a score line and were omitted."],
+    glissEndpoints: ["UNRESOLVED_RELATION", "Glissando endpoints are simultaneous and were omitted."],
     glissStyle: ["APPROXIMATED", "MusicXML <{value}> was converted to a straight glissando arrow."],
     symbolStyle: ["APPROXIMATED", "MusicXML <{value}> was mapped to the default symbol shape."],
 } as const;

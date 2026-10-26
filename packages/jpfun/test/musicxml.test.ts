@@ -128,12 +128,19 @@ test("MusicXML glissando kinds and numbers pair independently and report unsuppo
       item.code === "W_MUSICXML_UNRESOLVED_RELATION"), "unmatched relationships must warn");
     assert(!unmatched.script.includes("@gliss("), "no dangling labels");
   }
-  const crossLine = importMusicXml(slideScore(
+  const crossLine = compileMusicXml(slideScore(
     ['<slide type="start"/>', '<slide type="stop"/>'],
     '</measure><measure number="2"><print new-system="yes"/>'));
-  assert(crossLine.diagnostics.some(item => item.code === "W_MUSICXML_UNRESOLVED_RELATION"), "cross-line warns");
-  assert(!crossLine.script.includes("@gliss("), "unsupported cross-line relation omitted");
-  compileValid(crossLine.script);
+  const crossLineGliss = crossLine.layout.attachments.find(item => item.sourceSpan
+    && crossLine.script.slice(item.sourceSpan.start).startsWith("@gliss("));
+  assert(crossLineGliss?.regions.length === 2, "cross-line glissando spans two lines");
+  const simultaneous = importMusicXml(slideScore(
+    ['<slide type="start"/>', '<slide type="stop"/>']).replace(
+      "<note><pitch><step>F</step>",
+      "<note><chord/><pitch><step>F</step>"));
+  assert(simultaneous.diagnostics.some(item => item.code === "W_MUSICXML_UNRESOLVED_RELATION"), "simultaneous warns");
+  assert(!simultaneous.script.includes("@gliss("), "simultaneous relation omitted");
+  compileValid(simultaneous.script);
 });
 
 test("MusicXML explicit multiple rests retain one symbol, timing, and onset state", () => {

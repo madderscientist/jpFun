@@ -253,7 +253,7 @@ const { script, diagnostics } = musicXmlToJpFun(document.documentElement, {
 
 同一音符的所有 `notations` 容器都会检查。速度和力度标记只有实际进入生成源码才算输出，曲末等未输出的标记会报告无法附着。琶音若在和弦合并及声部拆分后无法表达，例如跨 staff 分组被拆成单音事件，会报告未支持的内容。
 
-双音 `<slide>` 和 `<glissando>` 按 part、元素种类和 number 配对为 `@gliss`，可跨声部；同时刻或跨谱面行的端点报告未解决关系并省略。波浪线或带文字的滑音线近似为直箭头并报告 `W_MUSICXML_APPROXIMATED`。单音 articulations 中的 `scoop/plop/doit/falloff` 分别转换为前上行、前下行、后上行、后下行 `@slide`；曲线外观近似为直箭头。这些记号只影响视觉，不增加滑音播放。
+双音 `<slide>` 和 `<glissando>` 按 part、元素种类和 number 配对为 `@gliss`，可跨声部与谱面行；同时刻的端点报告未解决关系并省略。波浪线或带文字的滑音线近似为直箭头并报告 `W_MUSICXML_APPROXIMATED`。单音 articulations 中的 `scoop/plop/doit/falloff` 分别转换为前上行、前下行、后上行、后下行 `@slide`；曲线外观近似为直箭头。这些记号只影响视觉，不增加滑音播放。
 
 在 Node.js 中可使用任意兼容 DOM 实现，并传入满足 `MusicXmlElement` 接口的根元素。转换器支持 partwise/timewise、part/staff/voice、休止与和弦、倚音、连音、连音组、歌词、速度、调号、拍号、力度、反复与房子，以及基本的分页和谱头信息。
 

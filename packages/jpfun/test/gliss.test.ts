@@ -62,6 +62,8 @@ test("gliss orders positional endpoints by time regardless of argument order", (
         "@stack({1@a 0}, {0 5@b})",
         "@stack({0 5@b}, {1@a 0})",
         "5 @br() -@a 2@b",
+        "1@a @br() 5@b",
+        "1@a 2 @br() 3 5@b",
     ]) {
         const forward = gliss(`${source} @gliss(a,b)`);
         const reverse = gliss(`${source} @gliss(b,a)`);
@@ -227,11 +229,33 @@ test("gliss leaves readable space on compact pages without stacking duplicate re
     }
 });
 
-test("gliss rejects simultaneous time, cross-line connections and overlapping endpoints", () => {
+test("gliss splits across lines into two segments with matching slope and final arrowhead", () => {
+    for (const source of ["1@a @br() 5@b @gliss(a,b)", "1@a 2 @br() 3 5@b @gliss(a,b)"]) {
+        const { layout, attachment, path } = gliss(source);
+        strictEqual(attachment.regions.length, 2);
+        strictEqual(path.commands.map(command => command.op).join(","), "M,L,M,L,M,L,L");
+        const [start0, end0, start1, end1] = path.commands as { op: "M" | "L"; x: number; y: number }[];
+        const slope0 = (end0.y - start0.y) / (end0.x - start0.x);
+        const slope1 = (end1.y - start1.y) / (end1.x - start1.x);
+        assert(slope0 < 0 && nearly(slope0, slope1), "both segments share the same slope");
+        const line0 = layout.objects.find(node => node.layoutLine === 0)!;
+        const line1 = layout.objects.find(node => node.layoutLine === 1)!;
+        assert(nearly(end0.y - (line0.box.y + line0.box.visualAxis), start1.y - (line1.box.y + line1.box.visualAxis)),
+            "vertical offset is continuous across the line break");
+    }
+
+    const voices = gliss("1@a @br()\n@voices(@voice({5@b 6}, A), @voice({1 2}, B))\n@gliss(a,b)");
+    const brace = voices.layout.attachments.find(item => item.layer === "background")!;
+    assert(voices.path.commands[2].op === "M" && voices.path.commands[2].x >= brace.box.x + brace.box.w,
+        "closing gliss segment starts after the voices brace");
+
+    const played = playedNotes(compilePlayback(lower("1@a @br() 3@b @gliss(a,b)"))).map(n => n.midi);
+    deepStrictEqual(played, [60, 61, 62, 63, 64]);
+});
+
+test("gliss rejects simultaneous time and overlapping endpoints", () => {
     expectCompileError("1@a 5@b @gliss(a,a)", "E_GLISS_ORDER");
     expectCompileError("@stack(1@a,5@b) @gliss(a,b)", "E_GLISS_ORDER");
     expectCompileError("@grace(5,{1@a 3@b @gliss(a,b)})", "E_GLISS_ORDER");
-    expectCompileError("1@a @br() 5@b @gliss(a,b)", "E_GLISS_CROSS_LINE");
-    expectCompileError("1@a @br() 5@b @gliss(b,a)", "E_GLISS_CROSS_LINE");
     expectCompileError("@adjust({1@a},dx=1000px) 5@b @gliss(a,b)", "E_GLISS_SPACE");
 });

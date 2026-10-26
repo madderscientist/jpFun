@@ -909,7 +909,6 @@ function labelRelations(score: ParsedScore, diagnostics: MusicXmlDiagnostic[]) {
         after.push(source);
     };
     const activeGlissandi = new Map<string, { pitch: Pitch; event: MusicEvent }>();
-    const glissLineBreaks = [...score.lineBreaks].map(fractionFromKey);
     const glissandi: { event: MusicEvent; pitch: Pitch }[] = [];
     const active = new Map<string, Pitch>();
     const unmatchedTies = new Set<Pitch>();
@@ -964,8 +963,7 @@ function labelRelations(score: ParsedScore, diagnostics: MusicXmlDiagnostic[]) {
         }
         activeGlissandi.delete(key);
         if (!previous) reportDiagnostic(diagnostics, "glissStart", pitch.location);
-        else if (previous.event.start.equals(event.start) || glissLineBreaks.some(time =>
-            time.compare(previous.event.start) > 0 && time.compare(event.start) <= 0)) {
+        else if (previous.event.start.equals(event.start)) {
             reportDiagnostic(diagnostics, "glissEndpoints", pitch.location);
         } else appendRelation(event, `@gliss(${labelOf(previous.pitch)}, ${labelOf(pitch)})`);
     }
