@@ -64,15 +64,17 @@ test("重复 lowering 同一棵 AST 不会残留上一轮的事件", () => {
     }
 });
 
-test("复用 LoweringContext 时每轮重新收集实际 Track", () => {
+test("复用 LoweringContext 时每轮重新收集实际 Track 与诊断信息", () => {
     const context = createLowering();
-    const first = context.lowerDocument(parse(`1`));
+    const first = context.lowerDocument(parse(`@adjust(@set(div.autobeam=false), dy=-4px) 1`));
     const second = context.lowerDocument(parse(`2`));
 
     assert(first.tracks.length === 1 && second.tracks.length === 1,
         "each lowering run must collect its own used tracks");
     assert(first.tracks[0] !== second.tracks[0],
         "a reused context must not retain the previous run's track registration");
+    assert(first.diagnostics.length === 1 && second.diagnostics.length === 0,
+        "a reused context must not carry diagnostics into the next lowering run");
 });
 
 test("deferFinalize executes in explicit order and resets on context reuse", () => {

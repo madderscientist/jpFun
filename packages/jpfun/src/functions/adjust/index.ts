@@ -72,18 +72,16 @@ class AdjustFunction extends ASTFunctionNode {
 
     /** 微调不创建时间事件，只收集作用域内的对象与关系对象 */
     override loweringEnter(ctx: LoweringContext) {
-        const targets = { temporal: 0, attachment: 0 };
         const group: AdjustGroup = {
-            targets,
+            temporals: 0,
+            attachments: [],
             onTemporal: node => {
                 if (!isVisualTemporalNode(node)) return;
-                targets.temporal++;
+                group.temporals++;
                 offsetTemporal(node, this);
             },
             onAttachment: attachment => {
-                if (!isLayoutAttachment(attachment)) return;
-                targets.attachment++;
-                offsetAttachment(attachment, targets, this.dx, this.dy);
+                if (isLayoutAttachment(attachment)) group.attachments.push(attachment);
             },
         };
         ctx.beginLoweringGroup(this, group);
@@ -91,13 +89,15 @@ class AdjustFunction extends ASTFunctionNode {
     }
 
     override loweringExit(ctx: LoweringContext) {
-        const group = ctx.endLoweringGroup<AdjustGroup>(this);
-        if (group.targets.temporal === 0 && group.targets.attachment === 0) {
+        const { temporals, attachments } = ctx.endLoweringGroup<AdjustGroup>(this);
+        if (temporals === 0 && attachments.length === 0) {
             ctx.diagnostics.push(new WarningDiagnostic(
                 "W_ADJUST_NO_TARGET",
                 "@adjust 没有找到可调整的对象",
                 this.sourceSpan,
             ));
+        } else if (temporals === 0 && (this.dx !== 0 || this.dy !== 0)) {
+            for (const attachment of attachments) offsetAttachment(attachment, this.dx, this.dy);
         }
         return [];
     }
@@ -120,20 +120,16 @@ class AdjustFunction extends ASTFunctionNode {
 
 export const AdjustNode: ASTFunctionClass = AdjustFunction;
 
-/** loweringExit 据此判断这次微调是否落空 */
+/** loweringExit 据此判断这次微调是否落空，以及是否平移关系对象本身 */
 interface AdjustGroup extends LoweringGroup {
-    readonly targets: AdjustTargets;
-}
-
-interface AdjustTargets {
-    temporal: number;
-    attachment: number;
+    temporals: number;
+    readonly attachments: LayoutAttachment[];
 }
 
 /** 在原对象上组合布局生命周期，保持布局索引依赖的对象身份 */
-function offsetTemporal(node: VisualTemporalNode, owner: AdjustFunction) {
-    const { dx, dy, dw, dh } = owner;
+function offsetTemporal(node: VisualTemporalNode, { dx, dy, dw, dh }: AdjustFunction) {
     if (dx === 0 && dy === 0 && dw === 0 && dh === 0) return;
+    const firstOffset = !node.placementOffset && (dx !== 0 || dy !== 0);
     if (dx !== 0 || dy !== 0) {
         node.placementOffset = { x: (node.placementOffset?.x ?? 0) + dx, y: (node.placementOffset?.y ?? 0) + dy };
     }
@@ -141,17 +137,19 @@ function offsetTemporal(node: VisualTemporalNode, owner: AdjustFunction) {
     let placedX: number | undefined;
     let placedY: number | undefined;
     const finalize = node.finalizeLayout;
-    const onPlaced = node.onPlaced;
     node.finalizeLayout = (context: LayoutPrepareContext) => {
         finalize?.call(node, context);
+        placedX = placedY = undefined;
         const width = Math.max(0, node.box.w + dw);
         node.box.anchor = node.box.w > 0 ? node.box.anchor * width / node.box.w : 0;
         node.box.w = width;
         node.box.h = Math.max(0, node.box.h + dh);
     };
+    if (!firstOffset) return;
+    const onPlaced = node.onPlaced;
     node.onPlaced = () => {
-        if (node.box.x !== placedX) node.box.x += dx;
-        if (node.box.y !== placedY) node.box.y += dy;
+        if (node.box.x !== placedX) node.box.x += node.placementOffset!.x;
+        if (node.box.y !== placedY) node.box.y += node.placementOffset!.y;
         onPlaced?.call(node);
         placedX = node.box.x;
         placedY = node.box.y;
@@ -162,31 +160,24 @@ function offsetTemporal(node: VisualTemporalNode, owner: AdjustFunction) {
  * 平移一条关系对象
  *
  * 在原 Attachment 上组合 createGeometry，保留依赖查找与 instanceof 所需的对象身份
- * 作用域里只要有对象被平移过，关系对象就已经跟着端点走了，这里不能再平移第二次
+ * 仅在作用域里没有时间对象时调用，避免关系对象既跟端点走又被重复平移
  */
-function offsetAttachment(
-    attachment: LayoutAttachment,
-    targets: Readonly<AdjustTargets>,
-    dx: number,
-    dy: number,
-) {
-    if (targets.temporal > 0 || (dx === 0 && dy === 0)) return;
+function offsetAttachment(attachment: LayoutAttachment, dx: number, dy: number) {
+    const firstOffset = !attachment.placementOffset;
     attachment.placementOffset = { x: (attachment.placementOffset?.x ?? 0) + dx, y: (attachment.placementOffset?.y ?? 0) + dy };
+    if (!firstOffset) return;
     const createGeometry = attachment.createGeometry;
     attachment.createGeometry = (context: AttachmentLayoutContext) => {
         const geometry = createGeometry.call(attachment, context);
-        if (targets.temporal > 0 || context.layoutOnly) return geometry;
-
-        const shift = (region: LayoutRegion): LayoutRegion => region.line === void 0
-            ? { x: region.x + dx, y: region.y + dy, w: region.w, h: region.h }
-            : { x: region.x + dx, y: region.y + dy, w: region.w, h: region.h, line: region.line, track: region.track };
-
+        if (context.layoutOnly) return geometry;
+        const { x, y } = attachment.placementOffset!;
+        const shift = (region: LayoutRegion): LayoutRegion => ({ ...region, x: region.x + x, y: region.y + y });
         return {
             regions: geometry.regions.map(shift),
             occupancy: geometry.occupancy?.map(shift),
             paint(painter: Painter) {
                 // attachment 的绘制大多用闭包存储了，所以只能代理 painter
-                geometry.paint(new TranslatingPainter(painter, dx, dy));
+                geometry.paint(new TranslatingPainter(painter, x, y));
             },
         };
     };

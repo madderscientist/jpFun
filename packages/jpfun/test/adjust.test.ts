@@ -1,8 +1,8 @@
 import { test } from "node:test";
 
-import type { DocumentLayoutResult } from "../src/layout/engine.js";
+import { layoutDocument, type DocumentLayoutResult } from "../src/layout/engine.js";
 import type { PlacedAttachment, Rect } from "../src/layout/types.js";
-import { assert, attachmentCommands, commandsOfKind, expectLoweringError, layoutOf, lower, nearly, recordCommands } from "./helpers.js";
+import { assert, attachmentCommands, commandsOfKind, expectLoweringError, layoutContext, layoutOf, lower, nearly, recordCommands } from "./helpers.js";
 
 test("dx/dy 在排版之后平移，邻居完全不动", () => {
     const base = layoutOf(`1 2`);
@@ -56,8 +56,10 @@ test("折叠成员也能微调：@up 的上方标记与倚音", () => {
     // 和弦成员不进入全局 columns，只能从绘制结果观察
     const chordBase = textCommands(`1 ^ @tempo(94)`);
     const chordMoved = textCommands(`1 ^ @adjust(@tempo(94), dy=-4px)`);
+    const chordCancelled = textCommands(`1 ^ @adjust(@adjust(@tempo(94), dy=-4px), dy=4px)`);
     assert(nearly(findText(chordMoved, "94").y, findText(chordBase, "94").y - 4), "@up 的非首成员必须能被微调");
     assert(nearly(findText(chordMoved, "1").y, findText(chordBase, "1").y), "同一和弦的其他成员不受影响");
+    assert(nearly(findText(chordCancelled, "94").y, findText(chordBase, "94").y), "折叠成员上的嵌套反向 dy 必须互相抵消");
 
     const graceBase = textCommands(`2>1`);
     const graceMoved = textCommands(`@adjust(2, dy=-3px)>1`);
@@ -99,13 +101,21 @@ test("作用域里没有对象时，平移的是关系对象本身", () => {
     const boxed = layoutOf(`@box({1@a 2@b @adjust(@tie(a,b), dy=-6px)}, padding=0px, stroke=1px)`);
     assert(contains(frameOf(boxed), tieOf(boxed).box), "框必须包住微调之后的连音线");
     assert(nearly(frameOf(boxed).h, frameOf(boxedBase).h + 6), "框必须跟着微调后的连音线长高");
+
+    // 作用域内即使关系对象写在音符之前，也只平移音符而不平移关系对象本身
+    const tieBeforeNote = layoutOf(`1@x 2@y @adjust({@tie(x,y) 3}, dx=10px)`);
+    assert(nearly(tieOf(tieBeforeNote).box.x, tieOf(base).box.x), "同作用域存在时间对象时，关系对象不得因书写顺序靠前而被平移");
 });
 
-test("重排两轮时平移只施加一次", () => {
+test("重排两轮与重复调用 layoutDocument 时平移只施加一次", () => {
     // 高连音线会撑开轨道占用，触发第二轮纵向放置
     const base = layoutOf(`1@a 2@b @tie(a,b,height=60px)`);
-    const moved = layoutOf(`@adjust({1@a}, dx=5px) 2@b @tie(a,b,height=60px)`);
+    const movedLowering = lower(`@adjust({1@a}, dx=5px, dy=-4px) 2@b @tie(a,b,height=60px)`);
+    const moved = layoutDocument(movedLowering, layoutContext);
+    const movedAgain = layoutDocument(movedLowering, layoutContext);
     assert(nearly(moved.objects[0].box.x, base.objects[0].box.x + 5), "两轮放置也只能平移一次");
+    assert(nearly(movedAgain.objects[0].box.x, moved.objects[0].box.x), "重复 layoutDocument 不能丢失或重复施加 dx");
+    assert(nearly(movedAgain.objects[0].box.y, moved.objects[0].box.y), "重复 layoutDocument 不能丢失或重复施加 dy");
 
     const enclosed = layoutOf(`@adjust({1@a 2@b @tie(a,b,height=60px)}, dx=5px)`);
     const start = tieStart(enclosed);

@@ -62,11 +62,7 @@ export class LoweringContext {
     }[] = [];
 
     /** 收集本轮 lowering 产生的诊断信息 */
-    readonly diagnostics: Diagnostic[];
-
-    constructor(diagnostics: Diagnostic[] = []) {
-        this.diagnostics = diagnostics;
-    }
+    diagnostics: Diagnostic[] = [];
 
     /** 供 page 函数调用 */
     setPageConfig(page: PageConfig) {
@@ -76,10 +72,9 @@ export class LoweringContext {
     /**
      * 完整 lowering 入口
      *
-     * 每次调用都会重置本轮产生的数据
-     * 已注册的后处理 hook 会保留，可以复用同一个 LoweringContext
+     * 每次调用都会重置本轮产生的数据，可以复用同一个 LoweringContext
      */
-    lowerDocument(node: ASTNodeBase): LoweringResult {
+    lowerDocument(node: ASTNodeBase, diagnostics: Diagnostic[] = []): LoweringResult {
         this.cnt = 0;
         this.usedTracks.clear();
         this.activeFinalizers.clear();
@@ -87,6 +82,7 @@ export class LoweringContext {
         this.page = void 0;
         this.astToTemporal = new Map();
         this.activeLoweringGroups = [];
+        this.diagnostics = diagnostics;
 
         const rootTrack = new Track();
         const duration = new Fraction();

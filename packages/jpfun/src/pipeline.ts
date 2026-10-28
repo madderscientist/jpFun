@@ -54,8 +54,8 @@ export function compileScore(
         parser.parse(),
     );
 
-    const loweringContext = new LoweringContext(parser.diagnostics);
-    const lowering = loweringContext.lowerDocument(ast);
+    const loweringContext = new LoweringContext();
+    const lowering = loweringContext.lowerDocument(ast, parser.diagnostics);
     const layoutContext = createLayoutPrepareContext(functions, { textMeasurer });
     const layout = layoutDocument(lowering, layoutContext, layoutOptions);
 
