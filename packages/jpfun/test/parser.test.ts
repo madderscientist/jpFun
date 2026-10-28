@@ -2,7 +2,7 @@ import { deepStrictEqual, throws } from "node:assert/strict";
 import { test } from "node:test";
 
 import { Diagnostic } from "../src/diagnostic.js";
-import { ASTFunctionNode, ASTLabelNode, ASTNodeBase } from "../src/functions/ASTtypes.js";
+import { ASTFunctionNode, ASTLabelNode, ASTNodeBase, ASTTextNode } from "../src/functions/ASTtypes.js";
 import { DashNode } from "../src/functions/dash/index.js";
 import { preprocessSource } from "../src/parser/preprocess.js";
 import { analyzeScoreSyntax, compileScore } from "../src/pipeline.js";
@@ -345,6 +345,39 @@ test("标签的 target 指向被标注对象，不随容器改写", () => {
     const nested = labelsOf(parse(`@div({1@x})`));
     assert(nested.length === 1 && nested[0].target.sourceSpan.start === 6,
         "a label nested in braces must still point at the annotated node");
+
+    for (const source of ["1 ^ $p @a", "1 ^ 2 @a", "1 ^ (2)"]) {
+        const root = parse(source);
+        if (source.includes("@a")) {
+            const labels = labelsOf(root);
+            assert(labels.length === 1 && labels[0].label === "a", `${source} must retain its ASTLabelNode in the AST`);
+        } else {
+            assert(root.content.some(node => node instanceof ASTTextNode), `${source} must retain JE bracket text nodes`);
+        }
+    }
+});
+
+test("后缀语法糖包装带标签目标时保留标签，合并重复后缀时更新源码跨度", () => {
+    for (const source of [
+        "1@a / 2@b @tie(a,b)",
+        "1@a . 2@b @tie(a,b)",
+        "1@a /. 2@b @tie(a,b)",
+        "1/ @a / 2@b @tie(a,b)",
+    ]) {
+        const before = compileScore(source);
+        deepStrictEqual(before.diagnostics, [], source);
+        const first = before.ast.content[0];
+        const replaced = first.toString(source) + source.slice(first.sourceSpan.end);
+        const after = compileScore(replaced);
+        deepStrictEqual(after.diagnostics, [], replaced);
+        assert(after.lowering.attachments.some(item => "endPoints" in item),
+            `replacing ${source} with ${replaced} must preserve the labeled tie endpoint`);
+    }
+
+    for (const source of ["1/ /", "1. .", "1@a / /"]) {
+        const node = parse(source).content[0];
+        deepStrictEqual(node.sourceSpan, { start: 0, end: source.length }, source);
+    }
 });
 
 test("诊断保留结构化参数并支持自定义格式化", () => {

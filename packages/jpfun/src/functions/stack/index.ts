@@ -1,4 +1,4 @@
-import { ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode, ASTBraceNode, ASTLabelNode } from "../ASTtypes.js";
+import { ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { ParserContext } from "../../parser/parserContext.js";
 import { GrammarNode, GrammarSugarNode, type CallArgumentInfo } from "../../parser/grammarType.js";
 import { ErrorDiagnostic } from "../../diagnostic.js";
@@ -73,64 +73,16 @@ class StackFunction extends ASTFunctionNode {
     static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
         const n = nodes[at++] as GrammarSugarNode;
         if (!(n.kind === "sugar" && n.data === StackFunction)) return null;
-        // 找上一个非文本节点 实现忽略中间内容的作用
-        // 另一个做法是如果上一个不是可用节点就报错
-        let left = ctx.nodes.length - 1;
-        for (; left >= 0; left--) {
-            if (ctx.nodes[left] instanceof ASTTextNode) continue;
-            break;
+        const leftNode = ctx.takeLeftOperand();
+        if (!leftNode) {
+            throw new ErrorDiagnostic("E_STACK_NO_TARGET", "@stack语法糖错误: 左边没有找到可叠加的目标", n.span);
         }
-        let leftNode: ASTNodeBase | null = left >= 0 ? ctx.nodes[left] : null;
-        if (leftNode === null) {
-            throw new ErrorDiagnostic(
-                "E_STACK_NO_TARGET",
-                "@stack语法糖错误: 左边没有找到可叠加的目标",
-                n.span
-            );
-        }
-        /** 左操作数在 ctx.nodes 中的起点；只有这一段会被 stack 吞并，更早的节点必须保留 */
-        let replaceFrom = left;
-        // 对 label 的特判: 目标变为label到被标记的节点范围内的所有节点
-        if (leftNode instanceof ASTLabelNode) {
-            const labelNode = leftNode;
-            let tgt: ASTNodeBase | null = labelNode.target;
-            // 在本层这个节点位于哪里（标签节点可能被wrap）
-            while (tgt && !ctx.nodes.includes(tgt)) tgt = tgt.parent;
-            for (let j = left - 1; j >= 0; j--) {
-                if (ctx.nodes[j] === tgt) {
-                    leftNode = new ASTBraceNode({
-                        start: tgt.sourceSpan.start,
-                        end: labelNode.sourceSpan.end,
-                    }, ctx.nodes.slice(j, left + 1), null);
-                    replaceFrom = j;
-                    break;
-                }
-            }
-        }
-        // 左操作数收敛成一个 stack，后续合并都在它身上进行
         const host = leftNode instanceof StackFunction
             ? leftNode
             : new StackFunction(n.span, new Map(), ctx).addContent(leftNode);
-        // 找到下一个非文本节点 通过全量后续解析的方式进行 还是有些trick
-        const storage = ctx.nodes;
-        ctx.nodes = [];
-        ctx.makeNodes(nodes, at);
-        for (let i = 0; i < ctx.nodes.length; i++) {
-            // 后向跳过文本节点 和上面保持一致
-            const right = ctx.nodes[i];
-            if (right instanceof ASTTextNode) continue;
-            host.addContent(right);
-            storage.length = replaceFrom;
-            storage.push(host);
-            while (++i < ctx.nodes.length) storage.push(ctx.nodes[i]);
-            ctx.nodes = storage;
-            return nodes.length;
-        }
-        throw new ErrorDiagnostic(
-            "E_STACK_NO_TARGET",
-            "@stack语法糖错误: 右边没有找到可叠加的目标",
-            n.span
-        );
+        const next = ctx.consumeRightOperand(nodes, at, right => host.addContent(right));
+        if (next !== null) return next;
+        throw new ErrorDiagnostic("E_STACK_NO_TARGET", "@stack语法糖错误: 右边没有找到可叠加的目标", n.span);
     }
 
     contents: ASTNodeBase[] = [];

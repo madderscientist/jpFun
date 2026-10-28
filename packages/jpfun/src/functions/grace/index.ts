@@ -17,12 +17,9 @@ import { ParserContext } from "../../parser/parserContext.js";
 import type { Painter, PathCommand } from "../../render/types.js";
 import type { PlaybackEmitter } from "../../playback/types.js";
 import {
-    ASTBraceNode,
     ASTFunctionClass,
     ASTFunctionNode,
-    ASTLabelNode,
     ASTNodeBase,
-    ASTTextNode,
     FunctionArgs,
     FunctionDef,
     SourceSpan,
@@ -121,60 +118,18 @@ class GraceFunction extends ASTFunctionNode {
         const n = nodes[at++] as GrammarSugarNode;
         if (n.kind !== "sugar" || n.data?.class !== GraceFunction) return null;
         const side: GraceSide = n.data.side;
-
-        // 找上一个非文本节点 实现忽略中间内容的作用
-        let left = ctx.nodes.length - 1;
-        while (left >= 0 && ctx.nodes[left] instanceof ASTTextNode) left--;
-        if (left < 0) {
-            throw new ErrorDiagnostic(
-                "E_GRACE_NO_TARGET",
-                "@grace语法糖错误: 左边没有找到目标",
-                n.span,
-            );
+        const leftNode = ctx.takeLeftOperand();
+        if (!leftNode) {
+            throw new ErrorDiagnostic("E_GRACE_NO_TARGET", "@grace语法糖错误: 左边没有找到目标", n.span);
         }
-        let leftNode: ASTNodeBase = ctx.nodes[left];
-        /** 左操作数在 ctx.nodes 中的起点；只有这一段会被 grace 吞并 */
-        let replaceFrom = left;
-        // 对 label 的特判: 目标变为label到被标记的节点范围内的所有节点
-        if (leftNode instanceof ASTLabelNode) {
-            let tgt: ASTNodeBase | null = leftNode.target;
-            while (tgt && !ctx.nodes.includes(tgt)) tgt = tgt.parent;
-            for (let j = left - 1; j >= 0; j--) {
-                if (ctx.nodes[j] === tgt) {
-                    leftNode = new ASTBraceNode({
-                        start: tgt.sourceSpan.start,
-                        end: leftNode.sourceSpan.end,
-                    }, ctx.nodes.slice(j, left + 1), null);
-                    replaceFrom = j;
-                    break;
-                }
-            }
-        }
-
-        // 找到下一个非文本节点 通过全量后续解析的方式进行
-        const storage = ctx.nodes;
-        ctx.nodes = [];
-        ctx.makeNodes(nodes, at);
-        for (let i = 0; i < ctx.nodes.length; i++) {
-            const right = ctx.nodes[i];
-            if (right instanceof ASTTextNode) continue;
-
+        const next = ctx.consumeRightOperand(nodes, at, right =>
             // '<' 的倚音在右侧，右结合的解析结果本来就是嵌套语义，不必像 '>' 那样重排
-            const node = side === "pre"
+            side === "pre"
                 ? GraceFunction.attachPre(leftNode, right, n.span, ctx)
-                : GraceFunction.create(ctx, n.span, "post", leftNode, right);
-
-            storage.length = replaceFrom;
-            storage.push(node);
-            while (++i < ctx.nodes.length) storage.push(ctx.nodes[i]);
-            ctx.nodes = storage;
-            return nodes.length;
-        }
-        throw new ErrorDiagnostic(
-            "E_GRACE_NO_TARGET",
-            "@grace语法糖错误: 右边没有找到目标",
-            n.span,
+                : GraceFunction.create(ctx, n.span, "post", leftNode, right),
         );
+        if (next !== null) return next;
+        throw new ErrorDiagnostic("E_GRACE_NO_TARGET", "@grace语法糖错误: 右边没有找到目标", n.span);
     }
 
     host: ASTNodeBase;
@@ -200,11 +155,8 @@ class GraceFunction extends ASTFunctionNode {
                 deepest = deepest.grace;
                 depth++;
             }
-            const argMap: FunctionArgs = new Map();
-            argMap.set(0, deepest.grace);
-            argMap.set(1, left);
             const scale = GRACE_SCALE ** depth;
-            const inner = new GraceFunction(span, argMap, ctx, null, GRACE_SCALE * scale);
+            const inner = GraceFunction.create(ctx, span, "pre", deepest.grace, left, GRACE_SCALE * scale);
             inner.size *= scale;
             deepest.setGrace(inner, 1);  // inner 内部已按深度缩放，不能再缩
             return right;
@@ -218,12 +170,13 @@ class GraceFunction extends ASTFunctionNode {
         side: GraceSide,
         host: ASTNodeBase,
         grace: ASTNodeBase,
-    ): ASTNodeBase {
+        scale: number = GRACE_SCALE,
+    ): GraceFunction {
         const argMap: FunctionArgs = new Map();
         argMap.set(0, host);
         argMap.set(1, grace);
         argMap.set("side", side);
-        return new GraceFunction(span, argMap, ctx);
+        return new GraceFunction(span, argMap, ctx, null, scale);
     }
 
     /** 宿主在前：findActiveDivs 下潜子树时要先命中宿主的 @div，而不是倚音的 */

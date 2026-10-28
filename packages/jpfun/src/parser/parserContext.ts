@@ -243,16 +243,62 @@ export class ParserContext {
     }
 
     /**
+     * 向前寻找最后一个非文本节点下标；
+     * 若末尾是标签，则将“被标注节点..标签”原位打包为 ASTBraceNode
+     */
+    findLastOperandIndex(): number {
+        let left = this.nodes.length - 1;
+        while (left >= 0 && this.nodes[left] instanceof ASTTextNode) left--;
+        if (left < 0) return -1;
+        const node = this.nodes[left];
+        if (node instanceof ASTLabelNode) {
+            let tgt: ASTNodeBase = node.target;
+            while (tgt.parent) tgt = tgt.parent;
+            const j = this.nodes.lastIndexOf(tgt, left - 1);
+            if (j < 0) return -1;
+            this.nodes.splice(j, left - j + 1, new ASTBraceNode(
+                { start: tgt.sourceSpan.start, end: node.sourceSpan.end },
+                this.nodes.slice(j, left + 1),
+                null,
+            ));
+            return j;
+        } return left;
+    }
+
+    /** 摘出末尾最后一个操作数（含其后置标签） */
+    takeLeftOperand(): ASTNodeBase | null {
+        const index = this.findLastOperandIndex();
+        if (index < 0) return null;
+        const node = this.nodes[index];
+        this.nodes.length = index;
+        return node;
+    }
+
+    /** 解析右侧剩余序列，将首个非文本节点交给 combine 合成后连同后续节点写回 this.nodes */
+    consumeRightOperand(
+        nodes: (GrammarNode | number)[],
+        at: number,
+        combine: (right: ASTNodeBase) => ASTNodeBase,
+    ): number | null {
+        const storage = this.nodes;
+        this.nodes = [];
+        try {
+            this.makeNodes(nodes, at);
+            for (let i = 0; i < this.nodes.length; i++) {
+                const right = this.nodes[i];
+                if (right instanceof ASTTextNode) continue;
+                storage.push(combine(right));
+                while (++i < this.nodes.length) storage.push(this.nodes[i]);
+                return nodes.length;
+            } return null;
+        } finally {
+            this.nodes = storage;
+        }
+    }
+
+    /**
      * 第二轮去糖 & 函数节点创建
      * 有副作用 会修改 nodes 和 labelableNodes 等上下文属性
-     * 对于需要后面Node的语法糖(没有终止符)，可以调用此函数，具体做法为：
-     * 1. 先用构造函数开启子上下文
-     * 2. 再用新的上下文解析剩余的nodes
-     * 3. 选取需要的，利用老的ctx构建函数节点
-     * 4. 将新ctx的有用信息合并回老的ctx
-     * 之所以这么麻烦，是因为创建语法糖对应节点时需要保留当前上下文
-     * 
-     * 对于有终止符的直接搜索后面的终止符即可。扫过的地方普通文本会再次被合并
      */
     makeNodes(nodes: (GrammarNode | number)[], i: number = 0, end: number = nodes.length): number {
         outer: for (; i < end; i++) {

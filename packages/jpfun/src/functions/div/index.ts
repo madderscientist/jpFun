@@ -109,23 +109,23 @@ class DivFunction extends ASTFunctionNode {
     static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
         const n = nodes[at++] as GrammarSugarNode;
         if (n.data?.class !== DivFunction) return null;
-        const prevIndex = ASTFunctionNode.findLastFuncContentIndex(ctx.nodes, ctx.nodes.length - 1);
+        const prevIndex = ctx.findLastOperandIndex();
         if (prevIndex < 0) return at;   // 没有了 直接当作无效文本跳过
         const prev = ctx.nodes[prevIndex];
         if (prev instanceof DivFunction) {
             // 已经是div了 继续加深
             prev.n += n.data.n;
+            prev.sourceSpan.end = Math.max(prev.sourceSpan.end, n.span.end);
             return at;
         }
         const argMap: FunctionArgs = new Map();
         argMap.set(0, prev);
         argMap.set("n", n.data.n);
         const spanPrev = prev.sourceSpan;
-        const node = new DivFunction({
+        ctx.nodes[prevIndex] = new DivFunction({
             start: Math.min(spanPrev.start, n.span.start),
             end: Math.max(spanPrev.end, n.span.end),
         }, argMap, ctx, null);
-        ctx.nodes[prevIndex] = node;
         return at;
     }
 

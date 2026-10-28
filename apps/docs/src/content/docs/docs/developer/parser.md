@@ -106,20 +106,20 @@ AST 解析、语法着色和编辑器提示都使用这份类型信息。`conten
 这里的“前方”指源码中标记左侧、已经构造的节点。[DivFunction](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/functions/div/index.ts) 的处理分两步：
 
 1. `deSugarAtom` 统计连续 `/` 的数量，将层数写入 `GrammarSugarNode.data`。
-2. `deSugarRelation` 从 `ctx.nodes` 查找前一个内容节点，将它包装成 div；目标已经是 div 时，直接累加层数。
+2. `deSugarRelation` 通过 `ctx.findLastOperandIndex()` 定位前一个内容节点（若末尾带有标签，会将被标注节点连同标签原位打包为 `ASTBraceNode`），再将它包装成 div；目标已经是 div 时，直接累加层数并扩展 `sourceSpan.end`。
 
 结果是 div 包含 note，包装节点的 `sourceSpan` 覆盖音符和减时标记。关系钩子更新 `ctx.nodes` 后，返回标记之后的节点下标。
 
 ### 后向解析：`1 ^ 3/`
 
-`^` 同时需要左右两侧的 AST。[UpFunction](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/functions/up/index.ts) 先取得左侧节点，再递归解析标记后方的中间节点：
+`^` 同时需要左右两侧的 AST。[UpFunction](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/functions/up/index.ts) 先通过 `ctx.takeLeftOperand()` 摘出左侧节点，再通过 `ctx.consumeRightOperand()` 递归解析标记后方的中间节点：
 
 1. 第一轮识别 `^`，生成关系标记。
-2. 第二轮从 `ctx.nodes` 取得左操作数，保存当前 AST 列表。
-3. 临时切换到空 AST 列表，调用 `ctx.makeNodes(nodes, at)` 解析当前层的剩余序列，再取首个非文本节点作为右操作数。此例中，`3/` 已经组合成完整的 div 节点。
-4. 合并左右操作数，接回余下的 AST，恢复列表，并返回 `nodes.length`，表示后续序列已处理完毕。
+2. 第二轮从 `ctx.nodes` 摘出左操作数（若带标签则一并打包）。
+3. 调用 `ctx.consumeRightOperand(nodes, at, ...)` 解析当前层的剩余序列，取首个非文本节点作为右操作数（此例中 `3/` 已经组合成完整的 div 节点）。
+4. 将合并后的节点连同余下的 AST 写回 `ctx.nodes`，并返回 `nodes.length`，表示后续序列已处理完毕。
 
-`&` 使用相同的后向解析方式，将两侧内容组合成 stack。这里复用当前上下文，以共享变量和标签状态。
+`&` 与 `>` / `<` 使用相同的 `takeLeftOperand` / `consumeRightOperand` 提取左右操作数。这里直接复用当前上下文，以共享变量和标签状态。
 
 ### 有界消费：`N: 1 2 3`
 

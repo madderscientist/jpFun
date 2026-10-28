@@ -197,10 +197,7 @@ export class ASTFunctionNode extends ASTNodeBase {
 
     // 去糖函数 详见 ParserContext 中 deSugarAtomFns 和 deSugarRelationFns 的定义
     static deSugarAtom: deSugarAtomFunction = () => null; // 默认没有去糖，子类只需要定义static deSugarAtom方法即可
-    get deSugarAtom(): deSugarAtomFunction { return (this.constructor as typeof ASTFunctionNode).deSugarAtom; }
-
     static deSugarRelation: deSugarRelationFunction = () => null;
-    get deSugarRelation(): deSugarRelationFunction { return (this.constructor as typeof ASTFunctionNode).deSugarRelation; }
 
     // 按声明顺序取值，位置编号独立于仅命名参数
     getArgValue(args: FunctionArgs, ctx: ParserContext): paramValue[] {
@@ -247,16 +244,6 @@ export class ASTFunctionNode extends ASTNodeBase {
             if (target) return target;
         }
         return null;
-    }
-
-    /**
-     * 用于语法糖向前结合
-     * 从指定位置向前寻找最后一个可由后缀语法糖包装的节点，跳过不产生语义对象的文本
-     */
-    static findLastFuncContentIndex(nodes: ASTNodeBase[], i: number): number {
-        for (; i >= 0; i--) {
-            if (nodes[i] instanceof ASTFunctionNode || nodes[i] instanceof ASTBraceNode) return i;
-        } return -1;
     }
 }
 
