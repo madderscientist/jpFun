@@ -206,11 +206,6 @@ class BarTemporalNode extends TemporalNodeBase {
         this.ast = ast;
         this.mergeKey = ANCHOR_KEY;
         this.initLayoutBox();
-        // 由于有最小时长，因此设置alpha依然有效
-        this.springConfig = {
-            alpha_L: 128,
-            alpha_R: 128,
-        }
     }
 
     /**
@@ -238,6 +233,8 @@ class BarTemporalNode extends TemporalNodeBase {
     }
 
     override prepareLayout() {
+        // 由于有最小时长，因此设置alpha依然有效
+        this.springConfig = { alpha_L: 128, alpha_R: 128 };
         const { type, size } = this.ast;
         this.lines.length = 0;
         const repeatDots: { x: number; y: number }[] = [];

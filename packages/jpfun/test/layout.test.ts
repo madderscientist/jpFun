@@ -503,3 +503,19 @@ test("字号选项与解析期字号驱动所有几何缩放", () => {
     assert(nearly(largeBar.box.w, smallBar.box.w * 2), "bar geometry must use its parse-time font size");
     assert(nearly(largeBar.box.h, smallBar.box.h * 2), "bar height must use its parse-time font size");
 });
+
+test("重复调用 layoutDocument 重置 springConfig，不累乘连梁、小节线与谱头弹簧参数", () => {
+    const lowered = lower(`@head(center={@text(标题)}, right={@text(作者)}) @br() 1/ 2/ | @up(3/, 5) 2>4 @arp({1^3})`);
+    const first = layoutDocument(lowered, layoutContext);
+    const snapshot = (layout: typeof first) => layout.objects.map(node => ({
+        box: { ...node.box },
+        springConfig: { ...node.springConfig },
+    }));
+    const expected = snapshot(first);
+    const commands = recordCommands(first);
+    for (let pass = 0; pass < 2; pass++) {
+        const again = layoutDocument(lowered, layoutContext);
+        deepStrictEqual(snapshot(again), expected, "springConfig and boxes must remain idempotent across layout passes");
+        deepStrictEqual(recordCommands(again), commands);
+    }
+});

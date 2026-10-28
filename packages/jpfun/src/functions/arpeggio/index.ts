@@ -161,7 +161,7 @@ class ArpeggioTemporal extends TemporalNodeBase {
         const { host } = this;
         transferFunctionAddons(this, host);
         prepareLayoutHost(host, context);
-        this.springConfig = { ...host.springConfig, ...this.springConfig };
+        this.springConfig = { ...host.springConfig };
 
         const em = this.ast.size;
         const contentBounds = getLayoutBounds(host, true);

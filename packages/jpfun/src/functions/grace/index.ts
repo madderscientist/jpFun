@@ -449,7 +449,7 @@ export class GraceTemporal extends TemporalNodeBase {
         transferFunctionAddons(this, this.host);
         const block = context.layoutSubdomain!(this, this.graceColumns, this.root, this.attachments);
         const hostWidth = layoutLocalSequence([this.host], context);
-        this.springConfig = { ...this.host.springConfig, ...this.springConfig };
+        this.springConfig = { ...this.host.springConfig };
 
         const graceEm = this.ast.size * GRACE_SCALE;
         const sideGap = graceEm * 0.2;

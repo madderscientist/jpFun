@@ -153,7 +153,7 @@ export function unionLayoutBoxes(target: Rect, boxes: Iterable<Rect>): boolean {
  * 从而保证子对象与顶层对象经过完全一致的准备流程。
  */
 export function prepareLayoutHost(node: VisualTemporalNode, context: LayoutPrepareContext) {
-    node.springConfig ??= {};
+    node.springConfig = {};
     if (node.decorations) decorationExtents.delete(node);
     node.decorations = [];
     node.ports = {};

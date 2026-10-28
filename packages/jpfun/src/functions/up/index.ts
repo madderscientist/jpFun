@@ -392,7 +392,7 @@ class FoldTemporal extends TemporalNodeBase {
         this.box.w = layoutLocalSequence([first], context);
         for (let index = 1; index < this.members.length; index++) layoutLocalSequence([this.members[index]], context);
 
-        this.springConfig = { ...first.springConfig, ...this.springConfig };
+        this.springConfig = { ...first.springConfig };
 
         // 横向完全等于宿主：上下的标记（变速、注释、力度）常常比音符宽得多，
         // 让它们撑宽盒子会把右邻推开一大截；它们画在基线外侧，伸出盒外也不会碰撞
