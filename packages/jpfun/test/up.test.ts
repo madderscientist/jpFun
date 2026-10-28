@@ -4,7 +4,7 @@ import { ASTFunctionNode, type ASTNodeBase } from "../src/functions/ASTtypes.js"
 import type { LayoutBox } from "../src/layout/types.js";
 import { ANCHOR_KEY, DEFAULT_KEY, type TemporalNodeBase, type VisualTemporalNode } from "../src/functions/temporal.js";
 import { compilePlayback } from "../src/playback/compile.js";
-import { assert, expectLoweringError, layoutOf, lower, nearly, parse, playedNotes, recordCommands } from "./helpers.js";
+import { assert, expectCompileError, expectLoweringError, layoutOf, lower, nearly, parse, playedNotes, recordCommands } from "./helpers.js";
 
 const loweredUp = lower(`@up(1, #3', @text("上层")) 4`);
 const upTemporal = loweredUp.columns[0][0] as TemporalNodeBase & {
@@ -253,6 +253,38 @@ test("混写折叠体的 toString 是可解析的等价写法", () => {
         "替换成去糖写法之后谱面必须逐位不变");
     assert(foldNode(`1 ^ 3`)!.toString(`1 ^ 3`).startsWith("@up("),
         "纯向上的折叠体仍然输出 @up(...)");
+});
+
+test("up 和 down 支持 gap 参数与 @set 设置，并校验非负长度", () => {
+    const gapsOf = (source: string) => {
+        const { members } = layoutOf(source).objects[0] as VisualTemporalNode & {
+            members: readonly { box: LayoutBox }[];
+        };
+        return members.slice(1).map((m, i) => {
+            const ref = members[i].box.y < members[0].box.y && m.box.y > members[0].box.y ? members[0] : members[i];
+            return ref.box.y >= m.box.y ? ref.box.y - (m.box.y + m.box.h) : m.box.y - (ref.box.y + ref.box.h);
+        });
+    };
+    for (const [source, expected] of [
+        [`1 ^ 3`, [22 * 0.12]],
+        [`@up(1, 3, gap=10px)`, [10]],
+        [`@down(1, 3, gap=8px)`, [8]],
+        [`@set(up.gap=12px) 1 ^ 3`, [12]],
+        [`@set(down.gap=9px) 1 _ 3 _ 5`, [9, 9]],
+        [`@set(up.gap=12px, down.gap=9px) 1 ^ 3 _ 5`, [12, 9]],
+        [`@set(up.gap=12px, down.gap=9px) 1 _ 5 ^ 3`, [12, 9]],
+        [`@down(@up(1, 3, gap=12px), 5, gap=9px)`, [12, 9]],
+        [`@up(@down(1, 5, gap=9px), 3, gap=12px)`, [12, 9]],
+        [`@up(1, @up(3, 5, gap=20px), gap=10px)`, [10, 20]],
+        [`@up(@up(1, 3, gap=10px), 5, gap=20px)`, [10, 20]],
+    ] as const) {
+        const actual = gapsOf(source);
+        assert(actual.every((v, i) => nearly(v, expected[i])), `${source}: ${actual} vs ${expected}`);
+        const roundtrip = parse(source).content.at(-1)!.toString(source);
+        assert(glyphPositions(roundtrip) === glyphPositions(source), `${source} -> ${roundtrip}`);
+    }
+    expectCompileError(`@up(1, 3, gap=-1px)`, "E_INVALID_FOLD_GAP");
+    expectCompileError(`@down(1, 3, gap=-1px)`, "E_INVALID_FOLD_GAP");
 });
 
 test("折叠体先播附属成员、最后播宿主，与画在上下哪一侧无关", () => {

@@ -254,10 +254,54 @@ test("嵌套 stack 只撑开相邻基线，不移动 voices 的语义中心", ()
         "a nested stack must widen the gap towards the previous voice");
 });
 
+test("声部内的普通连音线借用声部间距，超高外扩与 gap/minGap 参数按行生效", () => {
+    const gapOf = (source: string) => {
+        const notes = drawn(source);
+        return notes[1].box.y - (notes[0].box.y + notes[0].box.h);
+    };
+    assert(nearly(gapOf(`@voices(@voice({1 2}), @voice({3@a 4@b @tie(a,b)}))`), 22 * 0.75),
+        "an ordinary tie in the lower voice must not widen voice spacing");
+    const tall = layoutOf(`@voices(@voice({1 2}), @voice({3@a 4@b @tie(a,b,height=30px)}))`);
+    const upper = tall.objects.find(object => object.box.h > 0)!;
+    const tie = tall.attachments.find(attachment => attachment.layer === "foreground")!;
+    assert(nearly(tie.box.y - (upper.box.y + upper.box.h), 22 * 0.35),
+        "an oversized tie in the lower voice must keep minimum voice clearance");
+
+    for (const [source, expected] of [
+        [`@voices(@voice({1}), @voice({2}), gap=30px)`, 30],
+        [`@set(voices.gap=28px)\nN: 1\nN: 2`, 28],
+        [`@set(vs.gap=2em) @vs(@voice({1}), @voice({2}))`, 44],
+        [`@voices(@voice({1}), @voice({3^4}), gap=20px, minGap=14px)`, 14],
+        [`@set(voices.minGap=15px)\nN: 1\nN: 3^4`, 15],
+    ] as const) {
+        assert(nearly(gapOf(source), expected), `${source}: expected ${expected}`);
+    }
+    const configured = compileValid(`@set(voices.gap=32px, voices.minGap=12px)\nN: 1\nN: 2`);
+    const serialized = configured.ast.toString("");
+    deepStrictEqual(recordCommands(compileValid(serialized).layout), recordCommands(configured.layout));
+    expectCompileError(`@voices(@voice({1}), @voice({2}), gap=-1px)`, "E_INVALID_VOICES_GAP");
+    expectCompileError(`@voices(@voice({1}), @voice({2}), minGap=-1px)`, "E_INVALID_VOICES_GAP");
+
+    // 同一宿主下同声部数的 voices 共用音轨；间距不一致时取较大值并报警
+    for (const pair of [
+        `{\n@set(voices.gap=2em)\nN: 1\nN: 2\n}{\n@set(voices.gap=20em)\nN: 3\nN: 4\n}`,
+        `{\n@set(voices.gap=20em)\nN: 1\nN: 2\n}{\n@set(voices.gap=2em)\nN: 3\nN: 4\n}`,
+    ]) {
+        const sameLine = compileScore(pair);
+        assert(sameLine.diagnostics.some(item => item.code === "W_VOICES_GAP_CONFLICT"), pair);
+        const [u1, l1, u2, l2] = sameLine.layout.objects.filter(object => object.box.h > 0);
+        assert(u1.track === u2.track && l1.track === l2.track
+            && nearly(u1.box.y, u2.box.y) && nearly(l1.box.y, l2.box.y)
+            && nearly(l1.box.y - (u1.box.y + u1.box.h), 440), pair);
+    }
+});
+
 test("空声部保留一个默认高度的槽位并参与居中", () => {
     const emptyVoice = drawn(`1 @voices(@voice({}), @voice({3})) 4`);
-    assert(axisOf(emptyVoice[1]) > axisOf(emptyVoice[0]),
-        "an empty first voice must still occupy a slot and push the remaining voice below the host axis");
+    const namedEmpty = drawn(`1 @voices(@voice({}, A), @voice({3}, B)) 4`).filter(node => !node.T.isZero());
+    assert(axisOf(emptyVoice[1]) > axisOf(emptyVoice[0])
+        && nearly(axisOf(namedEmpty[1]), axisOf(emptyVoice[1])),
+        "an empty first voice (with or without a name) must occupy a full default slot");
 });
 
 test("成员数相同的块共用音轨，不同的各自占轨", () => {

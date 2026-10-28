@@ -12,10 +12,14 @@ import ScoreExample from "../../../../components/ScoreExample.astro";
 ## 多声部
 在单声部 `@voice` 的基础上，使用 `@voices` 包裹多个 `@voice`，即可让多个声部并行：
 ```jpfun
-@voices(@voice(...), @voice(...), ..., connect="[-]")
+@voices(
+    @voice(...), @voice(...), ...,
+    connect="[-]",
+    gap=0.75em, minGap=0.35em
+)
 ```
 
-`@voices`（别名 `@vs`）的每个**位置参数**都必须是 `@voice`。它们从同一时刻开始，各自按自己的节奏推进，并按书写顺序从上到下排列。两个以上声部默认用左侧的细连谱线和带钩括线连接；后面的仅命名参数 `connect` 用来设置连谱号，后文将详细展开。
+`@voices`（别名 `@vs`）的每个**位置参数**都必须是 `@voice`。它们从同一时刻开始，各自按自己的节奏推进，并按书写顺序从上到下排列。两个以上声部默认用左侧的细连谱线和带钩括线连接；后面的仅命名参数 `connect` 用来设置连谱号，`gap` 和 `minGap` 分别设置相邻声部主旋律的标准间距与顶部外扩借用间距后的最小净空。
 
 export const voicesFunctionExample = `\
 @voices(

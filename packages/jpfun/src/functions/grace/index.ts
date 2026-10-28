@@ -46,8 +46,12 @@ type GraceSide = "pre" | "post";
  * 所以只能在此刻回头改。这发生在 parse 进行中，不违反「AST parse 后只读」。
  */
 function scaleFontSize(node: ASTNodeBase, factor: number) {
-    const sized = node as { size?: number };
+    const sized = node as { size?: number; gap?: number; minGap?: number; aboveGaps?: number[]; belowGaps?: number[] };
     if (typeof sized.size === "number") sized.size *= factor;
+    if (typeof sized.gap === "number") sized.gap *= factor;
+    if (typeof sized.minGap === "number") sized.minGap *= factor;
+    sized.aboveGaps?.forEach((_, i, a) => a[i] *= factor);
+    sized.belowGaps?.forEach((_, i, a) => a[i] *= factor);
     for (const child of node.children ?? []) scaleFontSize(child, factor);
 }
 

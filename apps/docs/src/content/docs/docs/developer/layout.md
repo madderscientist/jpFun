@@ -105,15 +105,27 @@ place(root, -ext.top)
 
 `measure` 决定组内成员的相对位置，可以先对所有分组完成测量。可选的 `place` 则等到宿主占用完整后，再决定整组平移多少。两者都由分组声明，引擎只负责递归和合并，不需要识别 stack 或 voices。
 
-行高取全行纵向占用的并集，不会根据对象在横向上是否错开来进一步压缩。即使某个逻辑行没有主体，attachment 也可以通过 `line + track` 为它申请纵向空间。
-
 如果 `measure` 和 `place` 需要共享测量中间值，应在 Lowering 时为本轮创建策略，并把状态保存在本轮对象上，不能通过 AST 中的闭包跨轮复用。`head` 的两侧底边对齐就采用这种方式。
+
+### 行距与声部间距
+
+简谱中，音符下半部分、减时线、低音点与歌词均位于轨道视觉轴（基线）下方，构成下边界 `bottom`；连音线（`@tie`）、上八度点、`^` 叠加对象、倚音、`@tuplet`、`@volta` 等局部凸出物位于基线上方。
+
+行距与声部间距以**上一单元下沿 `bottom` 到下一单元主旋律上沿（`axis - size / 2`）**为基准，同时保证完整外接边界之间至少留出 $\text{minClearance} = \min(\text{gap}, \text{minGap})$：
+
+- **声部间距（`@voices(gap=0.75em, minGap=0.35em)`）**：相邻声部 $i-1$ 与 $i$ 的视觉轴间距为：
+  $$\Delta y = \text{ext}_{i-1}.\text{bottom} + \max(\text{gap} + \text{size}/2,\ \text{minClearance} - \text{ext}_i.\text{top})$$
+- **谱面行距（`@page(gap=1em, minGap=0.5em)`）**：设第 $i$ 行顶部高出最高主旋律上沿的外扩量为 $\text{headroom}_i = \min(\text{axis} - \text{size}/2)$，则该行与上一行完整盒之间的实际间距为：
+  $$\text{gap}_i = \max(\text{lineGap} - \text{headroom}_i,\ \text{minClearance})$$
+  当 $\text{headroom}_i \le \text{lineGap} - \text{minClearance}$ 时，外扩量在行高与 $\text{gap}_i$ 中抵消，两行主旋律间距保持为 `lineGap`；超出时保留 `minClearance`。
+
+行高与行距均按整行一维区间求解，不根据横向空隙交错压缩。即使某个逻辑行没有主体，attachment 也可以通过 `line + track` 为它申请纵向空间。
 
 ### 分页
 
-`page.ts` 接收自然行高和可选的强制分页数组，返回页面边界和每行的全局顶部 `lineTops`，不读取 Track 或具体对象。数组按行号索引：`undefined` 不强制分页，`true` / `false` 强制分页并指定上一页是否分配余白。
+`page.ts` 接收每行完整高度 `heights`、可选强制分页数组 `pageBreaks` 与每行顶部外扩 `headrooms`，返回页面边界和每行完整盒的全局顶部 `lineTops`，不读取 Track 或具体对象。`pageBreaks` 按行号索引：`undefined` 不强制分页，`true` / `false` 强制分页并指定上一页是否分配余白。
 
-`@page` 的长度在解析时换算为 px。内容宽度等于页宽减去左右边距；`height <= 0` 表示无限高，有限页面则至少需要容纳一行。排满的非末页保持首行贴上边距，扣除最小行距后，将剩余高度均分到每个系统下方。末页保留自然行距。
+`@page` 的长度在解析时换算为 px。内容宽度等于页宽减去左右边距；`height <= 0` 表示无限高，有限页面则至少需要容纳一行。页面首行上沿与末行下沿均按完整高度 `height` 贴合上下边距，确保首行顶部的连音线或跳房子不会越出上边距。排满的非末页扣除各行 `height` 与实际行距 $\text{gap}_{i,i+1}$ 后，将剩余高度均分到每个系统下方；末页保留自然行距。
 
 `@pagebreak(justify=true)`（别名 `@pb`）产生不可见控制事件，在类型化 addon 中声明 `{ breakBefore: 1, pageBreakBefore: justify }`，复用换行合列规则。核心只识别通用字段，不依赖函数名称或 AST 类。拆行时直接收集分页数组，同一边界的 `justify` 用逻辑与合并，即 `false` 优先。新开的尾行即使没有可见主体也保留，保证开头、连续和末尾调用的空白页语义。
 

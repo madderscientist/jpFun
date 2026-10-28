@@ -3,13 +3,16 @@ import { test } from "node:test";
 
 import { divLinePortName } from "../src/functions/div/index.js";
 import { GraceTemporal } from "../src/functions/grace/index.js";
+import { getLayoutBounds, layoutDocument } from "../src/layout/engine.js";
 import type { LayoutBox } from "../src/layout/types.js";
 import type { VisualTemporalNode } from "../src/functions/temporal.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import {
     assert,
     attachmentCommands,
+    compileValid,
     expectLoweringError,
+    layoutContext,
     layoutOf,
     lower,
     nearly,
@@ -54,6 +57,27 @@ test("倚音比宿主小一级字号，坐在宿主基线之上的左侧", () =>
         "a grace note must be exactly one scale step smaller than its host");
     assert(graceText.y < hostText.y, "a grace note must sit above the host baseline");
     assert(graceText.x < hostText.x, "a pre-grace must sit left of the host");
+});
+
+test("倚音中的上下堆叠间距随字号逐层缩放，重复布局不累积", () => {
+    for (const [settings, content, gaps] of [
+        ["", "1_2^3_4^5", [22 * 0.12, 22 * 0.12, 22 * 0.12, 22 * 0.12]],
+        ["@set(up.gap=12px,down.gap=9px)", "1_2^3_4^5", [12, 12, 9, 9]],
+        ["", "@down(@up(@up(1,3,gap=10px),5,gap=0.2em),2,4,gap=9px)", [10, 22 * 0.2, 9, 9]],
+    ] as const) {
+        for (const [wrapped, depth] of [[content, 0], [`@grace(6,{${content}})`, 1], [`{${content}}>6>7`, 2]] as const) {
+            const source = `${settings} ${wrapped}`;
+            const result = compileValid(source);
+            let node = result.layout.objects[0];
+            while (node instanceof GraceTemporal) node = node.graces[0];
+            const [host, above, top, below, bottom] = (node as VisualTemporalNode & {
+                members: readonly VisualTemporalNode[];
+            }).members.map(member => getLayoutBounds(member));
+            const actual = [host.y - above.y - above.h, above.y - top.y - top.h, below.y - host.y - host.h, bottom.y - below.y - below.h];
+            actual.forEach((gap, i) => assert(nearly(gap, gaps[i] * 0.7 ** depth), `${source}: ${gap}`));
+            deepStrictEqual(recordCommands(layoutDocument(result.lowering, layoutContext)), recordCommands(result.layout), source);
+        }
+    }
 });
 
 // 倚音默认就是八分音符，因此裸写也会有一条减时线；再写一个 '/' 变成十六分

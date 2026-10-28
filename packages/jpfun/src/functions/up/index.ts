@@ -1,6 +1,6 @@
-import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { FunctionDef, ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, type LengthValue } from "../ASTtypes.js";
 import { ParserContext } from "../../parser/parserContext.js";
-import { GrammarNode, GrammarSugarNode, type CallArgumentInfo } from "../../parser/grammarType.js";
+import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import {
     ANCHOR_KEY,
@@ -40,6 +40,32 @@ import type { PlaybackEmitter } from "../../playback/types.js";
 
 type FoldSide = "above" | "below";
 
+const FOLD_ARGS = [{
+    name: "gap",
+    namedOnly: true,
+    type: "length" as const,
+    default: { value: 0.12, unit: "em" as const },
+    description: "相邻堆叠成员之间的间距",
+}];
+
+function formatStack(
+    fn: "up" | "down",
+    host: string,
+    members: readonly ASTNodeBase[],
+    gaps: readonly number[],
+    source: string,
+): string {
+    let result = host;
+    for (let start = 0; start < members.length;) {
+        const gap = gaps[start];
+        let end = start + 1;
+        while (end < members.length && gaps[end] === gap) end++;
+        const items = members.slice(start, end).map(item => item.toString(source));
+        result = `@${fn}(${[result, ...items, `gap=${gap}px`].join(", ")})`;
+        start = end;
+    } return result;
+}
+
 /**
  * `@up` / `@down` 共用的折叠容器，不导出
  *
@@ -52,7 +78,10 @@ class FoldFunction extends ASTFunctionNode {
 
     contents: ASTNodeBase[] = [];
     belows: ASTNodeBase[] = [];
-    size: number;   // 用于计算 gap
+    aboveGaps: number[] = [];
+    belowGaps: number[] = [];
+    size: number;
+    gap: number;
 
     /** 静态而不是实例字段：子类的字段初始化器晚于基类构造器，构造期读不到 */
     private get side(): FoldSide { return (this.constructor as typeof FoldFunction).side; }
@@ -64,15 +93,13 @@ class FoldFunction extends ASTFunctionNode {
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
         this.size = ctx.variables.fontsize;
-        for (const [, value] of args) {
-            if (value instanceof ASTNodeBase) {
-                this.addContent(value, this.side, ctx);
-                continue;
-            }
-            const c = ctx.parseArgWithType((value as CallArgumentInfo).valueSpan, "content", span.start);
-            if (c !== null) {
-                this.addContent(c as ASTNodeBase, this.side, ctx);
-            }
+        const [gap] = this.getArgValue(args, ctx) as [LengthValue];
+        this.gap = ctx.length2px(gap);
+        if (!Number.isFinite(this.gap) || this.gap < 0) {
+            throw new ErrorDiagnostic("E_INVALID_FOLD_GAP", "@{fn} 的 gap 必须是非负有限长度", span, { fn: this.callName });
+        }
+        for (const [key, value] of args) {
+            if (typeof key === "number") this.addContent(value as ASTNodeBase, this.side, ctx);
         }
     }
 
@@ -82,10 +109,16 @@ class FoldFunction extends ASTFunctionNode {
     }
 
     /** 遇到另一个折叠体就展平到自己身上；返回 this 只是为了链式写法 */
-    addContent(node: ASTNodeBase, side: FoldSide, ctx: ParserContext): FoldFunction {
+    addContent(node: ASTNodeBase, side: FoldSide, ctx: ParserContext, gap: number = this.gap): FoldFunction {
         if (this.contents.length === 0) side = "above"; // 还没有宿主，来者即宿主
-        if (node instanceof FoldFunction) return this.flatten(node, side, ctx);
-        (side === "above" ? this.contents : this.belows).push(node);
+        if (node instanceof FoldFunction) return this.flatten(node, side, ctx, gap);
+        if (side === "above") {
+            if (this.contents.length > 0) this.aboveGaps.push(gap);
+            this.contents.push(node);
+        } else {
+            this.belowGaps.push(gap);
+            this.belows.push(node);
+        }
         node.parent = this;
         this.growSpan(node.sourceSpan);
         return this;
@@ -114,16 +147,16 @@ class FoldFunction extends ASTFunctionNode {
                 members.push(member);
             }
         });
-
         return [new FoldTemporal(this, members)];
     }
 
     /** 混写方向时输出等价的嵌套形式，hover 的替换按钮才能生成合法代码 */
     override toString(source: string) {
-        const above = this.contents.map(c => c.toString(source));
-        if (this.belows.length === 0) return `@up(${above.join(", ")})`;
-        const host = above.length > 1 ? `@up(${above.join(", ")})` : above[0];
-        return `@down(${[host, ...this.belows.map(c => c.toString(source))].join(", ")})`;
+        if (this.contents.length <= 1 && this.belows.length === 0) {
+            return `@${this.callName}(${[...this.contents.map(c => c.toString(source)), `gap=${this.gap}px`].join(", ")})`;
+        }
+        const up = formatStack("up", this.contents[0].toString(source), this.contents.slice(1), this.aboveGaps, source);
+        return formatStack("down", up, this.belows, this.belowGaps, source);
     }
 
     /**
@@ -134,20 +167,22 @@ class FoldFunction extends ASTFunctionNode {
      *
      * 被掏空的一方必须撤销候选登记：空壳已不在 AST 里，留在表中会让 @tie() 取到孤儿端点。
      */
-    private flatten(drop: FoldFunction, side: FoldSide, ctx: ParserContext): FoldFunction {
+    private flatten(drop: FoldFunction, side: FoldSide, ctx: ParserContext, gap: number = this.gap): FoldFunction {
         // 成员顺序跟随源码；比较必须在 growSpan 之前
         const front: FoldFunction = drop.sourceSpan.start < this.sourceSpan.start ? drop : this;
         const back: FoldFunction = front === drop ? this : drop;
         const [backHost, ...backAbove] = back.contents;
+        const hasHost = front.contents.length > 0;
         const demoted = backHost ? [backHost] : [];
-        const contents = [...front.contents, ...(side === "above" ? demoted : []), ...backAbove];
-        const belows = [...front.belows, ...(side === "below" ? demoted : []), ...back.belows];
-        this.contents = contents;
-        this.belows = belows;
+        const demotedGap = hasHost && backHost ? [gap] : [];
+        const above = !hasHost || side === "above";
+        this.contents = [...front.contents, ...(above ? demoted : []), ...backAbove];
+        this.belows = [...front.belows, ...(!above ? demoted : []), ...back.belows];
+        this.aboveGaps = [...front.aboveGaps, ...(above ? demotedGap : []), ...back.aboveGaps];
+        this.belowGaps = [...front.belowGaps, ...(!above ? demotedGap : []), ...back.belowGaps];
         for (const c of this.children) c.parent = this;
         this.growSpan(drop.sourceSpan);
-        drop.contents = [];
-        drop.belows = [];
+        drop.contents.length = drop.belows.length = drop.aboveGaps.length = drop.belowGaps.length = 0;
         const stale = ctx.labelableNodes.lastIndexOf(drop);
         if (stale >= 0) ctx.labelableNodes.splice(stale, 1);
         return this;
@@ -163,24 +198,31 @@ class FoldFunction extends ASTFunctionNode {
         if (!(n.kind === "sugar" && n.data === this)) return null;
         const label = this.side === "above" ? "@up" : "@down";
         const leftNode = ctx.takeLeftOperand();
-        if (!leftNode) {
-            throw new ErrorDiagnostic("E_FOLD_NO_TARGET", "{fn}语法糖错误: 左边没有找到可叠加的目标", n.span, { fn: label });
-        }
+        if (!leftNode) throw new ErrorDiagnostic(
+            "E_FOLD_NO_TARGET",
+            "{fn}语法糖错误: 左边没有找到可叠加的目标",
+            n.span, { fn: label }
+        );
+        const wrapper = new this({ ...n.span }, new Map(), ctx);
         const host = leftNode instanceof FoldFunction
             ? leftNode
-            : new this(n.span, new Map(), ctx).addContent(leftNode, "above", ctx);
+            : wrapper.addContent(leftNode, "above", ctx);
         const next = ctx.consumeRightOperand(nodes, at, right => {
             // 右操作数可能已被 @tie() 等按引用取走（它就在刚才解析的剩余里），
             // 而新建的左包装无人引用，所以合并时让右边存活；接收者就是存活的那一方
             const merged = right instanceof FoldFunction
-                ? right.flatten(host, this.side, ctx)
-                : host.addContent(right, this.side, ctx);
+                ? right.flatten(host, this.side, ctx, wrapper.gap)
+                : host.addContent(right, this.side, ctx, wrapper.gap);
             // 语法糖不走 pushNode，这里补登记；null 同样入表，和显式调用一样成为边界
             ctx.labelableNodes.push(merged.labelable());
             return merged;
         });
         if (next !== null) return next;
-        throw new ErrorDiagnostic("E_FOLD_NO_TARGET", "{fn}语法糖错误: 右边没有找到可叠加的目标", n.span, { fn: label });
+        throw new ErrorDiagnostic(
+            "E_FOLD_NO_TARGET",
+            "{fn}语法糖错误: 右边没有找到可叠加的目标",
+            n.span, { fn: label }
+        );
     }
 }
 
@@ -192,15 +234,15 @@ class UpFunction extends FoldFunction {
         description: "把同一时间位置的可见对象向上堆叠",
         details: `\
 ~~~jpfun
-@up(1, 3, 5)
+@up(1, 3, 5, gap=0.12em)
 ~~~
 
-第一个内容参数为宿主，其余依次叠在上方；所有成员共享宿主时值。常用于和弦、速度记号和音符注释。
+第一个内容参数为宿主，其余依次叠在上方；所有成员共享宿主时值。仅命名参数 \`gap\` 指定相邻成员的间距。常用于和弦、速度记号和音符注释。
 
 **简写**：\`1 ^ 3 ^ 5\`。复杂内容可用 \`{...}\` 包裹；需要独立节奏的并行分支时，使用 \`&\` / \`@stack\`。`,
         allowExtraArgs: true,
         extraArgType: "content" as const,
-        args: [],
+        args: FOLD_ARGS,
     };
 
     static override deSugarAtom(source: string, start: number, _end: number) {
@@ -222,14 +264,14 @@ class DownFunction extends FoldFunction {
         description: "把同一时间位置的可见对象向下堆叠",
         details: `\
 ~~~jpfun
-@down(1, $p)
+@down(1, $p, gap=0.12em)
 ~~~
-第一个内容参数为宿主，其余依次叠在下方并共享其时值，常用于力度等下方标记。
+第一个内容参数为宿主，其余依次叠在下方并共享其时值，仅命名参数 \`gap\` 指定相邻成员的间距，常用于力度等下方标记。
 
 **简写**：\`1 _ $p\`。与 \`^\` 混写时共用同一宿主：\`1^2_3\` 将 \`2\` 放在 \`1\` 上方、\`3\` 放在下方。`,
         allowExtraArgs: true,
         extraArgType: "content" as const,
-        args: [],
+        args: FOLD_ARGS,
     };
 
     static override deSugarAtom(source: string, start: number, _end: number) {
@@ -319,8 +361,7 @@ class FoldTemporal extends TemporalNodeBase {
                     if (!member.T.isZero()) member.T.copyFrom(this.T);
                 }
             }
-        }
-        return offset;
+        } return offset;
     }
 
     override emitPlayback(emitter: PlaybackEmitter) {
@@ -356,7 +397,6 @@ class FoldTemporal extends TemporalNodeBase {
         // 横向完全等于宿主：上下的标记（变速、注释、力度）常常比音符宽得多，
         // 让它们撑宽盒子会把右邻推开一大截；它们画在基线外侧，伸出盒外也不会碰撞
         const anchor = first.box.x + first.box.anchor;
-        const gap = this.ast.size * 0.12;
         this.verticalOffsets.length = this.members.length;
         this.verticalOffsets[0] = 0;
 
@@ -364,12 +404,14 @@ class FoldTemporal extends TemporalNodeBase {
         const firstBounds = getLayoutBounds(first);
         let top = firstBounds.y;
         for (let i = 1; i < this.aboveCount; i++) {
+            const gap = this.ast.aboveGaps[i - 1];
             const bounds = getLayoutBounds(this.members[i]);
             this.verticalOffsets[i] = top - gap - bounds.y - bounds.h;
             top -= gap + bounds.h;
         }
         let bottom = firstBounds.y + firstBounds.h;
         for (let i = this.aboveCount; i < this.members.length; i++) {
+            const gap = this.ast.belowGaps[i - this.aboveCount];
             const bounds = getLayoutBounds(this.members[i]);
             this.verticalOffsets[i] = bottom + gap - bounds.y;
             bottom += gap + bounds.h;

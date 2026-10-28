@@ -1,4 +1,4 @@
-import { ASTNodeBase, ASTBraceNode, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode } from "../ASTtypes.js";
+import { ASTNodeBase, ASTBraceNode, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, ASTTextNode, type LengthValue } from "../ASTtypes.js";
 import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { findRightParen } from "../../parser/parse-utils/call-utils.js";
 import { findClosingQuote, quote } from "../../parser/parse-utils/string-utils.js";
@@ -60,20 +60,27 @@ function splitLyricText(text: string) {
  * 本行没有实质高度的成员（空声部，或内容都在上一行）仍然占一个默认高度的槽位，
  * 声部数量因而保持稳定，居中结果也不会因为某一声部没写东西而跳变。
  */
-function makeVoicesMeasure(emptySlotHeight: number): MeasureFn {
-    const half = emptySlotHeight / 2;
-    return (members, gap) => {
-        const extents: Extent[] = members.map(member =>
-            member && member.bottom - member.top > 1e-6 ? member : { top: -half, bottom: half });
-        const offsets: number[] = [];
-        let y = 0;
-        for (let i = 0; i < extents.length; i++) {
-            if (i > 0) y += extents[i - 1].bottom + gap - extents[i].top;
-            offsets.push(y);
-        }
-        const center = (offsets[0] + offsets[offsets.length - 1]) / 2;
-        return offsets.map((offset, i) => ({ offset: offset - center, extent: extents[i] }));
-    };
+type VoicesMeasure = MeasureFn & { size: number; gap: number; minGap: number };
+
+function makeVoicesMeasure(size: number, gap: number, minGap: number): VoicesMeasure {
+    const measure: VoicesMeasure = Object.assign(
+        (members: readonly (Extent | null)[]) => {
+            const half = measure.size / 2;
+            const floor = Math.min(measure.gap, measure.minGap);
+            const extents: Extent[] = members.map(member =>
+                member ? { top: Math.min(member.top, -half), bottom: Math.max(member.bottom, half) } : { top: -half, bottom: half });
+            const offsets: number[] = [];
+            let y = 0;
+            for (let i = 0; i < extents.length; i++) {
+                if (i > 0) y += extents[i - 1].bottom + Math.max(measure.gap + half, floor - extents[i].top);
+                offsets.push(y);
+            }
+            const center = (offsets[0] + offsets[offsets.length - 1]) / 2;
+            return offsets.map((offset, i) => ({ offset: offset - center, extent: extents[i] }));
+        },
+        { size, gap, minGap },
+    );
+    return measure;
 }
 
 class VoiceFunction extends ASTFunctionNode {
@@ -487,7 +494,8 @@ class VoicesFunction extends ASTFunctionNode {
 \`[]\` 是现有括线，\`{}\` 是弯曲大括号；编号从 1 开始，省略起点/终点表示首/末声部。
 \`[3]\` 等价于 \`[3-3]\`，\`{3}\` 等价于 \`{3-3}\`，用于单个声部。
 默认 \`"[-]"\` 连接全部声部；\`""\` 只保留公共细连谱线。未指定的声部仍有细线，范围可以重叠，不改变声部或播放关系。
-用 \`@set(voices.connect="{1-2}[3-]")\` 设置后续多声部块的默认方案，显式参数写在所有声部之后。
+仅命名参数 \`gap\` 指定相邻声部主旋律之间的标准间距（默认 \`0.75em\`），\`minGap\` 指定顶部外扩图形借用间距后保留的最小间距（默认 \`0.35em\`）。
+用 \`@set(voices.connect="{1-2}[3-]", voices.gap=1em, voices.minGap=0.5em)\` 设置后续多声部块的默认方案，显式参数写在所有声部之后。
 
 **简写**：连续声明多个 \`N:\` 声部及其 \`L:\` 歌词，会自动组成 \`voices\`
 
@@ -511,13 +519,29 @@ N(女低): 1 2 3
 ~~~`,
         allowExtraArgs: true,
         extraArgType: "content" as const,
-        args: [{
-            name: "connect",
-            namedOnly: true,
-            type: "string" as const,
-            default: "[-]",
-            description: '视觉连接：[1-4] 为现有括线，{5-7} 为弯曲大括号；[3]、{3} 表示单个声部，省略范围端点表示首/末声部，空字符串只保留公共连谱线。',
-        }]
+        args: [
+            {
+                name: "connect",
+                namedOnly: true,
+                type: "string" as const,
+                default: "[-]",
+                description: '视觉连接：[1-4] 为现有括线，{5-7} 为弯曲大括号；[3]、{3} 表示单个声部，省略范围端点表示首/末声部，空字符串只保留公共连谱线。',
+            },
+            {
+                name: "gap",
+                namedOnly: true,
+                type: "length" as const,
+                default: { value: 0.75, unit: "em" as const },
+                description: "相邻声部主旋律之间的标准间距",
+            },
+            {
+                name: "minGap",
+                namedOnly: true,
+                type: "length" as const,
+                default: { value: 0.35, unit: "em" as const },
+                description: "声部间距的最小间距",
+            },
+        ]
     };
 
     static override deSugarAtom(source: string, start: number, end: number) {
@@ -592,16 +616,19 @@ N(女低): 1 2 3
 
     voices: VoiceFunction[];
     createdBySugar: boolean = false;    // 不同创建方式的不能合并
-    readonly size: number;              // parse 期冻结的字号，px
-    /** 声部名右侧为大括号预留的横向空间 */
-    readonly braceSpace: number;
+    size: number;                       // parse 期冻结的字号，px
+    gap: number;                        // 相邻声部主旋律之间的标准间距，px
+    minGap: number;                     // 顶部外扩借用间距后保留的最小间距，px
     private readonly connect: string;
+    /** 声部名右侧为大括号预留的横向空间 */
+    get braceSpace() {
+        return Math.max(this.size,
+            (MIN_CONNECTOR_STEM * (BRACKET_HOOK_REACH + 0.5) + 0.5) / (1 - CONNECTOR_LABEL_GAP_RATIO));
+    }
     // 收集阶段只冻结配置，避免提前校验随后会被 V 声明覆盖的默认值。
     private get connectionSpecs(): ConnectionSpec[] {
         return parseConnections(this.connect, this.sourceSpan);
     }
-    /** 闭包捕获 parse 期冻结的字号，用来决定空声部槽位的默认高度（1em） */
-    private readonly measure: MeasureFn;
     override get children() { return this.voices; }
     override timeFlowModel() {
         return {
@@ -610,17 +637,31 @@ N(女低): 1 2 3
             tracks: {
                 laneKey: `voices/${this.voices.length}`,
                 hostIndex: null,    // 宿主不是成员：第一个 voice 也必须拥有独立轨道
-                measure: this.measure,
+                measure: makeVoicesMeasure(this.size, this.gap, this.minGap),
             },
         };
     }
 
-    /** 退出时按本块各声部的名称事件注册左侧连谱号 */
-    override loweringExit(ctx: LoweringContext) {
+    /** 退出时按本块各声部的名称事件注册左侧连谱号，并合并同一组音轨的间距配置 */
+    override loweringExit(ctx: LoweringContext, track: Track) {
         const connections = resolveConnections(this.connectionSpecs, this.voices.length, this.sourceSpan);
         if (this.voices.length >= 2) {
             const names = this.voices.map(voice => ctx.getTemporalNodes(voice)[0] as VoiceNameTemporal);
             ctx.addAttachment(new VoicesBraceAttachment(names, this, connections));
+        }
+        const laneKey = `voices/${this.voices.length}`;
+        const measure = track.groups.find(group => group.laneKey === laneKey)?.measure as VoicesMeasure | undefined;
+        if (measure) {
+            if (this.voices.length >= 2 && (Math.abs(measure.gap - this.gap) > 1e-6 || Math.abs(measure.minGap - this.minGap) > 1e-6)) {
+                ctx.diagnostics.push(new WarningDiagnostic(
+                    "W_VOICES_GAP_CONFLICT",
+                    "相同声部数的 @voices 共用音轨但设置了不同的间距，将取较大值",
+                    this.sourceSpan,
+                ));
+            }
+            measure.size = Math.max(measure.size, this.size);
+            measure.gap = Math.max(measure.gap, this.gap);
+            measure.minGap = Math.max(measure.minGap, this.minGap);
         }
         return [];
     }
@@ -629,32 +670,31 @@ N(女低): 1 2 3
         super(span, parent);
         this.voices = [];
         this.size = ctx.variables.fontsize;
-        // 端钩有最小线宽，极小字号也要给它保留足够的横向空间
-        this.braceSpace = Math.max(ctx.variables.fontsize,
-            (MIN_CONNECTOR_STEM * (BRACKET_HOOK_REACH + 0.5) + 0.5) / (1 - CONNECTOR_LABEL_GAP_RATIO));
-        this.measure = makeVoicesMeasure(ctx.variables.fontsize);
-        [this.connect] = this.getArgValue(args, ctx) as [string];
-        for (const [key, value] of args) {
-            if (key === "connect") continue;
-            const valueSpan = value instanceof ASTNodeBase ? value.sourceSpan : (value as CallArgumentInfo).valueSpan;
-            const voice = value instanceof ASTNodeBase ? value : ctx.parseArgWithType(valueSpan, "content", span.start);
-            if (!(voice instanceof VoiceFunction)) {
-                throw new ErrorDiagnostic(
-                    "E_VOICES_INVALID_CHILD",
-                    "@voices 的参数必须是 @voice 函数，但发现了其他类型 {actual}",
-                    valueSpan,
-                    { actual: String(voice?.constructor.name) },
-                );
-            }
-            this.addVoice(voice);
-        }
-        if (this.voices.length === 0) {
+        const [connect, gap, minGap] = this.getArgValue(args, ctx) as [string, LengthValue, LengthValue];
+        this.connect = connect;
+        this.gap = ctx.length2px(gap);
+        this.minGap = ctx.length2px(minGap);
+        if (!Number.isFinite(this.gap) || this.gap < 0 || !Number.isFinite(this.minGap) || this.minGap < 0)
             throw new ErrorDiagnostic(
-                "E_VOICES_EMPTY",
-                `@voices 必须至少包含一个 @voice 函数`,
+                "E_INVALID_VOICES_GAP",
+                "@voices 的 gap 和 minGap 必须是非负有限长度",
                 span
             );
+        for (const [key, value] of args) {
+            if (typeof key === "string") continue;
+            if (!(value instanceof VoiceFunction)) throw new ErrorDiagnostic(
+                "E_VOICES_INVALID_CHILD",
+                "@voices 的参数必须是 @voice 函数，但发现了其他类型 {actual}",
+                (value as ASTNodeBase).sourceSpan,
+                { actual: String(value?.constructor.name) },
+            );
+            this.addVoice(value);
         }
+        if (this.voices.length === 0) throw new ErrorDiagnostic(
+            "E_VOICES_EMPTY",
+            `@voices 必须至少包含一个 @voice 函数`,
+            span
+        );
     }
 
     addVoice(v: VoiceFunction) {
@@ -666,7 +706,11 @@ N(女低): 1 2 3
 
     toString(source: string) {
         const parameters = this.voices.map(voice => `\t${voice.toString(source)}`);
-        parameters.push(`\tconnect=${quote(serializeConnections(this.connectionSpecs))}`);
+        parameters.push(
+            `\tconnect=${quote(serializeConnections(this.connectionSpecs))}`,
+            `\tgap=${this.gap}px`,
+            `\tminGap=${this.minGap}px`,
+        );
         return `@voices(\n${parameters.join(",\n")}\n)`;
     }
 }
@@ -1007,7 +1051,6 @@ class VoiceLyricsAttachment implements LayoutAttachment {
                 line: labelLine,
                 track: labelBaseline.owner,
             });
-        }
-        return preparedText;
+        } return preparedText;
     }
 }

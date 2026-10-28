@@ -133,6 +133,7 @@ test("非法页面参数指向它的声明，非正高度固化为无限", () =>
     for (const source of [
         `@page(top=-1px) 1`,
         `@page(gap=-1px) 1`,
+        `@page(minGap=-1px) 1`,
         `@page(bottom=15px, numbering="1") 1`,
     ]) {
         expectCompileError(source, "E_INVALID_PAGE_CONFIG");
@@ -145,8 +146,9 @@ test("非法页面参数指向它的声明，非正高度固化为无限", () =>
         deepStrictEqual(result.layout.pages, naturalPages, "a non-positive page height must use natural-height layout");
     }
 
-    const emPageResult = compileScore(`@set(fontsize=30) @page(gap=1em) 1`);
-    assert(emPageResult.lowering.page?.lineGap === 30, "page gap em must solidify using the parse-time font size");
+    const emPageResult = compileScore(`@set(fontsize=30) @page(gap=1em, minGap=0.5em) 1`);
+    assert(emPageResult.lowering.page?.lineGap === 30 && emPageResult.lowering.page?.minLineGap === 15,
+        "page gap and minGap em must solidify using the parse-time font size");
 });
 
 test("有限高度的页面把系统分页并分配行间距", () => {

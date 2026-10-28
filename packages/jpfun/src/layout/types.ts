@@ -62,7 +62,8 @@ export interface PageConfig {
     marginBottom: number;
     marginLeft: number;
     marginRight: number;
-    lineGap: number;     // 相邻谱面行之间的最小空隙
+    lineGap: number;     // 相邻谱面行主旋律之间的标准空隙
+    minLineGap: number;  // 顶部外扩借用行距后保留的最小空隙
     fillRatio: number;   // 自然宽度达到版心比例后撑满
 }
 

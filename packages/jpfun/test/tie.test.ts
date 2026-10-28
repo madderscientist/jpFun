@@ -429,3 +429,37 @@ test("跨页连音线每个逻辑系统一段，几何保持有限", () => {
         "a cross-page tie must retain one segment per logical system");
     assert(Object.values(crossPageTieAttachment.box).every(Number.isFinite), "cross-page tie geometry must stay finite");
 });
+
+test("普通连音线与八度点借用行间留白不拉大行距，超高外扩按 minGap 保底推开", () => {
+    const plain = layoutOf(`1 2 3 4 @br() 1 2 3 4`);
+    const line0Bottom = plain.objects[0].box.y + plain.objects[0].box.h;
+    const line1Axis = (layout: typeof plain) => {
+        const node = layout.objects.find(item => item.layoutLine === 1 && !item.T.isZero())!;
+        return node.box.y + node.box.visualAxis;
+    };
+    for (const source of [
+        `1 2 3 4 @br() 1@a 2@b 3 4 @tie(a,b)`,
+        `1 2 3 4 @br() 1'' 2 3 4`,
+        `1 2 3 4 @br() 1 ^ $tenuto 2 3 4`,
+    ]) {
+        assert(nearly(line1Axis(layoutOf(source)), line1Axis(plain)), `${source} must borrow lineGap without pushing line 1`);
+    }
+    for (const [source, minGap] of [
+        [`1 2 3 4 @br() 1 ^ $fermata 2 3 4`, 11],
+        [`N: 1 2 3\n\nN: 1 2 3^4`, 11],
+        [`@page(gap=1em, minGap=0.8em)\nN: 1 2 3\n\nN: 1 2 3^4`, 22 * 0.8],
+    ] as const) {
+        const top = Math.min(...layoutOf(source).objects.filter(n => n.layoutLine === 1 && !n.T.isZero()).map(n => n.box.y));
+        assert(nearly(top - line0Bottom, minGap), `${source} must keep ${minGap}px minGap`);
+    }
+    assert(nearly(layoutOf(`1 2 3 4 @br() 1@a 2@b 3 4 @tie(a,b,height=30px)`).attachments[0].box.y - line0Bottom, 11),
+        "an oversized tie must keep the default 11px minGap");
+
+    // 歌词位于基线下方，行距从歌词底部算起；下一行的普通 tie 仍借用这段行距
+    const lyricPlain = layoutOf(`@voice({1 2}, , "甲 乙") @br() @voice({3 4})`);
+    const lyricTied = layoutOf(`@voice({1 2}, , "甲 乙") @br() @voice({3@a 4@b @tie(a,b)})`);
+    const lyricBox = lyricPlain.attachments[0].box;
+    assert(nearly(line1Axis(lyricPlain) - 11 - (lyricBox.y + lyricBox.h), 22)
+        && nearly(line1Axis(lyricTied), line1Axis(lyricPlain)),
+        "lyrics must preserve full lineGap below them while allowing next-line ties to borrow it");
+});

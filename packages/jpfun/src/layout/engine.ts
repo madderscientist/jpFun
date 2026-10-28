@@ -277,15 +277,23 @@ export function layoutDocument(
     /** 按当前主体与 attachment 占用求轴、分页并放置所有主体 */
     const placeVertically = () => {
         const heights: number[] = [];
+        const headrooms: number[] = [];
         const axes = lines.map((line, i) => {
             const solved = solveVerticalAxes(line, result.rootTrack, rowGaps[i]);
             heights.push(solved.height);
+            let top = Infinity;
+            for (const column of line.columns) {
+                for (const node of column) {
+                    top = Math.min(top, (solved.axes.get(node.track) ?? 0) - node.ast.size / 2);
+                }
+            }
+            headrooms.push(top < Infinity ? top : 0);
             return solved.axes;
         });
         let pages: DocumentLayoutPage[];
         let lineTops: number[];
         try {
-            ({ pages, lineTops } = paginateLayoutLines(heights, page, pageBreaks));
+            ({ pages, lineTops } = paginateLayoutLines(heights, page, pageBreaks, headrooms));
         } catch (error) {
             if (!(error instanceof PageLayoutError)) throw error;
             // 用溢出的元素的 span 构成 Error

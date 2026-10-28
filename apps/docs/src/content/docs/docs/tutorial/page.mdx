@@ -56,6 +56,7 @@ export const blankLineExample = `% 等价于 1 2 | @br() 3 4 |
     left=40px,
     right=40px,
     gap=1em,
+    minGap=0.5em,
     numbering="",
     barNumbering="",
     fillRatio=0.5
@@ -70,7 +71,8 @@ export const blankLineExample = `% 等价于 1 2 | @br() 3 4 |
 | `height` | 页面高度；小于等于 `0px` 表示不自动分页，页面随内容向下延长(仍可手动换页) |
 | `top`、`bottom` | 上、下边距 |
 | `left`、`right` | 左、右边距 |
-| `gap` | 相邻谱面行之间的最小间距，不是同一行中各个声部之间的距离 |
+| `gap` | 相邻谱面行主旋律之间的标准间距，不是同一行中各个声部之间的距离 |
+| `minGap` | 连音线、高音点、上叠音符等顶部外扩借用行距后，仍与上一行保留的最小间距（默认 `0.5em`） |
 | `numbering` | 页码格式，空字符串表示不显示页码 |
 | `barNumbering` | 从第二行起每行行首的小节号格式，如 `"1"` 或 `"(1)"`，空字符串表示不显示 |
 | `fillRatio` | 自然宽度达到多少倍版心宽度时横向撑满，默认 `0.5` |
