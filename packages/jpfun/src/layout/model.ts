@@ -23,7 +23,6 @@ export interface LayoutElement {
     WR: number;     // 右物理宽度
     margin_L: number;   // 无约束弹簧长度
     margin_R: number;
-    fake?: boolean; // 占位符标记
 }
 
 const MIN_DURATION = 0.01;
@@ -125,7 +124,7 @@ function fillPlaceholders(columns: LayoutElement[][], F: number = DEFAULT_F): {
             const rIdx = rowId[1];
             if (!sortedCol[rIdx]) {
                 // 保证 margin_L = mexLeft, margin_R = maxRight, 实际宽度为0
-                const elPlaceholder = layoutElement({
+                sortedCol[rIdx] = layoutElement({
                     alpha_L: maxLeft,
                     alpha_R: maxRight,
                 }, {
@@ -134,8 +133,6 @@ function fillPlaceholders(columns: LayoutElement[][], F: number = DEFAULT_F): {
                     // 后面不会修改，所以直接引用
                     t: colTime, T: new Fraction(1), track: rowId[0]
                 }, F);
-                elPlaceholder.fake = true;
-                sortedCol[rIdx] = elPlaceholder;
             }
         }
     } return { mat, rows };
@@ -411,7 +408,6 @@ export function layoutHorizontalRegion(
                         WR: span + right.WR,
                         margin_L: left.margin_L,
                         margin_R: right.margin_R,
-                        fake: left.fake && right.fake,
                     };
                 }));
             }
