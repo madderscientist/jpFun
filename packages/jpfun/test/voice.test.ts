@@ -620,3 +620,85 @@ L(row): so la
     const restored = compileValid(result.ast.toString(source), { variables: { strict: true } });
     deepStrictEqual(recordCommands(restored.layout), recordCommands(result.layout));
 });
+
+test("connect group names parse, validate and roundtrip with V sugar", () => {
+    deepStrictEqual(connectionSpecsOf('{1-2:钢琴}[ 3 - 4 : Mixed Choir 1 ]{-:总谱}[2:"Solo: [I]"]'), [
+        { kind: "brace", from: 1, to: 2, name: "钢琴" },
+        { kind: "bracket", from: 3, to: 4, name: "Mixed Choir 1" },
+        { kind: "brace", from: undefined, to: undefined, name: "总谱" },
+        { kind: "bracket", from: 2, to: 2, name: "Solo: [I]" },
+    ]);
+    for (const invalid of [
+        "{钢琴}", "{:钢琴}", "[合唱]", "[:合唱]", "{1-2:}", "{1-2:   }", '{1-2:""}',
+        "{1-2:钢琴", "[1-2:钢琴}", "{1-2:a:b}", '{1-2:"unclosed}', '{1-2:"\\u12"}', "{1-2}钢琴",
+    ]) {
+        expectDiagnostic(() => compileScore(`@voices(${fourVoices}, connect=${quote(invalid)})`, {
+            variables: { strict: true },
+        }), "E_VOICES_CONNECT");
+    }
+
+    const sugarSource = 'V{钢琴}:\nN(右手): 1 2\nN(左手): 3 4\nV["Mixed: [I]"]:\nN(女高): 5 6\nN(女低): 7 1';
+    const explicitSource = `@voices(@voice({1 2}, 右手), @voice({3 4}, 左手), @voice({5 6}, 女高), @voice({7 1}, 女低), connect=${quote('{1-2:钢琴}[3-4:"Mixed: [I]"]')})`;
+    const sugarResult = compileValid(sugarSource, { variables: { strict: true } });
+    const explicitResult = compileValid(explicitSource, { variables: { strict: true } });
+    const serialized = sugarResult.ast.toString(sugarSource);
+    assert(serialized.includes(`connect=${quote('{1-2:钢琴}[3-4:"Mixed: [I]"]')}`), serialized);
+    deepStrictEqual(recordCommands(sugarResult.layout), recordCommands(explicitResult.layout));
+    deepStrictEqual(recordCommands(compileValid(serialized).layout), recordCommands(sugarResult.layout));
+});
+
+test("connector group names center on their own connector and offset left of inner voice labels", () => {
+    // 组内无声部名时，分组总名称紧贴大括号左侧；组内有声部名时向左错开
+    const mixed = compileValid(`@set(font="Group Font") @voices(
+        @voice({1 2}, 右手),
+        @voice({3 4}, 左手),
+        @voice({5 6}),
+        @voice({7 1}),
+        connect="{1-2:钢琴}[3-4:伴奏][-:总谱]"
+    )`);
+    const connector = mixed.layout.attachments.find(attachment => attachment.layer === "background")!;
+    const connectorTexts = attachmentCommands(connector).filter(command => command.kind === "text");
+    deepStrictEqual(connectorTexts.map(command => command.text), ["钢琴", "伴奏", "总谱"]);
+    assert(connectorTexts.every(command => command.style.fontFamily === "Group Font"), "group names must use frozen voices font");
+
+    const nameNodes = mixed.layout.objects.filter(object => object.T.isZero());
+    const notes = mixed.layout.objects.filter(object => !object.T.isZero());
+    const anchorX = nameNodes[0].box.x + nameNodes[0].box.anchor;
+    const innerRight = Math.max(
+        layoutContext.textMeasurer.measureText("右手", connectorTexts[0].style).w,
+        layoutContext.textMeasurer.measureText("左手", connectorTexts[0].style).w,
+    );
+    const [piano, accomp, tutti] = connectorTexts;
+
+    // "伴奏" 所在 3-4 声部无声部名，直接对齐到 anchorX；"钢琴" 与 "总谱" 包含有名称的 1-2 声部，向左错开 0.5em
+    assert(nearly(accomp.x, anchorX), "group without inner voice names must align to the label anchor");
+    assert(nearly(piano.x, anchorX - innerRight - 22 * 0.5), "group with inner voice names must sit left of those names");
+    assert(nearly(tutti.x, piano.x), "overlapping group must offset only by its own inner voice names without extra avoidance");
+
+    // Y 坐标各自取所属连接范围首末声部视觉轴的中点，重叠谱号不做纵向避让
+    const expectedBaselineY = (firstIndex: number, lastIndex: number, text: string) => {
+        const metrics = layoutContext.textMeasurer.measureText(text, piano.style);
+        const centerY = (axisOf(notes[firstIndex]) + axisOf(notes[lastIndex])) / 2;
+        return centerY - metrics.h / 2 + metrics.baseline;
+    };
+    assert(nearly(piano.y, expectedBaselineY(0, 1, "钢琴")), "piano label must center on voices 1-2");
+    assert(nearly(accomp.y, expectedBaselineY(2, 3, "伴奏")), "accompaniment label must center on voices 3-4");
+    assert(nearly(tutti.y, expectedBaselineY(0, 3, "总谱")), "overlapping tutti label must center on voices 1-4");
+
+    // 文档边界与横向布局必须完整容纳最左侧分组总名称
+    const pianoWidth = layoutContext.textMeasurer.measureText("钢琴", piano.style).w;
+    assert(connector.box.x <= piano.x - pianoWidth + 1e-6, "connector bounds must include the leftmost group name");
+    assert(mixed.layout.bounds.x <= connector.box.x + 1e-6 && connector.box.x >= 0,
+        "horizontal layout must reserve left space so group names stay inside positive document bounds");
+
+    // 同一行前序声部在上方轨道有长尾内容时，后续多声部块的所有轨道都必须预留分组总名称宽度，不能重叠
+    const inline = layoutOf(`
+        @voices(@voice({1 "这是一段非常非常长的行内文字"}), @voice({1 2}))
+        @voices(@voice({3}, 右手, 男声="词"), @voice({4}, 左手), connect="{1-2:非常长的分组总名称}")
+    `);
+    const inlineText = inline.objects.find(object => object.ast instanceof ASTFunctionNode && object.ast.callName === "text")!;
+    const secondBrace = inline.attachments.filter(attachment => attachment.layer === "background")[1]!;
+    assert(secondBrace.box.x >= inlineText.box.x + inlineText.box.w,
+        "group name on the following voices block must not overlap trailing content on upper tracks");
+});
+

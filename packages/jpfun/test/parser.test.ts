@@ -131,7 +131,7 @@ test("变长内容暴露嵌套的 atom 与语法糖运算符", () => {
 });
 
 test("voice connection declarations are complete operator tokens, not notes or bars", () => {
-    for (const marker of ["V{}:", "V[]:", "V|:"]) {
+    for (const marker of ["V{}:", "V[]:", "V|:", "V{钢琴}:", "V[合唱]:", 'V{"Piano [I]"}:']) {
         for (const source of [`  ${marker} % group\nN: 1\nN: 2`, `1 ${marker}N:1 N:2`, `{${marker} N:1 N:2}`]) {
             const { syntax, diagnostics } = analyzeScoreSyntax(source);
             deepStrictEqual(diagnostics, []);
@@ -141,7 +141,7 @@ test("voice connection declarations are complete operator tokens, not notes or b
                 [{ kind: "operator", span: { start, end } }], `${marker} must be a single complete operator`);
         }
     }
-    for (const incomplete of ["V", "V{", "V{}", "V[", "V[]", "V|"]) {
+    for (const incomplete of ["V", "V{", "V{}", "V{钢琴", "V{钢琴}", "V[", "V[]", "V[合唱", "V[合唱]", 'V{"unclosed}:', "V|"]) {
         analyzeScoreSyntax(incomplete);
     }
     for (const source of ['"V{}: V[]: V|:"', "N:1\nL: V{}: V[]: V|:", "% V{}: V[]: V|:"]) {

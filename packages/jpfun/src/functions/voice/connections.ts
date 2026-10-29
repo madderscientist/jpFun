@@ -1,5 +1,6 @@
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import { pathBounds } from "../../layout/path.js";
+import { findClosingQuote, parseString, quote } from "../../parser/parse-utils/string-utils.js";
 import type { SourceSpan } from "../ASTtypes.js";
 import type { PathCommand } from "../../render/types.js";
 
@@ -59,15 +60,21 @@ export interface ConnectionSpec {
     kind: ConnectionKind;
     from?: number;
     to?: number;
+    name?: string;
 }
 
 /** 开放端点在声部收集完毕后补全 */
-export type VoiceConnection = Required<ConnectionSpec>;
+export type VoiceConnection = ConnectionSpec & Required<Pick<ConnectionSpec, "from" | "to">>;
+
+const CONNECTION_RANGE_RE = /\s*([\[{])\s*(?:(?:(\d+)\s*)?-\s*(?:(\d+)\s*)?|(\d+)\s*)/y;
+const WHITESPACE_RE = /\s/;
+const FORBIDDEN_RAW_NAME_RE = /[\[\]{}:"\\\r\n]/;
+const NEEDS_QUOTED_NAME_RE = /^\s|\s$|[\[\]{}:"\\\r\n]/;
 
 function invalidConnection(span: SourceSpan) {
     return new ErrorDiagnostic(
         "E_VOICES_CONNECT",
-        '@voices 的 connect 必须是 [起点-终点]、{起点-终点}、[编号] 或 {编号} 的组合；范围端点可省略，否则须为有效声部编号。空字符串表示只有连谱线。',
+        '@voices 的 connect 必须是 [起点-终点]、{起点-终点}、[编号] 或 {编号}（可用 :名称 指定分组名）的组合；范围端点可省略，否则须为有效声部编号。空字符串表示只有连谱线。',
         span,
     );
 }
@@ -76,11 +83,13 @@ export function parseConnections(value: string, span: SourceSpan): ConnectionSpe
     const source = value.trim();
     // 粘连匹配必须消费整串，不能跳过非法字符
     // 非空数字与其后空白一起可选，避免省略端点时重复回溯
-    const pattern = /\s*([\[{])\s*(?:(?:(\d+)\s*)?-\s*(?:(\d+)\s*)?|(\d+)\s*)([\]}])\s*/y;
     const result: ConnectionSpec[] = [];
-    while (pattern.lastIndex < source.length) {
-        const match = pattern.exec(source);
-        if (!match || match[5] !== (match[1] === "[" ? "]" : "}")) throw invalidConnection(span);
+    for (let pos = 0; pos < source.length; pos++) {
+        CONNECTION_RANGE_RE.lastIndex = pos;
+        const match = CONNECTION_RANGE_RE.exec(source);
+        if (!match) throw invalidConnection(span);
+        pos = CONNECTION_RANGE_RE.lastIndex;
+        const close = match[1] === "[" ? "]" : "}";
         const fromText = match[4] ?? match[2];
         const toText = match[4] ?? match[3];
         const from = fromText ? Number(fromText) : undefined;
@@ -91,21 +100,52 @@ export function parseConnections(value: string, span: SourceSpan): ConnectionSpe
             }
         }
         if (from !== undefined && to !== undefined && from > to) throw invalidConnection(span);
-        result.push({ kind: match[1] === "[" ? "bracket" : "brace", from, to });
+
+        let name: string | undefined;
+        if (source[pos] === ":") {
+            pos++;
+            while (pos < source.length && WHITESPACE_RE.test(source[pos])) pos++;
+            if (source[pos] === '"') {
+                const closeQuote = findClosingQuote(source, pos, source.length);
+                const parsed = closeQuote < 0 ? null : parseString(source.slice(pos, closeQuote + 1));
+                if (typeof parsed !== "string" || !parsed) throw invalidConnection(span);
+                name = parsed;
+                pos = closeQuote + 1;
+                while (pos < source.length && WHITESPACE_RE.test(source[pos])) pos++;
+            } else {
+                const closeAt = source.indexOf(close, pos);
+                const raw = closeAt < 0 ? "" : source.slice(pos, closeAt);
+                name = FORBIDDEN_RAW_NAME_RE.test(raw) ? "" : raw.trim();
+                if (!name) throw invalidConnection(span);
+                pos = closeAt;
+            }
+        }
+        if (source[pos] !== close) throw invalidConnection(span);
+        result.push({
+            kind: match[1] === "[" ? "bracket" : "brace",
+            from,
+            to,
+            ...(name ? { name } : {}),
+        });
     }
     return result;
 }
 
 export function resolveConnections(specs: readonly ConnectionSpec[], count: number, span: SourceSpan): VoiceConnection[] {
-    return specs.map(({ kind, from = 1, to = count }) => {
+    return specs.map(({ kind, from = 1, to = count, name }) => {
         if (from > to || to > count) throw invalidConnection(span);
-        return { kind, from, to };
+        return { kind, from, to, ...(name ? { name } : {}) };
     });
 }
 
+function serializeConnectionName(name: string | undefined): string {
+    if (!name) return "";
+    return `:${NEEDS_QUOTED_NAME_RE.test(name) ? quote(name) : name}`;
+}
+
 export function serializeConnections(specs: readonly ConnectionSpec[]): string {
-    return specs.map(({ kind, from, to }) => {
-        const range = `${from ?? ""}-${to ?? ""}`;
+    return specs.map(({ kind, from, to, name }) => {
+        const range = `${from ?? ""}-${to ?? ""}${serializeConnectionName(name)}`;
         return kind === "brace" ? `{${range}}` : `[${range}]`;
     }).join("");
 }
