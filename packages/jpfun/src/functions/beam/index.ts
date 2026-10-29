@@ -1,6 +1,5 @@
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, SourceSpan } from "../ASTtypes.js";
 import { ParserContext } from "../ASTtypes.js";
-import type { CallArgumentInfo } from "../../parser/grammarType.js";
 import { Diagnostic, ErrorDiagnostic } from "../../diagnostic.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { TemporalNodeBase } from "../temporal.js";
@@ -30,11 +29,8 @@ class BeamFunction extends ASTFunctionNode {
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
-        for (const [, value] of args) {
-            const parsed = value instanceof ASTFunctionNode
-                ? value
-                : ctx.parseArgWithType((value as CallArgumentInfo).valueSpan, "label", sourceSpan.start);
-            if (parsed instanceof ASTFunctionNode) this.endPoints.push(parsed);
+        for (const [key, value] of args) {
+            if (typeof key === "number") this.endPoints.push(value as ASTFunctionNode);
         }
 
         // 未显式给全时，回退到最近可标记对象，至少取两个。

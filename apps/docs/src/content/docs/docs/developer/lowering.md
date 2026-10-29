@@ -116,9 +116,9 @@ type TimeFlowModel =
     | { mode: "parallel"; children: ASTNodeBase[]; tracks: TrackArrangement };
 ```
 
-- `sequence`：依次展开；后一个子节点从前一个的结束时间开始。
+- `sequence`：依次展开；后一个子节点从前一个的结束时间开始。提供 `children` 的容器默认采用此模式。
 - `parallel`：所有分支从同一时间开始，各自在自己的 Track 上展开，再按时间和锚点局部归并；父节点结束时间取最晚的分支。
-- 返回 `null`：通用递归器不展开子节点，适合由函数自行折叠内容的复合符号。
+- 返回 `null`：通用递归器不展开子节点，适合叶子节点或由函数自行折叠内容的复合符号。
 
 调用 `timeFlowModel(ctx)` 时，当前节点在 `loweringEnter` 中返回的事件已经加入索引，子节点尚未展开。此时可以用 `ctx.getTemporalNodes(ast)` 查询本轮事件，不必把事件暂存在 AST 上。
 
@@ -205,8 +205,10 @@ class NoteTemporalNode extends TemporalNodeBase {
 `LoweringContext` 根据事件所在位置补齐 `t`、`track` 和 `order`。AST 保存源码参数和区间，Temporal 保存时长、解析后的音高等结果。锚点对齐直接调整事件时间，AST 保持只读。
 
 ### 例二：`div` 修饰整个子树
-`div` 在进入时开启分组，让组内每个事件的时长减半；离开时关闭分组：
+`div` 通过 `children` 声明按默认 `sequence` 展开子节点，并在进入时开启分组让组内每个事件的时长减半、离开时关闭分组：
 ```ts
+override get children() { return [this.content]; }
+
 override loweringEnter(ctx: LoweringContext) {
     const count = this.n;
     ctx.beginLoweringGroup(this, {
@@ -216,10 +218,6 @@ override loweringEnter(ctx: LoweringContext) {
             node.T.divPow2(count);
         },
     }); return [];
-}
-
-override timeFlowModel() {
-    return { mode: "sequence" as const, children: [this.content] };
 }
 
 override loweringExit(ctx: LoweringContext) {

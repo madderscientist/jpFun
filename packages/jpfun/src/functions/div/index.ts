@@ -215,12 +215,6 @@ class DivFunction extends ASTFunctionNode {
     /** parse 时冻结；只控制不同 div 之间的自动连接，不影响当前 div 内部连接 */
     autoBeamEnabled: boolean;
     override get children() { return [this.content]; }
-    override timeFlowModel() {
-        return {
-            children: [this.content],
-            mode: "sequence" as const,
-        }
-    }
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);

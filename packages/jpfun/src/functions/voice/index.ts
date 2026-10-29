@@ -300,12 +300,6 @@ L: la la la
         tokens: string[]   // 分词后的歌词内容
     }[];
     override get children() { return [this.content]; }
-    override timeFlowModel() {
-        return {
-            children: this.children,
-            mode: "sequence" as const,
-        };
-    }
 
     /**
      * voice 的音符内容仍按普通 sequence 进入全局时间列

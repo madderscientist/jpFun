@@ -117,7 +117,6 @@ class TremoloFunction extends ASTFunctionNode {
     readonly content: ASTNodeBase;
     readonly n: number;
     override get children() { return [this.content]; }
-    override timeFlowModel() { return { children: [this.content], mode: "sequence" as const }; }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);

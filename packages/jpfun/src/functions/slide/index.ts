@@ -31,7 +31,6 @@ class SlideFunction extends ASTFunctionNode {
     readonly side: "pre" | "post";
     readonly direction: "up" | "down";
     override get children() { return [this.content]; }
-    override timeFlowModel() { return { children: this.children, mode: "sequence" as const }; }
     override labelable() { return ASTFunctionNode.findLabelable(this.content); }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {

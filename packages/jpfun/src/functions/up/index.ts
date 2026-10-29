@@ -89,6 +89,7 @@ class FoldFunction extends ASTFunctionNode {
     override get children(): ASTNodeBase[] {
         return this.belows.length ? [...this.contents, ...this.belows] : this.contents;
     }
+    override timeFlowModel() { return null; }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);

@@ -54,13 +54,6 @@ class TupletFunction extends ASTFunctionNode {
 
     override get children() { return [this.content]; }
 
-    override timeFlowModel() {
-        return {
-            mode: "sequence" as const,
-            children: [this.content],
-        };
-    }
-
     override loweringEnter(ctx: LoweringContext) {
         const group: LoweringGroup & LoweringContent = {
             nodes: [],

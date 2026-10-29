@@ -44,9 +44,12 @@ export class ASTNodeBase {
      * 时间求解模式
      * loweringEnter 返回的事件已规范化并加入索引后调用，决定子节点的展开方式。
      * 需要本轮事件时通过 ctx.getTemporalNodes 查询
-     * @returns 返回 null 表示没有子元素，返回对象表示参与时间求解
+     * @returns 返回 null 表示不由通用递归器展开子元素；默认将 children 按 sequence 依次展开
      */
-    timeFlowModel(_ctx: LoweringContext): TimeFlowModel | null { return null; }
+    timeFlowModel(_ctx: LoweringContext): TimeFlowModel | null {
+        const children = this.children;
+        return children ? { mode: "sequence", children } : null;
+    }
 
     /**
      * 离开当前层级的回调 同 loweringEnter
@@ -114,13 +117,6 @@ export class ASTBraceNode extends ASTNodeBase {
             const lastSpan = ASTBraceNode.getContentSpan(content[content.length - 1]);
             return { start: firstSpan.start, end: lastSpan.end };
         } else return { start: content.sourceSpan.start, end: content.sourceSpan.end };
-    }
-
-    override timeFlowModel() {
-        return {
-            children: this.content,
-            mode: "sequence" as const,
-        };
     }
 
     override toString(source: string) {

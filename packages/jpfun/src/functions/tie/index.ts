@@ -1,5 +1,4 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass, type LengthValue } from "../ASTtypes.js";
-import type { CallArgumentInfo } from "../../parser/grammarType.js";
 import { Diagnostic, ErrorDiagnostic } from "../../diagnostic.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import {
@@ -90,11 +89,7 @@ class TieFunction extends ASTFunctionNode {
         // 命名选项统一解析默认值，位置参数仍全部作为端点
         const [height] = this.getArgValue(args, ctx) as [LengthValue];
         for (const [key, value] of args) {
-            if (key === "height") continue;
-            const v = value instanceof ASTFunctionNode
-                ? value
-                : ctx.parseArgWithType((value as CallArgumentInfo).valueSpan, "label", sourceSpan.start);
-            if (v !== null) this.endPoints.push(v as ASTFunctionNode);
+            if (typeof key === "number") this.endPoints.push(value as ASTFunctionNode);
         }
         // 数目不足，则找最近的；用 unshift 而不是按下标赋值，否则空洞会让 length 虚高、骗过下面的校验
         let k = ctx.labelableNodes.length - 1;

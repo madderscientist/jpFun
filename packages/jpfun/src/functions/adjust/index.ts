@@ -63,12 +63,6 @@ class AdjustFunction extends ASTFunctionNode {
     readonly dw: number;
     readonly dh: number;
     override get children() { return [this.target]; }
-    override timeFlowModel() {
-        return {
-            children: [this.target],
-            mode: "sequence" as const,
-        };
-    }
 
     /** 微调不创建时间事件，只收集作用域内的对象与关系对象 */
     override loweringEnter(ctx: LoweringContext) {

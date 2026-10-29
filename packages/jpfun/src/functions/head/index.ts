@@ -380,10 +380,6 @@ H.tempo: 94
 
     override get children() { return this.slots; }
 
-    override timeFlowModel() {
-        return { mode: "sequence" as const, children: this.slots };
-    }
-
     static override deSugarAtom(source: string, start: number, end: number) {
         if (source[start] !== "H" || source[start + 1] !== ".") return null;
         let pos = start + 2;

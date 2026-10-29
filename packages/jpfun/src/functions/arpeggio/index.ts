@@ -74,6 +74,7 @@ class ArpeggioFunction extends ASTFunctionNode {
     readonly size: number;
 
     override get children() { return [this.content]; }
+    override timeFlowModel() { return null; }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);

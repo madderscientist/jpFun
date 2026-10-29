@@ -190,6 +190,7 @@ class GraceFunction extends ASTFunctionNode {
         if (this.grace) out.push(this.grace);
         return out;
     }
+    override timeFlowModel() { return null; }
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null, scale: number = GRACE_SCALE) {
         super(span, parent);

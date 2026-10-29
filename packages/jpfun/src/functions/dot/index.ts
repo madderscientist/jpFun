@@ -155,12 +155,6 @@ class DotFunction extends ASTFunctionNode {
         }
         return [];
     }
-    override timeFlowModel() {
-        return {
-            children: [this.content],
-            mode: "sequence" as const,
-        }
-    }
 
     content: ASTNodeBase;
     n: number;

@@ -60,12 +60,6 @@ class BoxFunction extends ASTFunctionNode {
     stroke: number;
     width: number;
     override get children() { return [this.target]; }
-    override timeFlowModel() {
-        return {
-            children: [this.target],
-            mode: "sequence" as const,
-        };
-    }
 
     /**
      * box 不创建时间事件
