@@ -105,20 +105,6 @@ export class ASTBraceNode extends ASTNodeBase {
         this.content.forEach(item => item.parent = this);
     }
 
-    innerSpan(): SourceSpan {
-        return ASTBraceNode.getContentSpan(this.content);
-    }
-
-    // 是复制的
-    static getContentSpan(content: ASTNodeBase[] | ASTNodeBase): SourceSpan {
-        if (Array.isArray(content)) {
-            if (content.length === 0) return { start: 0, end: 0 };
-            const firstSpan = ASTBraceNode.getContentSpan(content[0]);
-            const lastSpan = ASTBraceNode.getContentSpan(content[content.length - 1]);
-            return { start: firstSpan.start, end: lastSpan.end };
-        } else return { start: content.sourceSpan.start, end: content.sourceSpan.end };
-    }
-
     override toString(source: string) {
         return `{${this.content.map(item => item.toString(source)).join("")}}`;
     }

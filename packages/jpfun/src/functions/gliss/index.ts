@@ -14,13 +14,13 @@ import { isVisualTemporalNode, type TemporalNodeBase, type VisualTemporalNode } 
 function findPitchNode(
     columns: readonly (readonly TemporalNodeBase[])[],
     node: VisualTemporalNode,
+    host: VisualTemporalNode,
 ) {
     const check = (item?: TemporalNodeBase) =>
         typeof (item as { resolvedMidi?: unknown })?.resolvedMidi === "number"
             ? item as TemporalNodeBase & { resolvedMidi: number }
             : undefined;
     if ("resolvedMidi" in node) return check(node);
-    const host = layoutHost(node);
     for (let i = columns.findIndex(col => col.includes(host)) - 1; i >= 0; i--) {
         const previous = columns[i].find(item => item.track === host.track && "resolvedMidi" in item);
         if (previous) return check(previous);
@@ -98,15 +98,18 @@ class GlissAttachment implements LayoutAttachment {
 
     finalize({ columns, diagnostics }: LoweringResult) {
         const [a, b] = this.endPoints;
-        const fromHost = layoutHost(a);
-        const toHost = layoutHost(b);
+        let fromHost = layoutHost(a);
+        let toHost = layoutHost(b);
         if (fromHost.t.equals(toHost.t)) {
             throw new ErrorDiagnostic("E_GLISS_ORDER", "@gliss 两个端点不能位于同一时刻", this.sourceSpan);
         }
-        if (fromHost.t.compare(toHost.t) > 0) this.endPoints = [b, a];
+        if (fromHost.t.compare(toHost.t) > 0) {
+            this.endPoints = [b, a];
+            [fromHost, toHost] = [toHost, fromHost];
+        }
         const [endpoint, target] = this.endPoints;
-        const sourcePitchNode = findPitchNode(columns, endpoint);
-        const targetPitchNode = findPitchNode(columns, target);
+        const sourcePitchNode = findPitchNode(columns, endpoint, fromHost);
+        const targetPitchNode = findPitchNode(columns, target, toHost);
         if (!sourcePitchNode || !targetPitchNode) {
             diagnostics.push(new WarningDiagnostic(
                 "W_GLISS_NO_PITCH",
