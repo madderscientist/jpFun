@@ -70,8 +70,7 @@ class DynFunction extends ASTFunctionNode {
             for (const node of nodes) {
                 const velocity = node.playbackState?.velocity;
                 if (velocity === undefined) continue;
-                let host = node;
-                while (host.foldedInto) host = host.foldedInto;
+                const host = node.rootHost;
                 recordsByTrack.get(host.track)?.push({ node, host, velocity, increment: 0 });
             }
         }
@@ -138,10 +137,8 @@ class DynFunction extends ASTFunctionNode {
             ctx.diagnostics.push(Diagnostic.warning.UnresolvedEndpoint("dyn", this.sourceSpan));
             return [];
         }
-        let fromHost: TemporalNodeBase = from;
-        let toHost: TemporalNodeBase = to;
-        while (fromHost.foldedInto) fromHost = fromHost.foldedInto;
-        while (toHost.foldedInto) toHost = toHost.foldedInto;
+        const fromHost = from.rootHost;
+        const toHost = to.rootHost;
         if (!isVisualTemporalNode(fromHost) || !isVisualTemporalNode(toHost)) {
             ctx.diagnostics.push(Diagnostic.warning.UnresolvedEndpoint("dyn", this.sourceSpan));
             return [];

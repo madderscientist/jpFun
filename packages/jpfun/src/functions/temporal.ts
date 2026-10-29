@@ -33,8 +33,6 @@ export interface TimeState {
     program: number;
     /** 当前小节时长（QN）；尚无显式拍号或散板时为 undefined */
     meter?: Fraction;
-    /** 当前执行的全局事件；复合体内部回调共用该位置 */
-    currentEvent?: TemporalNodeBase;
     [key: string]: any;
 }
 export const DEFAULT_BPM = 120;
@@ -94,6 +92,13 @@ export class TemporalNodeBase implements TimeLineEvent {
      * 按全局事件工作的消费者可以沿链上溯到宿主。
      */
     foldedInto?: TemporalNodeBase;
+
+    /** 沿 foldedInto 上溯到最外层宿主（未折叠时返回自身） */
+    get rootHost(): TemporalNodeBase {
+        let host: TemporalNodeBase = this;
+        while (host.foldedInto) host = host.foldedInto;
+        return host;
+    }
 
     /** 由 LoweringContext 在列归并后固化的谱面行号 */
     layoutLine = 0;

@@ -136,7 +136,6 @@ export class LoweringContext {
             if (!timeOffset.isZero()) column.shiftTime(timeOffset);
             let insertion: Fraction | undefined;
             for (const node of column) {
-                state.currentEvent = node;
                 state.velocity = velocityOf(node.track);
                 state.program = programOf(node.track);
                 const offset = node.onTimeState?.(state);

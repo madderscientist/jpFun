@@ -10,11 +10,6 @@ import {
 } from "../ASTtypes.js";
 import { isVisualTemporalNode, type TemporalNodeBase, type VisualTemporalNode } from "../temporal.js";
 
-function outerHost(node: TemporalNodeBase): TemporalNodeBase {
-    while (node.foldedInto) node = node.foldedInto;
-    return node;
-}
-
 class OttavaFunction extends ASTFunctionNode {
     static override def = {
         name: ["ottava"],
@@ -63,7 +58,7 @@ class OttavaFunction extends ASTFunctionNode {
         for (const nodes of result.astToTemporal.values()) {
             for (const node of nodes) {
                 if (!node.playbackState) continue;
-                const host = outerHost(node);
+                const host = node.rootHost;
                 const ottavas = ottavasByTrack.get(host.track);
                 if (!ottavas) continue;
                 let shift = 0;
@@ -103,10 +98,8 @@ class OttavaFunction extends ASTFunctionNode {
     }
 
     override loweringEnter(ctx: LoweringContext) {
-        const from = ctx.getTemporalNodes(this.from).at(0);
-        const to = ctx.getTemporalNodes(this.to).at(-1);
-        const head = from && outerHost(from);
-        const tail = to && outerHost(to);
+        const head = ctx.getTemporalNodes(this.from).at(0)?.rootHost;
+        const tail = ctx.getTemporalNodes(this.to).at(-1)?.rootHost;
         if (!head || !tail || !isVisualTemporalNode(head) || !isVisualTemporalNode(tail)) {
             ctx.diagnostics.push(Diagnostic.warning.UnresolvedEndpoint("ottava", this.sourceSpan));
             return [];

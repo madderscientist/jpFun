@@ -51,8 +51,7 @@ class BeamFunction extends ASTFunctionNode {
         const endPoints: TemporalNodeBase[] = [];
         for (const ast of this.endPoints) {
             // 暂时只用最后一个；理应有且仅有一个
-            let temporal = ctx.getTemporalNodes(ast).at(-1);
-            while (temporal?.foldedInto) temporal = temporal.foldedInto;
+            const temporal = ctx.getTemporalNodes(ast).at(-1)?.rootHost;
             if (!temporal) continue;
             endPoints.push(temporal);
         }

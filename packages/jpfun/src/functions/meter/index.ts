@@ -27,8 +27,8 @@ export function meterChangeAt(node: TemporalNodeBase): MeterFunction | undefined
     return changesByPosition.get(node)?.meter;
 }
 
-function recordMeasureChange(state: TimeState, node: TemporalNodeBase, meter: MeterFunction) {
-    const position = state.currentEvent ?? node;
+function recordMeasureChange(node: TemporalNodeBase, meter: MeterFunction) {
+    const position = node.rootHost;
     const span = node.ast.sourceSpan;
     let change = changesByPosition.get(position);
     if (!change) changesByPosition.set(position, change = { start: span.start, end: span.end, meter });
@@ -186,7 +186,7 @@ class MeterTemporal extends TemporalNodeBase {
 
     override onTimeState(state: TimeState) {
         state.meter = this.ast.measureDuration;
-        recordMeasureChange(state, this, this.ast);
+        recordMeasureChange(this, this.ast);
     }
 
     override emitPlayback(emitter: PlaybackEmitter) {

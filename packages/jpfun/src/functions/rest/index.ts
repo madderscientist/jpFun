@@ -89,9 +89,8 @@ class RestFunction extends ASTFunctionNode {
                 order = Math.max(order, node.order + 1);
                 if (!(node.ast instanceof ASTFunctionNode)
                     || (node.ast.callName !== "note" && node.ast.callName !== "dash")) continue;
-                let host = node;
                 // 沿折叠链找到最外层宿主，将内部成员归到同一主体
-                while (host.foldedInto) host = host.foldedInto;
+                const host = node.rootHost;
                 // 私有倚音属于独立轨道，不代表外层宿主的休止或起音
                 if (node.track !== host.track) continue;
                 const onset = onsets.get(host);
@@ -169,7 +168,7 @@ class RestTemporal extends TemporalNodeBase {
         }
         this.measureDuration.copyFrom(measure);
         this.T.copyFrom(measure).mul(this.ast.count);
-        const host = state.currentEvent ?? this;
+        const host = this.rootHost;
         // 只登记全局休止宿主的同轨成员，私有倚音不接管宿主。
         if (host.mergeKey === REST_KEY && this.track === host.track) {
             const rest = restsByHost.get(host);

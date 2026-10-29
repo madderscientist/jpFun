@@ -212,8 +212,7 @@ class BarTemporalNode extends TemporalNodeBase {
      * 给 bar 两侧的相邻元素增加 mu，避免被压缩到一起
      */
     override prepareHorizontal(line: HorizontalLineView) {
-        let host: TemporalNodeBase = this;
-        while (host.foldedInto) host = host.foldedInto;
+        const host = this.rootHost;
         if (!isVisualTemporalNode(host)) return;
         const run = line.trackRuns.get(host.track);
         const index = line.trackIndexOf(host);

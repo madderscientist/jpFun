@@ -72,10 +72,8 @@ class VoltaFunction extends ASTFunctionNode {
 
     /** volta 不推进时间，只把 AST 端点解析成稳定的 temporal 引用 */
     override loweringEnter(ctx: LoweringContext) {
-        let from = ctx.getTemporalNodes(this.from).at(0);
-        let to = ctx.getTemporalNodes(this.to).at(-1);
-        while (from?.foldedInto) from = from.foldedInto;
-        while (to?.foldedInto) to = to.foldedInto;
+        const from = ctx.getTemporalNodes(this.from).at(0)?.rootHost;
+        const to = ctx.getTemporalNodes(this.to).at(-1)?.rootHost;
         if (!from || !to) {
             ctx.diagnostics.push(Diagnostic.warning.UnresolvedEndpoint("volta", this.sourceSpan));
             return [];

@@ -137,7 +137,7 @@ type TimeFlowModel =
 
 `up/down`、`grace` 与 `arpeggio` 透传宿主的最终时值、时间偏移和布局行为；非宿主成员不单独推进全局时间。
 
-`TimeState.currentEvent` 指向当前执行的全局 Temporal，折叠成员共用宿主位置。`meter` 据此记录最终拍号和校验区间；`rest` 登记最早同轨休止成员，排除私有倚音。
+折叠成员通过 `TemporalNodeBase.rootHost`（沿 `foldedInto` 链上溯）取得所属的顶层全局 Temporal。`meter` 据此记录最终拍号和校验区间；`rest` 登记最早同轨休止成员，排除私有倚音。
 
 `head` 在末边界的 `onTimeState` 中校验成员的最终时值，确保延迟确定时值的内容也遵守零时长约束。
 
