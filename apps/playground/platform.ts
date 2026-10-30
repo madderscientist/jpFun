@@ -1,7 +1,20 @@
+export function constrain(value: number, min: number, max: number) {
+    return Math.min(max, Math.max(min, value));
+}
+
 export function requiredElement<T extends Element>(selector: string): T {
     const element = document.querySelector<T>(selector);
     if (element) return element;
     throw new Error(`Required element not found: ${selector}`);
+}
+
+export function downloadBlob(blob: Blob, fileName: string) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 export function readStoredValue(key: string): string | null {

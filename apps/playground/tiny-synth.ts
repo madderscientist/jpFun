@@ -4,7 +4,7 @@ import {
     type PlaybackNoteOnEvent,
     type PlaybackPlan,
 } from "jpfun";
-import { loadClassicScript } from "./platform.js";
+import { constrain, loadClassicScript } from "./platform.js";
 
 const TINY_SYNTH_URL = "https://madderscientist.github.io/noteDigger/lib/tinySynth.js";
 const SCHEDULE_INTERVAL = 100;
@@ -55,10 +55,6 @@ interface ScheduledNote {
 interface TinySynthPlayerOptions {
     onStateChange(): void;
     onError(error: unknown): void;
-}
-
-function constrain(value: number, min: number, max: number) {
-    return Math.min(max, Math.max(min, value));
 }
 
 function audioContextConstructor() {

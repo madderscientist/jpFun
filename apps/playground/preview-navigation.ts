@@ -216,6 +216,7 @@ export function previewHitAt(
     x: number,
     y: number,
     tolerance: number,
+    requireScoreTime = false,
 ): PreviewHit | null {
     let best: PreviewHit | null = null;
     let bestDistance = Infinity;
@@ -223,6 +224,7 @@ export function previewHitAt(
     let bestSpanLength = Infinity;
 
     for (const target of navigation.hitTargets) {
+        if (requireScoreTime && target.scoreTime === void 0) continue;
         for (const region of target.regions) {
             const dx = axisDistance(x, region.x, region.w);
             const dy = axisDistance(y, region.y, region.h);
@@ -249,22 +251,5 @@ export function playbackTimeAt(
     y: number,
     tolerance: number,
 ): number | null {
-    let bestTime: number | null = null;
-    let bestDistance = Infinity;
-    let bestArea = Infinity;
-    for (const target of navigation.hitTargets) {
-        if (target.scoreTime === void 0) continue;
-        for (const region of target.regions) {
-            const dx = axisDistance(x, region.x, region.w);
-            const dy = axisDistance(y, region.y, region.h);
-            if (dx > tolerance || dy > tolerance) continue;
-            const distance = dx * dx + dy * dy;
-            const area = regionArea(region);
-            if (area > bestArea || (area === bestArea && distance >= bestDistance)) continue;
-            bestTime = target.scoreTime;
-            bestDistance = distance;
-            bestArea = area;
-        }
-    }
-    return bestTime;
+    return previewHitAt(navigation, x, y, tolerance, true)?.target.scoreTime ?? null;
 }

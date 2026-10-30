@@ -1,4 +1,4 @@
-import { readStoredValue, storeValue } from "./platform.js";
+import { downloadBlob, readStoredValue, storeValue } from "./platform.js";
 
 export const DRAFT_STORAGE_KEY = "jpfun-draft-source";
 
@@ -60,12 +60,7 @@ function chooseUploadedFile(): Promise<File | null> {
 }
 
 function downloadSource(source: string, fileName: string) {
-    const url = URL.createObjectURL(new Blob([source], { type: "text/plain;charset=utf-8" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileName;
-    link.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    downloadBlob(new Blob([source], { type: "text/plain;charset=utf-8" }), fileName);
 }
 
 export function createDocumentController(options: DocumentControllerOptions) {

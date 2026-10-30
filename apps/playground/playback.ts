@@ -1,6 +1,6 @@
 import { scoreTimeToSeconds, secondsToScoreTime, type PlaybackPlan } from "jpfun";
 import { createMidiBlob } from "./midi-export.js";
-import { requiredElement } from "./platform.js";
+import { constrain, downloadBlob, requiredElement } from "./platform.js";
 import {
     loadTinySynth,
     TinySynthPlayer,
@@ -28,10 +28,6 @@ export interface PlaybackController {
     pause(): void;
     invalidate(): void;
     destroy(): void;
-}
-
-function constrain(value: number, min: number, max: number) {
-    return Math.min(max, Math.max(min, value));
 }
 
 function formatTime(value: number) {
@@ -314,12 +310,7 @@ export function createPlaybackController(options: PlaybackControllerOptions): Pl
         try {
             const fileName = midiName(options.getFileName());
             const blob = await createMidiBlob(plan, settings);
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = fileName;
-            link.click();
-            window.setTimeout(() => URL.revokeObjectURL(url), 0);
+            downloadBlob(blob, fileName);
             if (audioAvailable !== false) showPlanStatus("MIDI 已生成");
         } catch (error) {
             setStatus("error", `MIDI 导出失败：${messageOf(error)}`);
