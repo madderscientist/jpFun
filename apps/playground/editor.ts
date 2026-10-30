@@ -284,11 +284,7 @@ export function setSourceDiagnostics(editor: EditorView, items: readonly Diagnos
     return ranges;
 }
 
-export function revealSourceRange(editor: EditorView, range: SourceRange) {
-    revealSourcePosition(editor, range, true);
-}
-
-export function revealSourcePosition(editor: EditorView, range: SourceRange, select: boolean) {
+export function revealSourcePosition(editor: EditorView, range: SourceRange, select = true) {
     editor.dispatch({
         selection: select
             ? { anchor: range.from, head: range.to }

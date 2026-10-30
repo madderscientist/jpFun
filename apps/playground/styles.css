@@ -329,7 +329,7 @@ button:focus-visible, [tabindex]:focus-visible {
 .control-section { max-width: 620px; margin: 0 auto; padding: 17px 0; border-top: 1px solid var(--line-subtle); }
 .section-heading { min-height: 28px; margin-bottom: 12px; }
 .section-heading h3 { margin: 0; font-size: 12px; }
-.section-heading span, .switch-label, .voice-title span { color: var(--muted); font-size: 10px; }
+.section-heading span, .voice-title span { color: var(--muted); font-size: 10px; }
 .transport-controls { display: flex; gap: 8px; }
 .transport-button {
     display: grid;

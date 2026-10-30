@@ -1,6 +1,6 @@
 import type { DocumentLayoutResult } from "../layout/engine.js";
 import { layoutPageBounds, paintLayoutPages } from "./paint.js";
-import { DEFAULT_TEXT_FONT } from "./text.js";
+import { DEFAULT_TEXT_FONT, JIANPU_NUMBER_FONT } from "./text.js";
 import type { PaintStyle, Painter, PathCommand, PathTransform, TextStyle } from "./types.js";
 
 export interface SvgRenderOptions {
@@ -18,9 +18,10 @@ function escapeXml(value: string): string {
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&apos;");
+        .replace(/"/g, "&quot;");
 }
+
+const DEFAULT_SVG_FONT_ATTR = escapeXml(JIANPU_NUMBER_FONT);
 
 /**
  * 把结构化路径命令转换为 SVG path data
@@ -85,11 +86,14 @@ export class SvgPainter implements Painter {
             ? "middle"
             : style.textAlign === "right" ? "end" : "start";
         this.body.push(
-            `<text x="${number(x)}" y="${number(y)}" `
-            + `font-family="${escapeXml(family)}" font-size="${number(style.fontSize)}" `
-            + `font-weight="${escapeXml(String(weight))}" text-anchor="${textAnchor}" `
-            + (style.fontStyle ? `font-style="${escapeXml(style.fontStyle)}" ` : "")
-            + `fill="${escapeXml(fill)}" xml:space="preserve"`
+            `<text x="${number(x)}" y="${number(y)}"`
+            + (family !== JIANPU_NUMBER_FONT ? ` font-family="${escapeXml(family)}"` : "")
+            + ` font-size="${number(style.fontSize)}"`
+            + (weight !== "normal" ? ` font-weight="${escapeXml(String(weight))}"` : "")
+            + (textAnchor !== "start" ? ` text-anchor="${textAnchor}"` : "")
+            + (style.fontStyle && style.fontStyle !== "normal" ? ` font-style="${escapeXml(style.fontStyle)}"` : "")
+            + (fill !== "#000" ? ` fill="${escapeXml(fill)}"` : "")
+            + (/\s/.test(text) ? ` xml:space="preserve"` : "")
             + `${opacityAttribute(style)}>${escapeXml(text)}</text>`,
         );
     }
@@ -111,8 +115,9 @@ export class SvgPainter implements Painter {
         const strokeWidth = style?.strokeWidth ?? 1;
         this.body.push(
             `<rect x="${number(x)}" y="${number(y)}" `
-            + `width="${number(Math.max(0, w))}" height="${number(Math.max(0, h))}" `
-            + `fill="${escapeXml(fill)}" stroke="${escapeXml(stroke)}" stroke-width="${number(strokeWidth)}"`
+            + `width="${number(Math.max(0, w))}" height="${number(Math.max(0, h))}"`
+            + (fill !== "#000" ? ` fill="${escapeXml(fill)}"` : "")
+            + (stroke !== "none" ? ` stroke="${escapeXml(stroke)}" stroke-width="${number(strokeWidth)}"` : "")
             + `${opacityAttribute(style)} />`,
         );
     }
@@ -123,8 +128,9 @@ export class SvgPainter implements Painter {
         const strokeWidth = style?.strokeWidth ?? 1;
         this.body.push(
             `<circle cx="${number(cx)}" cy="${number(cy)}" `
-            + `r="${number(Math.max(0, r))}" fill="${escapeXml(fill)}" `
-            + `stroke="${escapeXml(stroke)}" stroke-width="${number(strokeWidth)}"`
+            + `r="${number(Math.max(0, r))}"`
+            + (fill !== "#000" ? ` fill="${escapeXml(fill)}"` : "")
+            + (stroke !== "none" ? ` stroke="${escapeXml(stroke)}" stroke-width="${number(strokeWidth)}"` : "")
             + `${opacityAttribute(style)} />`,
         );
     }
@@ -137,8 +143,11 @@ export class SvgPainter implements Painter {
         const stroke = style?.stroke ?? "none";
         const strokeWidth = style?.strokeWidth ?? 1;
         this.body.push(
-            `<path d="${d}" fill="${escapeXml(fill)}" stroke="${escapeXml(stroke)}" `
-            + `stroke-width="${number(strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"`
+            `<path d="${d}"`
+            + (fill !== "#000" ? ` fill="${escapeXml(fill)}"` : "")
+            + (stroke !== "none"
+                ? ` stroke="${escapeXml(stroke)}" stroke-width="${number(strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"`
+                : "")
             + `${opacityAttribute(style)} />`,
         );
     }
@@ -157,7 +166,8 @@ export class SvgPainter implements Painter {
             : "";
 
         return `<svg xmlns="http://www.w3.org/2000/svg" width="${number(width)}" height="${number(height)}" `
-            + `viewBox="${number(left)} ${number(top)} ${number(width)} ${number(height)}">`
+            + `viewBox="${number(left)} ${number(top)} ${number(width)} ${number(height)}" `
+            + `font-family="${DEFAULT_SVG_FONT_ATTR}" font-weight="normal" fill="#000">`
             + `${background}${this.body.join("")}</svg>`;
     }
 }

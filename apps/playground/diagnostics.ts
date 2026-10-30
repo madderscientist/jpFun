@@ -1,6 +1,6 @@
 import type { EditorView } from "@codemirror/view";
 import { Diagnostic, ErrorDiagnostic } from "jpfun";
-import { revealSourceRange, setSourceDiagnostics, type SourceRange } from "./editor.js";
+import { revealSourcePosition, setSourceDiagnostics, type SourceRange } from "./editor.js";
 import { requiredElement } from "./platform.js";
 
 interface DiagnosticsControllerOptions {
@@ -39,7 +39,7 @@ export function createDiagnosticsController(options: DiagnosticsControllerOption
             appendText(row, "diagnostic-position", `${line.number}:${range.from - line.from + 1}`);
             row.addEventListener("click", () => {
                 options.showSource();
-                revealSourceRange(options.editor, range);
+                revealSourcePosition(options.editor, range);
             });
         }
         list.append(row);

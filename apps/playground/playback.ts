@@ -14,7 +14,7 @@ interface PlaybackControllerOptions {
     onScorePosition(scoreTime: number | null): void;
 }
 
-type PlaybackStatus = "idle" | "loading" | "ready" | "warning" | "error";
+type PlaybackStatus = "idle" | "ready" | "warning" | "error";
 const CURSOR_UPDATE_INTERVAL = 80;
 
 export interface PlaybackController {
@@ -22,8 +22,7 @@ export interface PlaybackController {
     readonly hasPlan: boolean;
     setActive(active: boolean): void;
     setPlan(plan: PlaybackPlan): void;
-    setCompileError(message: string, hasDiagnostic: boolean): void;
-    setScoreError(message: string): void;
+    setError(message: string, hasDiagnostic?: boolean): void;
     seekScoreTime(scoreTime: number): void;
     downloadMidi(): Promise<void>;
     pause(): void;
@@ -243,7 +242,7 @@ export function createPlaybackController(options: PlaybackControllerOptions): Pl
     async function activate() {
         audioAvailable = null;
         audioError = "";
-        setStatus("loading", "正在准备播放");
+        setStatus("ready", "正在准备播放");
         renderTransport();
         if (!await options.requestPlan()) return;
         await prepareAudio();
@@ -355,19 +354,12 @@ export function createPlaybackController(options: PlaybackControllerOptions): Pl
             else if (audioAvailable === false) setStatus("error", audioError);
             else if (isActive) void prepareAudio();
         },
-        setCompileError(message, hasDiagnostic) {
+        setError(message, hasDiagnostic = false) {
             showProgress = false;
             plan = null;
             player.clearPlan();
             renderMixer();
             setStatus("error", message, hasDiagnostic);
-        },
-        setScoreError(message) {
-            showProgress = false;
-            plan = null;
-            player.clearPlan();
-            renderMixer();
-            setStatus("error", message);
         },
         seekScoreTime(scoreTime) {
             if (!plan) return;

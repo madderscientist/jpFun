@@ -62,14 +62,16 @@ test("综合乐谱产生各类绘制命令且坐标全部有限", () => {
 test("SVG 文本正确转义、保留空白且不输出无效坐标", () => {
     assert(svg.includes("text-anchor=\"middle\""), "note numbers must use centered text alignment");
     assert(svg.includes("&lt;tag &amp; text&gt;"), "arbitrary SVG text must be XML escaped");
-    assert((svg.match(/xml:space="preserve"/g) ?? []).length === (svg.match(/<text /g) ?? []).length,
-        "every SVG text node must preserve the whitespace measured during layout");
+    strictEqual((svg.match(/xml:space="preserve"/g) ?? []).length, 1,
+        "only SVG text nodes containing whitespace need xml:space=preserve");
+    assert(!svg.includes('stroke="none"'), "unstroked SVG primitives must not emit redundant stroke=none");
     assert(!svg.includes(">8</text>"), "hidden placeholder note 8 must not create SVG text");
     assert(!svg.includes("NaN") && !svg.includes("Infinity"), "SVG output must not contain invalid coordinates");
 
     const whitespacePainter = new SvgPainter();
     whitespacePainter.drawText("A   B", 0, 0, { fontSize: 16 });
-    assert(whitespacePainter.toSvg({ x: 0, y: 0, w: 100, h: 20 }).includes(">A   B</text>"),
+    const whitespaceSvg = whitespacePainter.toSvg({ x: 0, y: 0, w: 100, h: 20 });
+    assert(whitespaceSvg.includes('xml:space="preserve">A   B</text>'),
         "consecutive spaces must remain in the serialized text content");
 });
 

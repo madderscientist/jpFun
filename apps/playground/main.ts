@@ -247,7 +247,7 @@ function showError(error: unknown) {
     latestCompiledSource = null;
     playbackSource = null;
     playbackDiagnostics = [];
-    playback?.setScoreError("请先修复排版错误");
+    playback?.setError("请先修复排版错误");
     preview.showError(text);
     publishSemanticAst(editor, null);
     // 带 span 的诊断走正常列表，才能点击跳转
@@ -285,7 +285,7 @@ function compilePlaybackPlan(compiled: CompileScoreResult, sourceText: string) {
     } catch (error) {
         const hasDiagnostic = error instanceof Diagnostic;
         if (hasDiagnostic) playbackDiagnostics = [error];
-        playback?.setCompileError(`播放编译失败：${formatError(error)}`, hasDiagnostic);
+        playback?.setError(`播放编译失败：${formatError(error)}`, hasDiagnostic);
         updateDocumentStatus();
         return false;
     }

@@ -6,7 +6,6 @@ type LeftTab = "source" | "playback";
 type RightTab = "preview" | "problems";
 
 export interface WorkspaceController {
-    showSource(tab: LeftTab): void;
     revealSource(): void;
     showResult(tab: RightTab): void;
     getSourceTab(): LeftTab;
@@ -124,5 +123,5 @@ export function createWorkspaceController(
 
     // 面板显隐、视图切换、拖分隔条都会改 editorHost 尺寸，重测量统一从这里走
     new ResizeObserver(() => editor.requestMeasure()).observe(editorHost);
-    return { showSource, revealSource, showResult, getSourceTab: () => activeLeftTab };
+    return { revealSource, showResult, getSourceTab: () => activeLeftTab };
 }
