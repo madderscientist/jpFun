@@ -47,6 +47,10 @@ test("连音线弧高支持自动跨度缩放、显式长度、作用域继承�
     const autoPaths = commandsOfKind("1@a 2@b 3 4 5 6 7 1@c @tie(a,b,c)", "path", 20);
     assert(tieApexHeight(autoPaths[0]) < tieApexHeight(autoPaths[1]) && nearly(tieApexHeight(autoPaths[1]), 10),
         "automatic height grows with span and caps at 0.5em");
+    const graceTiePath = attachmentCommands(layoutOf("{1@a 2 3 4 5 6 7 1@b @tie(a,b)}>3", 20).attachments[0])
+        .find(command => command.kind === "path")!;
+    assert(graceTiePath.kind === "path" && nearly(tieApexHeight(graceTiePath), 7),
+        "grace tie automatic height scales with endpoint font size");
     deepStrictEqual(commandsOfKind("1@a 2@b @tie(a,b,height=0)", "path"), commandsOfKind("1@a 2@b @tie(a,b)", "path"));
 
     const crossAuto = commandsOfKind("1@a @br() 2@b @tie(a,b)", "path", 20);

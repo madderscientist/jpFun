@@ -123,22 +123,21 @@ export const OttavaNode: ASTFunctionClass = OttavaFunction;
 
 class OttavaAttachment implements LayoutAttachment {
     readonly layer = "foreground" as const;
+    readonly endPoints: readonly [VisualTemporalNode, VisualTemporalNode];
 
     constructor(
         readonly ast: OttavaFunction,
-        private readonly from: VisualTemporalNode,
-        private readonly to: VisualTemporalNode,
-    ) {}
-
-    get sourceSpan() { return this.ast.sourceSpan; }
-    get endPoints() {
-        return (this.from.t.compare(this.to.t) || this.from.order - this.to.order) > 0
-            ? [this.to, this.from] as const : [this.from, this.to] as const;
+        from: VisualTemporalNode,
+        to: VisualTemporalNode,
+    ) {
+        this.endPoints = (from.t.compare(to.t) || from.order - to.order) > 0
+            ? [to, from] : [from, to];
     }
 
+    get sourceSpan() { return this.ast.sourceSpan; }
+
     createGeometry(context: AttachmentLayoutContext) {
-        const endpoints = this.endPoints;
-        const [from, to] = endpoints;
+        const [from, to] = this.endPoints;
         const firstLine = from.layoutLine;
         const lastLine = to.layoutLine;
         if (context.lines[firstLine].columnOf(from) < 0 || context.lines[lastLine].columnOf(to) < 0) {
@@ -203,7 +202,7 @@ class OttavaAttachment implements LayoutAttachment {
             }
             if (!Number.isFinite(lineY)) {
                 const extent = context.getRangeExtents(line,
-                    first || last ? endpoints : undefined, track);
+                    first || last ? this.endPoints : undefined, track);
                 const axis = context.getVisualAxis(line, track);
                 lineY = above
                     ? axis + (extent?.top ?? 0) - gap - (region.y + region.h)
