@@ -8,7 +8,7 @@ import {
     type Rect,
 } from "jpfun";
 import type { SourceRange } from "./editor.js";
-import { createDropdown, requiredElement } from "./platform.js";
+import { createDropdown, downloadBlob, requiredElement } from "./platform.js";
 import { createVirtualPages } from "./preview-pages.js";
 import {
     createPreviewNavigationMap,
@@ -52,12 +52,7 @@ function isPreviewBackend(value: string | undefined): value is PreviewBackend {
 }
 
 function savePage(blob: Blob, format: ImageExportFormat, page: number, pageCount: number) {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `score${pageCount > 1 ? `-${page + 1}` : ""}.${format}`;
-    link.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    downloadBlob(blob, `score${pageCount > 1 ? `-${page + 1}` : ""}.${format}`);
 }
 
 function canvasBlob(canvas: HTMLCanvasElement, format: "png" | "jpeg"): Promise<Blob> {
@@ -133,6 +128,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
     let result: CompileScoreResult | null = null;
     let pageBounds: readonly Rect[] = [];
     let navigation: PreviewNavigationMap | null = null;
+    let navigationStale = true;
     let zoom = 1;
     let fitToWidth = true;
     let pendingSourceClick: { range: SourceRange; x: number; y: number } | null = null;
@@ -172,9 +168,16 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         playbackRegionKey = "";
     }
 
+    function getNavigation(): PreviewNavigationMap | null {
+        if (!result || navigationStale) return null;
+        return navigation ??= createPreviewNavigationMap(result);
+    }
+
     function renderPlaybackCursor(reveal: boolean) {
-        if (!result || !navigation || playbackScoreTime === null) return clearPlaybackCursor();
-        const region = playbackRegionAt(navigation, playbackScoreTime);
+        if (playbackScoreTime === null) return clearPlaybackCursor();
+        const currentNavigation = getNavigation();
+        if (!currentNavigation) return clearPlaybackCursor();
+        const region = playbackRegionAt(currentNavigation, playbackScoreTime);
         if (!region) return clearPlaybackCursor();
         const centerY = region.y + region.h / 2;
         const pageIndex = pageBounds.findIndex(page => centerY >= page.y && centerY <= page.y + page.h);
@@ -230,6 +233,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
     function invalidateNavigation() {
         clearPendingSourceClick();
         navigation = null;
+        navigationStale = true;
         clearFocus();
         playbackScoreTime = null;
         clearPlaybackCursor();
@@ -289,10 +293,12 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
 
     function focusSourcePosition(position: number) {
         clearFocus();
-        if (!result || !navigation) return;
+        if (!result || navigationStale) return;
         const character = result.maskedSource[position];
         if (!character || /\s/.test(character)) return;
-        const target = sourceTargetAt(navigation, position);
+        const currentNavigation = getNavigation();
+        if (!currentNavigation) return;
+        const target = sourceTargetAt(currentNavigation, position);
         const region = target?.regions[0];
         if (region) focusRegion(region, true);
     }
@@ -469,7 +475,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
 
     host.addEventListener("click", event => {
         clearFocus();
-        if (!result || !navigation || event.button !== 0) return;
+        if (!result || navigationStale || event.button !== 0) return;
         const target = event.target;
         if (!(target instanceof Element)) return;
         const page = target.closest<HTMLElement>(".preview-page");
@@ -477,7 +483,8 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         const pageIndex = [...host.children].indexOf(page);
         const bounds = pageBounds[pageIndex];
         const surface = page.querySelector<SVGSVGElement | HTMLCanvasElement>(":scope > svg, :scope > canvas");
-        if (!bounds || !surface) return;
+        const currentNavigation = getNavigation();
+        if (!bounds || !surface || !currentNavigation) return;
         const surfaceBounds = surfaceContentBounds(surface);
         const x = bounds.x + (event.clientX - surfaceBounds.left) / surfaceBounds.width * bounds.w;
         const y = bounds.y + (event.clientY - surfaceBounds.top) / surfaceBounds.height * bounds.h;
@@ -487,13 +494,13 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         );
         if (options.isPlaybackActive()) {
             clearPendingSourceClick();
-            const scoreTime = playbackTimeAt(navigation, x, y, tolerance);
+            const scoreTime = playbackTimeAt(currentNavigation, x, y, tolerance);
             if (scoreTime === null) return;
             event.preventDefault();
             options.onSeekPlayback(scoreTime);
             return;
         }
-        const hit = previewHitAt(navigation, x, y, tolerance);
+        const hit = previewHitAt(currentNavigation, x, y, tolerance);
         if (!hit) return;
         event.preventDefault();
         focusRegion(hit.region, false);
@@ -514,7 +521,8 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
             result = compiled;
             recordedPages = recordLayoutPages(compiled.layout);
             pageBounds = recordedPages.map(page => page.bounds);
-            navigation = createPreviewNavigationMap(compiled);
+            navigation = null;
+            navigationStale = false;
             virtualPages.reset(pageBounds, zoom);
             playbackRegionKey = "";
             if (fitToWidth) fitWidth();
