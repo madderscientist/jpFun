@@ -1,5 +1,5 @@
 import { test } from "node:test";
-import { deepStrictEqual } from "node:assert/strict";
+import { deepStrictEqual, strictEqual } from "node:assert/strict";
 
 import { ASTFunctionNode } from "../src/functions/ASTtypes.js";
 import { WarningDiagnostic } from "../src/diagnostic.js";
@@ -89,7 +89,7 @@ test("语法糖里的逗号、括号和换行都属于文本", () => {
         "argument separators lose their meaning inside a string literal");
 });
 
-test("字符串把 \\X 反转义成 X", () => {
+test("字符串在编码层仅解码 \\\"、\\\\ 与 \\uXXXX，其余 \\X 原样保留给下游函数", () => {
     const sugar = commandsOfKind(`"说\\"你好\\""`, "text");
     const explicit = commandsOfKind(`@text("说\\"你好\\"")`, "text");
     assert(sugar[0].text === `说"你好"`, `escaped quote must survive, got ${sugar[0].text}`);
@@ -110,8 +110,9 @@ test("Unicode 转义解码且只处理一次", () => {
     }
     const music = commandsOfKind(String.raw`@text("\uE050", font="\u0042ravura")`, "text")[0];
     assert(music.text === "\uE050" && music.style.fontFamily === "Bravura", "music glyph and font must reach the painter");
-    assert(parseString(String.raw`\uE050`) === String.raw`\uE050`, "bare strings must remain unchanged");
-    assert(parseString(String.raw`"\n\t\q"`) === "ntq", "other escape rules must remain unchanged");
+    assert(parseString(String.raw`\uE050`) === "\uE050", "bare and quoted strings share Unicode escape decoding");
+    assert(parseString(String.raw`"\n\t\q"`) === String.raw`\n\t\q` && parseString(String.raw`\n\t\q`) === String.raw`\n\t\q`,
+        "non-encoding escapes remain untouched for downstream consumers");
 });
 
 test("非法 Unicode 转义始终警告，且不打断词法分析", () => {
@@ -180,3 +181,84 @@ test("语法糖着色为字符串并覆盖两侧引号", () => {
     assert(tokens.length === 1 && source.slice(tokens[0].span.start, tokens[0].span.end) === `"渐强"`,
         "the string token must cover the quotes themselves");
 });
+
+test("Markdown 粗体、斜体、下划线、上标及组合样式测量与绘制", () => {
+    const plain = textBox(`"进入"`).box;
+    const styled = textBox(`"**_*进入*_**"`).box;
+    assert(nearly(styled.w, plain.w) && nearly(styled.h, plain.h) && nearly(styled.anchor, plain.anchor),
+        "Markdown 标记本身不应计入盒子宽度或偏移首字符锚点");
+
+    const layout = layoutOf(`"普通 *斜体* **粗体** ***粗斜*** _下划线_ C^7^"`);
+    const commands = recordCommands(layout);
+    const texts = commands.filter(cmd => cmd.kind === "text");
+    const lines = commands.filter(cmd => cmd.kind === "line");
+
+    deepStrictEqual(texts.map(t => [t.text, t.style.fontWeight ?? "normal", t.style.fontStyle ?? "normal"]), [
+        ["普通 ", "normal", "normal"],
+        ["斜体", "normal", "italic"],
+        [" ", "normal", "normal"],
+        ["粗体", "bold", "normal"],
+        [" ", "normal", "normal"],
+        ["粗斜", "bold", "italic"],
+        [" ", "normal", "normal"],
+        ["下划线", "normal", "normal"],
+        [" C", "normal", "normal"],
+        ["7", "normal", "normal"],
+    ]);
+    const baseText = texts[0];
+    const supText = texts.at(-1)!;
+    assert(nearly(supText.style.fontSize, baseText.style.fontSize * 0.7), "superscript must scale font size by 0.7");
+    assert(nearly(supText.y, baseText.y - baseText.style.fontSize * 0.35), "superscript must shift baseline up");
+    assert(lines.length === 1, `Expected 1 underline, got ${lines.length}`);
+    const [underline] = lines;
+    assert(underline.y1 > baseText.y && nearly(underline.y1, underline.y2), "underline must sit below baseline");
+
+    const supDecorated = recordCommands(layoutOf(`"_^7^_"`));
+    const supGlyph = supDecorated.find(cmd => cmd.kind === "text")!;
+    const supUnderline = supDecorated.find(cmd => cmd.kind === "line")!;
+    assert(nearly(supUnderline.y1, supGlyph.y + supGlyph.style.fontSize * 0.12),
+        "superscript underline must follow the superscript baseline and size");
+});
+
+test("连续下划线跨多段样式时合并为单条线段，未闭合标记持續生效且支持转义", () => {
+    assert(commandsOfKind(`"_普通 **粗体** 普通_"`, "line").length === 1,
+        "contiguous underline across styled runs must merge into one line");
+
+    // 未闭合时状态机将样式保持到末尾（含跨行）
+    const unclosedCmds = commandsOfKind(`"*第一行\n**第二行"`, "text");
+    deepStrictEqual(unclosedCmds.map(t => [t.text, t.style.fontWeight ?? "normal", t.style.fontStyle ?? "normal"]), [
+        ["第一行", "normal", "italic"],
+        ["第二行", "bold", "italic"],
+    ]);
+
+    const escaped = String.raw`\*字面星号\* \_下划线\_ \^上标\^ a\\b`;
+    const expected = String.raw`*字面星号* _下划线_ ^上标^ a\b`;
+    for (const source of [
+        `"${escaped}"`,
+        `@text("${escaped}")`,
+        `@text(${escaped})`,
+    ]) {
+        const textCmds = commandsOfKind(source, "text");
+        const lineCmds = commandsOfKind(source, "line");
+        deepStrictEqual(textCmds.map(t => t.text).join(""), expected, source);
+        assert(textCmds.every(t => !t.style.fontWeight && !t.style.fontStyle), "escaped markers must not trigger bold/italic");
+        assert(lineCmds.length === 0, "escaped markers must not trigger underline");
+        const roundtripped = parse(source).content[0].toString(source);
+        deepStrictEqual(commandsOfKind(roundtripped, "text").map(t => t.text).join(""), expected);
+    }
+
+    // 字面反斜杠后紧接斜体开关：\\\\* 经编码层与富文本层后产出字面 \ 并开启斜体
+    const slashItalic = commandsOfKind(String.raw`"\\\\*斜体*"`, "text");
+    deepStrictEqual(slashItalic.map(t => [t.text, t.style.fontStyle ?? "normal"]), [
+        ["\\", "normal"],
+        ["斜体", "italic"],
+    ]);
+
+    // 倚音缩放 @text 字号时，行距与 toString() 中的 lineheight 倍数保持一致
+    const graceSource = `@grace(1, @text("上\n下", lineheight=1.5))`;
+    const [upper, lower] = commandsOfKind(graceSource, "text").filter(cmd => cmd.text === "上" || cmd.text === "下");
+    assert(nearly(lower.y - upper.y, upper.style.fontSize * 1.5), "grace multiline text must scale line spacing with size");
+    assert(parse(graceSource).toString(graceSource).includes("lineheight=1.5"), "grace multiline text must preserve lineheight ratio on roundtrip");
+});
+
+

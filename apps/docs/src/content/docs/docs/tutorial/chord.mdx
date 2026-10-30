@@ -41,8 +41,8 @@ up函数和stack最大的区别是up函数仍然在一个轨道里——它不�
 上一章提到，同一轨道上多次出现的 `@stack` 会复用子音轨，因此上层声部的对齐会相互影响。`@up` 则只在当前位置堆叠，各个和弦上层的音符不必彼此对齐：
 
 export const upStackExample = `\
-1 2 3&4 5 6&7,,,,&1\n
-1 2 3^4 5 6^7,,,,^1`;
+"***@stack:*** " 1 2 3&4 5 6&7,,,,&1\n
+"***@up:   *** " 1 2 3^4 5 6^7,,,,^1`;
 
 <ScoreExample title="stack 与 up 的对比" source={upStackExample} />
 
@@ -65,7 +65,7 @@ export const downExample = `\
 
 <ScoreExample title="把记号放在音符上方" source={'1 ^ $tr\n2 ^ 3 ^ $mordent\n1 ^ $fermata _ $f\n1 ^ @text("轻柔地")\n2 _ $pp'} />
 
-> 这里 `$` 是符号函数的简写，比如 `$tr` 表示颤音记号。更多符号的写法请参看 [函数速查](../../reference/#symbol)。
+> 这里 `$` 是符号函数的简写，比如 `$tr` 表示颤音记号。更多符号的写法请参看 [函数@symbol](../../reference/#symbol)。
 
 可以把 `@up` 理解为“什么都能往里面放”（仅限一个元素）的纵向布局工具：音符、符号和文字都可以组合，不必把它只当成和弦函数。利用这点，我们可以在谱面上实现丰富的视觉效果和标记。比如，现在设置调性和速度，就不用写在行内了，可以用 `@up` 把设置类的函数放在上面：
 
@@ -78,7 +78,7 @@ export const upSettingsExample = `E3^@key(E4) F#3 G#3 |^"(2)" 1^@tempo(96) 2 3`;
 - 让速度设置往右移动一些
 
 export const upAdjustExample = `\
-|^"(2)" @adjust(1^@tempo(96), dw=10, dx=10) 2 3\n
+|^"(2)" @adjust(1^@tempo(96), dw=20, dx=10) 2 3\n
 |^"(2)" 1^@adjust(@tempo(96), dx=10) 2 3
 `;
 

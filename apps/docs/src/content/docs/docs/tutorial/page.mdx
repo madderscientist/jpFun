@@ -20,8 +20,8 @@ import ScoreExample from "../../../../components/ScoreExample.astro";
 `offset` 表示向后偏移几行，默认是 `1`。`@br()` 等价于 `@br(1)`，从下一行继续；`@br(2)` 则在中间空出一行。换行只改变谱面排版，不占音乐时值。
 
 export const voiceBreakExample = `\
-N(旋律): 1 2 @br(2) 3 4
-L(歌词): 微风轻轻`;
+N(**旋律**): 1 2 @br(2) 3 4
+L(**歌词**): 微风轻轻`;
 
 <ScoreExample title="在同一个声部内换行，歌词随音符排列" source={voiceBreakExample} />
 

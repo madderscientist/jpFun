@@ -6,6 +6,7 @@ import type { MeasureFn, Track } from "../../lowering/track.js";
 import type { GrammarNode } from "../../parser/grammarType.js";
 import { findClosingQuote, quote } from "../../parser/parse-utils/string-utils.js";
 import { ParserContext } from "../../parser/parserContext.js";
+import { paintRichLine, prepareRichLine, type PreparedRichLine } from "../../render/text.js";
 import type { Painter, PathCommand, PathTransform } from "../../render/types.js";
 import {
     BRACKET_HOOK_COMMANDS, BRACKET_HOOK_DROP, BRACKET_HOOK_REACH,
@@ -13,7 +14,6 @@ import {
     parseConnections, resolveConnections, serializeConnections,
     type ConnectionSpec, type VoiceConnection,
 } from "./connections.js";
-import type { PreparedLyricText } from "./lyrics.js";
 import { VoiceFunction, type VoiceNameTemporal, voiceNameStyle } from "./voice.js";
 
 const MIN_CONNECTOR_STEM = 2.5;
@@ -82,9 +82,9 @@ export class VoicesFunction extends ASTFunctionNode {
 )
 ~~~
 
-接收多个 \`@voice\` 作为位置参数，按书写顺序自上而下并行排布；可用 \`@set(voices.connect="...", voices.gap=1em)\` 预设后续多声部块的默认参数。
+接收多个 \`@voice\`，按书写顺序自上而下同时演奏；可用 \`@set(voices.connect="...", voices.gap=1em)\` 预设默认参数。
 
-**简写**：连续的 \`N:\`（及所属 \`L:\`）自动组成 \`voices\`，空行结束当前多声部块。可用 \`V{组名}:\`（大括号）、\`V[组名]:\`（括线）、\`V|:\`（仅细线）分段指定连谱号（组名可省，出现 \`V\` 时覆盖当前块的默认 \`connect\`）：
+**简写**：连续的 \`N:\`（及 \`L:\`）自动合为多声部，空行分段。可用 \`V{组名}:\`（花连谱号）、\`V[组名]:\`（直连谱号）、\`V|:\`（连谱线）指定连谱号，组名可省且支持 \`*斜体*\`、\`**粗体**\` 等文字样式：
 
 ~~~jpfun
 V{钢琴}:
@@ -117,7 +117,7 @@ N(女低): 1 2 3
                 namedOnly: true,
                 type: "length" as const,
                 default: { value: 0.35, unit: "em" as const },
-                description: "顶部外扩图形借用间距后保留的最小间距",
+                description: "上方记号借用间距后保留的最小间距",
             },
         ],
     };
@@ -332,7 +332,7 @@ N(女低): 1 2 3
 class VoicesBraceAttachment implements LayoutAttachment {
     layer = "background" as const;
     private leftWidth = 0;
-    private measuredLabels: (PreparedLyricText | undefined)[] = [];
+    private measuredLabels: ({ richLine: PreparedRichLine; leftWidth: number } | undefined)[] = [];
 
     get sourceSpan() { return this.ast.sourceSpan; }
 
@@ -367,22 +367,14 @@ class VoicesBraceAttachment implements LayoutAttachment {
         let maxLeftWidth = 0;
         this.measuredLabels = this.connections.map(connection => {
             if (!connection.name) return undefined;
-            const metrics = context.textMeasurer.measureText(connection.name, style);
+            const richLine = prepareRichLine(connection.name, style, context.textMeasurer);
             let innerWidth = 0;
             for (let i = connection.from - 1; i < connection.to; i++) {
                 innerWidth = Math.max(innerWidth, this.names[i].box.anchor);
             }
-            const leftWidth = (innerWidth > 0 ? innerWidth + gap : 0) + metrics.w;
+            const leftWidth = (innerWidth > 0 ? innerWidth + gap : 0) + richLine.w;
             maxLeftWidth = Math.max(maxLeftWidth, leftWidth);
-            return {
-                text: connection.name,
-                style,
-                textBaselineY: metrics.baseline,
-                x: -leftWidth,
-                y: 0,
-                w: metrics.w,
-                h: metrics.h,
-            };
+            return { richLine, leftWidth };
         });
         this.leftWidth = maxLeftWidth;
     }
@@ -414,7 +406,7 @@ class VoicesBraceAttachment implements LayoutAttachment {
         };
         const bars: LayoutRegion[] = [];
         const paths: { commands: readonly PathCommand[]; transform: PathTransform }[] = [];
-        const labels: PreparedLyricText[] = [];
+        const labels: (LayoutRegion & PreparedRichLine)[] = [];
         const regions: LayoutRegion[] = [line];
         for (let i = 0; i < this.connections.length; i++) {
             const connection = this.connections[i];
@@ -448,9 +440,9 @@ class VoicesBraceAttachment implements LayoutAttachment {
             const label = this.measuredLabels[i];
             if (label) {
                 labels.push({
-                    ...label,
-                    x: anchorX + label.x,
-                    y: (groupTop + groupBottom - label.h) / 2,
+                    ...label.richLine,
+                    x: anchorX - label.leftWidth,
+                    y: (groupTop + groupBottom - label.richLine.h) / 2,
                 });
             }
         }
@@ -471,7 +463,7 @@ class VoicesBraceAttachment implements LayoutAttachment {
                     painter.drawPath(path.commands, { fill: "#000" }, path.transform);
                 }
                 for (const label of labels) {
-                    painter.drawText(label.text, label.x + label.w, label.y + label.textBaselineY, label.style);
+                    paintRichLine(painter, label, label.x + label.w, label.y + label.baseline);
                 }
             },
         };

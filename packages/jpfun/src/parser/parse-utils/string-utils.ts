@@ -12,15 +12,17 @@ export function findClosingQuote(source: string, quotePos: number, end: number):
     } return -1;
 }
 
-/** 剥掉成对的双引号并反转义；解码失败时返回相对 source 的诊断，裸参数原样返回 */
+/** 剥掉成对的双引号（若有）并解码编码/定界级转义（`\"`、`\\`、`\uXXXX`）；其余 `\X` 原样保留给具体函数解析 */
 export function parseString(source: string): string | Diagnostic {
-    if (source.length < 2 || !source.startsWith('"') || !source.endsWith('"')) return source;
+    const quoted = source.length >= 2 && source.startsWith('"') && source.endsWith('"');
+    const raw = quoted ? source.slice(1, -1) : source;
     let diagnostic: Diagnostic | undefined;
     // 连同不完整转义一起匹配以便诊断；替换结果不会被再次扫描
-    const text = source.slice(1, -1).replace(/\\(u.{0,4}|.)/gs, (escape, body: string, offset: number) => {
-        if (body[0] !== "u") return body;
+    const text = raw.replace(/\\(u.{0,4}|.)/gs, (escape, body: string, offset: number) => {
+        if (body === '"' || body === "\\") return body;
+        if (body[0] !== "u") return escape;
         if (!/^u[0-9a-f]{4}$/i.test(body)) {
-            const start = offset + 1;
+            const start = offset + (quoted ? 1 : 0);
             diagnostic ??= Diagnostic.warning.InvalidUnicodeEscape({ start, end: start + escape.length });
             return escape;
         }

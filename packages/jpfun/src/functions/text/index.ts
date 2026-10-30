@@ -4,6 +4,7 @@ import { findClosingQuote, quote } from "../../parser/parse-utils/string-utils.j
 import type { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { DEFAULT_KEY, TemporalNodeBase } from "../temporal.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
+import { paintRichLine, parseRichText, prepareRichLine, type PreparedRichLine } from "../../render/text.js";
 import type { Painter, TextStyle } from "../../render/types.js";
 
 type TextAlign = "left" | "center" | "right";
@@ -18,7 +19,7 @@ class TextFunction extends ASTFunctionNode {
 ~~~
 **简写**：直接写双引号文本，如 \`"进入主题"\`；可跨行，双引号须配对。
 
-支持 JSON 风格的 Unicode 转义，如 \`\\uE050\`；显示字面反斜杠须写 \`\\\\\`。`,
+支持 \`*斜体*\`、\`**粗体**\`、\`_下划线_\`、\`^上标^\`（再次出现即关闭，不关闭则一直生效；写 \`\\*\`、\`\\_\`、\`\\^\` 显示原字符）。支持 \`\\uE050\` 形式的 Unicode 转义；反斜杠写 \`\\\\\`。`,
         allowExtraArgs: false,
         args: [
             {
@@ -78,9 +79,9 @@ class TextFunction extends ASTFunctionNode {
         return at + 1;
     }
 
-    lines: string[];
+    readonly text: string;
     size: number;
-    lineAdvance: number;
+    readonly lineHeight: number;
     align: TextAlign;
     readonly font: string;
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
@@ -94,17 +95,16 @@ class TextFunction extends ASTFunctionNode {
                 sourceSpan,
             );
         }
-        this.lines = text.split(/\r?\n/);
+        this.text = text.replace(/\r?\n/g, "\n");
         this.size = ctx.length2px(size);
-        this.lineAdvance = lineHeight * this.size;
+        this.lineHeight = lineHeight;
         this.align = align;
     }
 
     override loweringEnter() { return [new TextTemporalNode(this)]; }
 
     override toString() {
-        const lineHeight = this.size === 0 ? 1.25 : this.lineAdvance / this.size;
-        return `@text(${quote(this.lines.join("\n"))}, size=${this.size}px, lineheight=${lineHeight}, align=${this.align}, font=${quote(this.font)})`;
+        return `@text(${quote(this.text)}, size=${this.size}px, lineheight=${this.lineHeight}, align=${this.align}, font=${quote(this.font)})`;
     }
 }
 
@@ -114,46 +114,42 @@ class TextTemporalNode extends TemporalNodeBase {
     declare ast: TextFunction;
     declare box: LayoutBox;
 
-    private style: TextStyle;
-    private textBaselineY = 0;
+    private preparedLines: PreparedRichLine[] = [];
 
     constructor(ast: TextFunction) {
         super();
         this.ast = ast;
         this.mergeKey = DEFAULT_KEY;
-        this.style = { fontSize: ast.size, fontFamily: ast.font, fill: "#000", textAlign: ast.align };
         this.initLayoutBox();
     }
 
     override prepareLayout(context: LayoutPrepareContext) {
-        const { lines, align, lineAdvance } = this.ast;
-        const measure = (text: string) => context.textMeasurer.measureText(text, this.style);
-        const first = measure(lines[0]);
-        let width = first.w;
-        for (let i = 1; i < lines.length; i++) width = Math.max(width, measure(lines[i]).w);
+        const { text, align, size, font, lineHeight } = this.ast;
+        const style: TextStyle = { fontSize: size, fontFamily: font, fill: "#000", textAlign: align };
+        this.preparedLines = parseRichText(text).map(runs => prepareRichLine(runs, style, context.textMeasurer));
+        const first = this.preparedLines[0];
+        const width = Math.max(...this.preparedLines.map(l => l.w));
 
         this.box.w = width;
-        this.box.h = (lines.length - 1) * lineAdvance + first.h;
+        this.box.h = (this.preparedLines.length - 1) * lineHeight * size + first.h;
         this.box.visualAxis = this.box.h / 2;
-        this.textBaselineY = first.baseline;
         if (align === "center") this.box.anchor = width / 2;
-        else if (align === "right") {
-            const lastChar = [...lines[0]].at(-1);
-            this.box.anchor = width - (lastChar ? measure(lastChar).w / 2 : 0);
-        } else {
-            // 左对齐时锚点落在首字符中心，单字标记才能像音符一样对准宿主
-            const firstChar = [...lines[0]][0];
-            this.box.anchor = firstChar ? measure(firstChar).w / 2 : 0;
+        else {
+            // 左/右对齐时锚点落在首行首/末字符中心，单字标记才能像音符一样对准宿主
+            const edgeIdx = align === "right" ? -1 : 0;
+            const edgeRun = first.runs.at(edgeIdx);
+            const half = edgeRun ? context.textMeasurer.measureText([...edgeRun.text].at(edgeIdx)!, edgeRun.style).w / 2 : 0;
+            this.box.anchor = align === "right" ? width - half : half;
         }
     }
 
     override paint(painter: Painter) {
-        const { lines, align, lineAdvance } = this.ast;
+        const { align, lineHeight, size } = this.ast;
         const x = this.box.x + (align === "center" ? this.box.w / 2 : align === "right" ? this.box.w : 0);
-        let y = this.box.y + this.textBaselineY;
-        for (const line of lines) {
-            painter.drawText(line, x, y, this.style);
-            y += lineAdvance;
+        let y = this.box.y + this.preparedLines[0].baseline;
+        for (const line of this.preparedLines) {
+            paintRichLine(painter, line, x, y);
+            y += lineHeight * size;
         }
     }
 }

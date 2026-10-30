@@ -29,9 +29,8 @@ const textObjects = (source: string) => {
     for (const object of layoutOf(source).objects) {
         const ast = object.ast;
         if (!(ast instanceof ASTFunctionNode) || ast.callName !== "text"
-            || !("lines" in ast) || !Array.isArray(ast.lines)) continue;
-        const text = ast.lines[0];
-        if (typeof text === "string" && !found.has(text)) found.set(text, object);
+            || !("text" in ast) || typeof ast.text !== "string") continue;
+        if (!found.has(ast.text)) found.set(ast.text, object);
     }
     return found;
 };
@@ -87,9 +86,8 @@ test("head 侧栏底部对齐且较高侧贴住标题下侧", () => {
     for (const object of layout.objects) {
         const ast = object.ast;
         if (!(ast instanceof ASTFunctionNode) || ast.callName !== "text"
-            || !("lines" in ast) || !Array.isArray(ast.lines)) continue;
-        const text = ast.lines[0];
-        if (typeof text === "string") boxes[text] = object.box;
+            || !("text" in ast) || typeof ast.text !== "string") continue;
+        boxes[ast.text] = object.box;
     }
     const leftTop = Math.min(boxes.L1.y, boxes.L2.y, boxes.L3.y);
     const leftBottom = Math.max(
@@ -114,8 +112,8 @@ test("head 以 center 首个有视觉占用的行作为标题行", () => {
     const boxes = Object.fromEntries(layout.objects.flatMap(object => {
         const ast = object.ast;
         if (!(ast instanceof ASTFunctionNode) || ast.callName !== "text"
-            || !("lines" in ast) || !Array.isArray(ast.lines)) return [];
-        return [[ast.lines[0], object.box]];
+            || !("text" in ast) || typeof ast.text !== "string") return [];
+        return [[ast.text, object.box]];
     }));
     assert(nearly(boxes.L.y, boxes.T.y + boxes.T.h),
         "non-visual center rows must not detach side slots from the title bottom");
@@ -132,9 +130,8 @@ test("head 三槽独立计算内部行距", () => {
         for (const object of layout.objects) {
             const ast = object.ast;
             if (!(ast instanceof ASTFunctionNode) || ast.callName !== "text"
-                || !("lines" in ast) || !Array.isArray(ast.lines)) continue;
-            const text = ast.lines[0];
-            if (typeof text === "string") axes[text] = object.box.y + object.box.visualAxis;
+                || !("text" in ast) || typeof ast.text !== "string") continue;
+            axes[ast.text] = object.box.y + object.box.visualAxis;
         }
         return axes;
     };
@@ -166,7 +163,7 @@ H.right: {@text(A) @text(B)}`);
     const find = (name: string, text?: string) => layout.objects.find(object => {
         const ast = object.ast;
         if (!(ast instanceof ASTFunctionNode) || ast.callName !== name) return false;
-        return text === void 0 || ("lines" in ast && Array.isArray(ast.lines) && ast.lines[0] === text);
+        return text === void 0 || ("text" in ast && ast.text === text);
     })!;
     const key = find("key");
     const meter = find("meter");

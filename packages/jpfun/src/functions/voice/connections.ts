@@ -68,8 +68,7 @@ export type VoiceConnection = ConnectionSpec & Required<Pick<ConnectionSpec, "fr
 
 const CONNECTION_RANGE_RE = /\s*([\[{])\s*(?:(?:(\d+)\s*)?-\s*(?:(\d+)\s*)?|(\d+)\s*)/y;
 const WHITESPACE_RE = /\s/;
-const FORBIDDEN_RAW_NAME_RE = /[\[\]{}:"\\\r\n]/;
-const NEEDS_QUOTED_NAME_RE = /^\s|\s$|[\[\]{}:"\\\r\n]/;
+const FORBIDDEN_RAW_NAME_RE = /[\[\]{}:"\r\n]/;
 
 function invalidConnection(span: SourceSpan) {
     return new ErrorDiagnostic(
@@ -138,14 +137,10 @@ export function resolveConnections(specs: readonly ConnectionSpec[], count: numb
     });
 }
 
-function serializeConnectionName(name: string | undefined): string {
-    if (!name) return "";
-    return `:${NEEDS_QUOTED_NAME_RE.test(name) ? quote(name) : name}`;
-}
-
 export function serializeConnections(specs: readonly ConnectionSpec[]): string {
     return specs.map(({ kind, from, to, name }) => {
-        const range = `${from ?? ""}-${to ?? ""}${serializeConnectionName(name)}`;
+        const label = !name ? "" : `:${FORBIDDEN_RAW_NAME_RE.test(name) || name.trim() !== name ? quote(name) : name}`;
+        const range = `${from ?? ""}-${to ?? ""}${label}`;
         return kind === "brace" ? `{${range}}` : `[${range}]`;
     }).join("");
 }

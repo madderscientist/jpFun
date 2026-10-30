@@ -107,7 +107,7 @@ function insideSpan<T extends { start: Fraction; end: Fraction }>(spans: readonl
 function lyricToken(value: string) {
     const continuation = value.endsWith("-");
     const body = continuation ? value.slice(0, -1) : value;
-    const escaped = body.replace(/[\\{}@-]/g, "\\$&") + (continuation ? "-" : "");
+    const escaped = body.replace(/[\\{}@\-*_^]/g, "\\$&") + (continuation ? "-" : "");
     // 花括号让会被歌词词法拆分的一个 XML lyric 仍只占一个歌词槽。
     const hasNonAscii = [...body].some(char => char.codePointAt(0)! > 0x7f);
     return /\s/.test(body) || (hasNonAscii && ([...body].length > 1 || body.length > 1 || continuation))

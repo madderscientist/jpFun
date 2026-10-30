@@ -7,6 +7,7 @@ import { type CallArgumentInfo, GrammarNode, GrammarSugarNode } from "../../pars
 import { findRightParen } from "../../parser/parse-utils/call-utils.js";
 import { findClosingQuote, quote } from "../../parser/parse-utils/string-utils.js";
 import { ParserContext, skipSpaces } from "../../parser/parserContext.js";
+import { paintRichLine, prepareRichLine, type PreparedRichLine, type RichTextRun } from "../../render/text.js";
 import type { Painter, TextStyle } from "../../render/types.js";
 import { isVisualTemporalNode, TemporalNodeBase, type VisualTemporalNode } from "../temporal.js";
 import { lyricNameStyle, parseLyric, serializeLyric, VoiceLyricsAttachment } from "./lyrics.js";
@@ -20,7 +21,6 @@ export function voiceNameStyle(size: number, fontFamily: string): TextStyle {
         fontFamily,
         fontSize: size * 0.85,
         fill: "#000",
-        fontWeight: 600,
         textAlign: "right",
     };
 }
@@ -41,7 +41,7 @@ export class VoiceFunction extends ASTFunctionNode {
 ~~~
 - **额外参数**：每项为一行歌词；命名参数同时给出歌词行名，位置参数表示无行名。省略声部名但仍需歌词时，保留空位，如 \`@voice({1 2 3}, , ha ha ha)\`。
 
-歌词可用引号包裹；显式调用中含逗号等歧义字符时必须加引号。英文用空格或连字符 \`-\` 分词，用 \`@\` 占位。
+歌词可用引号包裹；调用 \`@voice\` 时歌词若含逗号须加引号。英文用空格或连字符 \`-\` 分词，用 \`@\` 留空。名称与歌词均支持 \`*斜体*\`、\`**粗体**\`、\`_下划线_\`、\`^上标^\`（可跨多个音符，如 \`*春眠不觉晓*\`）。
 
 **简写**：\`N\` 声明音符行，\`L\` 声明歌词行，括号内的名称可省略：
 ~~~jpfun
@@ -49,7 +49,7 @@ N(钢琴): 1 2 3
 L(男): ha ha ha
 L: la la la
 ~~~
-行首允许空白，换行结束当前声明；在行末加 \`\\\` 可续行。这种写法中的歌词允许直接使用逗号。`,
+换行结束当前行，行末加 \`\\\` 可续行；\`L:\` 中可直接使用逗号。`,
         allowExtraArgs: true,
         extraArgType: "string" as const,
         args: [
@@ -247,7 +247,7 @@ L: la la la
     readonly font: string;
     lyrics: {
         name: string;
-        tokens: string[];   // 分词后的歌词内容
+        tokens: RichTextRun[][];   // 分词后的歌词内容
     }[];
     override get children() { return [this.content]; }
 
@@ -355,7 +355,7 @@ export class VoiceNameTemporal extends TemporalNodeBase {
 
     /** 名称右侧为大括号预留的横向空间，0 表示不需要 */
     private readonly braceSpace: number;
-    private textBaselineY = 0;
+    private preparedName: PreparedRichLine | null = null;
 
     constructor(ast: VoiceFunction, braceSpace: number) {
         super();
@@ -368,15 +368,15 @@ export class VoiceNameTemporal extends TemporalNodeBase {
     }
 
     override prepareLayout(context: LayoutPrepareContext) {
-        const metrics = this.ast.name
-            ? context.textMeasurer.measureText(this.ast.name, this.style)
-            : { w: 0, h: 0, baseline: 0 };
+        this.preparedName = this.ast.name
+            ? prepareRichLine(this.ast.name, voiceNameStyle(this.ast.size, this.ast.font), context.textMeasurer)
+            : null;
         // 声部名和歌词行名称共用这一列，列宽取其中最宽的一个
-        let labelWidth = metrics.w;
+        let labelWidth = this.preparedName?.w ?? 0;
+        const lyricStyle = lyricNameStyle(this.ast.size, this.ast.font);
         for (const lyric of this.ast.lyrics) {
             if (!lyric.name) continue;
-            const lyricMetrics = context.textMeasurer.measureText(lyric.name, lyricNameStyle(this.ast.size, this.ast.font));
-            labelWidth = Math.max(labelWidth, lyricMetrics.w);
+            labelWidth = Math.max(labelWidth, prepareRichLine(lyric.name, lyricStyle, context.textMeasurer).w);
         }
 
         // 没有大括号时也要在标签右侧留出与内容分离的空隙
@@ -386,22 +386,17 @@ export class VoiceNameTemporal extends TemporalNodeBase {
         // 对齐点放在标签右边界：同一列共享 `x + anchor`，因此长短不一的声部名会右对齐，
         // 括号空间统一落在对齐点右侧
         this.box.w = labelWidth + rightSpace;
-        this.box.h = metrics.h;
+        this.box.h = this.preparedName?.h ?? 0;
         this.box.anchor = labelWidth;
-        this.box.visualAxis = metrics.h / 2;
-        this.textBaselineY = metrics.baseline;
+        this.box.visualAxis = this.box.h / 2;
 
         // 声部名与第一个音符之间需要稳定但可压缩的横向间距
         this.springConfig.alpha_R = 0.45;
     }
 
-    private get style(): TextStyle {
-        return voiceNameStyle(this.ast.size, this.ast.font);
-    }
-
     override paint(painter: Painter) {
-        if (!this.ast.name) return;
-        painter.drawText(this.ast.name, this.box.x + this.box.anchor, this.box.y + this.textBaselineY, this.style);
+        if (!this.preparedName) return;
+        paintRichLine(painter, this.preparedName, this.box.x + this.box.anchor, this.box.y + this.preparedName.baseline);
     }
 }
 
