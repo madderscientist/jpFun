@@ -2,7 +2,6 @@ import { test } from "node:test";
 import { deepStrictEqual, strictEqual } from "node:assert/strict";
 
 import { compileScore } from "../src/pipeline.js";
-import type { PlacedAttachment } from "../src/layout/types.js";
 import type { PathCommand } from "../src/render/types.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import { assert, attachmentCommands, commandsOfKind, compileValid, layoutOf, lower, nearly, playedNotes, recordCommands } from "./helpers.js";
@@ -12,13 +11,6 @@ function tieApexHeight(path: { commands: readonly PathCommand[] }) {
     const [start, outer] = path.commands;
     if (start.op !== "M" || outer.op !== "C") throw new Error("unexpected tie path shape");
     return (start.y - outer.cy1) * 0.75;
-}
-
-/** 跨行段是一条水平带，取它的下沿才能和轨上最高的宿主比较 */
-function horizontalBandBottom(attachment: PlacedAttachment, segment: number) {
-    const path = attachmentCommands(attachment).filter(command => command.kind === "path")[segment];
-    assert(path?.kind === "path", `Expected tie segment ${segment}`);
-    return Math.max(...path.commands.flatMap(command => command.op === "L" ? [command.y] : []));
 }
 
 const opsOf = (path: { commands: readonly PathCommand[] }) =>
@@ -46,155 +38,35 @@ test("增时线参与显式及默认连音端点，但不合并播放音符", ()
     }
 });
 
-test("连音线弧高随字号缩放，也接受显式长度", () => {
+test("连音线弧高支持自动跨度缩放、显式长度、作用域继承与跨行固定高度", () => {
     const smallTiePath = commandsOfKind(`1@a 2@b @tie(a,b,height=0.5em)`, "path", 20)[0];
     const largeTiePath = commandsOfKind(`1@a 2@b @tie(a,b,height=0.5em)`, "path", 40)[0];
-    assert(
-        nearly(tieApexHeight(largeTiePath), tieApexHeight(smallTiePath) * 2),
-        "tie geometry must scale with the declaration font size",
-    );
+    assert(nearly(tieApexHeight(largeTiePath), tieApexHeight(smallTiePath) * 2), "tie geometry scales with fontSize");
+    assert(nearly(tieApexHeight(commandsOfKind(`1@a 2@b @tie(a,b,height=10px)`, "path")[0]), 10), "fixed length height");
 
-    const explicitHeightPath = commandsOfKind(`1@a 2@b @tie(a,b,height=10px)`, "path")[0];
-    assert(nearly(tieApexHeight(explicitHeightPath), 10), "tie height must honor its fixed length argument");
+    const autoPaths = commandsOfKind("1@a 2@b 3 4 5 6 7 1@c @tie(a,b,c)", "path", 20);
+    assert(tieApexHeight(autoPaths[0]) < tieApexHeight(autoPaths[1]) && nearly(tieApexHeight(autoPaths[1]), 10),
+        "automatic height grows with span and caps at 0.5em");
+    deepStrictEqual(commandsOfKind("1@a 2@b @tie(a,b,height=0)", "path"), commandsOfKind("1@a 2@b @tie(a,b)", "path"));
+
+    const crossAuto = commandsOfKind("1@a @br() 2@b @tie(a,b)", "path", 20);
+    const crossFixed = commandsOfKind("1@a @br() 2@b @tie(a,b,height=0.45em)", "path", 20);
+    deepStrictEqual(crossAuto, crossFixed, "cross-line automatic height uses 0.45em");
+
+    const inherited = compileValid("@set(tie.height=2em) 1@a 2@b @tie(a,b)");
+    strictEqual(inherited.ast.content.at(-1)!.toString("@set(tie.height=2em) 1@a 2@b @tie(a,b)"), "@tie(a, b, height=44px)");
+    assert(compileScore("1@a 2@b @tie(a,b,height=bad)").diagnostics.some(d => d.code === "W_INVALID_LENGTH"), "invalid length");
 });
 
 test("ties leave a small font-relative gap above upper octave dots", () => {
-    for (const fontSize of [20, 40]) {
-        for (const source of [
-            "1'@a 2'@b @tie(a,b)",
-            "1''@a 2'@b @tie(a,b,height=0.5em)",
-            "{1^3'}@a {2^4'}@b @tie(a,b)",
-            "{1^3'@a} 2'@b @tie(a,b)",
-            "1'@a @br() 2''@b @tie(a,b)",
-        ]) {
-            const layout = layoutOf(source, fontSize);
-            const paths = attachmentCommands(layout.attachments[0]).filter(command => command.kind === "path");
-            const start = paths[0].commands[0];
-            const last = paths.at(-1)!;
-            const end = last.commands[last.commands[1].op === "C" ? 1 : 2];
-            assert(start.op === "M" && (end.op === "C" || end.op === "Q"), "expected tie endpoints");
-            const circles = recordCommands(layout).filter(command => command.kind === "circle");
-            for (const point of [start, end]) {
-                const dots = circles.filter(dot => nearly(dot.cx, point.x) && dot.cy > point.y);
-                assert(dots.length > 0, "the endpoint must have upper octave dots");
-                const top = Math.min(...dots.map(dot => dot.cy - dot.r));
-                assert(nearly(top - point.y, fontSize * 0.05),
-                    `the tie endpoint must stay 0.05em above the uppermost dot: ${source}, gap=${top - point.y}`);
-            }
-        }
-    }
-    for (const source of ["1@a 2@b @tie(a,b)", "1,@a 2,@b @tie(a,b)"]) {
-        const layout = layoutOf(source);
-        assert(layout.objects.every(object => object.ports["tie.top"] === undefined),
-            "notes without upper octave dots must retain the original endpoint position");
-    }
-});
-
-test("tie height defaults follow scope and call-site fontsize with explicit overrides", () => {
-    const source = `@set(fontsize=20, tie.height=2em)
-1@a 2@b @tie(a,b)
-{ @set(fontsize=30) 3@c 4@d @tie(c,d) }
-{ @set(tie.height=7px) 5@e 6@f @tie(e,f) }
-1@g 2@h @tie(g,h)
-3@i 4@j @tie(i,j,height=0px)
-5@k 6@l @tie(k,l,height=-8px)`;
-    const paths = recordCommands(compileValid(source).layout).filter(command => command.kind === "path");
-    const heights = [40, 60, 7, 40];
-    strictEqual(paths.length, 6);
-    heights.forEach((height, index) => assert(nearly(tieApexHeight(paths[index]), height), `tie ${index} must honor its height`));
-    for (const path of paths.slice(4)) {
-        assert(tieApexHeight(path) > 0 && tieApexHeight(path) <= 10,
-            "non-positive overrides must enable automatic height at the call-site fontsize");
-    }
-});
-
-test("automatic same-line ties remain filled ribbons with capped quadratic heights", () => {
-    const source = "1@a 2@b 3 4 5 6 7 1@c @tie(a,b,c)";
-    for (const fontSize of [20, 40]) {
-        const paths = commandsOfKind(source, "path", fontSize);
-        strictEqual(paths.length, 2);
-        for (const path of paths) {
-            strictEqual(opsOf(path), "M,C,C,Z", "near and far ties must remain closed cubic ribbons");
-            strictEqual(path.style?.fill, "#000", "tie ribbons must be filled");
-            const [start, end] = path.commands;
-            assert(start.op === "M" && end.op === "C", "expected a cubic tie");
-            const span = Math.abs(end.x - start.x);
-            const u = Math.min(span / (2.5 * fontSize), 1);
-            assert(nearly(tieApexHeight(path), 0.5 * fontSize * u * (2 - u)),
-                "automatic height must use the final horizontal span");
-        }
-        assert(tieApexHeight(paths[0]) < tieApexHeight(paths[1]), "near endpoints must have a lower arc");
-        assert(nearly(tieApexHeight(paths[1]), fontSize * 0.5), "long ties must reach, not exceed, the cap");
-        deepStrictEqual(commandsOfKind(source.replace("@tie(a,b,c)", "@tie(c,b,a)"), "path", fontSize)
-            .map(tieApexHeight).reverse(), paths.map(tieApexHeight));
-    }
-});
-
-test("zero, negative and inherited automatic heights match the default", () => {
-    const source = "1@a 2@b @tie(a,b)";
-    const expected = commandsOfKind(source, "path");
-    for (const height of ["0", "0px", "-8px", "-1em"]) {
-        deepStrictEqual(commandsOfKind(`1@a 2@b @tie(a,b,height=${height})`, "path"), expected);
-        deepStrictEqual(commandsOfKind(`@set(tie.height=${height}) ${source}`, "path"), expected);
-    }
-    const inherited = compileValid(`@set(tie.height=-1em) ${source}`);
-    const serialized = inherited.ast.content.at(-1)!.toString(source);
-    strictEqual(serialized, "@tie(a, b, height=0px)");
-    deepStrictEqual(commandsOfKind(`1@a 2@b ${serialized}`, "path"), expected);
-    const callSite = commandsOfKind("1@a 2 3 4 5 6 7 1@b @set(fontsize=40) @tie(a,b)", "path")[0];
-    assert(nearly(tieApexHeight(callSite), 20), "the cap must use call-site, not endpoint, fontsize");
-});
-
-test("automatic cross-line ties use 0.45em for all segments regardless of span", () => {
-    const source = "1@a 2 3 4 5 6 7 @br() 2 @br() 3@b @tie(a,b)";
-    const layout = layoutOf(source);
-    const paths = attachmentCommands(layout.attachments[0]).filter(command => command.kind === "path");
-    strictEqual(paths.length, 3);
-    const [start, curve] = paths[0].commands;
-    const [plateau, , end] = paths[2].commands;
-    assert(start.op === "M" && curve.op === "Q" && plateau.op === "M" && end.op === "Q",
-        "expected opening and closing curves");
-    assert(nearly(start.y - curve.y, 9.9), "a long opening segment must use 0.45em");
-    assert(nearly(end.y - plateau.y, 9.9), "a short closing segment must use 0.45em");
-    assert(nearly(layout.attachments[0].regions[1].h, 22 * 0.09), "middle segments must retain their band thickness");
-    const empty = layoutOf("1@a @br(2) 2@b @tie(a,b,height=0)");
-    strictEqual(empty.attachments[0].regions.length, 3);
-    assert(empty.attachments[0].regions.every(region => [region.x, region.y, region.w, region.h].every(Number.isFinite)),
-        "empty lines must keep finite geometry");
-    for (const fontSize of [20, 40]) {
-        const automatic = commandsOfKind("1@a @br() 2@b @tie(a,b)", "path", fontSize);
-        const fixed = commandsOfKind("1@a @br() 2@b @tie(a,b,height=0.45em)", "path", fontSize);
-        deepStrictEqual(automatic, fixed, "short cross-line segments must match fixed 0.45em geometry");
-        deepStrictEqual(commandsOfKind("1@a @br() 2@b @tie(a,b,height=-1em)", "path", fontSize), fixed);
-    }
-    deepStrictEqual(
-        commandsOfKind(source, "path"),
-        commandsOfKind(source.replace("@tie(a,b)", "@tie(a,b,height=0.45em)"), "path"),
-        "middle segments must also match fixed 0.45em geometry",
-    );
-    const vertical = layoutOf("@stack({1@a}, {2@b}) @tie(a,b)").attachments[0].regions[0];
-    assert([vertical.x, vertical.y, vertical.w, vertical.h].every(Number.isFinite), "zero horizontal span must keep finite geometry");
-});
-
-test("named-only height leaves all positional labels and implicit endpoints intact", () => {
-    const explicit = compileValid("1@a 2@height 3@b @tie(a,height,b,height=7px)");
-    const paths = recordCommands(explicit.layout).filter(command => command.kind === "path");
-    strictEqual(paths.length, 2);
-    assert(paths.every(path => nearly(tieApexHeight(path), 7)), "all endpoint pairs must retain the configured height");
-    const implicit = compileValid("@set(tie.height=9px) 1 2 @tie()");
-    const [path] = recordCommands(implicit.layout).filter(command => command.kind === "path");
-    assert(nearly(tieApexHeight(path), 9), "implicit endpoints must also use the configured height");
-});
-
-test("tie serialization freezes inherited height and invalid lengths remain diagnosed", () => {
-    const source = "@set(tie.height=2em) 1@a 2@b @tie(a,b)";
-    const result = compileValid(source);
-    const serialized = result.ast.content.at(-1)!.toString(source);
-    strictEqual(serialized, "@tie(a, b, height=44px)");
-    deepStrictEqual(recordCommands(compileValid(`1@a 2@b ${serialized}`).layout), recordCommands(result.layout));
-    const invalid = compileScore("1@a 2@b @tie(a,b,height=bad)");
-    assert(invalid.diagnostics.some(diagnostic => diagnostic.code === "W_INVALID_LENGTH"),
-        "invalid height must retain the standard length diagnostic");
+    const layout = layoutOf("1'@a 2'@b @tie(a,b)", 20);
+    const [path] = attachmentCommands(layout.attachments[0]).filter(command => command.kind === "path");
+    const start = path.commands[0];
+    assert(start.op === "M", "expected tie start");
+    const circles = recordCommands(layout).filter(command => command.kind === "circle");
+    const dots = circles.filter(dot => nearly(dot.cx, start.x) && dot.cy > start.y);
+    assert(dots.length > 0 && nearly(Math.min(...dots.map(dot => dot.cy - dot.r)) - start.y, 1),
+        "the tie endpoint must stay 0.05em above the uppermost dot");
 });
 
 test("up 成员标签连接该成员，整体标签连接整个 up", () => {

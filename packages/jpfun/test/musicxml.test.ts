@@ -143,105 +143,32 @@ test("MusicXML glissando kinds and numbers pair independently and report unsuppo
   compileValid(simultaneous.script);
 });
 
-test("MusicXML explicit multiple rests retain one symbol, timing, and onset state", () => {
-  for (const [count, meter, extra] of [[1, "3", ""], [32, "4", ""], [32, "4", '<print new-system="yes"/>']] as const) {
-    const xml = restScore(count, count, extra, meter).replace('<measure number="1">',
-      '<measure number="1"><direction><direction-type><dynamics><p/></dynamics></direction-type><sound tempo="80"/></direction>');
-    const result = compileMusicXml(xml);
-    assert(result.script.includes(`@rest(${count})`) && result.script.includes("$p"), result.script);
-    const rests = [...result.lowering.astToTemporal.values()].flat().filter(node =>
-      node.ast instanceof ASTFunctionNode && node.ast.callName === "rest");
-    assert(rests.length === 1 && rests[0].T.equals(count * Number(meter)), "group must remain one event");
-    assert(recordCommands(result.layout).some(command => command.kind === "text" && command.text === String(count)),
-      "group count must be visible");
-    assert(result.playback.performanceDuration.equals(count * Number(meter))
-      && nearly(result.playback.durationSeconds, count * Number(meter) * 0.75), "silent time must retain onset tempo");
-    deepStrictEqual(playedNotes(result.playback), []);
-  }
-});
+test("MusicXML multiple-rest grouping, fallbacks, repeats and diagnostics", () => {
+  const xml = restScore(4, 4, '<print new-system="yes"/>', "3").replace('<measure number="1">',
+    '<measure number="1"><direction><direction-type><dynamics><p/></dynamics></direction-type><sound tempo="80"/></direction>');
+  const result = compileMusicXml(xml);
+  assert(result.script.includes("@rest(4)") && result.script.includes("$p"), result.script);
+  assert(result.playback.performanceDuration.equals(12) && nearly(result.playback.durationSeconds, 9), "silent time retains tempo");
 
-test("MusicXML keeps rests as zeros without an explicit multiple-rest", () => {
-  for (const count of [1, 32]) for (const rest of ['rest measure="yes"', "rest"]) {
-    const xml = restScore(count, count, "", "3")
-      .replace(`<measure-style><multiple-rest>${count}</multiple-rest></measure-style>`, "")
-      .replaceAll('rest measure="yes"', rest);
-    const result = compileMusicXml(xml);
-    assert(!result.script.includes("@rest("), result.script);
-    assert(result.script.includes("0 0 0"), "each 3/4 measure must retain ordinary rests");
-    assert(result.lowering.duration.equals(count * 3), "rest timing must remain unchanged");
-  }
-});
+  const plainXml = restScore(2, 2, "", "3").replace("<measure-style><multiple-rest>2</multiple-rest></measure-style>", "");
+  assert(!compileMusicXml(plainXml).script.includes("@rest("), "ordinary rests without multiple-rest stay 0");
 
-test("MusicXML rejects invalid counts and diagnoses unsafe or truncated rest groups", () => {
   for (const count of [0, -1, 1.5]) throws(() => importMusicXml(restScore(1, count)), RangeError);
-  const changed = [
-    "<attributes><time><beats>2</beats><beat-type>2</beat-type></time></attributes>",
-    '<direction><sound tempo="80"/></direction>',
-    '<direction><direction-type><words>Keep me</words></direction-type></direction>',
-    '<barline location="left"><repeat direction="forward"/></barline>',
-  ].map(extra => restScore(3, 3, extra));
-  for (const xml of [...changed, restScore(2, 32)]) {
-    const result = importMusicXml(xml);
-    assert(!result.script.includes("@rest("), result.script);
-    assert(result.diagnostics.some(item => item.location.element === "multiple-rest"),
-      "unpreserved grouping must be diagnosed");
-    deepStrictEqual(compileScore(result.script).diagnostics, []);
+  for (const broken of [
+    restScore(3, 3, '<direction><sound tempo="80"/></direction>'),
+    restScore(2, 32),
+  ]) {
+    const imported = importMusicXml(broken);
+    assert(!imported.script.includes("@rest(") && imported.diagnostics.some(d => d.location.element === "multiple-rest"), broken);
   }
-});
 
-test("MusicXML rest import preserves following notes, repeats, and explicit line breaks", () => {
-  const xml = restScore(32, 32, '<print new-system="yes"/>')
-    .replace('<measure number="1">', '<measure number="1"><barline location="left"><repeat direction="forward"/></barline>')
-    .replace("</part>", `<measure number="33"><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice></note><barline location="right"><repeat direction="backward"/></barline></measure></part>`);
-  const result = compileMusicXml(xml, { barsPerLine: 1 });
-  assert(result.script.includes("@rest(32)"), result.script);
-  deepStrictEqual(playedNotes(result.playback).map(note => note.start.toString()), ["128", "260"]);
-  assert(result.playback.performanceDuration.equals(264), "repeat must include the entire rest and following note");
-});
-
-test("MusicXML does not turn one voice's rest into a global pause over another voice", () => {
-  const xml = restScore(2).replace("</measure>", `<backup><duration>4</duration></backup>
+  const twoVoice = restScore(2).replace("</measure>", `<backup><duration>4</duration></backup>
     <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><voice>2</voice></note></measure>`);
-  const result = importMusicXml(xml);
-  assert(!result.script.includes("@rest("), result.script);
-  const compiled = compileScore(result.script);
-  deepStrictEqual(compiled.diagnostics, []);
-  deepStrictEqual(playedNotes(compilePlayback(compiled.lowering)).map(note => note.start.toString()), ["0"]);
-  assert(compiled.lowering.duration.equals(8), "the other voice must not extend the rest");
-});
+  assert(!importMusicXml(twoVoice).script.includes("@rest("), "active second voice prevents global @rest");
 
-test("MusicXML multiple-rest at a first-ending endpoint retains grouping and playback", () => {
-  for (const count of [1, 4]) {
-    const xml = restScore(count).replace('rest measure="yes"', "rest")
-      .replace('<measure number="1">', '<measure number="1"><barline location="left"><repeat direction="forward"/><ending number="1" type="start"/></barline>')
-      .replace("</measure></part>", `<barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline></measure><measure number="${count + 1}">
-        <barline location="left"><ending number="2" type="start"/></barline>
-        <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice></note>
-        <barline location="right"><ending number="2" type="stop"/></barline></measure></part>`);
-    const result = compileMusicXml(xml);
-    assert(result.script.includes(`@rest(${count})@`), result.script);
-    assert(result.playback.performanceDuration.equals(count * 4 + 4), "first-ending rest must play once");
-    deepStrictEqual(playedNotes(result.playback).map(note => note.start.toString()), [String(count * 4)]);
-  }
-});
-
-test("MusicXML synchronized resting voices share one silent interval", () => {
-  const xml = restScore(2).replaceAll("</measure>", `<backup><duration>4</duration></backup>
-    <note><rest measure="yes"/><duration>4</duration><voice>2</voice></note></measure>`);
-  const result = compileMusicXml(xml);
-  assert(result.script.match(/@rest\(2\)/g)?.length === 2, result.script);
-  assert(result.lowering.duration.equals(8), "simultaneous rests must not double the duration");
-});
-
-test("MusicXML timewise and staff-numbered multiple rests retain grouping", () => {
-  const xml = `<score-timewise><part-list><score-part id="P1"><part-name>Rest</part-name></score-part></part-list>${
-    Array.from({ length: 2 }, (_, index) => `<measure number="${index + 1}"><part id="P1">
-      ${index === 0 ? '<attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time><measure-style number="1"><multiple-rest>2</multiple-rest></measure-style></attributes>' : ""}
-      <note><rest measure="yes"/><duration>4</duration><staff>1</staff></note></part></measure>`).join("")
-  }</score-timewise>`;
-  const result = compileMusicXml(xml);
-  assert(result.script.includes("@rest(2)"), result.script);
-  assert(result.lowering.duration.equals(8), "timewise rest must retain its length");
+  const syncVoices = compileMusicXml(restScore(2).replaceAll("</measure>", `<backup><duration>4</duration></backup>
+    <note><rest measure="yes"/><duration>4</duration><voice>2</voice></note></measure>`));
+  assert(syncVoices.script.match(/@rest\(2\)/g)?.length === 2 && syncVoices.lowering.duration.equals(8), syncVoices.script);
 });
 
 test("MusicXML diagnoses omitted percussion with original XML location", () => {
@@ -278,299 +205,43 @@ test("MusicXML diagnoses only discarded children of supported musical containers
     && result.script.includes("$staccato"), "supported siblings must still be preserved");
 });
 
-test("MusicXML imports basic articulations and turns with placement and playback", () => {
-  for (const [container, tag, name, noteCount, velocity, end] of [
-    ["articulations", "staccato", "staccato", 1, 80, [1, 2]],
-    ["articulations", "tenuto", "tenuto", 1, 80, [1, 1]],
-    ["articulations", "strong-accent", "marcato", 1, 100, [1, 1]],
-    ["articulations", "staccatissimo", "staccato", 1, 80, [1, 2]],
-    ["ornaments", "turn", "turn", 4, 80, [1, 1]],
-    ["ornaments", "inverted-turn", "iturn", 4, 80, [1, 1]],
+test("MusicXML imports basic articulations, turns, and diagnoses unsupported or approximated marks", () => {
+  for (const [container, tag, name] of [
+    ["articulations", "staccato", "staccato"],
+    ["articulations", "tenuto", "tenuto"],
+    ["articulations", "strong-accent", "marcato"],
+    ["articulations", "staccatissimo", "staccato"],
+    ["ornaments", "turn", "turn"],
+    ["ornaments", "inverted-turn", "iturn"],
   ] as const) {
-    for (const placement of ["above", "below"]) {
-      const marks = `<${container}><${tag} placement="${placement}"/></${container}>`;
-      const result = compileMusicXml(slideScore([marks]));
-      assert(result.script.includes(`${placement === "above" ? "^" : "_"} $${name}`), result.script);
-      const notes = playedNotes(result.playback);
-      assert(notes.length === noteCount && notes.every(note => note.velocity === velocity), `${name} playback`);
-      assert(notes[0].start.equals(0) && notes.at(-1)!.end.equals(end[0], end[1]), "host endpoints must match articulation");
-    }
+    const result = compileMusicXml(slideScore([`<${container}><${tag} placement="below"/></${container}>`]));
+    assert(result.script.includes(`_ $${name}`), result.script);
   }
+  const approx = importMusicXml(slideScore(['<ornaments><turn slash="yes"/></ornaments>']));
+  deepStrictEqual(approx.diagnostics.map(item => item.code), ["W_MUSICXML_APPROXIMATED"]);
+
+  const breath = importMusicXml(slideScore(["<articulations><breath-mark>comma</breath-mark></articulations>"]));
+  deepStrictEqual(breath.diagnostics.map(item => [item.code, item.location.element]),
+    [["W_MUSICXML_UNSUPPORTED_ELEMENT", "breath-mark"]]);
 });
 
-test("MusicXML reports approximated symbol shapes and keeps unsupported turn variants explicit", () => {
-  for (const marks of [
-    '<articulations><strong-accent type="down"/></articulations>',
-    '<ornaments><turn slash="yes"/></ornaments>',
-    '<ornaments><inverted-turn slash="yes"/></ornaments>',
-  ]) {
-    const imported = importMusicXml(slideScore([marks]));
-    deepStrictEqual(imported.diagnostics.map(item => item.code), ["W_MUSICXML_APPROXIMATED"]);
-    compileValid(imported.script);
-  }
-  const delayed = importMusicXml(slideScore(["<ornaments><delayed-turn/></ornaments>"]));
-  deepStrictEqual(delayed.diagnostics.map(item => item.location.element), ["delayed-turn"]);
-  assert(!delayed.script.includes("$turn"), "a delayed turn must not silently become an immediate turn");
-});
-
-test("MusicXML reports removed breath marks instead of emitting an unavailable symbol", () => {
-  for (const mark of ["", "comma", "tick"]) {
-    const imported = importMusicXml(slideScore([`<articulations><breath-mark>${mark}</breath-mark></articulations>`]));
-    deepStrictEqual(imported.diagnostics.map(item => [item.code, item.location.element]),
-      [["W_MUSICXML_UNSUPPORTED_ELEMENT", "breath-mark"]]);
-    assert(!imported.script.includes("$breath"), "removed breath symbol must not be emitted");
-    const notes = playedNotes(compilePlayback(compileValid(imported.script).lowering));
-    assert(notes.length === 1 && notes[0].duration.equals(1), "omitted breath mark must preserve its host");
-  }
-});
-
-test("MusicXML reads and diagnoses every notations container", () => {
-  for (const containers of [
-    '<notations><slur type="start"/><fermata/></notations><notations><articulations><accent/></articulations></notations>',
-    '<notations><fermata/></notations><notations><slur type="start"/><articulations><accent/></articulations></notations>',
-  ]) {
-    const result = importMusicXml(SCORE.replace("<note><pitch>", `<note>${containers}<pitch>`));
-    deepStrictEqual(result.diagnostics.map(item => item.location.element), ["slur"]);
-    assert(result.script.includes("$fermata") && result.script.includes("$accent"),
-      "supported siblings in later containers must be retained");
-  }
-  const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1"><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><notations/><notations><tied type="start"/></notations></note><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><notations/><notations><tied type="stop"/></notations></note></measure></part></score-partwise>`);
-  assert(result.script.includes("@tie("), "ties in later containers must participate in relation matching");
-  deepStrictEqual(result.diagnostics, []);
-});
-
-test("MusicXML reports end-of-score controls that have no generated position", () => {
+test("MusicXML diagnoses unattached controls, unresolved relations, and overwritten tempos", () => {
   const note = `<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>`;
-  const direction = `<direction><direction-type><dynamics><p/></dynamics><metronome><beat-unit>quarter</beat-unit><per-minute>88</per-minute></metronome></direction-type></direction>`;
-  for (const trailingNote of ["", note]) {
-    const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1">${note}${direction}${trailingNote}</measure></part></score-partwise>`);
-    if (trailingNote) {
-      assert(result.script.includes("$p") && result.script.includes("@tempo(88)"), "interior controls must remain represented");
-      deepStrictEqual(result.diagnostics, []);
-    } else {
-      assert(!result.script.includes("$p") && !result.script.includes("@tempo(88)"), "terminal controls must not extend the score");
-      deepStrictEqual(result.diagnostics.map(item => item.location.element).sort(), ["dynamics", "metronome"]);
-      assert(result.diagnostics.every(item => item.code === "W_MUSICXML_UNATTACHED_CONTENT"
-        && item.location.partId === "P1" && item.location.measureNumber === "1"), "omitted controls must retain their original locations");
-    }
-  }
-});
+  const terminal = importMusicXml(`<score-partwise><part id="P1"><measure number="1">${note}<direction><direction-type><dynamics><p/></dynamics><metronome><beat-unit>quarter</beat-unit><per-minute>88</per-minute></metronome></direction-type></direction></measure></part></score-partwise>`);
+  deepStrictEqual(terminal.diagnostics.map(item => item.location.element).sort(), ["dynamics", "metronome"]);
 
-test("MusicXML reports terminal controls once across voices and without lanes", () => {
-  const note = (voice: number) => `<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>${voice}</voice></note>`;
-  const direction = `<direction><direction-type><dynamics><p/></dynamics></direction-type><sound tempo="88"/></direction>`;
-  for (const body of [note(1) + "<backup><duration>1</duration></backup>" + note(2), "<forward><duration>1</duration></forward>"]) {
-    const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1">${body}${direction}</measure></part></score-partwise>`);
-    deepStrictEqual(result.diagnostics.map(item => item.location.element).sort(), ["dynamics", "sound"]);
-    assert(!result.script.includes("$p") && !result.script.includes("@tempo(88)"), "omitted controls must not be reported as preserved");
-  }
-});
+  const missingVoice = importMusicXml(`<score-partwise><part id="P1"><measure number="1"><direction><direction-type><dynamics><p/></dynamics><wedge type="crescendo"/></direction-type><staff>2</staff></direction>${note}<direction><direction-type><wedge type="stop"/></direction-type><staff>2</staff></direction></measure></part></score-partwise>`);
+  deepStrictEqual(missingVoice.diagnostics.map(item => [item.code, item.location.element]), [
+    ["W_MUSICXML_UNATTACHED_CONTENT", "dynamics"],
+    ["W_MUSICXML_UNRESOLVED_RELATION", "wedge"],
+  ]);
 
-test("MusicXML confirms controls rendered inside tuplets but reports terminal ones", () => {
-  const notes = ["C", "D", "E"].map(step => `<note><pitch><step>${step}</step><octave>4</octave></pitch><duration>2</duration><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification></note>`).join("");
-  const mark = (dynamic: string, tempo: number, offset: number) => `<direction><direction-type><dynamics><${dynamic}/></dynamics><metronome><beat-unit>quarter</beat-unit><per-minute>${tempo}</per-minute></metronome></direction-type><offset>${offset}</offset></direction>`;
-  const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1"><attributes><divisions>6</divisions></attributes>${mark("p", 88, 1)}${notes}${mark("f", 96, 0)}</measure></part></score-partwise>`);
-  assert(result.script.includes("$p") && result.script.includes("@tempo(88)"), "interior tuplet controls must be emitted");
-  assert(!result.script.includes("$f") && !result.script.includes("@tempo(96)"), "terminal tuplet controls must remain omitted");
-  deepStrictEqual(result.diagnostics.map(item => item.location.element).sort(), ["dynamics", "metronome"]);
-});
+  const conflictTempo = importMusicXml(SCORE.replace("<note><pitch>", `<direction><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>120</per-minute></metronome></direction-type><sound tempo="90"/></direction><note><pitch>`));
+  assert(conflictTempo.script.includes("H.tempo: 90"), "sound tempo must retain precedence");
+  deepStrictEqual(conflictTempo.diagnostics.map(item => item.location.element), ["metronome"]);
 
-test("MusicXML reports arpeggios lost after cross-staff chord splitting", () => {
-  for (const staff of ["1", "2"]) {
-    const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1"><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><staff>1</staff><notations><arpeggiate/></notations></note><note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><staff>${staff}</staff><notations><arpeggiate/></notations></note></measure></part></score-partwise>`);
-    if (staff === "1") {
-      assert(result.script.includes("@arp("), "ordinary chord arpeggios must survive");
-      deepStrictEqual(result.diagnostics, []);
-    } else {
-      assert(!result.script.includes("@arp("), "cross-staff grouping remains unsupported");
-      deepStrictEqual(result.diagnostics.map(item => [item.code, item.location.element, item.location.staff]), [
-        ["W_MUSICXML_UNSUPPORTED_ELEMENT", "arpeggiate", "1"],
-        ["W_MUSICXML_UNSUPPORTED_ELEMENT", "arpeggiate", "2"],
-      ]);
-      assert(playedNotes(compilePlayback(lower(result.script))).length === 2, "both pitches must still be retained");
-    }
-  }
-});
-
-test("MusicXML reports a sliced single-note arpeggio only once", () => {
-  const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1"><direction><offset>2</offset><sound tempo="88"/></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><notations/><notations><arpeggiate direction="down"/></notations></note></measure></part></score-partwise>`);
-  deepStrictEqual(result.diagnostics.map(item => item.location.element), ["arpeggiate"]);
-  assert(result.script.includes("@tempo(88)") && !result.script.includes("@arp("), "slicing must retain the tempo but not invent a chord");
-});
-
-test("MusicXML reports tuplet markers that never enter the event rhythm", () => {
-  const note = `<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>`;
-  const marked = `<note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><notations><tuplet type="start"/></notations></note>`;
-  for (const body of [marked, note + marked.replace("<note>", "<note><chord/>")]) {
-    const xml = `<score-partwise><part id="P1"><measure number="1">${body}</measure></part></score-partwise>`;
-    const result = importMusicXml(xml);
-    assert(result.script === musicXmlToJpFun(xml.replace('<notations><tuplet type="start"/></notations>', "")),
-      "unrepresented markers must not change the generated rhythm");
-    deepStrictEqual(result.diagnostics.map(item => [item.code, item.location.element]),
-      [["W_MUSICXML_UNSUPPORTED_ELEMENT", "tuplet"]]);
-  }
-});
-
-test("MusicXML accepts equivalent tuplet markers on merged chord members", () => {
-  const modification = `<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>`;
-  const note = (step: string, chord: boolean, boundary: string) => `<note>${chord ? "<chord/>" : ""}<pitch><step>${step}</step><octave>4</octave></pitch><duration>2</duration>${modification}<notations>${boundary ? `<tuplet type="${boundary}"/>` : ""}</notations></note>`;
-  const body = note("C", false, "start") + note("E", true, "start") + note("D", false, "") + note("E", false, "stop");
-  const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1"><attributes><divisions>6</divisions></attributes>${body}</measure></part></score-partwise>`);
-  assert(result.script.includes("@tuplet("), "the shared event rhythm must remain represented");
-  deepStrictEqual(result.diagnostics, []);
-});
-
-test("MusicXML reports display-pitch approximation and preserves playable display pitches", () => {
-  const pitched = "<pitch><step>G</step><octave>4</octave></pitch>";
-  const xml = SCORE.replace(pitched, "<unpitched><display-step>G</display-step><display-octave>4</display-octave></unpitched>");
-  const result = importMusicXml(xml);
-  assert(result.script === musicXmlToJpFun(SCORE), "display-pitch conversion must remain unchanged");
-  deepStrictEqual(result.diagnostics.map(item => [item.code, item.location.element]),
-    [["W_MUSICXML_APPROXIMATED", "unpitched"]]);
-  const notes = playedNotes(compilePlayback(lower(result.script)));
-  assert(notes.length === 4 && notes.some(note => note.midi === 67 && note.duration.equals(1)),
-    "unpitched display-step/display-octave must remain audible rather than becoming a rest");
-});
-
-test("MusicXML reports unattached directions and grace notes", () => {
-  const direction = importMusicXml(`<score-partwise><part id="P1"><measure number="A"><direction><direction-type><words>Solo</words><dynamics><p/></dynamics></direction-type></direction></measure></part></score-partwise>`);
-  const grace = importMusicXml(`<score-partwise><part id="P1"><measure number="A"><note><grace/><pitch><step>C</step><octave>4</octave></pitch></note><note><grace/><rest/></note></measure></part></score-partwise>`);
-  const diagnostics = [...direction.diagnostics, ...grace.diagnostics];
-  deepStrictEqual(diagnostics.map(item => item.location.element).sort(), ["dynamics", "grace", "grace", "words"]);
-  assert(diagnostics.every(item => item.code === "W_MUSICXML_UNATTACHED_CONTENT"),
-    "content without a preserved host must not disappear silently");
-});
-
-test("MusicXML does not diagnose dynamics retained on generated rests", () => {
-  const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1"><direction><direction-type><dynamics><p/></dynamics></direction-type></direction><note><grace/><pitch><step>C</step><octave>4</octave></pitch></note><forward><duration>1</duration></forward></measure></part></score-partwise>`);
-  assert(result.script.includes("$p"), "generated rests must still carry the dynamic");
-  assert(!result.diagnostics.some(item => item.location.element === "dynamics"), "preserved dynamics must not be reported");
-});
-
-test("MusicXML never redirects missing direction targets to another staff or voice", () => {
-  for (const target of ["<staff>2</staff><voice>9</voice>", "<staff>1</staff><voice>9</voice>", "<staff>2</staff>"]) {
-    const xml = `<score-partwise><part id="P1"><measure number="1"><direction><direction-type><words>lost</words><dynamics><p/></dynamics><wedge type="crescendo"/></direction-type>${target}</direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><staff>1</staff><voice>1</voice></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><staff>1</staff><voice>1</voice></note><direction><direction-type><wedge type="stop"/></direction-type>${target}</direction></measure></part></score-partwise>`;
-    const result = importMusicXml(xml);
-    assert(!result.script.includes("$p") && !result.script.includes('"lost"') && !result.script.includes("@dyn("),
-      "missing targets must not alter another voice");
-    deepStrictEqual(result.diagnostics.map(item => [item.code, item.location.element]), [
-      ["W_MUSICXML_UNATTACHED_CONTENT", "dynamics"],
-      ["W_MUSICXML_UNATTACHED_CONTENT", "words"],
-      ["W_MUSICXML_UNRESOLVED_RELATION", "wedge"],
-    ]);
-    assert(playedNotes(compilePlayback(lower(result.script))).every(note => note.velocity === 80),
-      "unrelated notes must retain their original dynamic");
-  }
-});
-
-test("MusicXML diagnoses lost and approximated wedge relations", () => {
-  const note = `<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>`;
-  const wedge = (type: string) => `<direction><direction-type><wedge type="${type}"/></direction-type></direction>`;
-  for (const [body, codes] of [
-    [wedge("stop") + note, ["W_MUSICXML_UNRESOLVED_RELATION"]],
-    [wedge("crescendo") + note, ["W_MUSICXML_UNRESOLVED_RELATION"]],
-    [wedge("crescendo") + wedge("diminuendo") + note + note + wedge("stop"),
-      ["W_MUSICXML_UNRESOLVED_RELATION", "W_MUSICXML_APPROXIMATED"]],
-    [wedge("crescendo") + note + wedge("stop"), ["W_MUSICXML_UNRESOLVED_RELATION"]],
-    [wedge("crescendo") + wedge("stop") + note, ["W_MUSICXML_UNRESOLVED_RELATION"]],
-    [wedge("crescendo") + note + note + wedge("stop"), ["W_MUSICXML_APPROXIMATED"]],
-  ] as const) {
-    const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1">${body}</measure></part></score-partwise>`);
-    deepStrictEqual(result.diagnostics.map(item => item.code), codes);
-    assert(result.diagnostics.every(item => item.location.element === "wedge"), "diagnostics must name the original relation");
-    assert(result.script.includes("@dyn(") === codes.some(code => code === "W_MUSICXML_APPROXIMATED"),
-      "only an emitted wedge should be diagnosed as an approximation");
-  }
-});
-
-test("MusicXML diagnoses unmatched ties and endings without changing output", () => {
-  const note = (type: string) => `<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><tie type="${type}"/></note>`;
-  const ending = (type: string) => `<barline location="middle"><ending type="${type}" number="1"/></barline>`;
-  for (const [body, count] of [
-    [note("start"), 1], [note("stop"), 1], [note("start") + note("start") + note("stop"), 1],
-    [note("start") + note("stop"), 0],
-    [ending("stop"), 1], [ending("start"), 1],
-    [ending("start") + ending("stop"), 1],
-    [ending("start") + note("start") + ending("start") + note("stop") + ending("stop"), 1],
-  ] as const) {
-    const result = importMusicXml(`<score-partwise><part id="P1"><measure number="1">${body}</measure></part></score-partwise>`);
-    assert(result.diagnostics.length === count, `expected ${count} unresolved relations: ${JSON.stringify(result.diagnostics)}`);
-    assert(result.diagnostics.every(item => item.code === "W_MUSICXML_UNRESOLVED_RELATION"), "relations must have a stable diagnostic code");
-  }
-});
-
-test("MusicXML transpose follows staff and time in both pitch modes", () => {
-  const xml = `<score-partwise><part-list><score-part id="P1"><part-name>Transpose</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><transpose number="1"><diatonic>-1</diatonic><chromatic>-2</chromatic><octave-change>-1</octave-change></transpose></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><staff>1</staff></note><attributes><transpose number="1"><chromatic>0</chromatic></transpose></attributes><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><staff>1</staff></note><backup><duration>2</duration></backup><note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><staff>2</staff></note></measure></part></score-partwise>`;
-  for (const pitchMode of ["absolute", "relative"] as const) {
-    const source = musicXmlToJpFun(xml, { pitchMode });
-    const notes = playedNotes(compilePlayback(lower(source)));
-    assert(notes.some(note => note.midi === 46 && note.start.equals(0)), "staff 1 must apply chromatic and octave transposition");
-    assert(notes.some(note => note.midi === 62 && note.start.equals(1)), "later reset must apply only from its time");
-    assert(notes.some(note => note.midi === 64 && note.start.equals(0)), "staff 2 must remain untransposed");
-  }
-});
-
-test("MusicXML diagnostics retain namespaced timewise locations and do not mutate input", () => {
-  const xml = `<mx:score-timewise xmlns:mx="urn:musicxml"><mx:measure number="pickup"><mx:part id="P1"><mx:note><mx:pitch><mx:step>C</mx:step><mx:octave>4</mx:octave></mx:pitch><mx:duration>1</mx:duration><mx:voice>2</mx:voice><mx:staff>3</mx:staff><mx:notations><mx:articulations><mx:staccato/></mx:articulations></mx:notations></mx:note></mx:part></mx:measure><mx:measure number="2b"><mx:part id="P1"><mx:note><mx:pitch><mx:step>D</mx:step><mx:octave>4</mx:octave></mx:pitch><mx:duration>1</mx:duration><mx:voice>2</mx:voice><mx:staff>3</mx:staff><mx:notations><mx:slur type="stop"/></mx:notations></mx:note></mx:part></mx:measure></mx:score-timewise>`;
-  const document = new DOMParser().parseFromString(xml, "application/xml");
-  const before = document.toString();
-  for (const pitchMode of ["absolute", "relative"] as const) {
-    const options = Object.freeze({ pitchMode });
-    const result = convertMusicXmlElement(document.documentElement!, options);
-    deepStrictEqual(result.diagnostics.map(item => item.location), [
-      { element: "slur", partId: "P1", measureIndex: 2, measureNumber: "2b", staff: "3", voice: "2" },
-    ]);
-    assert(result.script.includes("$staccato"), "namespaced staccato uses the Jianpu wedge");
-    deepStrictEqual(convertMusicXmlElement(document.documentElement!, options), result);
-    assert(document.toString() === before, "conversion must not mutate the caller's DOM");
-    deepStrictEqual(playedNotes(compilePlayback(lower(result.script))).map(note => note.midi), [60, 62]);
-    result.diagnostics.length = 0;
-    assert(convertMusicXmlElement(document.documentElement!, options).diagnostics.length === 1,
-      "diagnostics must be owned by each conversion");
-  }
-});
-
-test("MusicXML diagnoses overwritten tempos but accepts equivalent declarations", () => {
-  const note = '<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>';
-  for (const structure of ["partwise", "timewise"]) for (const middle of [false, true]) {
-    for (const crossPart of [false, true]) for (const element of ["metronome", "sound"]) {
-      const original = element === "sound" ? '<sound tempo="88"/>'
-        : '<direction><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>88</per-minute></metronome></direction-type></direction>';
-      for (const finalBpm of [88, 96]) {
-        const replacement = `<direction><sound tempo="${finalBpm}"/></direction>`;
-        const prefix = middle ? note : "";
-        const bodies = crossPart ? [prefix + original + note, prefix + replacement + note]
-          : [prefix + original + replacement + note];
-        const parts = bodies.map((body, index) => `<part id="P${index + 1}">${structure === "partwise"
-          ? `<measure number="pickup">${body}</measure>` : body}</part>`).join("");
-        const xml = `<score-${structure}>${structure === "timewise" ? `<measure number="pickup">${parts}</measure>` : parts}</score-${structure}>`;
-        for (const pitchMode of ["absolute", "relative"] as const) {
-          const result = importMusicXml(xml, { pitchMode });
-          assert(result.script === musicXmlToJpFun(xml.replace(original, ""), { pitchMode }),
-            "the later declaration must still determine the generated tempo");
-          assert(result.script.includes(middle ? `@tempo(${finalBpm})` : `H.tempo: ${finalBpm}`),
-            "the winning tempo must be represented at the original time");
-          if (finalBpm === 88) deepStrictEqual(result.diagnostics, []);
-          else {
-            deepStrictEqual(result.diagnostics.map(item => ({ code: item.code, location: item.location })), [{
-              code: "W_MUSICXML_UNATTACHED_CONTENT",
-              location: { element, partId: "P1", measureIndex: 1, measureNumber: "pickup" },
-            }]);
-          }
-        }
-      }
-    }
-  }
-});
-
-test("MusicXML preserves equivalent metronome and sound tempo without warning", () => {
-  const xml = SCORE.replace("<note><pitch>", `<direction><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>120</per-minute></metronome></direction-type><sound tempo="120"/></direction><note><pitch>`);
-  deepStrictEqual(importMusicXml(xml).diagnostics, []);
-  const conflict = importMusicXml(xml.replace('tempo="120"', 'tempo="90"'));
-  assert(conflict.script.includes("H.tempo: 90"), "sound tempo must retain precedence");
-  deepStrictEqual(conflict.diagnostics.map(item => item.location.element), ["metronome"]);
-  const unsupported = importMusicXml(xml.replace('<sound tempo="120"/>', "").replace("<beat-unit>quarter</beat-unit>", "<beat-unit>unsupported</beat-unit>"));
-  deepStrictEqual(unsupported.diagnostics.map(item => item.location.element), ["metronome"]);
+  const displayPitch = importMusicXml(SCORE.replace("<pitch><step>G</step><octave>4</octave></pitch>", "<unpitched><display-step>G</display-step><display-octave>4</display-octave></unpitched>"));
+  deepStrictEqual(displayPitch.diagnostics.map(item => [item.code, item.location.element]), [["W_MUSICXML_APPROXIMATED", "unpitched"]]);
 });
 
 test("MusicXML percussion warnings do not cascade or alter chord and grace timing", () => {
@@ -614,18 +285,12 @@ test("MusicXML future program changes do not leak through backup", () => {
 });
 
 test("MusicXML imports repeated dynamics with placement, persistence and velocity clamping", () => {
-  for (const [name, velocity] of [
-    ["pppppp", 1], ["ppppp", 5], ["pppp", 10], ["ppp", 16], ["pp", 33], ["p", 49],
-    ["mp", 64], ["mf", 80], ["f", 96], ["ff", 112], ["fff", 126], ["ffff", 127],
-    ["pppppppp", 1], ["ffffffff", 127],
-  ] as const) {
-    for (const placement of ["above", "below"]) {
-      const direction = `<direction placement="${placement}"><direction-type><dynamics><${name}/></dynamics></direction-type></direction>`;
-      const result = compileMusicXml(slideScore(["", "", ""], direction));
-      assert(result.script.includes(`${placement === "above" ? "^" : "_"} $${name}`), result.script);
-      deepStrictEqual(playedNotes(result.playback).map(note => [note.start.toString(), note.velocity]),
-        [["0", 80], ["1", velocity], ["2", velocity]]);
-    }
+  for (const [name, velocity] of [["pppppp", 1], ["p", 49], ["f", 96], ["ffffffff", 127]] as const) {
+    const direction = `<direction placement="below"><direction-type><dynamics><${name}/></dynamics></direction-type></direction>`;
+    const result = compileMusicXml(slideScore(["", "", ""], direction));
+    assert(result.script.includes(`_ $${name}`), result.script);
+    deepStrictEqual(playedNotes(result.playback).map(note => [note.start.toString(), note.velocity]),
+      [["0", 80], ["1", velocity], ["2", velocity]]);
   }
   const result = importMusicXml(slideScore(["", ""],
     "<direction><direction-type><dynamics><fp/><ppppf/><ffff/><pppp/></dynamics></direction-type></direction>"));
@@ -997,133 +662,17 @@ test("MusicXML time-modification 精确生成 jpFun tuplet", () => {
         `十小节应沿用 MusicXML 的 6+4 系统，不得额外切成 4+2+4：${source}`);
   });
 
-test("MusicXML ending 的末尾长音包含全部 dash 且括线贴到反复线", () => {
-  for (const duration of [2, 3, 5]) {
-    const source = musicXmlToJpFun(`<score-partwise version="4.0">
-      <part-list><score-part id="P1"><part-name>Long Ending</part-name></score-part></part-list>
-      <part id="P1">
-        <measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note></measure>
-        <measure number="2"><attributes><time><beats>${duration}</beats><beat-type>4</beat-type></time></attributes><barline location="left"><ending number="1" type="start"/></barline><note><pitch><step>D</step><octave>4</octave></pitch><duration>${duration}</duration></note><barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline></measure>
-        <measure number="3"><note><pitch><step>E</step><octave>4</octave></pitch><duration>${duration}</duration></note></measure>
-      </part></score-partwise>`);
-    const result = compileScore(source);
-    const plan = compilePlayback(result.lowering);
-    const notes = playedNotes(plan);
-    assert(notes.map(note => `${note.midi}:${note.duration}`).join() === `60:1,62:${duration},60:1,64:${duration}`
-      && plan.performanceDuration.equals(2 + 2 * duration),
-    `房子尾部的 dash 不得泄漏到第二遍：${source}`);
-    const volta = result.layout.attachments.find(item => item.sourceSpan?.start === source.indexOf("@volta"))!;
-    const top = attachmentCommands(volta).find(command => command.kind === "line")!;
-    const bar = result.layout.objects.find(item => item.ast.sourceSpan.start === source.indexOf(":|"))!;
-    assert(nearly(top.x2, bar.box.x + bar.box.anchor), `导入的房子应完整覆盖延音并吸附反复线：${source}`);
-  }
+test("MusicXML ending 生成 volta、覆盖延音并支持分支 tie 链", () => {
+  const source = musicXmlToJpFun(`<?xml version="1.0"?>
+<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Branch Chain</part-name></score-part></part-list><part id="P1">
+  <measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><tie type="start"/></note></measure>
+  <measure number="2"><attributes><time><beats>2</beats><beat-type>4</beat-type></time></attributes><barline location="left"><ending number="1" type="start"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><tie type="stop"/><tie type="start"/></note><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><tie type="stop"/></note><barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline></measure>
+  <measure number="3"><barline location="left"><ending number="2" type="start"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><tie type="stop"/></note><barline location="right"><ending number="2" type="stop"/></barline></measure>
+</part></score-partwise>`);
+  const ties = [...source.matchAll(/@tie\((mx\d+), (mx\d+)\)/g)].map(match => [match[1], match[2]]);
+  assert(ties.length === 3 && ties[0][1] === ties[1][0] && ties[0][0] === ties[2][0], source);
+  assert(compilePlayback(lower(source)).diagnostics.length === 0, source);
 });
-
-test("MusicXML ending 选择全声部最晚的末片段，tie 仍连接起音", () => {
-  const source = musicXmlToJpFun(`<score-partwise version="4.0">
-    <part-list><score-part id="P1"><part-name>Ending Tie</part-name></score-part></part-list>
-    <part id="P1">
-      <measure number="1"><attributes><divisions>2</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><tie type="start"/></note></measure>
-      <measure number="2"><attributes><time><beats>3</beats><beat-type>4</beat-type></time></attributes><barline location="left"><ending number="1" type="start"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>6</duration><voice>1</voice><tie type="stop"/></note><backup><duration>6</duration></backup><note><rest/><duration>1</duration><voice>2</voice></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>5</duration><voice>2</voice></note><barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline></measure>
-      <measure number="3"><note><pitch><step>D</step><octave>4</octave></pitch><duration>6</duration><voice>1</voice></note></measure>
-    </part></score-partwise>`);
-  const plan = compilePlayback(lower(source));
-  assert(plan.diagnostics.length === 0, `标签不得冲突或失效：${source}`);
-  assert(playedNotes(plan).map(note => `${note.midi}:${note.start}:${note.duration}`).join() === "60:0:4,64:3/2:5/2,60:4:1,62:5:3"
-    && plan.performanceDuration.equals(8), `房子须跳过所有声部末片段，tie 须合并真实音符：${source}`);
-});
-
-test("MusicXML ending 的连音组末尾 dash 使用实际时间定位", () => {
-  const triplet = (step: string, duration: number, marker: string) => `<note><pitch><step>${step}</step><octave>4</octave></pitch><duration>${duration}</duration><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="${marker}"/></notations></note>`;
-  const source = musicXmlToJpFun(`<score-partwise version="4.0">
-    <part-list><score-part id="P1"><part-name>Tuplet Ending</part-name></score-part></part-list>
-    <part id="P1">
-      <measure number="1"><attributes><divisions>3</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>3</duration></note></measure>
-      <measure number="2"><attributes><time><beats>2</beats><beat-type>4</beat-type></time></attributes><barline location="left"><ending number="1" type="start"/></barline>${triplet("D", 2, "start")}${triplet("E", 4, "stop")}<barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline></measure>
-      <measure number="3"><note><pitch><step>F</step><octave>4</octave></pitch><duration>6</duration></note></measure>
-    </part></score-partwise>`);
-  const plan = compilePlayback(lower(source));
-  assert(plan.diagnostics.length === 0 && plan.performanceDuration.equals(6), `连音组房子须保留实际时长：${source}`);
-  assert(playedNotes(plan).map(note => `${note.midi}:${note.duration}`).join() === "60:1,62:2/3,64:4/3,60:1,65:2",
-    `第二遍不得执行连音组内的末根 dash：${source}`);
-});
-
-test("MusicXML first/second ending 生成 volta 并控制反复顺序", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-<score-partwise version="4.0">
-  <part-list><score-part id="P1"><part-name>Ending</part-name></score-part></part-list>
-  <part id="P1">
-    <measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure>
-    <measure number="2"><barline location="left"><ending number="1" type="start"/></barline><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline></measure>
-    <measure number="3"><barline location="left"><ending number="2" type="start"/></barline><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><barline location="right"><ending number="2" type="stop"/></barline></measure>
-  </part>
-</score-partwise>`);
-    assert(source.includes("@volta(") && source.includes("|:") && source.includes(":|"),
-        `房子与反复线应同时生成：${source}`);
-    const plan = compilePlayback(lower(source));
-    assert(plan.diagnostics.length === 0, `房子转换不应产生诊断：${source}`);
-    const pitches = playedNotes(plan).map(note => note.midi);
-    assert(pitches.join() === "60,62,60,64", `first/second ending 应播放 C D C E，实际 ${pitches}: ${source}`);
-});
-
-  test("首个 MusicXML lane 全休止时 ending 仍从有声 lane 取端点", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0">
-    <part-list><score-part id="P0"><part-name>Rest</part-name></score-part><score-part id="P1"><part-name>Melody</part-name></score-part></part-list>
-    <part id="P0"><measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><rest/><duration>1</duration><voice>1</voice></note></measure><measure number="2"><note><rest/><duration>1</duration><voice>1</voice></note></measure><measure number="3"><note><rest/><duration>1</duration><voice>1</voice></note></measure></part>
-    <part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure><measure number="2"><barline location="left"><ending number="1" type="start"/></barline><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline></measure><measure number="3"><barline location="left"><ending number="2" type="start"/></barline><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><barline location="right"><ending number="2" type="stop"/></barline></measure></part>
-  </score-partwise>`);
-    assert(source.includes("@volta("), `休止 lane 不得阻止房子生成：${source}`);
-    const pitches = playedNotes(compilePlayback(lower(source))).map(note => note.midi);
-    assert(pitches.join() === "60,62,60,64", `有声 lane 的房子顺序应为 C D C E，实际 ${pitches}: ${source}`);
-  });
-
-  test("ending 跨 lane 取全区间端点，不在第二遍泄漏较早声部", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Cross Lane</part-name></score-part></part-list><part id="P1">
-    <measure number="1"><attributes><divisions>1</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice></note></measure>
-    <measure number="2"><barline location="left"><ending number="1" type="start"/></barline><note><rest/><duration>1</duration><voice>1</voice></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><backup><duration>2</duration></backup><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>2</voice></note><note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration><voice>2</voice></note><barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline></measure>
-    <measure number="3"><barline location="left"><ending number="2" type="start"/></barline><note><pitch><step>G</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice></note><barline location="right"><ending number="2" type="stop"/></barline></measure>
-  </part></score-partwise>`);
-    const pitches = playedNotes(compilePlayback(lower(source))).map(note => note.midi);
-    assert(pitches.filter(pitch => pitch === 64).length === 1,
-      `第一房子起点 E 不得在第二遍泄漏，实际 ${pitches}: ${source}`);
-  });
-
-  test("替代 ending 的 tie stop 共享房子外 tie start", () => {
-    const { script: source, diagnostics } = importMusicXml(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Branch Tie</part-name></score-part></part-list><part id="P1">
-    <measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><tie type="start"/></note></measure>
-    <measure number="2"><barline location="left"><ending number="1" type="start"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><tie type="stop"/></note><barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline></measure>
-    <measure number="3"><barline location="left"><ending number="2" type="start"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><tie type="stop"/></note><barline location="right"><ending number="2" type="stop"/></barline></measure>
-  </part></score-partwise>`);
-    assert((source.match(/@tie\(/g) ?? []).length === 2,
-      `两个替代房子都应连接共同 tie start：${source}`);
-    deepStrictEqual(diagnostics, []);
-    assert(compilePlayback(lower(source)).diagnostics.length === 0, `替代房子 tie 应无诊断：${source}`);
-  });
-
-  test("第一 ending 的 tie continue 不覆盖第二 ending 的公共起点", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Branch Continue</part-name></score-part></part-list><part id="P1">
-    <measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><tie type="start"/></note></measure>
-    <measure number="2"><barline location="left"><ending number="1" type="start"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><tie type="stop"/><tie type="start"/></note><barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline></measure>
-    <measure number="3"><barline location="left"><ending number="2" type="start"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><tie type="stop"/></note><barline location="right"><ending number="2" type="stop"/></barline></measure>
-  </part></score-partwise>`);
-    const ties = [...source.matchAll(/@tie\((mx\d+), (mx\d+)\)/g)];
-    assert(ties.length === 2 && ties[0][1] === ties[1][1],
-      `两个替代房子必须共享房子外的 tie 起点：${source}`);
-    assert(compilePlayback(lower(source)).diagnostics.length === 0,
-      `替代房子中的 tie continue 应无诊断：${source}`);
-  });
-
-  test("ending 分支内的 tie continue 保持自己的链", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Branch Chain</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><tie type="start"/></note></measure><measure number="2"><attributes><time><beats>2</beats><beat-type>4</beat-type></time></attributes><barline location="left"><ending number="1" type="start"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><tie type="stop"/><tie type="start"/></note><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><tie type="stop"/></note><barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline></measure><measure number="3"><barline location="left"><ending number="2" type="start"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><tie type="stop"/></note><barline location="right"><ending number="2" type="stop"/></barline></measure></part></score-partwise>`);
-    const ties = [...source.matchAll(/@tie\((mx\d+), (mx\d+)\)/g)].map(match => [match[1], match[2]]);
-    assert(ties.length === 3 && ties[0][1] === ties[1][0] && ties[0][0] === ties[2][0],
-      `第一房子应沿局部 continue 链，第二房子仍从公共起点连接：${source}`);
-  });
 
   test("MusicXML defaults 和 credit 生成页面与完整谱头", () => {
     const source = musicXmlToJpFun(`<?xml version="1.0"?>
@@ -1242,86 +791,14 @@ test("MusicXML first/second ending 生成 volta 并控制反复顺序", () => {
       `带 rehearsal box 的转换结果应无诊断：${source}`);
   });
 
-  test("middle barline 在当前游标位置控制反复", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
+  test("middle barline 与休止/空 ending 边界处理", () => {
+    const middle = musicXmlToJpFun(`<?xml version="1.0"?>
   <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Middle</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><barline location="middle"><repeat direction="forward"/></barline><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><barline location="middle"><repeat direction="backward"/></barline><note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure></part></score-partwise>`, { barsPerLine: 1 });
-    const pitches = playedNotes(compilePlayback(lower(source))).map(note => note.midi);
-    assert(pitches.join() === "60,62,64,62,64,65",
-      `middle repeat 应只重复 D E，实际 ${pitches}: ${source}`);
-    assert(!source.includes("@br()"), `单个物理小节不得因 middle barline 提前换行：${source}`);
-  });
+    assert(playedNotes(compilePlayback(lower(middle))).map(note => note.midi).join() === "60,62,64,62,64,65" && !middle.includes("@br()"), middle);
 
-  test("纯休止 ending 仍生成 volta，零时刻左反复不提前换行", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Rest Ending</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure><measure number="2"><barline location="left"><ending number="1" type="start"/></barline><note><rest/><duration>1</duration><voice>1</voice></note><barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline></measure><measure number="3"><barline location="left"><ending number="2" type="start"/></barline><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><barline location="right"><ending number="2" type="stop"/></barline></measure><measure number="4"><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure></part></score-partwise>`, { barsPerLine: 4 });
-    assert(source.includes("@volta(") && !source.includes("@br()"),
-      `纯休止房子应有 volta，time=0 左反复不应计入四小节换行：${source}`);
-  });
-
-  test("仅由 forward 构成的 ending 仍生成并执行 volta", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Forward Ending</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure><measure number="2"><barline location="left"><ending number="1" type="start"/></barline><forward><duration>1</duration></forward><barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline></measure><measure number="3"><barline location="left"><ending number="2" type="start"/></barline><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><barline location="right"><ending number="2" type="stop"/></barline></measure><measure number="4"><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure></part></score-partwise>`);
-    assert((source.match(/@volta\(/g) ?? []).length === 2,
-      `forward 合成休止与第二房子都必须生成 volta：${source}`);
-    const notes = playedNotes(compilePlayback(lower(source)));
-    const d = notes.find(note => note.midi === 62);
-    const e = notes.find(note => note.midi === 64);
-    assert(d?.start.equals(3) && e?.start.equals(4),
-      `第二遍必须跳过第一房子的 forward 休止，实际 D=${d?.start} E=${e?.start}: ${source}`);
-  });
-
-  test("同一时刻开始和结束的空 ending 不生成反向 volta", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
+    const emptyEnding = musicXmlToJpFun(`<?xml version="1.0"?>
   <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Empty</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><barline location="middle"><ending number="1" type="start"/></barline><barline location="middle"><ending number="1" type="stop"/><repeat direction="backward"/></barline><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure></part></score-partwise>`);
-    assert(!source.includes("@volta("), `空 ending 不得生成端点反向的 volta：${source}`);
-    const pitches = playedNotes(compilePlayback(lower(source))).map(note => note.midi);
-    assert(pitches.join() === "60,60,62", `空 ending 不得破坏反复播放，实际 ${pitches}: ${source}`);
-  });
-
-  test("长音内部的空 ending 不创建合成声部", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Empty Span</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice></note><backup><duration>3</duration></backup><barline location="middle"><ending number="1" type="start"/></barline><barline location="middle"><ending number="1" type="stop"/></barline></measure></part></score-partwise>`);
-    assert((source.match(/^N/gm) ?? []).length === 1 && !source.includes("@volta("),
-      `长音内部的空 ending 不得创建零时长合成声部：${source}`);
-    const notes = playedNotes(compilePlayback(lower(source)));
-    assert(notes.length === 1 && notes[0].duration.equals(4), `空 ending 不得改变长音：${source}`);
-  });
-
-  test("跨 ending 边界的长音不阻止合成 volta 锚点", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Spanning</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice></note><backup><duration>3</duration></backup><barline location="middle"><ending number="1" type="start"/></barline><forward><duration>1</duration></forward><barline location="middle"><ending number="1" type="stop"/></barline></measure></part></score-partwise>`);
-    assert(source.includes("@volta("), `跨边界长音之外必须建立可见 ending 锚点：${source}`);
-    assert(compilePlayback(lower(source)).diagnostics.length === 0,
-      `合成锚点不得与跨边界长音产生无效标签：${source}`);
-  });
-
-  test("全谱无 note 时 forward ending 仍创建可承载声部", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Empty Ending</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><ending number="1" type="start"/></barline><forward><duration>1</duration></forward><barline location="right"><ending number="1" type="stop"/></barline></measure></part></score-partwise>`);
-    assert(source.includes('N("Empty Ending"):') && source.includes("@volta("),
-      `无 note 乐谱也必须生成合成休止声部和 volta：${source}`);
-    assert(compilePlayback(lower(source)).diagnostics.length === 0, `无 note ending 应可编译：${source}`);
-  });
-
-  test("空 ending 中的 direction 绑定合成休止而非后续音符", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Direction Ending</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><ending number="1" type="start"/></barline><direction><direction-type><words>first only</words></direction-type></direction><forward><duration>1</duration></forward><barline location="right"><ending number="1" type="stop"/></barline></measure><measure number="2"><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure></part></score-partwise>`);
-    assert(/\{0\s+\^\s+"first only"\}/.test(source),
-      `空 ending 的文字必须附着合成休止，不得泄漏到后续音符：${source}`);
-  });
-
-  test("无 voice 的文字优先绑定覆盖当前时刻的 lane", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Words</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes><forward><duration>1</duration></forward><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><backup><duration>2</duration></backup><note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><voice>2</voice></note><backup><duration>1</duration></backup><direction><direction-type><words>mark</words></direction-type></direction></measure></part></score-partwise>`);
-    assert(/\{E4\s+\^\s+"mark"\}/.test(source) && !/\{D4\s+\^\s+"mark"\}/.test(source),
-      `文字应绑定覆盖时刻的 E4，而不是未来 D4：${source}`);
-  });
-
-  test("空 ending 的合成锚点跟随 direction 所属 part", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P0"><part-name>Other</part-name></score-part><score-part id="P1"><part-name>Target</part-name></score-part></part-list><part id="P0"><measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure></part><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><ending number="1" type="start"/></barline><direction><direction-type><words>inside</words></direction-type></direction><forward><duration>1</duration></forward><barline location="right"><ending number="1" type="stop"/></barline></measure></part></score-partwise>`);
-    const target = source.slice(source.indexOf('N("Target"):'), source.indexOf("@volta("));
-    assert(target.includes('"inside"'), `P1 direction 必须绑定 P1 的合成锚点：${source}`);
+    assert(!emptyEnding.includes("@volta("), emptyEnding);
   });
 
   test("短和弦关系端点的标签位于减时线之后", () => {

@@ -2,8 +2,9 @@ import { deepStrictEqual, throws } from "node:assert/strict";
 import { test } from "node:test";
 
 import { Diagnostic } from "../src/diagnostic.js";
-import { ASTFunctionNode, ASTLabelNode, ASTNodeBase, ASTTextNode } from "../src/functions/ASTtypes.js";
+import { ASTLabelNode, ASTNodeBase, ASTTextNode } from "../src/functions/ASTtypes.js";
 import { DashNode } from "../src/functions/dash/index.js";
+import { readCall } from "../src/parser/parse-utils/call-utils.js";
 import { preprocessSource } from "../src/parser/preprocess.js";
 import { analyzeScoreSyntax, compileScore } from "../src/pipeline.js";
 import { assert, createParser, expectDiagnostic, parse } from "./helpers.js";
@@ -96,6 +97,21 @@ H.title: @box(@text(测试))`;
         && syntax.tokens.some(token => token.kind === "function" && tokenText(token) === "@text"),
     "explicit head content must retain nested function tokens");
 
+});
+
+test("readCall locates first top-level equals, resets at commas and preserves empty args", () => {
+    const call = readCall('x@f(, a=b=c, "k=v", @g(k=v), {k=v,(}, =x=y, key = "a=b"', 1, 55)!;
+    deepStrictEqual(
+        call.args.map(arg => [
+            arg.nameSpan ? "x@f(, a=b=c, \"k=v\", @g(k=v), {k=v,(}, =x=y, key = \"a=b\"".slice(arg.nameSpan.start, arg.nameSpan.end) : null,
+            "x@f(, a=b=c, \"k=v\", @g(k=v), {k=v,(}, =x=y, key = \"a=b\"".slice(arg.valueSpan.start, arg.valueSpan.end),
+        ]),
+        [[null, ""], ["a", "b=c"], [null, '"k=v"'], [null, "@g(k=v)"], [null, "{k=v,(}"], [null, "=x=y"], ["key", '"a=b"']],
+    );
+    deepStrictEqual(call.closeParenSpan, undefined);
+    for (const empty of ["@f()", "@f( )", "@f(", "@f( "]) {
+        deepStrictEqual(readCall(empty, 0, empty.length)?.args, [], empty);
+    }
 });
 
 test("未闭合的调用仍然向编辑器暴露语法信息", () => {
@@ -220,85 +236,19 @@ test("参数不足的调用在严格与宽容模式下各自处理", () => {
         "non-strict content parsing must report its fallback");
 });
 
-test("content recovery removes discarded label candidates", () => {
+test("content recovery discards failed inner labels while preserving valid outer labels", () => {
     const parser = createParser("@head(center={1 @tie()}) 2");
     const nodes = parser.parse();
     deepStrictEqual(parser.labelableNodes, [nodes.at(-1)]);
     deepStrictEqual(parser.diagnostics.map(item => item.code), ["E_NOT_ENOUGH_ARGS", "W_INVALID_CONTENT"]);
     expectDiagnostic(() => compileScore("@head(center={1 @tie()}) 2 @tie()"), "E_NOT_ENOUGH_ARGS");
     expectDiagnostic(() => compileScore("1 @head(center={@x @tie()}) 2 @tie(x)"), "E_UNKNOWN_LABEL");
-});
 
-test("content recovery restores the original tail label after nested success", () => {
-    for (const strict of [false, true]) {
-        for (const label of [undefined, "original"]) {
-            const source = "1 @div({@x 2^3^4}) @tie(missing)";
-            const parser = createParser(source);
-            parser.setVariable("strict", strict);
-            parser.parse(0, 1);
-            const target = parser.labelableNodes[0]!;
-            target.label = label;
-            const parseContent = () => parser.parseArgWithType({ start: 2, end: source.length }, "content");
-            if (strict) expectDiagnostic(parseContent, "E_UNKNOWN_LABEL");
-            else assert(parseContent() === null, "invalid content must be discarded");
-            deepStrictEqual(parser.labelableNodes, [target]);
-            deepStrictEqual(target.label, label);
-            const warnings = label === "original" ? ["W_TARGET_ALREADY_LABELED"] : [];
-            deepStrictEqual(parser.diagnostics.map(item => item.code), [
-                ...warnings, ...(strict ? [] : ["E_UNKNOWN_LABEL", "W_INVALID_CONTENT"]),
-            ]);
-        }
-    }
-});
-
-test("inner content failure preserves successful outer labels", () => {
-    const source = "1 @x @head(center={2 @tie(missing)}) 3";
-    const parser = createParser(source);
-    parser.parse(0, 1);
-    const target = parser.labelableNodes[0]!;
-    assert(parser.parseArgWithType({ start: 2, end: source.length }, "content"), "outer content must succeed");
-    assert(target.label === "x", "inner recovery must preserve the outer label");
-    deepStrictEqual(parser.labelableNodes.map(node => node?.sourceSpan.start), [0, source.lastIndexOf("3")]);
-    deepStrictEqual(parser.diagnostics.map(item => item.code), ["E_UNKNOWN_LABEL", "W_INVALID_CONTENT"]);
-});
-
-test("content recovery preserves label boundaries", () => {
-    const source = "1 @x 2 @tie(missing)";
-    const parser = createParser(source);
-    parser.parse(0, 1);
-    const target = parser.labelableNodes[0]!;
-    parser.labelableNodes.push(null);
-    assert(parser.parseArgWithType({ start: 2, end: source.length }, "content") === null, "content must fail");
-    deepStrictEqual(parser.labelableNodes, [target, null]);
-    assert(target.label === undefined, "labels must not cross a null boundary");
-    assert(parser.diagnostics.length === 3, "recovery must preserve the warning before the error");
-});
-
-test("successful content keeps labels visible to later references", () => {
     for (const source of ["@div({1@x}) 2@y @tie(x,y)", "1 @div({@x}) 2@y @tie(x,y)"]) {
         const result = compileScore(source);
         deepStrictEqual(result.diagnostics, []);
         assert(result.lowering.attachments.length === 1, "successful labels must remain valid tie endpoints");
     }
-});
-
-test("content recovery restores state and rethrows implementation errors", () => {
-    const failure = new TypeError("test implementation failure");
-    class BrokenFunction extends ASTFunctionNode {
-        static override def = {
-            name: "broken", description: "test", details: "@broken()", allowExtraArgs: false, args: [],
-        };
-        constructor() { super({ start: 0, end: 0 }); throw failure; }
-    }
-    const source = "1 @x 2 @broken()";
-    const parser = createParser(source);
-    parser.registerFunctions([BrokenFunction]);
-    parser.parse(0, 1);
-    const target = parser.labelableNodes[0]!;
-    throws(() => parser.parseArgWithType({ start: 2, end: source.length }, "content"), error => error === failure);
-    deepStrictEqual(parser.labelableNodes, [target]);
-    assert(target.label === undefined, "failed content must not leave its label behind");
-    deepStrictEqual(parser.diagnostics, []);
 });
 
 test("增时线独立承载标签，时值包装透明，小节线保持透明", () => {

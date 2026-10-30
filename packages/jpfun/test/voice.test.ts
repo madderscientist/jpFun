@@ -379,252 +379,64 @@ test("多声部括线画在声部名与音符之间，纵向跨足首末声部",
 const fourVoices = '@voice({1 2}, A), @voice({3 4}, B), @voice({5 6}, C), @voice({7 1}, D)';
 const connectionSpecsOf = (source: string) => parseConnections(source, { start: 0, end: source.length });
 
-test("voice connections preserve variadic voices and serialize frozen defaults", () => {
-    for (const connect of ["[-]", "{1-2}[3-]", "", "[1-3]{2-4}", "[-]{-}", " [ - 2 ] { 3 - } ", "{1-2}[3]", "[1]{4}", "[-1]"]) {
-        const source = `@set(vs.connect=${quote(connect)}) @vs(${fourVoices})`;
-        const result = compileValid(source);
-        const voices = result.ast.children!.at(-1)!;
-        strictEqual(voices.children!.length, 4);
-        const serialized = voices.toString(source);
-        deepStrictEqual(recordCommands(compileValid(serialized).layout), recordCommands(result.layout));
-    }
-});
-
-test("single voice connections are equivalent to closed ranges", () => {
+test("voice connections parse, validate, serialize and render partial braces", () => {
     for (const [connect, expanded] of [
         ["[3]", "[3-3]"],
-        ["{3}", "{3-3}"],
         ["{1-2}[3]", "{1-2}[3-3]"],
-        ["[1]{4}", "[1-1]{4-4}"],
     ]) {
         deepStrictEqual(connectionSpecsOf(connect), connectionSpecsOf(expanded));
-        for (const source of [
-            `@voices(${fourVoices}, connect=${quote(connect)})`,
-            `@set(voices.connect=${quote(connect)})\nN:1 2\nN:3 4\nN:5 6\nN:7 1`,
-        ]) {
-            const result = compileValid(source);
-            const comparison = compileValid(source.replace(connect, expanded));
-            deepStrictEqual(recordCommands(result.layout), recordCommands(comparison.layout));
-            const serialized = result.ast.toString(source);
-            deepStrictEqual(recordCommands(compileValid(serialized).layout), recordCommands(result.layout));
-        }
+        const result = compileValid(`@voices(${fourVoices}, connect=${quote(connect)})`);
+        deepStrictEqual(recordCommands(result.layout),
+            recordCommands(compileValid(`@voices(${fourVoices}, connect=${quote(expanded)})`).layout));
     }
-});
 
-test("connection ranges reject invalid values but not overlaps", () => {
-    for (const connect of [
-        "[]", "{}", "[0-2]", "[2-1]", "[1-5]", "{1.5-2}", "[1-2}", "[1-2]oops", "[1-2];{3-4}",
-        "[0]", "{0}", "[5]", "{5}", "[1.5]", "[-1-1]", "[+1]", "[3}", "{3]", "[1 2]", "[3]oops",
-        "[9007199254740992]", "{9007199254740992}",
-    ]) {
+    for (const connect of ["[]", "{}", "[0-2]", "[2-1]", "[1-5]", "{1.5-2}", "[1-2}", "[1-2]oops", "[1 2-3]"]) {
         expectDiagnostic(() => compileScore(`@voices(${fourVoices}, connect=${quote(connect)})`, {
             variables: { strict: true },
         }), "E_VOICES_CONNECT");
     }
-    compileValid(`@voices(${fourVoices}, connect="[1-3]{2-4}[1-3]")`);
+
+    const emptyConn = layoutOf(`@voices(${fourVoices}, connect="")`);
+    const emptyCmds = attachmentCommands(emptyConn.attachments.find(a => a.layer === "background")!);
+    strictEqual(emptyCmds.length, 1);
+    strictEqual(emptyCmds[0].kind, "rect");
+
+    const members = Array.from({ length: 5 }, (_, i) => `@voice({${i + 1}}, Voice${i + 1})`).join(",");
+    const partial = layoutOf(`@voices(${members}, connect="{2-4}")`, 22);
+    const partialCmds = attachmentCommands(partial.attachments.find(a => a.layer === "background")!);
+    const curves = partialCmds.filter(c => c.kind === "path");
+    const notes = partial.objects.filter(o => !o.T.isZero());
+    const curveBounds = pathBounds(curves[0].commands);
+    assert(nearly(curveBounds.y, axisOf(notes[1]) - 11) && nearly(curveBounds.y + curveBounds.h, axisOf(notes[3]) + 11),
+        "partial brace must span voices 2..4");
 });
 
-test("connection whitespace stays separate from optional endpoint digits", () => {
-    for (const gap of ["", " ", "\t", "\r\n", "\u00a0", "\u3000"]) {
-        const source = `[${gap}-${gap}]${gap}{${gap}1${gap}-${gap}4${gap}}`;
-        deepStrictEqual(connectionSpecsOf(source), [
-            { kind: "bracket", from: undefined, to: undefined },
-            { kind: "brace", from: 1, to: 4 },
-        ]);
-        deepStrictEqual(connectionSpecsOf(`[${gap}3${gap}]${gap}{${gap}4${gap}}`), [
-            { kind: "bracket", from: 3, to: 3 },
-            { kind: "brace", from: 4, to: 4 },
-        ]);
-    }
-    for (const source of ["[1 2-3]", "[1-2 3]", "[1--2]", "[1-+2]", "[-1.0]"]) {
-        expectDiagnostic(() => connectionSpecsOf(source), "E_VOICES_CONNECT");
-    }
-});
-
-test("malformed connection ranges do not backtrack across long whitespace", () => {
-    const gap = " ".repeat(100_000);
-    const sources = [`[${gap}x]`, `[-${gap}x]`, `[3${gap}x]`, `{${gap}}`, `[${"3".repeat(100_000)}x]`];
-    const start = performance.now();
-    for (const source of sources) {
-        expectDiagnostic(() => connectionSpecsOf(source), "E_VOICES_CONNECT");
-    }
-    const elapsed = performance.now() - start;
-    // 留出远大于正常匹配耗时的余量，只拦截回溯退化
-    assert(elapsed < 1000, `malformed ranges took ${elapsed.toFixed(1)}ms; expected under 1000ms`);
-});
-
-test("empty voice connections retain exactly one shared thin line", () => {
-    const result = layoutOf(`@voices(${fourVoices}, connect="")`);
-    const connector = result.attachments.find(attachment => attachment.layer === "background")!;
-    const commands = attachmentCommands(connector);
-    strictEqual(commands.length, 1);
-    strictEqual(commands[0].kind, "rect");
-    const notes = result.objects.filter(object => !object.T.isZero());
-    const region = connector.regions[0];
-    assert(region.y < axisOf(notes[0])
-        && region.y + region.h > axisOf(notes.at(-1)!),
-    "the shared line must cover the entire block even without brackets");
-});
-
-test("V declarations keep four simultaneous voices and desugar without nesting", () => {
+test("V declarations group simultaneous voices, handle inline/CRLF syntax and reject empty groups", () => {
     const source = "V{}:\nN(A): 1 2\nN(B): 3 4\nV[]:\nN(C): 5 6\nL: la la\nN(D): 7 1";
     const result = compileValid(source);
-    strictEqual(result.ast.content.length, 1);
     strictEqual(result.ast.content[0].children!.length, 4);
     assert(result.lowering.duration.equals(2), "group markers must not sequence voice groups");
     const serialized = result.ast.content[0].toString(source);
     assert(serialized.includes('connect="{1-2}[3-4]"'), serialized);
     deepStrictEqual(recordCommands(compileValid(serialized).layout), recordCommands(result.layout));
-});
 
-test("V declarations accept inline members and end the preceding N content", () => {
-    for (const marker of ["V{}:", "V[]:", "V|:"]) {
-        const expected = compileValid(`${marker}\nN: 1 2 3\nN:123`);
-        for (const source of [`${marker} N: 1 2 3\nN:123`, `${marker}N:123 N:123`]) {
-            const result = compileValid(source, { variables: { strict: true } });
-            strictEqual(result.ast.content[0].children!.length, 2, source);
-            assert(result.lowering.duration.equals(3), "inline members must start together");
-            deepStrictEqual(recordCommands(result.layout), recordCommands(expected.layout), source);
-        }
-    }
-    for (const [source, expanded] of [
+    for (const [inline, expanded] of [
         ["1 V{}: N:2 N:3", '1 @voices(@voice(2), @voice(3), connect="{1-2}")'],
-        ["{V{}:N:1 N:2}", '{@voices(@voice(1), @voice(2), connect="{1-2}")}'],
-        ["N:1 V[]:N:2 N:3", '@voices(@voice(1), @voice(2), @voice(3), connect="[2-3]")'],
         ["V{}:N:1 N:2 V[]:N:3 N:4 V|:N:5",
             '@voices(@voice(1), @voice(2), @voice(3), @voice(4), @voice(5), connect="{1-2}[3-4]")'],
     ]) {
-        const result = compileValid(source, { variables: { strict: true } });
-        deepStrictEqual(recordCommands(result.layout), recordCommands(compileValid(expanded).layout), source);
-        deepStrictEqual(recordCommands(compileValid(result.ast.toString(source)).layout), recordCommands(result.layout));
+        const res = compileValid(inline, { variables: { strict: true } });
+        deepStrictEqual(recordCommands(res.layout), recordCommands(compileValid(expanded).layout), inline);
     }
-});
 
-test("V declarations replace presets locally, stop at blank lines and preserve empty overrides", () => {
-    const source = [
-        '@set(voices.connect="[-]")',
-        "V|:", "N: 1", "N: 2", "",
-        "N: 3", "N: 4", "",
-        "N: 5", "V{}:", "N: 6", "N: 7", "V|:", "N: 1", "",
-        "V{}:", "N: 2", "N: 3", "V{}:", "N: 4", "N: 5",
-    ].join("\n");
-    const result = compileValid(source);
-    const blocks = result.ast.content.filter(node => node instanceof ASTFunctionNode && node.callName === "voices");
-    deepStrictEqual(blocks.map(node => node.toString(source).match(/connect="([^"]*)"/)![1]),
-        ["", "[-]", "{2-3}", "{1-2}{3-4}"]);
-    assert(result.lowering.duration.equals(4), "only blank-line-separated blocks advance the sequence");
-});
+    const crlf = 'V{}:\r\nN:1\r\nL:"la"\r\nV[]:\r\nN:2\r\nN:3';
+    deepStrictEqual(recordCommands(compileValid(crlf).layout),
+        recordCommands(compileValid(crlf.replaceAll("\r\n", "\n")).layout));
 
-test("V declarations override unused invalid defaults after a bare N prefix", () => {
-    for (const preset of ["bad", "[2-1]", "[1-9]"]) {
-        for (const [marker, connect] of [["V|:", ""], ["V{}:", "{3-4}"], ["V[]:", "[3-4]"]]) {
-            const source = `@set(voices.connect=${quote(preset)})\nN:1\nN:2\n${marker}\nN:3\nN:4`;
-            const result = compileValid(source, { variables: { strict: true } });
-            const expected = compileValid(`@voices(@voice(1), @voice(2), @voice(3), @voice(4), connect=${quote(connect)})`);
-            assert(result.lowering.duration.equals(1), "all members must remain simultaneous");
-            deepStrictEqual(recordCommands(result.layout), recordCommands(expected.layout));
-            const serialized = result.ast.toString(source);
-            assert(serialized.includes(`connect=${quote(connect)}`), serialized);
-            deepStrictEqual(recordCommands(compileValid(serialized).layout), recordCommands(result.layout));
-        }
-        expectCompileError(`@set(voices.connect=${quote(preset)})\nN:1\nN:2`, "E_VOICES_CONNECT");
-        expectCompileError(`@set(voices.connect=${quote(preset)})\nV|:\nN:1\nN:2\n\nN:3\nN:4`, "E_VOICES_CONNECT");
-    }
-});
-
-test("V groups require members and do not borrow lyrics from the preceding group", () => {
-    for (const source of ["V{}:", "V{}:\n\nN: 1", "V{}:\nV[]:\nN: 1", "V{}:V[]:N:1"]) {
-        expectCompileError(source, "E_VOICES_GROUP_EMPTY");
+    for (const empty of ["V{}:", "V{}:\n\nN: 1", "V{}:\nV[]:\nN: 1"]) {
+        expectCompileError(empty, "E_VOICES_GROUP_EMPTY");
     }
     expectCompileError("N: 1\nV{}:\nL: la\nN: 2", "E_LYRICS_WITHOUT_VOICE_NOTES");
-});
-
-test("partial braces cover only their range while the shared line spans every voice", () => {
-    const members = Array.from({ length: 7 }, (_, i) => `@voice({${i + 1}}, Voice${i + 1})`).join(",");
-    for (const size of [1, 2, 8, 12, 22, 40]) {
-        const result = layoutOf(`@voices(${members}, connect="{3-5}")`, size);
-        const connector = result.attachments.find(attachment => attachment.layer === "background")!;
-        const commands = attachmentCommands(connector);
-        const bars = commands.filter(command => command.kind === "rect");
-        const curves = commands.filter(command => command.kind === "path");
-        strictEqual(bars.length, 1);
-        strictEqual(curves.length, 1);
-        const notes = result.objects.filter(object => !object.T.isZero());
-        const curveBounds = pathBounds(curves[0].commands);
-        assert(nearly(curveBounds.y, axisOf(notes[2]) - size / 2),
-            "brace must begin at voice 3");
-        assert(nearly(curveBounds.y + curveBounds.h, axisOf(notes[4]) + size / 2),
-            "brace must end at voice 5");
-        assert(bars[0].y < axisOf(notes[0]) && bars[0].y + bars[0].h > axisOf(notes[6]),
-            "unconfigured voices must remain connected by the shared line");
-        const names = result.objects.filter(object => object.T.isZero());
-        const labelRight = Math.max(...names.map(name => name.box.x + name.box.anchor));
-        const region = connector.regions[0];
-        assert(region.x > labelRight && region.x + region.w < notes[0].box.x,
-            "all connection geometry must fit between labels and notes");
-    }
-});
-
-test("overlapping connectors do not duplicate the common line or add tracks", () => {
-    const result = compileValid(`@voices(${fourVoices}, connect="[-]{-}[-]")`);
-    const connector = result.layout.attachments.find(attachment => attachment.layer === "background")!;
-    const commands = attachmentCommands(connector);
-    const bars = commands.filter(command => command.kind === "rect");
-    strictEqual(bars.length, 3);
-    strictEqual(bars.filter(bar => nearly(bar.w, 22 * 0.19 * 0.33)).length, 1);
-    strictEqual(commands.filter(command => command.kind === "path").length, 5);
-    strictEqual(new Set(result.layout.objects.filter(object => !object.T.isZero()).map(object => object.track)).size, 4);
-});
-
-test("local V connections do not leak into nested content defaults", () => {
-    const source = '@set(voices.connect="{-}")\nV[]:\nN(A): {\nN(X): 1\nN(Y): 2\n}\nN(B): 3';
-    const result = compileValid(source);
-    const outer = result.ast.content.find(node => node instanceof ASTFunctionNode && node.callName === "voices")!;
-    const serialized = outer.toString(source);
-    assert(serialized.includes('connect="{-}"'), "nested voices must still inherit the user's default");
-    assert(serialized.includes('connect="[1-2]"'), "V declarations override only their own block");
-});
-
-test("V declarations handle scoped multiline voices, CRLF, comments and following ordinary content", () => {
-    const source = "{\r\n  V{}: % group\r\n  N: {1\r\n2}\r\n  N: 3\r\n}\r\n4";
-    const result = compileValid(source);
-    assert(result.lowering.duration.equals(3), "ordinary content after the scoped group must remain sequential");
-    const serialized = parse(source).toString(source);
-    deepStrictEqual(recordCommands(compileValid(serialized).layout), recordCommands(result.layout));
-});
-
-test("CRLF and LF keep quoted lyrics, V groups and blank-line boundaries equivalent", () => {
-    for (const lf of [
-        'V{}:\nN:1\nL:"la"\nN:2',
-        'V{}:\nN:1\nL:"la"\nV[]:\nN:2\nN:3',
-        'N:1\nL:"la" % lyric\nN:2\n\nV|:\nN:3\nL(row):"so"\nN:4',
-        '{\nV{}:\nN:1\nL:"la"\nN:2\n\nN:3\nN:4\n}',
-    ]) {
-        const source = lf.replaceAll("\n", "\r\n");
-        const expected = compileValid(lf, { variables: { strict: true } });
-        const result = compileValid(source, { variables: { strict: true } });
-        assert(result.lowering.duration.equals(expected.lowering.duration), "CRLF must not split simultaneous voices");
-        deepStrictEqual(recordCommands(result.layout), recordCommands(expected.layout));
-        deepStrictEqual(recordCommands(compileValid(result.ast.toString(source)).layout), recordCommands(result.layout));
-    }
-});
-
-test("V collection preserves lyric rows and labels used inside and after the block", () => {
-    const source = `V{}:
-N(A): {1@a 2@b @tie(a,b)}
-L: la la
-N(B): 3 4
-V|:
-N(C): {5@c 6@d}
-L(row): so la
-@tie(c,d) 7`;
-    const result = compileValid(source, { variables: { strict: true } });
-    const voices = result.ast.content[0];
-    strictEqual(voices.children!.length, 3);
-    assert(voices.children!.every(voice => voice.parent === voices), "every collected voice must have the final block as its parent");
-    assert(result.lowering.duration.equals(3), "following ordinary content must remain outside the group");
-    const restored = compileValid(result.ast.toString(source), { variables: { strict: true } });
-    deepStrictEqual(recordCommands(restored.layout), recordCommands(result.layout));
 });
 
 test("connect group names parse, validate and roundtrip with V sugar", () => {

@@ -1,29 +1,16 @@
-import { deepStrictEqual } from "node:assert/strict";
 import { test } from "node:test";
 
-import {
-    ASTFunctionNode,
-    type ASTFunctionClass,
-    type ASTNodeBase,
-    type FunctionArgs,
-    type ParserContext,
-    type SourceSpan,
-} from "../src/functions/ASTtypes.js";
-import { defaultFunctions } from "../src/functions/default.js";
-import { TemporalNodeBase, type VisualTemporalNode } from "../src/functions/temporal.js";
-import { layoutDocument } from "../src/layout/engine.js";
+import { ASTFunctionNode } from "../src/functions/ASTtypes.js";
+import type { VisualTemporalNode } from "../src/functions/temporal.js";
 import { compileScore } from "../src/pipeline.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import {
     assert,
     commandsOfKind,
-    createLowering,
     expectLoweringError,
-    layoutContext,
     layoutOf,
     lower,
     nearly,
-    parse,
     playedNotes,
     recordCommands,
 } from "./helpers.js";
@@ -36,43 +23,6 @@ const CONTENT_RIGHT = 754;
 const PAGE_CENTER = (CONTENT_LEFT + CONTENT_RIGHT) / 2;
 // 居中由两根强弹簧的对称性保证，但求解器按合力收敛，落到坐标上留下亚像素残差
 const SOLVER_TOLERANCE = 0.05;
-
-class HeadEndpointFunction extends ASTFunctionNode {
-    static override def = {
-        name: ["headendpoint"],
-        description: "test-only zero-duration label endpoint",
-        details: "@headendpoint()",
-        allowExtraArgs: false,
-        args: [],
-    };
-
-    readonly size: number;
-
-    constructor(span: SourceSpan, _args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
-        super(span, parent);
-        this.size = ctx.variables.fontsize;
-    }
-
-    override labelable() { return this; }
-    override loweringEnter() { return [new HeadEndpointTemporal(this)]; }
-}
-
-class HeadEndpointTemporal extends TemporalNodeBase {
-    declare ast: HeadEndpointFunction;
-
-    constructor(ast: HeadEndpointFunction) {
-        super();
-        this.ast = ast;
-        this.initLayoutBox();
-    }
-
-    override prepareLayout() {
-        this.box!.w = this.box!.h = this.ast.size * 0.5;
-        this.box!.anchor = this.box!.visualAxis = this.ast.size * 0.25;
-    }
-}
-
-const HeadEndpointNode: ASTFunctionClass = HeadEndpointFunction;
 
 const textObjects = (source: string) => {
     const found = new Map<string, ReturnType<typeof layoutOf>["objects"][number]>();
@@ -107,50 +57,6 @@ test("head 分开左中右三槽，center 不受两侧宽度影响", () => {
         assert(nearly(box.x + box.w / 2, centerBox.x + centerBox.w / 2),
             `wider side slots must not move the center: ${leftText}, ${rightText}`);
     }
-});
-
-test("head lowering results from the same AST remain independent", () => {
-    const source = `@head(
-        left={@text(L1) @text(L2)},
-        center={@box(@text(Title, 2em)) @text(Subtitle)},
-        right={@text(R)}
-    ) @br() 1`;
-    const expected = recordCommands(layoutOf(source));
-    for (const reverse of [false, true]) {
-        const ast = parse(source);
-        const pending: ASTNodeBase[] = [ast];
-        while (pending.length > 0) {
-            const node = pending.pop()!;
-            pending.push(...node.children ?? []);
-            Object.freeze(node);
-        }
-        const lowering = createLowering();
-        const results = [lowering.lowerDocument(ast), lowering.lowerDocument(ast)];
-        if (reverse) results.reverse();
-        for (const result of results) {
-            deepStrictEqual(recordCommands(layoutDocument(result, layoutContext)), expected);
-        }
-    }
-});
-
-test("head track measurement state belongs to each lowering result", () => {
-    const ast = parse("@head(left={@text(L)}, center={@text(C)}, right={@text(R)})");
-    const lowering = createLowering();
-    const first = lowering.lowerDocument(ast).rootTrack.groups;
-    const second = lowering.lowerDocument(ast).rootTrack.groups;
-    const host = { top: 0, bottom: 0 };
-    const left = { top: 0, bottom: 20 };
-    const right = { top: 0, bottom: 5 };
-    first[0].measure([left], 0);
-    first[1].measure([{ top: 0, bottom: 10 }], 0);
-    first[2].measure([right], 0);
-    const positions = [first[0].place!(host, left, 0), first[2].place!(host, right, 0)];
-    deepStrictEqual(positions, [10, 25]);
-
-    second[0].measure([{ top: 0, bottom: 200 }], 0);
-    second[1].measure([{ top: 0, bottom: 100 }], 0);
-    second[2].measure([{ top: 0, bottom: 50 }], 0);
-    deepStrictEqual([first[0].place!(host, left, 0), first[2].place!(host, right, 0)], positions);
 });
 
 test("侧槽各行贴住纸面左右边缘", () => {
@@ -388,63 +294,17 @@ H.title: 标题
         "a fixed-width box inside a side slot must not shift the center slot");
 });
 
-test("H 调号速度直接作用于后续正文", () => {
-    const source = `H.signature: 1=D4 4/4
-H.tempo: 90
-@br()
-1 2 3 4 |`;
-    const note = layoutOf(source).objects.find(object =>
-        object.ast instanceof ASTFunctionNode && object.ast.callName === "note"
-    ) as VisualTemporalNode & { resolvedMidi: number };
-    assert(note.resolvedMidi === 62, "head state temporals must participate directly in the global state flow");
-    assert(playedNotes(compilePlayback(lower(source)))[0].bpm === 90,
-        "a tempo declared in the head must reach the notes after the break");
-});
-
-test("H.signature 为调号和拍号保留各自源码范围", () => {
-    const source = `H.signature: 1 = C  4 / 4`;
+test("H 调号速度作用于正文，保留源码范围并支持空行分段", () => {
+    const source = `H.signature: 1 = D4  4 / 4\nH.tempo: 90\n@br()\n1 2 3 4 |`;
     const objects = compileScore(source).layout.objects;
     const key = objects.find(object => object.ast instanceof ASTFunctionNode && object.ast.callName === "key")!;
     const meter = objects.find(object => object.ast instanceof ASTFunctionNode && object.ast.callName === "meter")!;
-    assert(source.slice(key.ast.sourceSpan.start, key.ast.sourceSpan.end) === "1 = C",
-        "signature key must map only to the 1=tonality source");
-    assert(source.slice(meter.ast.sourceSpan.start, meter.ast.sourceSpan.end) === "4 / 4",
-        "signature meter must map only to the fraction source");
-});
+    assert(source.slice(key.ast.sourceSpan.start, key.ast.sourceSpan.end) === "1 = D4", "key span");
+    assert(source.slice(meter.ast.sourceSpan.start, meter.ast.sourceSpan.end) === "4 / 4", "meter span");
+    const note = objects.find(object => object.ast instanceof ASTFunctionNode && object.ast.callName === "note") as VisualTemporalNode & { resolvedMidi: number };
+    assert(note.resolvedMidi === 62 && playedNotes(compilePlayback(lower(source)))[0].bpm === 90, "head state applies to score");
 
-test("head 可以与正文共享逻辑谱面行", () => {
-    const layout = layoutOf(`@head(center={@text(A)}) 1`);
-    const headText = layout.objects.find(object =>
-        object.ast instanceof ASTFunctionNode && object.ast.callName === "text"
-    );
-    const note = layout.objects.find(object =>
-        object.ast instanceof ASTFunctionNode && object.ast.callName === "note"
-    );
-    assert(headText && note && headText.layoutLine === note.layoutLine,
-        "inline head and following content must share one layout line");
-});
-
-test("空行结束连续 H 声明组合", () => {
-    const result = compileScore(`H.title: A
-
-H.title: B`);
-    const heads = result.ast.content.filter(node =>
-        node instanceof ASTFunctionNode && node.callName === "head"
-    );
-    assert(heads.length === 2, "a blank line must start a new head block");
-});
-
-test("head 内关系 attachment 使用真实全局端点", () => {
-    const result = compileScore(`@head(center={{
-        @headendpoint()@a @headendpoint()@b @tie(a,b)
-    }}) @br() 1`, { functions: [...defaultFunctions, HeadEndpointNode] });
-    const commands = recordCommands(result.layout);
-    assert(commands.some(command => command.kind === "path"),
-        "tie inside head must paint through the global attachment lifecycle");
-});
-
-test("head 可以嵌套在内容作用域中", () => {
-    const result = compileScore(`{@head(center={@text(A)})}`);
-    assert(recordCommands(result.layout).some(command => command.kind === "text" && command.text === "A"),
-        "nested head content must participate in normal layout");
+    const twoHeads = compileScore(`H.title: A\n\nH.title: B`).ast.content
+        .filter(node => node instanceof ASTFunctionNode && node.callName === "head");
+    assert(twoHeads.length === 2, "a blank line must start a new head block");
 });

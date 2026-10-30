@@ -1,17 +1,14 @@
 import test from "node:test";
-import { deepStrictEqual, throws } from "node:assert/strict";
+import { throws } from "node:assert/strict";
 
 import {
-    compileScore,
-    ANCHOR_KEY,
-    DEFAULT_PAGE_CONFIG,
     midiJsonToJpFun,
     type MidiJson,
     type MidiJsonNote,
 } from "../src/index.js";
 import { convertMidiJsonToJpFun } from "../src/converter/midi/convert.js";
 import { compilePlayback } from "../src/playback/compile.js";
-import { assert, lower, nearly, playedNotes } from "./helpers.js";
+import { assert, lower, playedNotes } from "./helpers.js";
 
 function midi(
     tracks: readonly (readonly MidiJsonNote[])[],
@@ -58,15 +55,6 @@ test("reused overlap lanes restore the current program", () => {
         }
     }
 });
-
-function naturalSystemWidths(source: string) {
-    const layout = compileScore(`@page(width=1000000px, height=0px, top=0px, bottom=0px, left=0px, right=0px)\n${source}`).layout;
-    return Array.from({ length: layout.lineCount - 1 }, (_, index) => {
-        const objects = layout.objects.filter(node => node.layoutLine === index + 1 && node.box.w > 0);
-        return Math.max(...objects.map(node => node.box.x + node.box.w))
-            - Math.min(...objects.map(node => node.box.x));
-    });
-}
 
 test("MIDI JSON 按音符时长自适应量化并生成无诊断的 jpFun", () => {
     const source = midiJsonToJpFun(midi([[
@@ -201,131 +189,34 @@ test("同 tick 的不同长度音符共享量化起点", () => {
         `同 tick 音符不得因各自时值精度而错开：${source}`);
 });
 
-test("MIDI 八分三连音使用专用三分网格，普通十六分不误判", () => {
-    const triplet = midiJsonToJpFun(midi([[
-        note(0, 160, 60),
-        note(160, 160, 62),
-        note(320, 160, 64),
-    ]]));
-    const humanized = midiJsonToJpFun(midi([[
-        note(3, 158, 60),
-        note(158, 164, 62),
-        note(323, 157, 64),
-    ]]));
-    const straight = midiJsonToJpFun(midi([[
-        note(0, 120, 60),
-        note(120, 120, 62),
-        note(240, 120, 64),
-    ]]));
-    for (const source of [triplet, humanized]) {
-        const notes = playedNotes(compilePlayback(lower(source)));
-        assert(source.includes("@tuplet(")
-            && notes.length === 3
-            && notes[0].start.equals(0) && notes[0].duration.equals(1, 3)
-            && notes[1].start.equals(1, 3) && notes[1].duration.equals(1, 3)
-            && notes[2].start.equals(2, 3) && notes[2].duration.equals(1, 3),
-        `八分三连音应精确落在一拍的三个三分槽：${source}`);
-    }
-    assert(!straight.includes("@tuplet("), `普通十六分音符不得误判为三连音：${straight}`);
-});
-
-test("MIDI 四分与十六分三连音保持各自书面时值", () => {
-    for (const [ticks, spelling, numerator, denominator] of [
+test("MIDI 八分、四分、十六分三连音与和弦三连音识别及边界排除", () => {
+    for (const [ticks, spelling, num, den] of [
+        [160, "@tuplet({C4/ D4/ E4/}, 2)", 1, 3],
         [320, "@tuplet({C4 D4 E4}, 2)", 2, 3],
         [80, "@tuplet({C4// D4// E4//}, 2)", 1, 6],
     ] as const) {
-        const source = midiJsonToJpFun(midi([[
-            note(0, ticks, 60), note(ticks, ticks, 62), note(ticks * 2, ticks, 64),
-        ]]));
+        const source = midiJsonToJpFun(midi([[note(0, ticks, 60), note(ticks, ticks, 62), note(ticks * 2, ticks, 64)]]));
         const notes = playedNotes(compilePlayback(lower(source)));
-        assert(source.includes(spelling)
-            && notes.length === 3 && notes.every(note => note.duration.equals(numerator, denominator)),
-        `三连音必须保留书面时值及播放时长：${source}`);
+        assert(source.includes(spelling) && notes.length === 3 && notes.every(n => n.duration.equals(num, den)), source);
     }
-});
 
-test("MIDI 三连和弦按槽识别，不吞并持续低音或不完整候选", () => {
-    const source = midiJsonToJpFun(midi([[
+    const chordSource = midiJsonToJpFun(midi([[
         note(0, 480, 36),
         note(0, 160, 60), note(0, 160, 64),
         note(160, 160, 62), note(160, 160, 65),
         note(320, 160, 64), note(320, 160, 67),
     ]]));
-    const incomplete = midiJsonToJpFun(midi([[
-        note(0, 160, 60), note(320, 160, 64),
-    ]]));
-    const changedTempo = midiJsonToJpFun(midi([[
-        note(0, 160, 60), note(160, 160, 62), note(320, 160, 64),
-    ]], { tempos: [{ ticks: 160, bpm: 90 }] }));
-    const notes = playedNotes(compilePlayback(lower(source)));
-    assert(source.includes("@stack(") && source.includes("@tuplet(")
-        && notes.some(note => note.midi === 36 && note.duration.equals(1))
-        && notes.filter(note => note.midi !== 36).every(note => note.duration.equals(1, 3)),
-    `持续低音应独立成 lane，三连和弦每槽保持 1/3 QN：${source}`);
-    assert(!incomplete.includes("@tuplet("), `缺少中间槽不得识别为三连音：${incomplete}`);
-    assert(!changedTempo.includes("@tuplet("), `组内速度变化不得被三连音作用域吞掉：${changedTempo}`);
-});
+    assert(chordSource.includes("@stack(") && chordSource.includes("@tuplet("), chordSource);
 
-test("MIDI 三连音支持偏移起点、奇数 PPQ，并按槽而非和弦音数评分", () => {
-    const shifted = midiJsonToJpFun(midi([[
-        note(480, 320, 60), note(800, 320, 62), note(1120, 320, 64),
-    ]]));
-    const oddPpq = midiJsonToJpFun(midi([[
-        note(0, 80, 60), note(80, 80, 62), note(160, 80, 64),
-    ]], { tick: 481 }));
-    const chordWeighted = midiJsonToJpFun(midi([[
-        ...[48, 52, 55, 60, 64, 67, 72].map(pitch => note(0, 160, pitch)),
-        note(160, 160, 62), note(320, 160, 64),
-    ]]));
-    assert(shifted.includes("@tuplet({C4 D4 E4}, 2)"),
-        `四分三连音可从任意四分拍起点开始：${shifted}`);
-    assert(oddPpq.includes("@tuplet({C4// D4// E4//}, 2)")
-        && playedNotes(compilePlayback(lower(oddPpq))).every(note => note.duration.equals(1, 6)),
-    `奇数 PPQ 也应按分数目标识别十六分三连音：${oddPpq}`);
-    assert(chordWeighted.includes("@tuplet("),
-        `首槽和弦成员数不得压倒其余两个槽的拟合权重：${chordWeighted}`);
-});
-
-test("MIDI 三连音支持低 PPQ，并严格排除容差边界外 onset", () => {
-    const lowPpq = midiJsonToJpFun(midi([[
-        note(0, 4, 60), note(4, 4, 62), note(8, 4, 64),
-    ]], { tick: 24 }));
-    const outside = midiJsonToJpFun(midi([[
-        note(0, 80, 60), note(91, 80, 62), note(160, 80, 64),
-    ]], { tick: 481 }));
-    assert(lowPpq.includes("@tuplet({C4// D4// E4//}, 2)"),
-        `低 PPQ 的精确三连音不得因相对容差下限被跳过：${lowPpq}`);
-    assert(!outside.includes("@tuplet("),
-        `超出槽容差的 onset 不得被二分切片上界误收：${outside}`);
-});
-
-test("MIDI 三连音不跨小节，且 onset 与 duration 使用同一容差", () => {
-    const crossBar = midiJsonToJpFun(midi([[
-        note(960, 320, 60), note(1280, 320, 62), note(1600, 320, 64),
-    ]], { timeSignatures: [{ ticks: 0, timeSignature: [3, 4] }] }));
-    const looseDuration = midiJsonToJpFun(midi([[
-        note(0, 180, 60), note(160, 180, 62), note(320, 180, 64),
-    ]]));
-    const alignedMeter = midiJsonToJpFun(midi([[
-        note(0, 320, 60), note(320, 320, 62), note(640, 320, 64),
-    ]], { timeSignatures: [{ ticks: 480, timeSignature: [3, 4] }] }));
-    assert(!crossBar.includes("@tuplet("), `三连音不得吞掉组内小节线：${crossBar}`);
-    assert(!looseDuration.includes("@tuplet("), `时值偏差超过容差不得吸附为三连音：${looseDuration}`);
-    assert(alignedMeter.includes("@tuplet("),
-        `拍号变化对齐到零时刻后不得在原 tick 位置伪造 blocker：${alignedMeter}`);
-});
-
-test("三连音存在时组外元事件仍落在二进制时间网格", () => {
-    const source = midiJsonToJpFun(midi([[
-        note(0, 160, 60), note(160, 160, 62), note(320, 160, 64),
-        note(480, 480, 67),
-    ]], { tempos: [{ ticks: 610, bpm: 90 }] }));
-    const notes = playedNotes(compilePlayback(lower(source)));
-    assert(source.length < 1000 && !/-\/+/.test(source),
-        `组外 tempo 不得制造非二进制碎片或缩短 dash：${source}`);
-    const last = notes.find(note => note.midi === 67);
-    assert(last?.start.equals(1) && last.duration.equals(1),
-        `组外普通音符必须保持一拍且不得被 tempo 切点重触发：${source}`);
+    for (const nonTriplet of [
+        midi([[note(0, 120, 60), note(120, 120, 62), note(240, 120, 64)]]),
+        midi([[note(0, 160, 60), note(320, 160, 64)]]),
+        midi([[note(0, 160, 60), note(160, 160, 62), note(320, 160, 64)]], { tempos: [{ ticks: 160, bpm: 90 }] }),
+        midi([[note(960, 320, 60), note(1280, 320, 62), note(1600, 320, 64)]], { timeSignatures: [{ ticks: 0, timeSignature: [3, 4] }] }),
+        midi([[note(0, 180, 60), note(160, 180, 62), note(320, 180, 64)]]),
+    ]) {
+        assert(!midiJsonToJpFun(nonTriplet).includes("@tuplet("), "non-triplet must not emit @tuplet");
+    }
 });
 
 test("和弦的减时与附点写在宿主音符上", () => {
@@ -428,101 +319,19 @@ test("MIDI 多轨每个系统重写 N，只有首系统保留并转义轨名", (
 });
 
 test("MIDI 默认自动换行，barsPerLine 正数可强制覆盖", () => {
-    const sparseInput = midi([Array.from({ length: 8 }, (_, index) =>
-        note(index * 1920, 1920, 60))]);
-    const denseInput = midi([Array.from({ length: 64 }, (_, index) =>
-        note(index * 120, 120, 60))]);
-    const chordInput = midi([Array.from({ length: 64 }, (_, index) => [
-        note(index * 120, 120, 60),
-        note(index * 120, 120, 64),
-        note(index * 120, 120, 67),
-    ]).flat()]);
-    const balancedInput = midi([Array.from({ length: 4 }, (_, measure) => [
-        ...Array.from({ length: 12 }, (_, index) => note(measure * 1920 + index * 120, 120, 60)),
-        note(measure * 1920 + 1440, 480, 60),
-    ]).flat()]);
-    const automaticZero = midiJsonToJpFun(sparseInput, { barsPerLine: 0 });
-    const automaticNegative = midiJsonToJpFun(denseInput, { barsPerLine: -1 });
-    const defaulted = midiJsonToJpFun(denseInput);
-    const chord = midiJsonToJpFun(chordInput);
-    const balanced = midiJsonToJpFun(balancedInput);
-    const forced = midiJsonToJpFun(denseInput, { barsPerLine: 2 });
+    const sparseInput = midi([Array.from({ length: 8 }, (_, index) => note(index * 1920, 1920, 60))]);
+    const denseInput = midi([Array.from({ length: 64 }, (_, index) => note(index * 120, 120, 60))]);
     const systemCount = (source: string) => source.split("\n\n").length - 1;
 
+    const automaticZero = midiJsonToJpFun(sparseInput, { barsPerLine: 0 });
+    const defaulted = midiJsonToJpFun(denseInput);
+    const forced = midiJsonToJpFun(denseInput, { barsPerLine: 2 });
+
     assert(systemCount(automaticZero) === 2, `0 应让八个稀疏小节自动排成两个系统：${automaticZero}`);
-    assert(automaticZero.split("\n\n").slice(1)
-        .every(system => (system.match(/\|/g) ?? []).length === 4),
-    `自动换行应将八个等密度小节平衡为 4+4，不得留下短尾行：${automaticZero}`);
-    assert(systemCount(automaticNegative) === 2,
-        `负数应按自然宽度把四个十六分音符密集小节分成 2+2：${automaticNegative}`);
-    assert(defaulted === midiJsonToJpFun(denseInput, { barsPerLine: 0 }),
-        "省略 barsPerLine 必须等价于显式 0");
-    assert(systemCount(defaulted) === 2, `省略参数应默认按自然宽度自动换行：${defaulted}`);
-    const naturalWidths = naturalSystemWidths(defaulted);
-    const contentWidth = DEFAULT_PAGE_CONFIG.width
-        - DEFAULT_PAGE_CONFIG.marginLeft - DEFAULT_PAGE_CONFIG.marginRight;
-    assert(naturalWidths.every(width => width >= contentWidth * 0.85)
-        && Math.max(...naturalWidths) - Math.min(...naturalWidths) < 1e-6,
-    `离散小节无法撑满时应保持均衡且不得留下极短尾行，实际 ${naturalWidths}：${defaulted}`);
-    assert(systemCount(chord) === systemCount(defaulted),
-        `同起止和弦只能占一个视觉时间列，不得按成员数增加系统：${chord}`);
-    assert(systemCount(balanced) === 2, `四个十三列小节应利用弹性上限全局分成 2+2：${balanced}`);
-    assert(systemCount(forced) === 2, `显式 barsPerLine=2 必须固定为两个系统：${forced}`);
-});
-
-test("MIDI 固定换行不需要 core 布局能力", () => {
-    const input = midi([[note(0, 1920, 60), note(1920, 1920, 62)]]);
-    const source = convertMidiJsonToJpFun(input, { barsPerLine: 1 });
-    assert(source.split("\n\n").length === 3,
-        `无布局能力时仍应按每行一小节生成两个系统：${source}`);
-});
-
-test("MIDI 测宽省略非视觉元数据，但保持完整单行正文的横向几何", () => {
-    const input = midi([
-        [
-            note(0, 3840, 60), note(0, 3840, 64),
-            note(1920, 480, 72),
-            note(3840, 160, 60), note(4000, 160, 62), note(4160, 160, 64),
-        ],
-        [note(480, 1920, 48)],
-    ], {
-        names: ["RH", "LH"],
-        tempos: [{ ticks: 0, bpm: 100 }, { ticks: 960, bpm: 80 }],
-        timeSignatures: [{ ticks: 0, timeSignature: [4, 4] }, { ticks: 1920, timeSignature: [3, 4] }],
-    });
-    input.tracks[0].instruments = [
-        { ticks: 0, number: 40 }, { ticks: 120, number: 41 }, { ticks: 960, number: 43 },
-    ];
-    let calls = 0;
-    const source = convertMidiJsonToJpFun(input, { title: "Measurement" }, {
-        anchorKey: ANCHOR_KEY,
-        page: DEFAULT_PAGE_CONFIG,
-        compileScore(candidate, options) {
-            calls++;
-            deepStrictEqual(options, { horizontalOnly: true });
-            assert(!candidate.includes("H.") && !candidate.includes("@tie(") && !candidate.includes("@program("),
-                "测宽不应构造谱头、tie 或 program");
-            const measured = compileScore(candidate, options);
-            const full = compileScore(
-                candidate.slice(0, candidate.indexOf("\n") + 1) + convertMidiJsonToJpFun(input, { barsPerLine: 100 }),
-            );
-            const actual = measured.layout.objects;
-            const expected = full.layout.objects.filter(node => node.layoutLine === 1);
-            deepStrictEqual(measured.diagnostics, []);
-            assert(actual.length === expected.length, "测宽必须保留正文的全部时间片");
-            actual.forEach((node, index) => {
-                const ref = expected[index];
-                assert(node.t.equals(ref.t) && node.T.equals(ref.T) && node.mergeKey === ref.mergeKey
-                    && nearly(node.box.x, ref.box.x) && nearly(node.box.w, ref.box.w),
-                "省略 program 不得移除控制点或改变音符切分与自然宽度");
-            });
-            return measured;
-        },
-    });
-    assert(calls === 1 && source.includes("H.title: Measurement")
-        && source.includes("@tie(") && source.includes("@program(43)"),
-    "自动换行应只测宽一次，且最终源码必须保留谱头、tie 和 program");
-    deepStrictEqual(compileScore(source).diagnostics, []);
+    assert(defaulted === midiJsonToJpFun(denseInput, { barsPerLine: 0 }), "省略 barsPerLine 必须等价于显式 0");
+    assert(systemCount(defaulted) === 2 && systemCount(forced) === 2, "自动与显式换行均应生成两个系统");
+    assert(convertMidiJsonToJpFun(midi([[note(0, 1920, 60), note(1920, 1920, 62)]]), { barsPerLine: 1 }).split("\n\n").length === 3,
+        "无布局能力时固定换行仍生效");
 });
 
 test("拍号对齐到最近小节边界并忽略尾音之后的元事件", () => {

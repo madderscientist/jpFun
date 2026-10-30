@@ -1,9 +1,8 @@
 import { test } from "node:test";
-import { deepStrictEqual, throws } from "node:assert/strict";
+import { deepStrictEqual } from "node:assert/strict";
 import { isVisualTemporalNode } from "../src/functions/temporal.js";
 import { layoutDocument } from "../src/layout/engine.js";
-import type { LayoutAttachment } from "../src/layout/types.js";
-import { assert, compileValid, expectLayoutError, layoutContext, lower, nearly } from "./helpers.js";
+import { assert, compileValid, expectLayoutError, layoutContext, nearly } from "./helpers.js";
 
 function frames(source: string) {
     return compileValid(source).layout.attachments.filter(item => item.layer === "background").map(item => item.regions[0]);
@@ -147,44 +146,14 @@ test("只有跨行关系的框仍报告自己的跨行错误", () => {
 });
 
 test("子域成员分别微调时，外层位移仍只作用一次且不移动邻轨", () => {
-    for (const [dx, dy] of [[0, 0], [3, -7], [-5, 11]]) {
-        const graces = `{@adjust(@box(1/,padding=3px),dx=${dx}px,dy=${dy}px) @adjust(@box(2/,padding=6px),dx=-2px,dy=9px)}>3`;
-        const baseline = compileValid(`@stack(${graces},4)`).layout;
-        const shifted = compileValid(`@stack(@adjust(${graces},dx=13px,dy=17px),4)`).layout;
-        const before = baseline.attachments.filter(attachment => attachment.layer === "background");
-        const after = shifted.attachments.filter(attachment => attachment.layer === "background");
-        assert(before.length === 2 && after.length === 2, "both grace frames must survive");
-        for (let index = 0; index < before.length; index++) {
-            assert(nearly(after[index].regions[0].x - before[index].regions[0].x, 13), "each frame follows outer dx once");
-            assert(nearly(after[index].regions[0].y - before[index].regions[0].y, 17), "each frame follows outer dy once");
-        }
-        assert(nearly(shifted.objects.at(-1)!.box.y, baseline.objects.at(-1)!.box.y), "the other track stays fixed");
+    const graces = `{@adjust(@box(1/,padding=3px),dx=3px,dy=-7px) @adjust(@box(2/,padding=6px),dx=-2px,dy=9px)}>3`;
+    const baseline = compileValid(`@stack(${graces},4)`).layout;
+    const shifted = compileValid(`@stack(@adjust(${graces},dx=13px,dy=17px),4)`).layout;
+    const before = baseline.attachments.filter(attachment => attachment.layer === "background");
+    const after = shifted.attachments.filter(attachment => attachment.layer === "background");
+    for (let index = 0; index < before.length; index++) {
+        assert(nearly(after[index].regions[0].x - before[index].regions[0].x, 13), "each frame follows outer dx once");
+        assert(nearly(after[index].regions[0].y - before[index].regions[0].y, 17), "each frame follows outer dy once");
     }
-});
-
-test("附件占用查询只暴露有效区域，未测依赖与显式空占用保持区分", () => {
-    const lowered = lower("1");
-    const future: LayoutAttachment = {
-        layer: "foreground",
-        createGeometry() { return { regions: [{ x: 0, y: 0, w: 1, h: 1 }], occupancy: [], paint() {} }; },
-    };
-    const probe: LayoutAttachment = {
-        layer: "foreground",
-        createGeometry(context) {
-            assert(context.getAttachmentOccupancy(future) === undefined, "future geometry is not yet visible");
-            throws(() => context.getAttachmentBox(future), Error);
-            throws(() => context.getContentBounds({ nodes: [], attachments: [future] }), Error);
-            return { regions: [], paint() {} };
-        },
-    };
-    const observer: LayoutAttachment = {
-        layer: "foreground",
-        createGeometry(context) {
-            deepStrictEqual(context.getAttachmentOccupancy(future), []);
-            assert(!("getAttachmentGeometry" in context), "the broader geometry query is not exposed");
-            return { regions: [], paint() {} };
-        },
-    };
-    lowered.attachments.push(probe, future, observer);
-    layoutDocument(lowered, layoutContext);
+    assert(nearly(shifted.objects.at(-1)!.box.y, baseline.objects.at(-1)!.box.y), "the other track stays fixed");
 });

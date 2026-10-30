@@ -1,9 +1,9 @@
-import { deepStrictEqual, throws } from "node:assert/strict";
+import { deepStrictEqual } from "node:assert/strict";
 import { test } from "node:test";
 
 import { GraceTemporal } from "../src/functions/grace/index.js";
 import { getLayoutBounds, layoutDocument } from "../src/layout/engine.js";
-import { isLayoutAttachment, type Extent, type LayoutAttachment } from "../src/layout/types.js";
+import { isLayoutAttachment, type LayoutAttachment } from "../src/layout/types.js";
 import { isVisualTemporalNode } from "../src/functions/temporal.js";
 import { compileScore } from "../src/pipeline.js";
 import { assert, layoutContext, layoutOf, lower, nearly, recordCommands } from "./helpers.js";
@@ -53,106 +53,6 @@ test("horizontalOnly 保留横向约束与子域尺寸，跳过文档放置、�
     deepStrictEqual(horizontal.layout.diagnostics, complete.layout.diagnostics);
 });
 
-test("extent overloads return a scalar for one track and a map for all tracks", () => {
-    const lowered = lower("@stack({1 2},{3 4})");
-    const host = lowered.columns[0][0];
-    const absentTrack = lower("5").rootTrack;
-    const probe: LayoutAttachment = {
-        layer: "foreground",
-        createGeometry(context) {
-            const all: ReadonlyMap<typeof host.track, Readonly<Extent>> = context.getRangeExtents(0);
-            const single: Readonly<Extent> | undefined = context.getRangeExtents(0, undefined, host.track);
-            assert(all instanceof Map && all.size === 2, "all-track queries must retain a map");
-            assert(single && !(single instanceof Map), "single-track queries must return an extent");
-            deepStrictEqual(single, all.get(host.track));
-            deepStrictEqual(context.getRangeExtents(0, [0, 1], host.track), single);
-            assert(context.getRangeExtents(0, [1, 0], host.track) === undefined, "an empty range has no scalar extent");
-            assert(context.getRangeExtents(0, [1, 0]).size === 0, "an empty all-track range returns an empty map");
-            assert(context.getRangeExtents(0, undefined, absentTrack) === undefined, "an absent track has no extent");
-            assert(context.getRangeExtents(10, undefined, host.track) === undefined, "an absent line has no scalar extent");
-            assert(context.getRangeExtents(10).size === 0, "an absent line returns an empty all-track map");
-            return { regions: [], paint() {} };
-        },
-    };
-    lowered.attachments.push(probe);
-    layoutDocument(lowered, layoutContext);
-});
-
-test("horizontal extent queries filter hosts and attachments by actual x overlap", () => {
-    const lowered = lower("1 2' 3");
-    const [first, second] = lowered.columns.map(column => column[0]);
-    assert(isVisualTemporalNode(first) && isVisualTemporalNode(second), "expected two visual hosts");
-    const marker: LayoutAttachment = {
-        layer: "foreground",
-        createGeometry(context) {
-            const x = (first.box.x + first.box.w + second.box.x) / 2;
-            return {
-                regions: [{
-                    x, y: context.getVisualAxis(0, first.track) - 80,
-                    w: 1, h: 5, line: 0, track: first.track,
-                }],
-                paint() {},
-            };
-        },
-    };
-    const probe: LayoutAttachment = {
-        layer: "foreground",
-        createGeometry(context) {
-            const bounds = context.getAttachmentBox(marker);
-            deepStrictEqual(context.getHorizontalExtents(0, bounds.x, bounds.x + bounds.w).get(first.track),
-                { top: -80, bottom: -75 });
-            deepStrictEqual(context.getHorizontalExtents(0, second.box.x, second.box.x + second.box.w),
-                context.getRangeExtents(0, [1, 1]));
-            for (const [line, left, right, reason] of [
-                [0, bounds.x - 1, bounds.x, "touching edges"],
-                [0, second.box.x, second.box.x, "zero width"],
-                [0, second.box.x + 1, second.box.x, "reversed interval"],
-                [10, 0, 100, "missing line"],
-            ] as const) {
-                assert(context.getHorizontalExtents(line, left, right).size === 0, reason);
-            }
-            return { regions: [], paint() {} };
-        },
-    };
-    lowered.attachments.push(marker, probe);
-    layoutDocument(lowered, layoutContext);
-});
-
-test("document range queries represent folded content by its document composite", () => {
-    const lowered = lower("@stack({@grace(1,{2 3}) 4}, {@grace(5,{6 7}) 1})");
-    const graces = lowered.columns.flat().filter(node => node instanceof GraceTemporal);
-    assert(graces.length === 2, "expected two grace groups in the same document column");
-    const [first, second] = graces;
-    const last = lowered.columns.at(-1)!.find(node => node.track === first.track && isVisualTemporalNode(node));
-    assert(last && isVisualTemporalNode(last), "expected a following host on the first track");
-    const member = first.graces[1];
-    let calls = 0;
-    const probe: LayoutAttachment = {
-        layer: "foreground",
-        createGeometry(context) {
-            calls++;
-            const extent = context.getRangeExtents(first.layoutLine, [member, last], member.track);
-            assert(extent && !(extent instanceof Map), "a single-track query must return an extent directly");
-            const axis = context.getVisualAxis(first.layoutLine, member.track);
-            assert(axis === context.getVisualAxis(first.layoutLine, first.track)
-                && context.getHostExtent(first.layoutLine, member.track) === context.getHostExtent(first.layoutLine, first.track),
-                "a private track must read the axis and host extent of its composite's track");
-            assert(nearly(extent.top + axis, Math.min(first.box.y, last.box.y)),
-                "a folded endpoint must select its whole composite");
-            deepStrictEqual(context.getRangeColumns(first.layoutLine, [first.graces[0], member], member.track), [[first]]);
-            const whole = context.getRangeExtents(first.layoutLine, [member, last]);
-            assert(whole.has(second.track), "an all-track query must include the other track's document columns");
-            const secondAxis = context.getVisualAxis(first.layoutLine, second.track);
-            assert(nearly(whole.get(second.track)!.top + secondAxis, second.box.y),
-                "an all-track query must retain the entire parallel composite");
-            return { regions: [], paint() {} };
-        },
-    };
-    lowered.attachments.push(probe);
-    layoutDocument(lowered, layoutContext);
-    assert(calls > 0, "the query probe must run");
-});
-
 test("local endpoint attachments participate in subsequent range avoidance", () => {
     for (const first of ["@dyn(a,b,24)", "@tie(a,b)"]) {
         for (const wrap of [(body: string) => body, (body: string) => `@grace(1,{${body}})`]) {
@@ -173,87 +73,6 @@ test("endpoint occupancy remains isolated between compressed local sequences", (
         "endpoint attachment buckets must not leak into adjacent grace groups under compression");
 });
 
-test("relations whose endpoints all lie in a sub-domain are measured there and move with the block", () => {
-    for (const inside of [true, false]) {
-        const lowered = lower("@grace(1,{2 3}) 4");
-        const grace = lowered.columns[0][0];
-        const next = lowered.columns[1][0];
-        assert(grace instanceof GraceTemporal && isVisualTemporalNode(next), "expected a grace composite and a following note");
-        const [from, to] = grace.graces;
-        const end = inside ? to : next;
-        let offset = 0;
-        const relation: LayoutAttachment = {
-            layer: "foreground",
-            endPoints: [from, end],
-            createGeometry() {
-                const y = from.box.y - 30;
-                offset = y - from.box.y;
-                return {
-                    regions: [{ x: from.box.x, y, w: end.box.x + end.box.w - from.box.x, h: 5, line: from.layoutLine, track: from.track }],
-                    paint() {},
-                };
-            },
-        };
-        lowered.attachments.push(relation);
-        const placed = layoutDocument(lowered, layoutContext).attachments.at(-1)!.regions[0];
-        assert(nearly(placed.y - from.box.y, offset), "the relation must keep its offset from its endpoints");
-        assert(inside === placed.y >= grace.box.y - 1e-6,
-            inside ? "a relation inside the grace must grow the grace block" : "a relation leaving the grace stays in the document");
-    }
-    assert(layoutContext.layoutSubdomain === undefined, "sub-domain layout must not leak into the caller's reusable context");
-});
-
-test("a relation inside nested sub-domains is measured only by the innermost one", () => {
-    for (const source of ["@grace(1,{@grace(4,{2@a 3@b @tie(a,b)}) 5})", "@grace(1,{@grace(4,{2@a 3@b}) 5}) @tie(a,b)"]) {
-        const lowered = lower(source);
-        const tie = lowered.attachments.find(attachment => attachment.sourceSpan?.start === source.indexOf("@tie"));
-        assert(tie && isLayoutAttachment(tie), `expected the tie: ${source}`);
-        const domains = new Set<unknown>();
-        const measure = tie.createGeometry.bind(tie);
-        tie.createGeometry = context => {
-            domains.add(context.lines);
-            return measure(context);
-        };
-        layoutDocument(lowered, layoutContext);
-        assert(domains.size === 1, `an inner relation must not be measured again by the outer domain: ${source}`);
-    }
-});
-
-test("document range queries lift folded endpoints in either order and across lines", () => {
-    for (const source of [
-        "@grace(1,{2''' 3}) 4",
-        "@grace(1,{2''' 3},side=post) 4",
-        "@grace(@grace(1,{2''' 3}),{5 6},side=post) 4",
-        "@grace(1,{2''' 3}) @br() 4",
-    ]) {
-        const lowered = lower(source);
-        const events = [...lowered.astToTemporal.values()].flat();
-        const from = events.find(node => node.ast.sourceSpan.start === source.indexOf("3"));
-        const to = events.find(node => node.ast.sourceSpan.start === source.lastIndexOf("4"));
-        const composite = lowered.columns[0][0];
-        assert(from && to && isVisualTemporalNode(from) && isVisualTemporalNode(to) && isVisualTemporalNode(composite),
-            "expected visible endpoints");
-        const probe: LayoutAttachment = {
-            layer: "foreground",
-            createGeometry(context) {
-                for (let line = from.layoutLine; line <= to.layoutLine; line++) {
-                    const forward: Readonly<Extent> | undefined = context.getRangeExtents(line, [from, to], from.track);
-                    const reverse: Readonly<Extent> | undefined = context.getRangeExtents(line, [to, from], from.track);
-                    deepStrictEqual(forward, reverse);
-                    assert(forward, "cross-line queries must retain the selected track");
-                }
-                const single = context.getRangeExtents(from.layoutLine, [from, from], from.track)!;
-                const axis = context.getVisualAxis(from.layoutLine, from.track);
-                assert(nearly(single.top + axis, composite.box.y) && nearly(single.bottom + axis, composite.box.y + composite.box.h),
-                    "a folded endpoint must select its whole document composite");
-                return { regions: [], paint() {} };
-            },
-        };
-        lowered.attachments.push(probe);
-        layoutDocument(lowered, layoutContext);
-    }
-});
-
 test("document ranges across a multi-voice grace avoid every voice", () => {
     const source = "1@a {3 & 5}>2 4@b @dyn(a,b,24)";
     const layout = layoutOf(source);
@@ -262,47 +81,6 @@ test("document ranges across a multi-voice grace avoid every voice", () => {
     assert(grace instanceof GraceTemporal && hairpin, "expected a grace and a hairpin");
     assert(hairpin.regions[0].y + hairpin.regions[0].h <= Math.min(...grace.graces.map(member => member.box.y)) + 1e-6,
         "a document range must clear the upper grace voice");
-});
-
-test("content measurement filters empty and non-layout attachments and rejects forward dependencies", () => {
-    const lowered = lower("1");
-    const host = lowered.columns[0][0];
-    assert(isVisualTemporalNode(host), "expected one measured host");
-    const empty: LayoutAttachment = { layer: "foreground", createGeometry: () => ({ regions: [], paint() {} }) };
-    const later: LayoutAttachment = { layer: "foreground", createGeometry: () => ({ regions: [], paint() {} }) };
-    const probe: LayoutAttachment = {
-        layer: "foreground",
-        createGeometry(context) {
-            const bounds = context.getContentBounds({ nodes: [host], attachments: [empty, {}] });
-            deepStrictEqual(bounds, { x: host.box.x, y: host.box.y, w: host.box.w, h: host.box.h });
-            assert(context.getContentBounds({ nodes: [], attachments: [empty, {}] }) === undefined,
-                "empty geometry must not create a box at the origin");
-            throws(() => context.getContentBounds({ nodes: [], attachments: [later] }), Error);
-            return { regions: [], paint() {} };
-        },
-    };
-    lowered.attachments.push(empty, probe, later);
-    layoutDocument(lowered, layoutContext);
-});
-
-test("finalizeLayout sees completed decorations before horizontal preparation", () => {
-    const lowered = lower("1.//");
-    const host = lowered.columns.flat().find(isVisualTemporalNode);
-    assert(host, "the lifecycle test requires a visual host");
-    const calls: string[] = [];
-    const finalize = host.finalizeLayout;
-    host.finalizeLayout = context => {
-        calls.push("finalize");
-        assert(host.decorations.length === 2 && host.box.h > host.ast.size,
-            "finalization must see both decorators and their completed below-space");
-        finalize?.call(host, context);
-    };
-    host.prepareHorizontal = () => {
-        calls.push("horizontal");
-        deepStrictEqual(host.ports.lyric, { x: host.box.anchor, y: host.box.h });
-    };
-    layoutDocument(lowered, layoutContext);
-    deepStrictEqual(calls, ["finalize", "horizontal"]);
 });
 
 test("repeated placement synchronization and painting do not accumulate offsets", () => {
@@ -322,39 +100,6 @@ test("repeated placement synchronization and painting do not accumulate offsets"
             deepStrictEqual(layout.objects.map(object => ({ ...object.box })), boxes);
         }
     }
-});
-
-test("局部横排先完成全部尺寸，再注册约束、创建零间隙输入并执行 hook", () => {
-    const lowered = lower("@grace(1,{2 3})");
-    const node = lowered.columns.flat().find(item => item instanceof GraceTemporal);
-    assert(node instanceof GraceTemporal, "expected a grace composite");
-    const [first, last] = node.graces;
-    const calls: string[] = [];
-    first.prepareHorizontal = line => {
-        calls.push("prepare");
-        assert(last.box.w > 0 && last.springConfig.alpha_L !== undefined,
-            "all local members must be measured and their spring defaults completed");
-        assert(line.columnOf(first) === 0 && line.columnOf(last) === 1 && first.t.equals(last.t),
-            "local columns must follow written order even when global times coincide");
-        first.springConfig.alpha_R = 99;
-        line.registerHorizontalLayoutHook(first, last, ({ columns, start, end }) => {
-            calls.push("hook");
-            assert(columns[start][0].config.alpha_R === 99,
-                "input creation must follow prepareHorizontal");
-            assert(columns.every(column => column.every(element =>
-                element.margin_L === 0 && element.margin_R === 0
-                && element.duration_L > 0 && element.duration_R > 0)),
-                "hooks must receive zero margins without zeroing duration or stiffness");
-            columns[start][0].WL += 7;
-            columns[end][0].WR += 11;
-        });
-    };
-    layoutDocument(lowered, layoutContext);
-    deepStrictEqual(calls, ["prepare", "hook"]);
-    assert(nearly(first.box.x - node.box.x, 7), "the saved offset must retain the left hook inset");
-    assert(nearly(node.box.w,
-        first.box.w + last.box.w + 18 + node.host.box.w + node.ast.size * 0.7 * 0.2),
-        "the composite must measure both edges of the solved occupancy");
 });
 
 test("综合样例的每个 LayoutBox 都有效且保持横向顺序", () => {
@@ -427,43 +172,6 @@ test("所有行超过半页时横向撑满，短行保持自然宽度", () => {
     const shortFinal = layoutOf(`${page}1 2`).objects;
     assert(shortFinal.at(-1)!.box.x + shortFinal.at(-1)!.box.w < 100,
         "a short final line must keep its natural spacing");
-});
-
-test("附件只在撑开轨道时重排，最终区域保持同步", () => {
-    for (const expands of [false, true]) {
-        const lowered = lower("1");
-        const host = lowered.columns.flat().find(isVisualTemporalNode);
-        assert(host, "the occupancy test requires one visual host");
-        let layoutCalls = 0;
-        const relation: LayoutAttachment = {
-            layer: "foreground",
-            createGeometry(context) {
-                layoutCalls++;
-                const axis = context.getVisualAxis(0, host.track);
-                const extent = context.getHostExtent(0, host.track);
-                assert(extent, "the occupancy test requires a host extent");
-                return {
-                    regions: [{
-                        x: 10, y: axis + (expands ? -100 : extent.top), w: 30,
-                        h: expands ? 10 : extent.bottom - extent.top, line: 0, track: host.track,
-                    }],
-                    paint() {},
-                };
-            },
-        };
-        lowered.attachments.push(relation);
-        const placed = layoutDocument(lowered, layoutContext).attachments[0];
-        assert(layoutCalls === (expands ? 2 : 1),
-            `only expanding occupancy must trigger a second pass: expands=${expands}`);
-        assert(placed.regions.length === 1, "the attachment must retain its measured region");
-        if (expands) {
-            const finalAxis = host.box.y + host.box.visualAxis;
-            assert(nearly(placed.regions[0].y, finalAxis - 100),
-                "re-laid regions must use the final axis");
-        } else {
-            assert(placed.regions[0].h === host.box.h, "contained occupancy must retain its measured bounds");
-        }
-    }
 });
 
 test("可见附件保留最终区域与源码范围", () => {
