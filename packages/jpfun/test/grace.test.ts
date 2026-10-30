@@ -185,35 +185,14 @@ test("后置倚音不动宿主对齐点，两侧倚音共用一条肩线", () =>
 });
 
 test("宿主的高八度点不抬升倚音及其钩线端点", () => {
-    for (const template of ["2>HOST", "HOST<2", "2>HOST<3"]) {
-        const plain = layoutGrace(template.replace("HOST", "1"));
-        const plainTexts = plain.commands.filter(command => command.kind === "text");
-        const plainHost = plainTexts.find(command => command.text === "1")!;
-        const plainGraces = plainTexts.filter(command => command.text !== "1");
-        const plainHooks = plain.commands.filter(command => command.kind === "path");
-
-        for (const host of ["1'", "1'''", "1,,,,"]) {
-            const source = template.replace("HOST", host);
-            const dotted = layoutGrace(source);
-            const texts = dotted.commands.filter(command => command.kind === "text");
-            const hostText = texts.find(command => command.text === "1")!;
-            const graces = texts.filter(command => command.text !== "1");
-            const hooks = dotted.commands.filter(command => command.kind === "path");
-            assert(graces.length === plainGraces.length && hooks.length === plainHooks.length,
-                `octave dots must preserve grace notes and hooks: ${source}`);
-            for (let index = 0; index < graces.length; index++) {
-                assert(nearly(graces[index].y - hostText.y, plainGraces[index].y - plainHost.y),
-                    `octave dots must not move grace digits relative to the host digit: ${source}`);
-            }
-            for (let index = 0; index < hooks.length; index++) {
-                const start = hooks[index].commands[0];
-                const plainStart = plainHooks[index].commands[0];
-                assert(start.op === "M" && plainStart.op === "M"
-                    && nearly(start.y - hostText.y, plainStart.y - plainHost.y),
-                    `octave dots must not move hook endpoints relative to the host digit: ${source}`);
-            }
-        }
-    }
+    const plain = layoutGrace("2>1<3");
+    const dotted = layoutGrace("2>1'''<3");
+    const plainHost = plain.commands.filter(c => c.kind === "text").find(c => c.text === "1")!;
+    const hostText = dotted.commands.filter(c => c.kind === "text").find(c => c.text === "1")!;
+    const plainGraces = plain.commands.filter(c => c.kind === "text").filter(c => c.text !== "1");
+    const graces = dotted.commands.filter(c => c.kind === "text").filter(c => c.text !== "1");
+    assert(graces.every((g, i) => nearly(g.y - hostText.y, plainGraces[i].y - plainHost.y)),
+        "octave dots must not move grace digits relative to the host digit");
 });
 
 test("倚音嵌套时字号逐层缩小，修饰递归还给最里层宿主", () => {

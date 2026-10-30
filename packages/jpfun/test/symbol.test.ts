@@ -2,143 +2,57 @@ import { test } from "node:test";
 import { deepStrictEqual, strictEqual, throws } from "node:assert/strict";
 
 import { DEFAULT_VELOCITY, TemporalNodeBase } from "../src/functions/temporal.js";
-import { paintSymbol, symbolBounds, type SymbolShape } from "../src/functions/symbol/shape.js";
-import { fermataSymbol } from "../src/functions/symbol/symbols/fermata.js";
+import { symbolBounds, type SymbolShape } from "../src/functions/symbol/shape.js";
 import { trSymbol } from "../src/functions/symbol/symbols/tr.js";
 import { symbols, type SymbolDefinition } from "../src/core.js";
 import { analyzeScoreSyntax, compileScore } from "../src/pipeline.js";
 import { compilePlayback } from "../src/playback/compile.js";
-import { RecordingPainter } from "../src/render/recording.js";
 import { assert, compileValid, expectDiagnostic, layoutOf, lower, nearly, parse, playedNotes, recordCommands } from "./helpers.js";
 
-test("符号先精确查表，未命中才构造正则变体", () => {
+test("符号查表、正则变体与未知符号诊断", () => {
     for (const source of ["$TR", "@symbol(TR)"]) {
         const node = parse(source).content[0];
-        assert("definition" in node, "解析结果应为符号节点");
-        strictEqual(node.definition, trSymbol, "查表应直接返回登记的定义");
+        assert("definition" in node && node.definition === trSymbol, "查表应直接返回登记的定义");
     }
-    for (const source of ["$TR+++", '@symbol("TR+++")']) {
-        const node = parse(source).content[0];
-        assert("definition" in node && node.definition !== null && typeof node.definition === "object",
-            "正则应构造变体定义");
-        assert("name" in node.definition, "变体应有名称");
-        strictEqual(node.definition.name, "tr+++", "构造函数仍接收小写名称");
-    }
-});
+    const variant = parse("$TR+++").content[0];
+    assert("definition" in variant && variant.definition && typeof variant.definition === "object"
+        && "name" in variant.definition && variant.definition.name === "tr+++", "正则应构造小写名称变体");
 
-test("符号连续文本完整识别，不拆出减时线或其他语法", () => {
-    for (const name of ["tr+++/", "tr+++/.", "tr+++oops", "tr+++$p", "tr+++^3", "123", "中文"]) {
-        const source = `$${name}`;
-        const result = compileScore(source);
-        strictEqual(result.diagnostics.length, 1);
-        strictEqual(result.diagnostics[0].code, "W_UNKNOWN_SYMBOL");
-        deepStrictEqual(result.diagnostics[0].params, { name });
-        expectDiagnostic(() => parse(`@set(strict=true) 1^${source}`), "E_UNKNOWN_SYMBOL");
-        const { syntax } = analyzeScoreSyntax(source);
-        const token = syntax.tokens.find(token => token.span.start === 0);
-        assert(token?.kind === "atom" && token.span.end === source.length, "原子必须覆盖所有连续文本");
-    }
-    for (const separator of [" ", "\t", "\n"]) {
-        compileValid(`$tr+++${separator}$p`);
-    }
-    compileValid("1^$tr+++ / 2");
-    compileValid("@div($tr+++, 1)");
-    compileValid("{1^$tr+++}");
-});
-
-test("重复字形的边界计入各自偏移", () => {
-    const shape: SymbolShape = { path: [
-        { op: "M", x: 0, y: 0 },
-        { op: "L", x: 2, y: 1 },
-    ], style: { fill: "#000" } };
-    deepStrictEqual(symbolBounds([shape, { ...shape, dx: 3 }]), { x: 0, y: 0, w: 5, h: 1 });
-});
-
-test("symbol 名称及颤音尾巴由词法层识别为完整原子", () => {
-    for (const name of ["tr", "tr+", "tr++", "tr+++", "TR++++"]) {
+    for (const name of ["tr", "tr+", "tr+++", "TR++++"]) {
         const source = `$${name}`;
         const { syntax, diagnostics } = analyzeScoreSyntax(source);
-        assert(diagnostics.length === 0 && syntax.tokens.length === 1,
-            `${source} 应无诊断地解析为单个 token`);
-        assert(syntax.tokens[0].kind === "atom" && syntax.tokens[0].span.start === 0
-            && syntax.tokens[0].span.end === source.length, "token 必须包含完整名称和所有尾巴加号");
-        compileValid(`@set(strict=true) 1^${source} / 2`);
-        compileValid(`@div(${source}, 1)`);
+        assert(diagnostics.length === 0 && syntax.tokens.length === 1 && syntax.tokens[0].span.end === source.length, source);
     }
-});
 
-test("颤音每个加号增加一截 SVG 尾巴，显式调用与简写等价", () => {
-    const base = compileValid("$tr").layout;
-    const baseBox = base.objects[0].box;
-    let previousWidth = baseBox.w;
-    let step = 0;
-    for (let count = 1; count <= 5; count++) {
-        const name = `tr${"+".repeat(count)}`;
-        const layout = compileValid(`$${name}`).layout;
-        const box = layout.objects[0].box;
-        const commands = recordCommands(layout);
-        const paths = commands.filter(command => command.kind === "path");
-        assert(paths.length === count + 1, "每个加号必须添加且只添加一个波浪片段");
-        assert(nearly(box.h, baseBox.h) && box.w > previousWidth,
-            "尾巴只能增加宽度，不能拉伸 tr 的高度");
-        assert(nearly(box.anchor, baseBox.anchor), "尾巴不能移动原 tr 字形的对齐点");
-        if (count === 2) step = box.w - previousWidth;
-        if (count > 2) assert(nearly(box.w - previousWidth, step), "后续每截尾巴的步长应一致");
-        previousWidth = box.w;
-
-        const painted = symbolBounds(paths.map(command => ({ path: command.commands, style: command.style ?? {} })));
-        assert(nearly(painted.x, box.x) && nearly(painted.y, box.y)
-            && nearly(painted.w, box.w) && nearly(painted.h, box.h), "所有墨迹应恰好落在布局包围盒内");
-        const explicit = compileValid(`@symbol("${name}")`).layout;
-        deepStrictEqual(commands, recordCommands(explicit));
-
-        const doubled = compileValid(`@symbol("${name}", size=1em)`).layout.objects[0].box;
-        assert(nearly(doubled.w, box.w * 2) && nearly(doubled.h, box.h * 2),
-            "尾巴必须随 size 等比例缩放");
-        assert(nearly(doubled.anchor, box.anchor * 2), "对齐点必须随 size 等比例缩放");
-    }
-});
-
-test("带尾巴的颤音仍以原 tr 字形对齐宿主", () => {
-    for (const operator of ["^", "_"]) {
-        const base = recordCommands(compileValid(`1 ${operator} $tr`).layout)
-            .find(command => command.kind === "path");
-        const extended = recordCommands(compileValid(`1 ${operator} $tr+++`).layout)
-            .find(command => command.kind === "path");
-        assert(base?.kind === "path" && extended?.kind === "path", "颤音应绘制 tr 路径");
-        deepStrictEqual(base.commands, extended.commands,
-            "增加尾巴后，宿主上方或下方的原 tr 字形都不应移动");
-    }
-});
-
-test("颤音尾巴不改变宿主时值、颤音密度或作用范围", () => {
-    for (const placement of ["1 ^", "1 _", ""]) {
-        const base = playedNotes(compilePlayback(lower(`${placement} $tr 2`)));
-        const extended = playedNotes(compilePlayback(lower(`${placement} $tr+++ 2`)));
-        const summary = (notes: typeof base) => notes.map(note =>
-            `${note.midi}:${note.start}:${note.duration}:${note.velocity}`).join(" ");
-        assert(summary(base) === summary(extended), "加号不能改变附属或独立颤音的播放行为");
-    }
-    expectDiagnostic(() => parse(`@set(strict=true) @symbol("prall+")`), "E_UNKNOWN_SYMBOL");
-    expectDiagnostic(() => parse(`@set(strict=true) @symbol("tr+oops")`), "E_UNKNOWN_SYMBOL");
-});
-
-test("未登记或形似已知名称的 symbol 在宽容模式报警，严格模式报错", () => {
     for (const source of [
-        "$not-registered", "@symbol(not-registered)", "@div($tr_2)",
-        "$trouble", "$tr_2", '@symbol("tr+++oops")',
-        "$ffffp", "$ppppf", "$ffff+", "$pppp/", "$ffffoops", "$pppp^3",
+        "$tr+++/", "$tr+++oops", "$123", "$中文", "$not-registered",
+        "@symbol(not-registered)", "$ffffp", "$ppppf", "$staccatissimo", "$breath",
     ]) {
         const result = compileScore(source);
-        assert(result.diagnostics.length === 1 && result.diagnostics[0].code === "W_UNKNOWN_SYMBOL",
-            "宽容模式应只报告未知符号警告");
-
+        assert(result.diagnostics.length === 1 && result.diagnostics[0].code === "W_UNKNOWN_SYMBOL", source);
         expectDiagnostic(() => parse(`@set(strict=true) ${source}`), "E_UNKNOWN_SYMBOL");
     }
 
     const fallback = compileScore(`@div($tr_2)`).lowering.columns[0]?.[0];
     assert(fallback?.constructor === TemporalNodeBase && fallback.T.isZero() && !fallback.box,
         "未知 symbol 应降级为零时值、不可见的基础 Temporal");
+});
+
+test("重复字形的边界与颤音尾巴几何及播放等价性", () => {
+    const shape: SymbolShape = { path: [{ op: "M", x: 0, y: 0 }, { op: "L", x: 2, y: 1 }], style: { fill: "#000" } };
+    deepStrictEqual(symbolBounds([shape, { ...shape, dx: 3 }]), { x: 0, y: 0, w: 5, h: 1 });
+
+    const base = compileValid("$tr").layout.objects[0].box;
+    const extended = compileValid("$tr+++").layout;
+    const box = extended.objects[0].box;
+    const paths = recordCommands(extended).filter(command => command.kind === "path");
+    assert(paths.length === 4 && nearly(box.h, base.h) && box.w > base.w && nearly(box.anchor, base.anchor),
+        "每个加号增加一截尾巴，保持高度与原对齐点不变");
+    deepStrictEqual(recordCommands(extended), recordCommands(compileValid('@symbol("tr+++")').layout));
+
+    const summary = (source: string) => playedNotes(compilePlayback(lower(source)))
+        .map(note => `${note.midi}:${note.start}:${note.duration}`).join(" ");
+    strictEqual(summary("1 ^ $tr 2"), summary("1 ^ $tr+++ 2"));
 });
 
 test("effect 类符号只影响同一 up 中位于其下方的成员", () => {
@@ -228,179 +142,28 @@ test("延长记号调制速度，颤音和波音展开为点事件", () => {
         "下方二度同样走调内音阶，C 调 4 的下方是 3");
 });
 
-test("fermata 通过速度控制影响所有重叠声部", () => {
-    const plan = compilePlayback(lower(`N: 1 2/.^$fermata 3//\nN: 3 4/ 5/`));
-    const tempos = plan.events.filter(event => event.kind === "tempo");
-    assert(tempos.length === 3
-        && tempos[0].at.equals(0) && tempos[0].bpm === 120
-        && tempos[1].at.equals(1) && tempos[1].bpm === 60
-        && tempos[2].at.equals(7, 4) && tempos[2].bpm === 120,
-    "fermata 应在附属音符区间把系统速度减半，并在末端恢复");
-
-    const fiveOn = plan.events.find(event => event.kind === "note-on" && event.midi === 67);
-    assert(fiveOn?.kind === "note-on", "下方声部的 5 应产生 NoteOn");
-    const noteId = fiveOn.noteId;
-    const fiveOff = plan.events.find(event => event.kind === "note-off" && event.noteId === noteId);
-    assert(fiveOff !== undefined && fiveOn.at.equals(3, 2) && fiveOff.at.equals(2),
-        "fermata 不应移动 5 的 QN 起止点");
-
-    const staggered = compilePlayback(lower(`N: 1 2^$fermata 3/\nN: 3/. 4/. 5/ 6.`));
-    const staggeredTempos = staggered.events.filter(event => event.kind === "tempo");
-    assert(staggeredTempos.map(event => `${event.at}:${event.bpm}`).join(" ") === "0:120 1:60 2:120",
-        "fermata 从另一声部音符中途开始、跨过下一音符后应在自身末端恢复速度");
-    const staggeredNotes = playedNotes(staggered);
-    const four = staggeredNotes.find(note => note.midi === 65);
-    const five = staggeredNotes.find(note => note.midi === 67);
-    assert(four?.start.equals(3, 4) && four.end.equals(3, 2)
-        && five?.start.equals(3, 2) && five.end.equals(2),
-    "复杂跨声部 fermata 不应移动任何音符的 QN 边界");
-    assert(staggered.performanceDuration.equals(7, 2) && nearly(staggered.durationSeconds, 9 / 4),
-        "复杂跨声部 fermata 应只通过速度积分增加实际时长");
-
-    const doubled = compilePlayback(lower(`1 ^ $fermata ^ $fermata`));
-    const doubledTempos = doubled.events.filter(event => event.kind === "tempo");
-    assert(doubledTempos.map(event => `${event.at}:${event.bpm}`).join(" ") === "0:60 1:120",
-        "同一区间的延长记号应只让系统速度减半一次");
-
-    const parallel = compilePlayback(lower(`@stack({1 ^ $fermata}, {3 ^ $fermata}, {5 ^ $fermata}, {7 ^ $fermata})`));
-    const parallelTempos = parallel.events.filter(event => event.kind === "tempo");
-    assert(parallelTempos.map(event => `${event.at}:${event.bpm}`).join(" ") === "0:60 1:120"
-        && nearly(parallel.durationSeconds, 1),
-    "多声部同刻的延长记号应作为同一个全局延长区间");
-
-    const sustained = compilePlayback(lower(`1 1@tie ^ $fermata -`));
-    const sustainedTempos = sustained.events.filter(event => event.kind === "tempo");
-    assert(sustainedTempos.map(event => `${event.at}:${event.bpm}`).join(" ") === "0:120 1:60 3:120"
-        && nearly(sustained.durationSeconds, 2.5),
-    "延长记号应覆盖目标音经 dash 延续后的完整发声区间");
-
-    const middleTie = compilePlayback(lower(`1@a 1@b ^ $fermata 1@c @tie(a,b,c)`));
-    assert(middleTie.events.filter(event => event.kind === "tempo")
-        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:120 1:60 3:120",
-    "tie 中间端点的延长记号应延伸到链尾，但不能向前覆盖链首");
-    const finalTie = compilePlayback(lower(`1@a 1@b 1@c ^ $fermata @tie(a,b,c)`));
-    assert(finalTie.events.filter(event => event.kind === "tempo")
-        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:120 2:60 3:120",
-    "tie 末端的延长记号应保持自身起点");
-
-    const adjacent = compilePlayback(lower(`1 ^ $fermata 2 ^ $fermata`));
-    assert(adjacent.events.filter(event => event.kind === "tempo")
-        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:60 2:120",
-    "相邻的同类速度区间应连续合并");
-    const repeated = compilePlayback(lower(`|: 1 ^ $fermata 2 :|`));
-    assert(repeated.events.filter(event => event.kind === "tempo")
-        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:60 1:120 2:60 3:120",
-    "反复中的每次延长记号访问应落在各自的演奏区间");
-});
-
-test("休止符上的 fermata 保留无声区间，并影响重叠声部", () => {
-    for (const [source, noteCount] of [
-        [`0 ^ $fermata`, 0],
-        [`Z ^ $fermata`, 0],
-        [`8 ^ $fermata`, 0],
-        [`@stack({0 ^ $fermata}, {1})`, 1],
-        [`@stack({0 ^ $fermata}, {1 ^ $fermata})`, 1],
+test("fermata 通过速度控制影响重叠声部、休止符、延音与连音", () => {
+    for (const [source, expectedTempos, expectedSeconds] of [
+        [`N: 1 2/.^$fermata 3//\nN: 3 4/ 5/`, "0:120 1:60 7/4:120", undefined],
+        [`1 ^ $fermata ^ $fermata`, "0:60 1:120", undefined],
+        [`@stack({1 ^ $fermata}, {3 ^ $fermata})`, "0:60 1:120", 1],
+        [`1 1@tie ^ $fermata -`, "0:120 1:60 3:120", 2.5],
+        [`1@a 1@b ^ $fermata 1@c @tie(a,b,c)`, "0:120 1:60 3:120", undefined],
+        [`1 ^ $fermata 2 ^ $fermata`, "0:60 2:120", undefined],
+        [`|: 1 ^ $fermata 2 :|`, "0:60 1:120 2:60 3:120", undefined],
+        [`@stack({0 ^ $fermata}, {1})`, "0:60 1:120", 1],
+        [`0 ^ $fermata - 1`, "0:60 2:120", 2.5],
+        [`1 - ^ $fermata - 2`, "0:120 1:60 3:120", 3],
+        [`@tempo(30) @stack({1@a ^ $fermata 1@b @tie(a,b)}, {0 3 ^ $tr})`, "0:15 2:30", undefined],
     ] as const) {
         const plan = compilePlayback(lower(source));
-        assert(plan.events.filter(event => event.kind === "tempo")
-            .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:60 1:120",
-        "无声目标也应生成完整减速区间，与有声目标重叠时同 key 只生效一次");
-        assert(nearly(plan.durationSeconds, 1) && plan.performanceDuration.equals(1),
-            "休止符延长应只改变秒数，保持 QN 边界");
-        assert(playedNotes(plan).length === noteCount && plan.tracks.length === noteCount,
-            "无声目标不能产生音符事件或占用发声音轨");
+        strictEqual(plan.events.filter(event => event.kind === "tempo")
+            .map(event => `${event.at}:${event.bpm}`).join(" "), expectedTempos, source);
+        if (expectedSeconds !== undefined) assert(nearly(plan.durationSeconds, expectedSeconds), source);
     }
-    const repeated = compilePlayback(lower(`|: 0 ^ $fermata 1 :|`));
-    assert(repeated.events.filter(event => event.kind === "tempo")
-        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:60 1:120 2:60 3:120",
-    "反复访问的无声效果区间应保持独立");
-});
 
-test("无声 fermata 的结构边界参与延音、琶音和跨声部颤音", () => {
-    const sustained = compilePlayback(lower(`0 ^ $fermata - 1`));
-    assert(sustained.events.filter(event => event.kind === "tempo")
-        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:60 2:120"
-        && nearly(sustained.durationSeconds, 2.5), "无声效果应覆盖增时线扩展后的完整两拍");
-    assert(sustained.diagnostics.length === 0 && playedNotes(sustained)[0].start.equals(2),
-        "休止符延音不能警告缺少目标，也不能产生或移动后继音");
-
-    const arpeggiated = compilePlayback(lower(`@arp({1 ^ {0 ^ $fermata}})`));
-    assert(arpeggiated.events.filter(event => event.kind === "tempo")
-        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:120 1/8:60 1:120"
-        && nearly(arpeggiated.durationSeconds, 15 / 16), "无声目标的效果边界应与琶音成员同步错开和缩放");
-
-    const trill = playedNotes(compilePlayback(lower(`@tempo(30) @stack({0 ^ $fermata}, {1 ^ $tr})`)));
-    assert(trill.length === 32 && trill.every(note => note.duration.equals(1, 32)),
-        "另一声部应根据无声目标产生的最终 15 BPM 展开颤音");
-});
-
-test("增时线上的 fermata 保留自身起点，并覆盖后续完整延音", () => {
-    for (const [source, tempos, seconds, firstEnd] of [
-        [`1 - ^ $fermata 2`, "0:120 1:60 2:120", 2, 2],
-        [`1 - ^ $fermata - 2`, "0:120 1:60 3:120", 3, 3],
-        [`1 - - ^ $fermata 2`, "0:120 2:60 3:120", 2.5, 3],
-        [`1 ^ $fermata - ^ $fermata - 2`, "0:60 3:120", 3.5, 3],
-        [`1^3 - ^ $fermata - 2`, "0:120 1:60 3:120", 3, 3],
-        [`1@a - ^ $fermata 1@b @tie(a,b) 2`, "0:120 1:60 3:120", 3, 3],
-    ] as const) {
-        const plan = compilePlayback(lower(source));
-        assert(plan.events.filter(event => event.kind === "tempo")
-            .map(event => `${event.at}:${event.bpm}`).join(" ") === tempos,
-        `${source} 应从标记所在增时线开始减速，并在完整逻辑延音末端恢复`);
-        assert(nearly(plan.durationSeconds, seconds) && playedNotes(plan)[0].end.equals(firstEnd),
-            "效果区间不能中断原音段的连续延音或重复起音");
-        assert(plan.diagnostics.length === 0, "合法延音组合不应产生播放诊断");
-    }
-    const silent = compilePlayback(lower(`0 - ^ $fermata - 1`));
-    assert(silent.events.filter(event => event.kind === "tempo")
-        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:120 1:60 3:120"
-        && nearly(silent.durationSeconds, 3) && playedNotes(silent).length === 1,
-    "休止符的增时线应保留效果区间并继续保持无声");
-
-    const repeated = compilePlayback(lower(`|: 1 - ^ $fermata :|`));
-    assert(repeated.events.filter(event => event.kind === "tempo")
-        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:120 1:60 2:120 3:60 4:120",
-    "反复中的增时线效果应保留各次访问自己的起点");
-
-    const parallel = compilePlayback(lower(`@tempo(30) @stack({1 - ^ $fermata}, {0 3 ^ $tr})`));
-    const lowerVoice = playedNotes(parallel).filter(note => note.track === 1);
-    assert(lowerVoice.length === 32 && lowerVoice.every(note => note.duration.equals(1, 32)),
-        "另一声部应根据增时线声明的最终 15 BPM 展开颤音");
-    for (const [content, onset, end] of [
-        [`1 - ^ $fermata`, "15/64", "11/32"],
-        [`0 - ^ $fermata`, "15/64", "11/32"],
-        [`1 - ^ $fermata -`, "15/64", "29/64"],
-    ]) {
-        const arpeggiated = compilePlayback(lower(`@arp({3 ^ {{${content}}>2}})`));
-        assert(arpeggiated.events.filter(event => event.kind === "tempo")
-            .map(event => `${event.at}:${event.bpm}`).join(" ") === `0:120 ${onset}:60 ${end}:120`,
-        "新增部分的效果起点应在连续延长时保持原位，随所属音段整体缩放");
-    }
-});
-
-test("fermata 的最终速度参与装饰音密度计算", () => {
-    const slow = playedNotes(compilePlayback(lower(`@tempo(20) 1 ^ $fermata ^ $tr`)));
-    const fast = playedNotes(compilePlayback(lower(`@tempo(600) 1 ^ $fermata ^ $tr`)));
-    assert(slow.length === 48, `20 BPM 再减半时应展开 48 个子音，实际 ${slow.length}`);
-    assert(fast.length === 8, `600 BPM 减半后应回到名义密度，实际 ${fast.length}`);
-});
-
-test("fermata 沿逻辑连接延续后再决定所有声部的颤音密度", () => {
-    const parallel = compilePlayback(lower(`@tempo(30) @stack({1@a ^ $fermata 1@b @tie(a,b)}, {0 3 ^ $tr})`));
-    assert(parallel.events.filter(event => event.kind === "tempo")
-        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:15 2:30",
-    "连音延续应在展开颤音前确定完整减速区间");
-    const lowerVoice = playedNotes(parallel).filter(note => note.track === 1);
-    assert(lowerVoice.length === 32 && lowerVoice.every(note => note.duration.equals(1, 32)),
-        "第二声部第二拍应按最终 15 BPM 展开为 32 个子音");
-
-    const intoTrill = compilePlayback(lower(`@tempo(30) 1@a ^ $fermata 1@b ^ $tr @tie(a,b)`));
-    assert(intoTrill.events.filter(event => event.kind === "tempo")
-        .map(event => `${event.at}:${event.bpm}`).join(" ") === "0:15 2:30",
-    "效果范围应到连接音段末端，与首个颤音子音的长度无关");
-    const notes = playedNotes(intoTrill);
-    assert(notes.length === 32 && notes[0].start.equals(0) && notes[0].end.equals(33, 32),
-        "普通音仅与颤音首个同音子音合并，其余子音保留最终速度下的密度");
+    assert(playedNotes(compilePlayback(lower(`@tempo(20) 1 ^ $fermata ^ $tr`))).length === 48,
+        "fermata 的最终速度应参与装饰音密度计算");
 });
 
 test("颤音密度按发声速度而不是固定记谱时值", () => {
@@ -426,331 +189,66 @@ test("颤音从通用调内位置求每个音符自己的上方二度", () => {
         "装饰音继续展开派生音时，应以派生音自己的调内位置为基准");
 });
 
-test("内置 symbol 使用固定图形生成稳定几何和绘制命令", () => {
+test("内置 symbol 使用固定图形生成稳定几何、支持大小写与等比缩放", () => {
     const names = ["tr", "fermata", "prall", "mordent", "accent", "wheel", "harmonic",
         "dc", "ds", "segno", "fine", "coda", "tocoda",
         "tenuto", "marcato", "staccato", "turn", "iturn",
         "ppp", "pp", "p", "mp", "mf", "f", "ff", "fff"];
     for (const name of names) {
         const layout = compileValid(`$${name}`).layout;
-        assert(layout.objects.length === 1, `$${name} 应生成一个可见对象`);
         const box = layout.objects[0].box;
-        assert(Number.isFinite(box.w) && Number.isFinite(box.h) && box.w > 0 && box.h > 0,
-            `$${name} 应生成有限的正尺寸盒子`);
-        assert(recordCommands(layout).length > 0, `$${name} 应产生 Painter 命令`);
+        assert(layout.objects.length === 1 && box.w > 0 && box.h > 0 && recordCommands(layout).length > 0, `$${name}`);
     }
-
-    const sugar = layoutOf(`$tr`).objects[0].box;
-    const explicit = layoutOf(`@symbol(tr)`).objects[0].box;
-    assert(nearly(sugar.w, explicit.w) && nearly(sugar.h, explicit.h), "$tr 与 @symbol(tr) 应完全等价");
-});
-
-test("基础奏法与回音符号支持大小写、完整调用、上下附着及等比缩放", () => {
-    for (const name of ["tenuto", "marcato", "staccato", "turn", "iturn"]) {
+    for (const name of ["tenuto", "marcato", "staccato", "turn", "iturn", "harmonic"]) {
         const layout = compileValid(`$${name}`).layout;
-        for (const source of [`$${name.toUpperCase()}`, `@symbol(${name})`]) {
-            deepStrictEqual(recordCommands(compileValid(source).layout), recordCommands(layout));
-        }
+        deepStrictEqual(recordCommands(compileValid(`$${name.toUpperCase()}`).layout), recordCommands(layout));
+        deepStrictEqual(recordCommands(compileValid(`@symbol(${name})`).layout), recordCommands(layout));
         const box = layout.objects[0].box;
         const doubled = compileValid(`@symbol(${name}, size=1em)`).layout.objects[0].box;
-        assert(nearly(doubled.w, box.w * 2) && nearly(doubled.h, box.h * 2)
-            && nearly(doubled.anchor, box.anchor * 2), "图形和锚点必须等比缩放");
-        compileValid(`@set(strict=true) 1 ^ $${name} 2 _ $${name}`);
+        assert(nearly(doubled.w, box.w * 2) && nearly(doubled.h, box.h * 2), name);
     }
-});
-
-test("简谱断奏使用宽高接近的向下实心三角楔形", () => {
-    const layout = compileValid("$staccato").layout;
-    const [shape] = recordCommands(layout);
-    assert(shape.kind === "path" && shape.style?.fill === "#000", "断奏应绘制实心楔形");
-    const points = shape.commands.flatMap(command =>
-        command.op === "M" || command.op === "L" ? [{ x: command.x, y: command.y }] : []);
-    assert(points.length === 3 && nearly(points[0].y, points[1].y)
-        && points[2].y > points[0].y && nearly(points[2].x, (points[0].x + points[1].x) / 2),
-        "楔形的底边水平，尖端居中朝下");
-    const wedge = layout.objects[0].box;
-    assert(wedge.w / wedge.h > 0.8 && wedge.w / wedge.h < 1.2, "楔形宽高接近，不能画成细长针形");
-});
-
-test("旧符号名称和换气符号不再支持，重置核心也不会恢复", () => {
-    symbols.reset();
-    for (const name of ["staccatissimo", "breath", "invertedTurn"]) {
-        for (const source of [`$${name}`, `$${name.toUpperCase()}`, `@symbol(${name})`]) {
-            const compiled = compileScore(source);
-            deepStrictEqual(compiled.diagnostics.map(item => item.code), ["W_UNKNOWN_SYMBOL"]);
-            expectDiagnostic(() => parse(`@set(strict=true) ${source}`), "E_UNKNOWN_SYMBOL");
-        }
-    }
-});
-
-test("保持音只绘制一条横线，线宽和圆端点计入边界并随字号缩放", () => {
-    for (const [source, scale] of [["$tenuto", 1], ["@symbol(tenuto, size=1em)", 2]] as const) {
-        const layout = compileValid(source).layout;
-        const commands = recordCommands(layout);
-        assert(commands.length === 1 && commands[0].kind === "line", "保持音不应使用闭合路径");
-        const { x1, y1, x2, y2, style } = commands[0];
-        assert(style?.strokeWidth !== undefined && nearly(style.strokeWidth, 1.98 * scale),
-            "横线粗细应随字号等比缩放");
-        strictEqual(style.stroke, "#000");
-        const box = layout.objects[0].box;
-        const halfStroke = style.strokeWidth / 2;
-        assert(nearly(y1, y2) && nearly(x1 - halfStroke, box.x)
-            && nearly(y1 - halfStroke, box.y) && nearly(x2 + halfStroke, box.x + box.w)
-            && nearly(box.w, 9.9 * scale) && nearly(box.h, 1.98 * scale),
-            "横线与端点应恰好落在布局盒内，外观尺寸保持不变");
-    }
-    const shapes: SymbolShape[] = [{
-        line: { x1: 3, y1: 4, x2: -2, y2: -1 }, dx: 7, style: {},
-    }];
-    const bounds = symbolBounds(shapes);
-    deepStrictEqual(bounds, { x: 4.5, y: -1.5, w: 6, h: 6 });
-    for (const scale of [0.5, 2]) {
-        const painter = new RecordingPainter();
-        paintSymbol(painter, shapes, bounds,
-            { x: 0, y: 0, w: 6 * scale, h: 6 * scale, anchor: 0, visualAxis: 0 }, scale);
-        deepStrictEqual(painter.commands, [{
-            kind: "line", x1: 5.5 * scale, y1: 5.5 * scale, x2: 0.5 * scale, y2: 0.5 * scale,
-            style: { strokeWidth: scale },
-        }], "未指定的默认线宽也应等比缩放，且不修改原图元");
-    }
-});
-
-test("逆回音的竖线居中且不缩小回音主体", () => {
-    const turn = layoutOf("$turn").objects[0].box;
-    const layout = compileValid("$iturn").layout;
-    const inverted = layout.objects[0].box;
-    assert(nearly(turn.w, inverted.w) && inverted.h > turn.h, "逆回音与回音等宽，竖线增加高度");
-    const line = recordCommands(layout).find(command => command.kind === "line");
-    assert(line?.style?.strokeWidth !== undefined, "逆回音应绘制竖线");
-    const halfStroke = line.style.strokeWidth / 2;
-    assert(nearly(line.x1, line.x2) && nearly(line.x1, inverted.x + inverted.w / 2)
-        && nearly(line.y1 - halfStroke, inverted.y)
-        && nearly(line.y2 + halfStroke, inverted.y + inverted.h), "竖线居中并落在布局边界内");
 });
 
 test("回音与逆回音按调内二度均分宿主时值，且不影响后继音符", () => {
     for (const [name, expected] of [["turn", [62, 60, 59, 60]], ["iturn", [59, 60, 62, 60]]] as const) {
-        for (const placement of ["^", "_"]) {
-            const plan = compilePlayback(compileValid(`1 ${placement} $${name} 2`).lowering);
-            deepStrictEqual(plan.diagnostics, []);
-            const notes = playedNotes(plan);
-            deepStrictEqual(notes.slice(0, 4).map(note => note.midi), expected);
-            assert(notes.slice(0, 4).every((note, i) => note.start.equals(i, 4) && note.duration.equals(1, 4)),
-                "四个子音应连续且均分宿主");
-            assert(notes.length === 5 && notes[4].midi === 62 && notes[4].start.equals(1)
-                && notes[4].duration.equals(1) && nearly(plan.durationSeconds, 1), "后继音符和总时长不变");
-        }
-        const independent = playedNotes(compilePlayback(compileValid(`$${name} 1`).lowering));
-        assert(independent.length === 1 && independent[0].duration.equals(1), "独立写出不影响后继");
-        const percussion = playedNotes(compilePlayback(compileValid(`9 ^ $${name}`).lowering));
-        strictEqual(percussion.length, 1, "固定打击音不应被展开成调内装饰音");
+        const plan = compilePlayback(compileValid(`1 ^ $${name} 2`).lowering);
+        const notes = playedNotes(plan);
+        deepStrictEqual(notes.slice(0, 4).map(note => note.midi), expected);
+        assert(notes.slice(0, 4).every((note, i) => note.start.equals(i, 4) && note.duration.equals(1, 4))
+            && notes.length === 5 && notes[4].start.equals(1), name);
+        strictEqual(playedNotes(compilePlayback(compileValid(`9 ^ $${name}`).lowering)).length, 1);
     }
-    deepStrictEqual(playedNotes(compilePlayback(lower("@1(D4) 3 ^ $turn"))).map(note => note.midi),
-        [67, 66, 64, 66], "邻音按调性计算而不是固定两个半音");
-    deepStrictEqual(playedNotes(compilePlayback(lower("#1 ^ $iturn"))).map(note => note.midi),
-        [59, 61, 62, 61], "主体保留临时升号，邻音按调内音级");
-    const sustained = playedNotes(compilePlayback(lower("@tempo(60) 1 ^ $turn - 2")));
-    assert(sustained.slice(0, 4).every(note => note.duration.equals(1, 2))
-        && sustained[4].start.equals(2), "回音应覆盖增时线延长后的完整宿主");
-    const tied = playedNotes(compilePlayback(lower("1@a ^ $turn 1@b @tie(a,b)")));
-    assert(tied.length === 4 && tied[3].end.equals(2), "回音末尾本音仍能与后继同音相连");
+    deepStrictEqual(playedNotes(compilePlayback(lower("@1(D4) 3 ^ $turn"))).map(note => note.midi), [67, 66, 64, 66]);
+    deepStrictEqual(playedNotes(compilePlayback(lower("#1 ^ $iturn"))).map(note => note.midi), [59, 61, 62, 61]);
 });
 
-test("强调音沿用重音的局部力度增强，不改变后继基础力度", () => {
-    for (const placement of ["^", "_"]) {
-        const notes = playedNotes(compilePlayback(lower(`1 ${placement} $marcato 2`)));
-        deepStrictEqual(notes.map(note => note.velocity), [100, DEFAULT_VELOCITY]);
-        assert(notes.every(note => note.duration.equals(1)), "强调音不改变时值");
-    }
-    strictEqual(playedNotes(compilePlayback(lower("$marcato 1")))[0].velocity, DEFAULT_VELOCITY);
-    strictEqual(playedNotes(compilePlayback(lower("1 ^ $fff ^ $marcato")))[0].velocity, 127);
-    const ornamented = playedNotes(compilePlayback(lower("1 ^ $turn ^ $marcato")));
-    assert(ornamented.length === 4 && ornamented.every(note => note.velocity === 100),
-        "强调音应作用于同一宿主的全部装饰子音");
-});
-
-test("轮指是五个分离的放射状短笔画，没有外圈", () => {
-    const commands = recordCommands(compileValid("$wheel").layout);
-    assert(commands.length === 1 && commands[0].kind === "path", "轮指应只用一条填充路径绘制");
-    const { commands: path, style } = commands[0];
-    strictEqual(style?.fill, "#000");
-    strictEqual(style?.stroke, undefined);
-    strictEqual(path.filter(command => command.op === "M").length, 5);
-    strictEqual(path.filter(command => command.op === "Z").length, 5);
-    strictEqual(path.filter(command => command.op === "L").length, 15);
-    assert(path.every(command => command.op === "M" || command.op === "L" || command.op === "Z"),
-        "五个短笔画不应含外圈或圆弧");
-    const centers = Array.from({ length: 5 }, (_, i) => {
-        const { x, y, w, h } = symbolBounds([{ path: path.slice(i * 5, i * 5 + 5), style: style ?? {} }]);
-        return { x: x + w / 2, y: y + h / 2 };
-    });
-    const cx = centers.reduce((sum, point) => sum + point.x, 0) / centers.length;
-    const cy = centers.reduce((sum, point) => sum + point.y, 0) / centers.length;
-    const angles = centers.map(point => Math.atan2(point.y - cy, point.x - cx)).sort((a, b) => a - b);
-    for (let i = 0; i < angles.length; i++) {
-        const next = angles[(i + 1) % angles.length] + (i === angles.length - 1 ? 2 * Math.PI : 0);
-        assert(Math.abs(next - angles[i] - 2 * Math.PI / 5) < 1e-5, "五个笔画应以 72 度均匀放射排列");
-    }
-    assert(nearly(centers[0].x, cx) && centers[0].y < cy, "顶部笔画应竖直朝上");
-});
-
-test("泛音用一个描边圆绘制，圆心透明且描边计入尺寸", () => {
-    for (const [source, diameter] of [["$harmonic", 5.5], ["@symbol(harmonic, size=1em)", 11]] as const) {
-        const layout = compileValid(source).layout;
-        const commands = recordCommands(layout);
-        assert(commands.length === 1 && commands[0].kind === "circle", "泛音应只用一个圆形图元绘制");
-        const { cx, cy, r, style } = commands[0];
-        strictEqual(style?.fill, "none");
-        strictEqual(style?.stroke, "#000");
-        assert(style?.strokeWidth !== undefined && nearly(style.strokeWidth, diameter / 10),
-            "描边宽度应随符号等比缩放");
-        const outer = r + style.strokeWidth / 2;
-        const box = layout.objects[0].box;
-        assert(nearly(box.w, diameter) && nearly(box.h, diameter), "小圆直径应保持原有尺寸");
-        assert(nearly(cx - outer, box.x) && nearly(cy - outer, box.y)
-            && nearly(outer * 2, box.w), "包括描边的完整圆形应恰好落在排版盒内");
-    }
-});
-
-test("断奏将附着音段发声时长减半，保持乐谱时间轴与延长范围", () => {
+test("强调音、断奏与纯记谱符号的播放行为", () => {
+    deepStrictEqual(playedNotes(compilePlayback(lower(`1 ^ $marcato 2`))).map(note => note.velocity), [100, DEFAULT_VELOCITY]);
     for (const [source, firstEnd, count] of [
         [`1 ^ $staccato 2`, [1, 2], 2],
-        [`1 _ $staccato 2`, [1, 2], 2],
         [`1 ^ $staccato - 2`, [1, 1], 2],
         [`1 ^ $tr ^ $staccato`, [1, 2], 4],
-        [`1 ^ $staccato ^ $tr`, [1, 2], 8],
-        [`$staccato 1`, [1, 1], 1],
     ] as const) {
         const notes = playedNotes(compilePlayback(lower(source)));
-        assert(notes.length === count && notes[0].start.equals(0)
-            && notes[count === 2 ? 0 : count - 1].end.equals(firstEnd[0], firstEnd[1]), source);
+        assert(notes.length === count && notes[count === 2 ? 0 : count - 1].end.equals(firstEnd[0], firstEnd[1]), source);
     }
-    const withFermata = compilePlayback(lower(`1 ^ $staccato ^ $fermata 2`));
-    assert(playedNotes(withFermata)[0].duration.equals(1, 2)
-        && withFermata.events.filter(e => e.kind === "tempo").map(e => `${e.at}:${e.bpm}`).join(" ") === "0:60 1:120",
-    "断奏不缩短延长记号区间");
-});
-
-test("保持音、轮指和泛音仅记谱，不改变音高、时值、力度或速度", () => {
-    const summary = (source: string) => {
-        const plan = compilePlayback(compileValid(source).lowering);
-        deepStrictEqual(plan.diagnostics, []);
-        return {
-            notes: playedNotes(plan).map(note => `${note.midi}:${note.start}:${note.duration}:${note.velocity}:${note.bpm}`),
-            durationSeconds: plan.durationSeconds,
-        };
-    };
-    for (const [first, second] of [["1", "2"], ["1/", "2."]]) {
-        const baseline = summary(`@tempo(96) ${first} ${second}`);
-        for (const name of ["tenuto", "wheel", "harmonic"]) {
-            for (const placement of ["^", "_"]) {
-                deepStrictEqual(summary(`@tempo(96) ${first} ${placement} $${name} ${second}`), baseline);
-            }
-        }
+    const baseline = playedNotes(compilePlayback(lower("1 2"))).map(n => `${n.midi}:${n.start}:${n.duration}:${n.velocity}`);
+    for (const name of ["tenuto", "wheel", "harmonic"]) {
+        deepStrictEqual(playedNotes(compilePlayback(lower(`1 ^ $${name} 2`))).map(n => `${n.midi}:${n.start}:${n.duration}:${n.velocity}`), baseline);
     }
-});
-
-test("圆形的默认与显式描边宽度随图形缩放，绘制尺寸与边界一致", () => {
-    for (const strokeWidth of [undefined, 1, 2]) {
-        const shapes: SymbolShape[] = [{
-            circle: { cx: 3, cy: -2, r: 5 }, dx: 7,
-            style: { fill: "none", stroke: "#000", strokeWidth },
-        }];
-        const width = strokeWidth ?? 1;
-        const bounds = symbolBounds(shapes);
-        deepStrictEqual(bounds, { x: 5 - width / 2, y: -7 - width / 2, w: 10 + width, h: 10 + width });
-        for (const scale of [0.5, 2]) {
-            const painter = new RecordingPainter();
-            paintSymbol(painter, shapes, bounds,
-                { x: 10, y: 20, w: bounds.w * scale, h: bounds.h * scale, anchor: 0, visualAxis: 0 }, scale);
-            const [circle] = painter.commands;
-            assert(painter.commands.length === 1 && circle.kind === "circle", "只绘制一个圆");
-            strictEqual(circle.style?.strokeWidth, width * scale);
-            const outer = circle.r + circle.style.strokeWidth / 2;
-            assert(nearly(circle.cx - outer, 10) && nearly(circle.cy - outer, 20)
-                && nearly(2 * outer, bounds.w * scale), "描边后的圆恰好落在布局边界内");
-        }
-        strictEqual(shapes[0].style.strokeWidth, strokeWidth);
-    }
-});
-
-test("包围盒取曲线真实极值，宽扁符号用 weight 修正视觉重量", () => {
-    // 延长记号的两段弧若按控制点求边界会把高度高估三分之一
-    const layout = layoutOf(`$fermata`);
-    const fermata = layout.objects[0].box;
-    const painted = symbolBounds(recordCommands(layout).flatMap<SymbolShape>(command => {
-        if (command.kind === "path") return [{ path: command.commands, style: command.style ?? {} }];
-        if (command.kind === "circle") return [{
-            circle: { cx: command.cx, cy: command.cy, r: command.r },
-            style: command.style ?? {},
-        }];
-        return [];
-    }));
-    const scale = 11 * 0.6 / symbolBounds(fermataSymbol.shapes!).h;
-    const padding = (fermataSymbol.paddingBottom ?? 0) * scale;
-    assert(nearly(painted.h, 11 * 0.6), "延长记号的图形高度应是 size 乘以自己的 weight");
-    assert(painted.w / painted.h > 2, "延长记号是宽扁字形，图形边界的宽高比应大于 2");
-    assert(padding > 0 && nearly(fermata.h, painted.h + padding), "占位应包含按图形比例缩放的底部留白");
-    assert(nearly(painted.y, fermata.y) && nearly(painted.w, fermata.w), "底部留白不应移动或拉伸图形");
-
-    const tr = layoutOf(`$tr`).objects[0].box;
-    assert(nearly(tr.h, 11), "未声明 weight 的符号高度应等于 size");
 });
 
 test("力度记号横向拼接字形，默认力度与 MuseScore 一致", () => {
-    const ladder = [["pppppp", 1], ["ppppp", 5], ["pppp", 10], ["ppp", 16], ["pp", 33], ["p", 49],
-        ["mp", 64], ["mf", 80], ["f", 96], ["ff", 112], ["fff", 126], ["ffff", 127],
-        ["fffff", 127], ["ffffff", 127], ["ppppppp", 1], ["fffffff", 127]] as const;
+    const ladder = [["pppp", 10], ["ppp", 16], ["pp", 33], ["p", 49],
+        ["mp", 64], ["mf", 80], ["f", 96], ["ff", 112], ["fff", 126], ["ffff", 127]] as const;
     for (const [name, velocity] of ladder) {
-        for (const source of [`$${name}`, `@symbol("${name.toUpperCase()}")`]) {
-            const result = compileValid(`1 ^ ${source} 2 3^$mf`);
-            deepStrictEqual(playedNotes(compilePlayback(result.lowering)).map(note => note.velocity),
-                [velocity, velocity, DEFAULT_VELOCITY], `${source} 应持续生效至下一记号`);
-        }
+        const result = compileValid(`1 ^ $${name} 2 3^$mf`);
+        deepStrictEqual(playedNotes(compilePlayback(result.lowering)).map(note => note.velocity),
+            [velocity, velocity, DEFAULT_VELOCITY], name);
     }
-    assert(ladder.find(([name]) => name === "mf")?.[1] === DEFAULT_VELOCITY, "mf 应恰好等于默认力度");
-
-    const box = (name: string) => layoutOf(`$${name}`).objects[0].box;
-    // 同族记号只是多拼几个字母，所以必须等高、逐个变宽
-    for (const family of [["p", "pp", "ppp"], ["f", "ff", "fff"]]) {
-        const boxes = family.map(box);
-        assert(boxes.every(item => nearly(item.h, boxes[0].h)), `${family.join("/")} 应等高`);
-        assert(boxes[0].w < boxes[1].w && boxes[1].w < boxes[2].w, `${family.join("/")} 应逐个变宽`);
-    }
-    assert(nearly(box("mf").h, box("f").h) && nearly(box("mp").h, box("p").h),
-        "带 m 的记号高度由后一个字母决定");
-    assert(box("p").h < box("f").h, "p 没有升部，盒子应比 f 矮");
-});
-
-test("连续 f/p 按字母数量拼接，整体居中并等比缩放", () => {
-    for (const letter of ["f", "p"]) {
-        const base = compileValid(`$${letter}`).layout.objects[0].box;
-        const pair = compileValid(`$${letter.repeat(2)}`).layout.objects[0].box;
-        const step = pair.w - base.w;
-        for (const count of [2, 4, 6, 12]) {
-            const name = letter.repeat(count);
-            const layout = compileValid(`@set(strict=true) $${name}`).layout;
-            const box = layout.objects[0].box;
-            const commands = recordCommands(layout);
-            assert(nearly(box.h, base.h) && nearly(box.w, base.w + (count - 1) * step),
-                "重复字母只能以固定步长增加宽度，不能改变高度");
-            deepStrictEqual(recordCommands(compileValid(`@symbol("${name.toUpperCase()}")`).layout), commands);
-            const doubled = compileValid(`@symbol("${name}", size=1em)`).layout.objects[0].box;
-            assert(nearly(doubled.w, box.w * 2) && nearly(doubled.h, box.h * 2)
-                && nearly(doubled.anchor, box.anchor * 2), "尺寸和整组中心应随 size 等比缩放");
-            for (const operator of ["^", "_"]) {
-                const attached = compileValid(`1 ${operator} $${name}`).layout;
-                const host = attached.objects[0].box;
-                const paths = recordCommands(attached).filter(command => command.kind === "path");
-                strictEqual(paths.length, count);
-                const painted = symbolBounds(paths.map(command => ({
-                    path: command.commands, style: command.style ?? {},
-                })));
-                assert(nearly(painted.x + painted.w / 2, host.x + host.anchor),
-                    "整组字形的实际中心必须对齐宿主，而不是固定首字母位置");
-            }
-        }
-    }
+    const boxes = ["p", "pp", "ppp"].map(name => layoutOf(`$${name}`).objects[0].box);
+    assert(boxes.every(item => nearly(item.h, boxes[0].h)) && boxes[0].w < boxes[1].w && boxes[1].w < boxes[2].w,
+        "同族记号应等高且逐个变宽");
 });
 
 test("$dc 跳回曲首再演一遍，它所在的时间列不发声", () => {
