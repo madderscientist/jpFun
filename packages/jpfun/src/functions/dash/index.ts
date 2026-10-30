@@ -55,7 +55,6 @@ class DashTemporalNode extends TemporalNodeBase {
     declare box: LayoutBox;
 
     private lineWidth = 0;
-    private lineY = 0;
 
     constructor(ast: DashFunction) {
         super();
@@ -79,8 +78,7 @@ class DashTemporalNode extends TemporalNodeBase {
         this.box.w = this.lineWidth;
         this.box.h = size;
         this.box.anchor = this.lineWidth / 2;
-        this.lineY = size * 0.5;
-        this.box.visualAxis = this.lineY;
+        this.box.visualAxis = size * 0.5;
     }
 
     /**
@@ -122,11 +120,12 @@ class DashTemporalNode extends TemporalNodeBase {
     }
 
     override paint(painter: Painter) {
+        const y = this.box.y + this.box.visualAxis;
         painter.drawLine(
             this.box.x,
-            this.box.y + this.lineY,
+            y,
             this.box.x + this.lineWidth,
-            this.box.y + this.lineY,
+            y,
             { stroke: "#000", strokeWidth: Math.max(1, this.ast.size * 0.1) },
         );
     }

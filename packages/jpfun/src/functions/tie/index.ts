@@ -82,7 +82,6 @@ class TieFunction extends ASTFunctionNode {
 
     endPoints: ASTNodeBase[] = [];
     readonly height: number;
-    private readonly fontSize: number;
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
@@ -102,7 +101,6 @@ class TieFunction extends ASTFunctionNode {
             throw new ErrorDiagnostic("E_NOT_ENOUGH_ARGS", "@{fn} 连音线需要至少两个端点", sourceSpan, { fn: "tie" });
         }
         this.height = Math.max(0, ctx.length2px(height));
-        this.fontSize = ctx.variables.fontsize;
     }
 
     /**
@@ -121,7 +119,7 @@ class TieFunction extends ASTFunctionNode {
             ctx.diagnostics.push(Diagnostic.warning.UnresolvedEndpoint("tie", this.sourceSpan));
             return [];
         }
-        ctx.addAttachment(new TieLayoutAttachment(endPoints, this.height, this.fontSize, this.sourceSpan));
+        ctx.addAttachment(new TieLayoutAttachment(endPoints, this.height, this.sourceSpan));
         return [];
     }
 
@@ -146,21 +144,20 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
 
     readonly endPoints: VisualTemporalNode[];
     private readonly height: number;
-    private readonly fontSize: number;
+    private readonly size: number;
     /** 弧带中部厚度；两端收尖到 0。端点字号不随布局变化，可以一次算定 */
     private readonly thickness: number;
 
-    constructor(endPoints: VisualTemporalNode[], height: number, fontSize: number, sourceSpan: SourceSpan) {
+    constructor(endPoints: VisualTemporalNode[], height: number, sourceSpan: SourceSpan) {
         this.endPoints = endPoints;
         for (const endpoint of endPoints) tieEndpoints.add(endpoint);
         this.height = height;
-        this.fontSize = fontSize;
         this.sourceSpan = sourceSpan;
-        const size = endPoints.reduce(
+        this.size = endPoints.reduce(
             (current, endpoint) => Math.max(current, endpoint.ast.size),
             0,
         );
-        this.thickness = Math.max(1.2, size * THICKNESS_RATIO);
+        this.thickness = Math.max(1.2, this.size * THICKNESS_RATIO);
     }
 
     /**
@@ -257,7 +254,7 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
                 continue;
             }
 
-            const height = this.height > 0 ? this.height : this.fontSize * CROSS_LINE_HEIGHT_RATIO;
+            const height = this.height > 0 ? this.height : this.size * CROSS_LINE_HEIGHT_RATIO;
             // 首行先起弧，再沿水平段延伸到当前谱面行最右侧
             segments.push(this.openingSegment(
                 start,
@@ -292,8 +289,8 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
 
     private resolveHeight(span: number) {
         if (this.height > 0) return this.height;
-        const ratio = Math.min(1, span / (this.fontSize * AUTO_SPAN_RATIO));
-        return this.fontSize * AUTO_HEIGHT_RATIO * ratio * (2 - ratio);
+        const ratio = Math.min(1, span / (this.size * AUTO_SPAN_RATIO));
+        return this.size * AUTO_HEIGHT_RATIO * ratio * (2 - ratio);
     }
 
     private lineEntryX(
