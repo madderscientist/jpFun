@@ -44,6 +44,8 @@ export const headFunctionExample = `@head(
 
 可以看到，`head` 本身并不知道什么是“标题”或“作者”，**它只负责左、中、右三块内容的布局**。标题的大字号、副标题和作者的小字号，都是语法糖替我们设置的 `@text` 参数；`H.signature:` 则替我们把 `@key` 和 `@meter` 放在同一行。内容的绘制由具体的函数完成，而 `head` 只负责位置。
 
+> 因此，`@text` 里面的“加粗”“下划线”等功能，也可以在曲谱头中使用！
+
 ## 函数定义
 ```jpfun
 @head(left={}, center={}, right={}, gap=5px)

@@ -38,22 +38,23 @@ test("quoted voice names and lyrics share Unicode escapes across explicit calls 
     ]) {
         const node = compileValid(source).ast.content[0];
         assert("name" in node && node.name === "Lead" && "lyrics" in node, "voice name must decode");
-        deepStrictEqual(node.lyrics, [{ name: "row", tokens: ["\uD842\uDFB7", "野"] }]);
+        deepStrictEqual(node.lyrics, [{ name: "row", tokens: [[{ text: "\uD842\uDFB7", mask: 0 }], [{ text: "野", mask: 0 }]] }]);
     }
 });
 
 test("voice serialization roundtrips names, lyric slots and nested LF/tab", () => {
+    const plainTokens = (items: string[]) => items.map(text => text ? [{ text, mask: 0 }] : []);
     const lyric = String.raw`{你好} {hello world} @ \@ {你\}好} {\{brace\}} {back\\slash} {hel\-lo} {"quoted",word} @`;
     const multiline = "{line\n\tbreak} {tab\tinside} {back\\\\slash\nline} @";
-    const tokens = ["line\n\tbreak", "tab\tinside", "back\\slash\nline", ""];
-    const cases: [string, string, { name: string; tokens: string[] }[]][] = [
+    const tokens = plainTokens(["line\n\tbreak", "tab\tinside", "back\\slash\nline", ""]);
+    const cases: [string, string, { name: string; tokens: { text: string; mask: number }[][] }[]][] = [
         ["", "", []],
         ['Lead "quoted", \\', "", []],
         ['Lead "quoted", {name} \\ @ -', `, ${quote(lyric)}, "", row="{named row}", other="@"`, [
-            { name: "", tokens: ["你好", "hello world", "", "@", "你}好", "{brace}", "back\\slash", "hel-lo", '"quoted",word', ""] },
+            { name: "", tokens: plainTokens(["你好", "hello world", "", "@", "你}好", "{brace}", "back\\slash", "hel-lo", '"quoted",word', ""]) },
             { name: "", tokens: [] },
-            { name: "row", tokens: ["named row"] },
-            { name: "other", tokens: [""] },
+            { name: "row", tokens: plainTokens(["named row"]) },
+            { name: "other", tokens: plainTokens([""]) },
         ]],
         ['Lead\\name\n\t"quoted"\n', `, ${quote(multiline)}, row=${quote(multiline)}`, [
             { name: "", tokens }, { name: "row", tokens },
@@ -107,12 +108,17 @@ test("歌词标点附着正文，不单独消耗音符槽", () => {
         [String.raw`hel\-lo \@ {你\}好}`, ["hel-lo", "@", "你}好"]],
     ];
     for (const [text, expected] of cases) {
-        const result = layoutOf(`@voice({1 2 3 4 5 6 7 1 2 3 4 5}, , ${JSON.stringify(text)})`);
-        const actual = attachmentCommands(result.attachments[0])
-            .filter(command => command.kind === "text")
-            .map(command => command.text);
-        assert(JSON.stringify(actual) === JSON.stringify(expected),
-            `${text}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+        for (const source of [
+            `@voice({1 2 3 4 5 6 7 1 2 3 4 5}, , "${text}")`,
+            `N: 1 2 3 4 5 6 7 1 2 3 4 5\nL: ${text}`,
+        ]) {
+            const result = layoutOf(source);
+            const actual = attachmentCommands(result.attachments[0])
+                .filter(command => command.kind === "text")
+                .map(command => command.text);
+            assert(JSON.stringify(actual) === JSON.stringify(expected),
+                `${source}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+        }
     }
 });
 
@@ -520,4 +526,77 @@ test("connector group names center on their own connector and offset left of inn
     assert(Math.min(...secondBrace.regions.map(region => region.x)) >= inlineText.box.x + inlineText.box.w,
         "group name on the following voices block must not overlap trailing content on upper tracks");
 });
+
+test("歌词跨音符槽 Markdown 包裹、标点悬挂与往返序列化", () => {
+    const source = `V{_合唱_}:\nN(女高): 1 2 3 4 5\nL(*领*): *春眠* **不觉** ^晓^\nN(**女低**): 1 2 3 4 5\nL: _hel-lo_ *你 @ ^好^*`;
+    const compiled = compileValid(source);
+    const serialized = compiled.ast.toString(source);
+    const restored = compileValid(serialized);
+    deepStrictEqual(recordCommands(restored.layout), recordCommands(compiled.layout),
+        "lyrics and voice names with Markdown must roundtrip losslessly");
+
+    // 槽内相邻不同掩码切换、有无双引号的转义规则与末尾反斜杠闭合花括号往返不失真
+    const escapedCases = [
+        String.raw`@voice({1 2 3 4 5}, , "hel\-lo \@ {你\}好} {\*字面\*} {a\\b}")`,
+        String.raw`N: 1 2 3 4 5` + "\n" + String.raw`L: "hel\-lo \@ {你\}好} {\*字面\*} {a\\b}"`,
+        String.raw`N: 1 2 3 4 5` + "\n" + String.raw`L: hel\-lo \@ {你\}好} {\*字面\*} {a\\b}`,
+    ];
+    for (const tricky of [
+        `@voice({1 2}, , "*a_b_* c")`,
+        `@voice({1 2}, , "a\\\\ b")`,
+        `@voice({1 2}, , "{a\\\\\\\\} b")`,
+        ...escapedCases,
+    ]) {
+        const orig = compileValid(tricky);
+        const rt = compileValid(orig.ast.toString(tricky));
+        deepStrictEqual(recordCommands(rt.layout), recordCommands(orig.layout), tricky);
+    }
+    for (const src of escapedCases) {
+        const tokens = attachmentCommands(layoutOf(src).attachments[0])
+            .filter(cmd => cmd.kind === "text")
+            .map(cmd => cmd.text);
+        deepStrictEqual(tokens, ["hel-lo", "@", "你}好", "*字面*", String.raw`a\b`], src);
+    }
+
+    const textCmds = recordCommands(compiled.layout).filter(cmd => cmd.kind === "text");
+    const sopranoLabel = textCmds.find(cmd => cmd.text === "女高")!;
+    const altoLabel = textCmds.find(cmd => cmd.text === "女低")!;
+    const lyricRowLabel = textCmds.find(cmd => cmd.text === "领")!;
+    assert(!sopranoLabel.style.fontWeight, "声部名默认不应加粗");
+    strictEqual(altoLabel.style.fontWeight, "bold", "**包裹的声部名应加粗");
+    strictEqual(lyricRowLabel.style.fontStyle, "italic", "*包裹的歌词行名应为斜体");
+    assert(!lyricRowLabel.style.fontWeight, "歌词行名默认不应加粗");
+
+    for (const ch of ["春", "眠", "你", "好"]) {
+        const cmd = textCmds.find(t => t.text === ch)!;
+        strictEqual(cmd.style.fontStyle, "italic", `${ch} 应继承跨音符槽斜体`);
+    }
+    for (const ch of ["不", "觉"]) {
+        const cmd = textCmds.find(t => t.text === ch)!;
+        strictEqual(cmd.style.fontWeight, "bold", `${ch} 应继承跨音符槽粗体`);
+    }
+
+    for (const src of [
+        String.raw`V{\*}:` + "\nN:1\nN:2",
+        String.raw`@voices(@voice({1}), @voice({2}), connect="{1-2:\*}")`,
+    ]) {
+        const res = compileValid(src);
+        const label = recordCommands(res.layout).find(cmd => cmd.kind === "text" && cmd.text === "*");
+        assert(label !== undefined, `${src}: escaped * in connector label must render as literal *`);
+        const rt = res.ast.toString(src);
+        assert(rt.includes(String.raw`connect="{1-2:\\*}"`), rt);
+        deepStrictEqual(recordCommands(compileValid(rt).layout), recordCommands(res.layout));
+    }
+
+    // 富文本歌词与首尾静音标点悬挂组合时，不改变正文对齐中心与音符间距
+    const plainLayout = layoutOf(`@voice({1 2}, , "你好")`);
+    for (const lyric of [`"“*你好*！”"`, `"*“你好！”*"`, `"_**你好**！_"`]) {
+        const richLayout = layoutOf(`@voice({1 2}, , ${lyric})`);
+        for (let i = 0; i < plainLayout.objects.length; i++) {
+            assert(nearly(richLayout.objects[i].box.x, plainLayout.objects[i].box.x),
+                `${lyric}: note ${i} position must match plain lyric`);
+        }
+    }
+});
+
 

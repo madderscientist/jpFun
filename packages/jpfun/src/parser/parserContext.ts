@@ -571,7 +571,7 @@ export class ParserContext {
                     s.span.start += start;
                     s.span.end += start;
                     this.diagnostics.push(s);
-                    return text.slice(1, -1);
+                    return text.length >= 2 && text.startsWith('"') && text.endsWith('"') ? text.slice(1, -1) : text;
                 } return s;
         }
     }

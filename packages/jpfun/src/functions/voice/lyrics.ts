@@ -8,13 +8,20 @@ import type {
 } from "../../layout/types.js";
 import type { Track } from "../../lowering/track.js";
 import { quote } from "../../parser/parse-utils/string-utils.js";
-import type { Painter, TextStyle } from "../../render/types.js";
+import {
+    appendRun,
+    markdownToggles,
+    paintRichLine,
+    prepareRichLine,
+    scanMarkdown,
+    type PreparedRichLine,
+    type RichTextRun,
+} from "../../render/text.js";
+import type { Painter, TextMeasurer, TextStyle } from "../../render/types.js";
 import type { VisualTemporalNode } from "../temporal.js";
 import type { VoiceNameTemporal } from "./voice.js";
 
 const WHITESPACE_RE = /\s/;
-const LYRIC_CONTROL_CHAR_RE = /[\\{}@-]/;
-const LYRIC_CONTROL_GLOBAL_RE = /[\\{}@-]/g;
 
 /** 歌词与歌词行名称相对声部字号的字号 */
 export const LYRIC_SIZE_RATIO = 0.82;
@@ -27,102 +34,130 @@ const LYRIC_SILENT_PUNCTUATION = new Set([
     ..."，。！？；：、,.!?;:）)]］｝〉》」』】〕〗〙〛’”\"'…—–",
 ]);
 
-/** 一段已经定位好的歌词或左侧名称文本，同时就是报给引擎的占用区域 */
-export type PreparedLyricText = LayoutRegion & {
-    text: string;          // 最终绘制的 token 或名称
-    style: TextStyle;      // 当前文本使用的字体和颜色
-    textBaselineY: number; // 字体 baseline 距文本盒顶部的距离
-};
-
-/** 歌词行名称的宽度决定标签列宽度，因此声部名事件和歌词附件必须用同一个样式测量 */
+/** 歌词行名称与歌词正文共用同一个基础样式 */
 export function lyricNameStyle(size: number, fontFamily: string): TextStyle {
     return {
         fontFamily,
         fontSize: size * LYRIC_SIZE_RATIO,
         fill: "#000",
-        fontWeight: 600,
     };
 }
 
-export function splitLyricText(text: string) {
+function measureLyricToken(runs: readonly RichTextRun[], style: TextStyle, measurer: TextMeasurer) {
+    const richLine = prepareRichLine(runs, style, measurer);
+    const plain = richLine.runs.map(r => r.text).join("");
     let start = 0;
-    let end = text.length;
-    while (start < end && LYRIC_SILENT_PUNCTUATION.has(text[start])) start++;
-    while (end > start && LYRIC_SILENT_PUNCTUATION.has(text[end - 1])) end--;
-    return { prefix: text.slice(0, start), body: text.slice(start, end) };
+    let end = plain.length;
+    while (start < end && LYRIC_SILENT_PUNCTUATION.has(plain[start])) start++;
+    while (end > start && LYRIC_SILENT_PUNCTUATION.has(plain[end - 1])) end--;
+
+    const rangeWidth = (from: number, to: number) => {
+        let w = 0, pos = 0;
+        for (const run of richLine.runs) {
+            const runEnd = pos + run.text.length;
+            const a = Math.max(from, pos), b = Math.min(to, runEnd);
+            if (a < b) {
+                w += a === pos && b === runEnd
+                    ? run.w
+                    : measurer.measureText(run.text.slice(a - pos, b - pos), run.style).w;
+            }
+            pos = runEnd;
+        }
+        return w;
+    };
+    return { richLine, prefixWidth: rangeWidth(0, start), bodyWidth: rangeWidth(start, end) };
 }
 
 /**
- * 把歌词拆成与音符一一对应的槽位。
+ * 把歌词拆成与音符一一对应的富文本槽位，同时支持跨槽或槽内的 Markdown 样式（`**`、`*`、`_`、`^`）。
  * 例如 `hello world` 拆成 `hello`、`world`，`hel-lo` 拆成 `hel-`、`lo`；
  * `你好吗` 默认逐字拆分，`你 @ 好` 中的 `@` 留出一个空槽，`{你好} 啊` 则把 `你好` 放在同一个槽位。
- * 转义符：hel\-lo \@ {你\}好} 会得到 ["hel-lo", "@", "你}好"]，而不是把 -、@、} 当控制符
  */
-export function parseLyric(value: string): string[] {
-    const result: string[] = [];
-    let token = "";
-    let prefix = "";
-    const pushSlot = (text: string) => {
-        result.push(prefix + text);
-        prefix = "";
-    };
-    const pushToken = () => {
-        if (token) pushSlot(token);
-        token = "";
-    };
+export function parseLyric(value: string): RichTextRun[][] {
+    let closeBraces = 0;
     for (let i = 0; i < value.length; i++) {
-        const ch = String.fromCodePoint(value.codePointAt(i)!);
-        i += ch.length - 1;
-        if (ch === "\\" && i + 1 < value.length && LYRIC_CONTROL_CHAR_RE.test(value[i + 1])) {
-            token += value[++i];
-        } else if (ch === "{") {
-            let close = i + 1;
-            let grouped = "";
-            for (; close < value.length && value[close] !== "}"; close++) {
-                if (value[close] === "\\" && close + 1 < value.length && LYRIC_CONTROL_CHAR_RE.test(value[close + 1])) {
-                    grouped += value[++close];
-                } else grouped += value[close];
-            }
-            if (close < value.length) {
-                pushToken();
-                pushSlot(grouped);
-                i = close;
-            } else token += ch;
-        } else if (WHITESPACE_RE.test(ch)) {
-            pushToken();
-        } else if (ch === "-") {
-            // 如果前面有内容 则把-放到前一个词里
-            token += ch;
-            if (token.length > 1) pushToken();
-        } else if (ch === "@") {
-            if (token) {
-                token += ch;
-                pushToken();
-            }
-            result.push("");
-        } else if (LYRIC_OPENING_PUNCTUATION.has(ch)) {
-            pushToken();
-            prefix += ch;
-        } else if (LYRIC_SILENT_PUNCTUATION.has(ch)) {
-            if (token) token += ch;
-            else if (prefix || !result.at(-1)) prefix += ch;
-            else result[result.length - 1] += ch;
-        } else if (ch.charCodeAt(0) > 0x7F) {
-            // 遇到中文等非ASCII字符 直接切分成单个字符
-            pushToken();
-            pushSlot(ch);
-        } else token += ch;
+        if (value[i] === "\\") i++;
+        else if (value[i] === "}") closeBraces++;
     }
-    pushToken();
-    if (prefix) {
-        if (result.at(-1)) result[result.length - 1] += prefix;
-        else result.push(prefix);
-    } return result;
+
+    const result: RichTextRun[][] = [];
+    let pending: RichTextRun[] = [];
+    let hasBody = false;
+    let grouped = false;
+
+    const add = (text: string, mask: number) => {
+        appendRun(pending, text, mask);
+        hasBody = true;
+    };
+    const flush = (force = false) => {
+        if (!force && !hasBody) return;
+        result.push(pending);
+        pending = [];
+        hasBody = false;
+    };
+
+    scanMarkdown(value, (ch, mask, escaped) => {
+        if (!escaped && ch === "}") closeBraces--;
+        if (grouped) {
+            if (!escaped && ch === "}") {
+                flush(true);
+                grouped = false;
+            } else {
+                appendRun(pending, ch, mask);
+            }
+        } else if (!escaped && ch === "{" && closeBraces > 0) {
+            flush();
+            grouped = true;
+        } else if (escaped) {
+            add(ch, mask);
+        } else if (WHITESPACE_RE.test(ch)) {
+            flush();
+        } else if (ch === "-") {
+            const shouldFlush = hasBody;
+            add(ch, mask);
+            if (shouldFlush) flush();
+        } else if (ch === "@") {
+            if (hasBody) {
+                add(ch, mask);
+                flush();
+            }
+            result.push([]);
+        } else if (LYRIC_OPENING_PUNCTUATION.has(ch)) {
+            flush();
+            appendRun(pending, ch, mask);
+        } else if (LYRIC_SILENT_PUNCTUATION.has(ch)) {
+            appendRun(pending.length > 0 || !result.at(-1)?.length ? pending : result.at(-1)!, ch, mask);
+        } else if (ch.charCodeAt(0) > 0x7F) {
+            flush();
+            add(ch, mask);
+            flush();
+        } else {
+            add(ch, mask);
+        }
+    }, "\\*_{}@-^");
+
+    flush();
+    if (pending.length > 0) {
+        if (result.at(-1)?.length) {
+            for (const run of pending) appendRun(result.at(-1)!, run.text, run.mask);
+        } else {
+            result.push(pending);
+        }
+    }
+    return result;
 }
 
-export function serializeLyric(tokens: readonly string[]): string {
-    return quote(tokens.map(token => token.length === 0
-        ? "@" : `{${token.replace(LYRIC_CONTROL_GLOBAL_RE, "\\$&")}}`).join(" "));
+export function serializeLyric(tokens: readonly (readonly RichTextRun[])[]): string {
+    return quote(tokens.map(runs => {
+        if (runs.length === 0) return "@";
+        let mask = 0;
+        let inner = "";
+        for (const run of runs) {
+            inner += markdownToggles(mask ^ run.mask) + run.text.replace(/[\\{}@\-*_^]/g, "\\$&");
+            mask = run.mask;
+        }
+        return `{${inner}${markdownToggles(mask)}}`;
+    }).join(" "));
 }
 
 export class VoiceLyricsAttachment implements LayoutAttachment {
@@ -141,15 +176,14 @@ export class VoiceLyricsAttachment implements LayoutAttachment {
         if (targets.length === 0) return;
         const { lyrics, size, font } = this.nameHost.ast;
 
-        const style: TextStyle = { fontSize: size * LYRIC_SIZE_RATIO, fontFamily: font, fill: "#000" };
+        const style = lyricNameStyle(size, font);
         for (let i = 0; i < targets.length; i++) {
             const target = targets[i];
             let halfWidth = 0;
             for (const lyric of lyrics) {
-                const text = lyric.tokens[i];
-                if (text) {
-                    const { body } = splitLyricText(text);
-                    if (body) halfWidth = Math.max(halfWidth, context.textMeasurer.measureText(body, style).w / 2);
+                const runs = lyric.tokens[i];
+                if (runs?.length) {
+                    halfWidth = Math.max(halfWidth, measureLyricToken(runs, style, context.textMeasurer).bodyWidth / 2);
                 }
             }
             if (halfWidth === 0) continue;
@@ -171,7 +205,7 @@ export class VoiceLyricsAttachment implements LayoutAttachment {
             regions: preparedText,
             paint(painter: Painter) {
                 for (const item of preparedText) {
-                    painter.drawText(item.text, item.x, item.y + item.textBaselineY, item.style);
+                    paintRichLine(painter, item, item.x, item.y + item.baseline);
                 }
             },
         };
@@ -179,7 +213,7 @@ export class VoiceLyricsAttachment implements LayoutAttachment {
 
     private prepareGeometry(context: AttachmentLayoutContext) {
         const { lyrics, size, font } = this.nameHost.ast;
-        const preparedText: PreparedLyricText[] = [];
+        const preparedText: (LayoutRegion & PreparedRichLine)[] = [];
 
         const targets = this.nodes.filter(node => node.ports?.["lyric"]);
         if (targets.length === 0) return preparedText;
@@ -211,13 +245,10 @@ export class VoiceLyricsAttachment implements LayoutAttachment {
             byTrack.set(target.track, baseline);
         }
 
-        const fontSize = size * LYRIC_SIZE_RATIO;
-        const rowGap = size * 0.24;
-        const firstRowGap = size * 0.32;
-        const lyricStyle: TextStyle = { fontSize, fontFamily: font, fill: "#000" };
-        const nameStyle = lyricNameStyle(size, font);
-        const baselineOffset = context.textMeasurer.measureText("M", lyricStyle).baseline + firstRowGap;
-        const baselineOf = (bottom: number, row: number) => bottom + baselineOffset + row * (fontSize + rowGap);
+        const style = lyricNameStyle(size, font);
+        const rowAdvance = style.fontSize + size * 0.24;
+        const baselineOffset = context.textMeasurer.measureText("M", style).baseline + size * 0.32;
+        const baselineOf = (bottom: number, row: number) => bottom + baselineOffset + row * rowAdvance;
         // 跨轨框外的歌词由最下轨承担占用，各原始轨的歌词行依次排列
         if (this.frames.length) for (const [line, byTrack] of baselines) {
             if (byTrack.size < 2) continue;
@@ -225,7 +256,7 @@ export class VoiceLyricsAttachment implements LayoutAttachment {
             for (const [, baseline] of [...byTrack].sort(([left], [right]) =>
                 context.getVisualAxis(line, left) - context.getVisualAxis(line, right))) {
                 const row = rows.get(baseline.owner) ?? 0;
-                baseline.bottom += row * lyrics.length * (fontSize + rowGap);
+                baseline.bottom += row * lyrics.length * rowAdvance;
                 rows.set(baseline.owner, row + 1);
             }
         }
@@ -238,23 +269,16 @@ export class VoiceLyricsAttachment implements LayoutAttachment {
             const lyric = lyrics[row];
 
             for (let i = 0; i < lyric.tokens.length && i < targets.length; i++) {
-                const text = lyric.tokens[i];
+                const runs = lyric.tokens[i];
                 const target = targets[i];
                 const baseline = baselines.get(target.layoutLine)?.get(target.track);
-                if (!text || !baseline) continue;
+                if (!runs.length || !baseline) continue;
 
-                const metrics = context.textMeasurer.measureText(text, lyricStyle);
-                const { prefix, body } = splitLyricText(text);
-                const bodyWidth = body ? context.textMeasurer.measureText(body, lyricStyle).w : 0;
-                const prefixWidth = prefix ? context.textMeasurer.measureText(prefix, lyricStyle).w : 0;
+                const { richLine, prefixWidth, bodyWidth } = measureLyricToken(runs, style, context.textMeasurer);
                 preparedText.push({
-                    text,
-                    style: lyricStyle,
-                    textBaselineY: metrics.baseline,
+                    ...richLine,
                     x: target.box.x + target.ports["lyric"].x - bodyWidth / 2 - prefixWidth,
-                    y: baselineOf(baseline.bottom, row) - metrics.baseline,
-                    w: metrics.w,
-                    h: metrics.h,
+                    y: baselineOf(baseline.bottom, row) - richLine.baseline,
                     line: target.layoutLine,
                     track: baseline.owner,
                 });
@@ -262,15 +286,11 @@ export class VoiceLyricsAttachment implements LayoutAttachment {
 
             if (!lyric.name || !labelBox || !labelBaseline) continue;
 
-            const metrics = context.textMeasurer.measureText(lyric.name, nameStyle);
+            const richLine = prepareRichLine(lyric.name, style, context.textMeasurer);
             preparedText.push({
-                text: lyric.name,
-                style: nameStyle,
-                textBaselineY: metrics.baseline,
-                x: labelBox.x + labelBox.anchor - metrics.w,
-                y: baselineOf(labelBaseline.bottom, row) - metrics.baseline,
-                w: metrics.w,
-                h: metrics.h,
+                ...richLine,
+                x: labelBox.x + labelBox.anchor - richLine.w,
+                y: baselineOf(labelBaseline.bottom, row) - richLine.baseline,
                 line: labelLine,
                 track: labelBaseline.owner,
             });
