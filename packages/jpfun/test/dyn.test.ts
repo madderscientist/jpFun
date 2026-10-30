@@ -136,7 +136,8 @@ test("dyn 的闭区间包含端点上的力度记号", () => {
         const { layout, attachment } = hairpin(source);
         const middle = layout.objects.find(object => object.ast.sourceSpan.start === source.indexOf("2"));
         assert(middle, "the middle note must be visible");
-        return middle.box.y - (attachment.box.y + attachment.box.h);
+        const region = attachment.regions[0];
+        return middle.box.y - (region.y + region.h);
     };
 
     const plain = clearance(`1@a 2 3 4@b @dyn(a,b,24)`);
@@ -149,19 +150,19 @@ test("dyn 避让中间高对象和先注册的 attachment", () => {
     const raised = hairpin(raisedSource);
     const tempo = raised.layout.objects.find(object => object.ast.sourceSpan.start === raisedSource.indexOf("2 ^"));
     assert(tempo, "the middle folded host must exist");
-    assert(raised.attachment.box.y + raised.attachment.box.h <= tempo.box.y + 1e-6,
+    assert(raised.attachment.regions[0].y + raised.attachment.regions[0].h <= tempo.box.y + 1e-6,
         "the hairpin must stay above a tall object in its closed interval");
 
     const nested = layoutOf(`@tuplet({1/@a 2/ 3/@b},2) @dyn(a,b,20)`);
-    const [tuplet, dyn] = nested.attachments;
-    assert(dyn.box.y + dyn.box.h <= tuplet.box.y + 1e-6,
+    const [tuplet, dyn] = nested.attachments.map(item => item.regions[0]);
+    assert(dyn.y + dyn.h <= tuplet.y + 1e-6,
         "a later dyn must clear an earlier overlapping tuplet");
 
     const stacked = layoutOf(`1@a 2@b @dyn(a,b,20) @dyn(a,b,30)`);
     const [inner, outer] = stacked.attachments;
     assert(inner.regions.length === 1 && attachmentCommands(inner).filter(command => command.kind === "line").length === 2,
         "a two-note dynamic range must draw one complete hairpin");
-    assert(outer.box.y + outer.box.h <= inner.box.y + 1e-6,
+    assert(outer.regions[0].y + outer.regions[0].h <= inner.regions[0].y + 1e-6,
         "a later hairpin must be placed outside an earlier hairpin");
 });
 
@@ -222,7 +223,7 @@ test("dyn 绘制单行楔形并申报上方占用", () => {
     assert(nearly(lines[0].x1, hosts[0].box.x)
         && nearly(lines[0].x2, hosts.at(-1)!.box.x + hosts.at(-1)!.box.w),
     "a hairpin must span the complete boxes of both endpoint hosts");
-    assert(attachment.box.y + attachment.box.h < Math.min(...hosts.map(host => host.box.y)),
+    assert(attachment.regions[0].y + attachment.regions[0].h < Math.min(...hosts.map(host => host.box.y)),
         "the hairpin must reserve space above the numbered notes");
 
 });

@@ -32,7 +32,7 @@ test("相邻分割音符自动连梁，连梁内的音符间距更紧凑", () =>
 test("一个 div 作用域总是连成一条梁，层数决定线数", () => {
     const autoBeamResult = layoutOf(`@div({1 2 -}, 2)`);
     assert(autoBeamResult.attachments.length === 1, "one multi-object div scope must always create one beam");
-    assert(autoBeamResult.attachments[0].box.w > 0, "scope beam must connect at least two divided objects");
+    assert(autoBeamResult.attachments[0].regions[0].w > 0, "scope beam must connect at least two divided objects");
     assert(attachmentCommands(autoBeamResult.attachments[0]).filter(command => command.kind === "line").length === 2,
         "two div levels must create two scope beam lines");
 });

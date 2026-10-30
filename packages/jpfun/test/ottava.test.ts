@@ -102,19 +102,20 @@ test("高低多八度号分别在上下方，虚线避开文字，只有末端�
         assert(hooks.length === 1, "只有末端有折钩");
         const hook = hooks[0];
         assert((hook.y2 - hook.y1) * shift > 0, "高八度下折，低八度上折");
+        const region = attachment.regions[0];
         const bounds = layout.objects.map(object => getLayoutBounds(object));
         const top = Math.min(...bounds.map(box => box.y));
         const bottom = Math.max(...bounds.map(box => box.y + box.h));
-        assert(shift > 0 ? attachment.box.y + attachment.box.h < top : attachment.box.y > bottom,
+        assert(shift > 0 ? region.y + region.h < top : region.y > bottom,
             "字形、虚线与折钩均应避让音符");
         const label = labels[0];
         const metrics = defaultTextMeasurer.measureText(label.text, label.style);
         assert(horizontal[0].x1 > label.x + metrics.w, "虚线必须从标签的右边开始");
-        assert(nearly(label.x, attachment.box.x), "标签左沿与八度号范围对齐");
+        assert(nearly(label.x, region.x), "标签左沿与八度号范围对齐");
         const labelTop = label.y - metrics.baseline;
         const labelBottom = labelTop + metrics.h;
-        const regionBottom = attachment.box.y + attachment.box.h;
-        assert((labelTop >= attachment.box.y || nearly(labelTop, attachment.box.y))
+        const regionBottom = region.y + region.h;
+        assert((labelTop >= region.y || nearly(labelTop, region.y))
             && (labelBottom <= regionBottom || nearly(labelBottom, regionBottom)),
         "文字度量必须包含在避让范围内");
         assert(horizontal.every((line, i) => i === 0 || line.x1 > horizontal[i - 1].x2),
@@ -130,7 +131,7 @@ test("八度号贴所在音轨的端点主体，不吸附小节线或后续增�
     const left = head.box.x + head.ports["body.left"].x;
     const right = tail.box.x + (tail.ports["body.right"]?.x ?? tail.box.w);
     const hook = commands.find(command => command.kind === "line" && nearly(command.x1, command.x2))!;
-    assert(nearly(attachment.box.x, left), "8 的左沿对齐起点数字左沿");
+    assert(nearly(attachment.regions[0].x, left), "8 的左沿对齐起点数字左沿");
     assert(hook.kind === "line" && nearly(hook.x1, right), "末钩只对齐显式终点的右沿");
     const moved = layoutOf("@adjust({1@a}, dx=700px) 2@b @ottava(a,b)");
     assert(moved.attachments[0].regions.every(region => region.w >= 0 && region.h >= 0),
@@ -155,7 +156,7 @@ test("短区间不缩小标签或移动端点，容不下虚线时不绘制或�
         if (horizontal?.kind === "line") {
             assert(horizontal.x1 > label.x + metrics.w, "虚线不穿过文字");
         }
-        assert(nearly(attachment.box.x + attachment.box.w,
+        assert(nearly(attachment.regions[0].x + attachment.regions[0].w,
             Math.max(label.x + metrics.w, hook.x1 + hook.style!.strokeWidth! / 2)),
         "不为未绘制的虚线额外扩张边界");
     }

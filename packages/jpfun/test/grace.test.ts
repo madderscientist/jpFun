@@ -312,7 +312,7 @@ test("倚音可以含多个声部：同列共用锚点并纵向叠放，声部�
 
 test("每个倚音声部各自连梁，零时长标记只切断所在声部", () => {
     const beams = layoutOf(`{{1 2} & {3 4}}>5`).attachments;
-    assert(beams.length === 2 && Math.abs(beams[0].box.y - beams[1].box.y) > 1,
+    assert(beams.length === 2 && Math.abs(beams[0].regions[0].y - beams[1].regions[0].y) > 1,
         "each grace voice must get its own beam at its own height");
     assert(layoutOf(`{{1 2} & {3 @key(F) 4}}>5`).attachments.length === 1,
         "a mark must only break the run of its own voice");
@@ -337,7 +337,7 @@ function bracketOf(layout: ReturnType<typeof layoutOf>) {
     const bracket = layout.attachments.find(attachment =>
         attachmentCommands(attachment).some(command => command.kind === "text"));
     assert(bracket, "expected a tuplet bracket");
-    return bracket.box;
+    return bracket.regions[0];
 }
 
 test("倚音子域连同附件先排版：括线在声部之间撑出空间，并计入复合盒", () => {
@@ -372,8 +372,11 @@ test("倚音内部标签可作关系端点，子域关系不受声明位置影�
             const layout = layoutOf(source);
             const node = layout.objects[0];
             assert(node instanceof GraceTemporal, `expected a grace composite: ${source}`);
-            return [node, ...node.graces, ...layout.attachments]
-                .map(({ box }) => [box.x, box.y, box.w, box.h].map(value => value.toFixed(6)).join())
+            return [
+                ...[node, ...node.graces].map(item => item.box),
+                ...layout.attachments.flatMap(item => item.regions),
+            ]
+                .map(box => [box.x, box.y, box.w, box.h].map(value => value.toFixed(6)).join())
                 .sort();
         };
         deepStrictEqual(geometry(outside), geometry(inside), `the writing position must not change the grace block: ${outside}`);

@@ -161,7 +161,7 @@ test("local endpoint attachments participate in subsequent range avoidance", () 
             const before = result.attachments.find(attachment => attachment.sourceSpan?.start === source.indexOf(first));
             const after = result.attachments.find(attachment => attachment.sourceSpan?.start === source.lastIndexOf("@dyn"));
             assert(before && after && before !== after, "expected two distinct endpoint attachments");
-            assert(after.box.y + after.box.h <= before.box.y,
+            assert(after.regions[0].y + after.regions[0].h <= before.regions[0].y,
                 `a later dynamic must clear the preceding relation in both document and local ranges: ${source}`);
         }
     }
@@ -195,9 +195,9 @@ test("relations whose endpoints all lie in a sub-domain are measured there and m
             },
         };
         lowered.attachments.push(relation);
-        const placed = layoutDocument(lowered, layoutContext).attachments.at(-1)!;
-        assert(nearly(placed.box.y - from.box.y, offset), "the relation must keep its offset from its endpoints");
-        assert(inside === placed.box.y >= grace.box.y - 1e-6,
+        const placed = layoutDocument(lowered, layoutContext).attachments.at(-1)!.regions[0];
+        assert(nearly(placed.y - from.box.y, offset), "the relation must keep its offset from its endpoints");
+        assert(inside === placed.y >= grace.box.y - 1e-6,
             inside ? "a relation inside the grace must grow the grace block" : "a relation leaving the grace stays in the document");
     }
     assert(layoutContext.layoutSubdomain === undefined, "sub-domain layout must not leak into the caller's reusable context");
@@ -260,7 +260,7 @@ test("document ranges across a multi-voice grace avoid every voice", () => {
     const grace = layout.objects.find(object => object instanceof GraceTemporal);
     const hairpin = layout.attachments.find(attachment => attachment.sourceSpan?.start === source.indexOf("@dyn"));
     assert(grace instanceof GraceTemporal && hairpin, "expected a grace and a hairpin");
-    assert(hairpin.box.y + hairpin.box.h <= Math.min(...grace.graces.map(member => member.box.y)) + 1e-6,
+    assert(hairpin.regions[0].y + hairpin.regions[0].h <= Math.min(...grace.graces.map(member => member.box.y)) + 1e-6,
         "a document range must clear the upper grace voice");
 });
 
@@ -458,12 +458,10 @@ test("附件只在撑开轨道时重排，最终区域保持同步", () => {
         assert(placed.regions.length === 1, "the attachment must retain its measured region");
         if (expands) {
             const finalAxis = host.box.y + host.box.visualAxis;
-            assert(nearly(placed.box.y, finalAxis - 100),
-                "re-laid bounds must use the final axis");
             assert(nearly(placed.regions[0].y, finalAxis - 100),
                 "re-laid regions must use the final axis");
         } else {
-            assert(placed.box.h === host.box.h, "contained occupancy must retain its measured bounds");
+            assert(placed.regions[0].h === host.box.h, "contained occupancy must retain its measured bounds");
         }
     }
 });
@@ -475,7 +473,7 @@ test("可见附件保留最终区域与源码范围", () => {
     ];
     for (const source of samples) {
         const layout = compileScore(source).layout;
-        const visibleAttachments = layout.attachments.filter(attachment => attachment.box.w > 0 || attachment.box.h > 0);
+        const visibleAttachments = layout.attachments.filter(attachment => attachment.regions.length > 0);
         assert(visibleAttachments.length > 0, "the source mapping sample must create visible attachments");
         for (const attachment of visibleAttachments) {
             assert(attachment.sourceSpan, "every visible built-in attachment must expose a source span");
@@ -487,7 +485,7 @@ test("可见附件保留最终区域与源码范围", () => {
     }
 
     const autoSource = `1/ 2/`;
-    const autoBeam = compileScore(autoSource).layout.attachments.find(attachment => attachment.box.w > 0);
+    const autoBeam = compileScore(autoSource).layout.attachments.find(attachment => attachment.regions.length > 0);
     assert(autoBeam?.sourceSpan?.start === 0 && autoBeam.sourceSpan.end === autoSource.length,
         "an automatic attachment must map to the source range covered by its endpoints");
 });

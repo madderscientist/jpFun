@@ -282,7 +282,6 @@ export function isLayoutAttachment(attachment: LoweringAttachment): attachment i
 
 /** layoutDocument 输出的最终 attachment 快照 */
 export interface PlacedAttachment {
-    readonly box: Readonly<Rect>;
     readonly regions: readonly LayoutRegion[];
     /** 相对于 Temporal 主体的绘制层；background 比内容先绘制 */
     readonly layer: "background" | "foreground";

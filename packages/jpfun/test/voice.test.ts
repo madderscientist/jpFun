@@ -19,7 +19,8 @@ test("nested voices collect only their direct name hosts", () => {
     ]) {
         const result = compileScore(source);
         assert(result.diagnostics.length === 0, "nested voices must compile without diagnostics");
-        assert(result.layout.attachments.every(attachment => Number.isFinite(attachment.box.y)), "nested braces must have finite geometry");
+        assert(result.layout.attachments.every(attachment => attachment.regions.every(region => Number.isFinite(region.y))),
+            "nested braces must have finite geometry");
     }
 });
 
@@ -174,11 +175,13 @@ test("声部的名称不推进时间，歌词行归一个附件并计入文档�
     assert(voiceResult.objects[0].T.isZero(), "voice name must not advance musical time");
     assert(voiceResult.attachments.length === 1, "all lyric rows must belong to one voice attachment");
 
-    const lyrics = voiceResult.attachments[0];
+    const regions = voiceResult.attachments[0].regions;
     const lastVoiceNote = voiceResult.objects[3];
-    assert(lyrics.box.y > lastVoiceNote.box.y, "lyrics must be placed below the note row");
-    assert(lyrics.box.h > voiceResult.objects[0].ast.size * 1.5, "two lyric rows must reserve more than one text line");
-    assert(voiceResult.bounds.y + voiceResult.bounds.h >= lyrics.box.y + lyrics.box.h, "document bounds must include all lyrics");
+    const top = Math.min(...regions.map(region => region.y));
+    const bottom = Math.max(...regions.map(region => region.y + region.h));
+    assert(top > lastVoiceNote.box.y, "lyrics must be placed below the note row");
+    assert(bottom - top > voiceResult.objects[0].ast.size * 1.5, "two lyric rows must reserve more than one text line");
+    assert(voiceResult.bounds.y + voiceResult.bounds.h >= bottom, "document bounds must include all lyrics");
 
 });
 
@@ -212,8 +215,9 @@ test("跨行歌词在每个含词的系统各用一条基线", () => {
         .map(command => command.y.toFixed(6)));
 
     assert(lyricBaselines.size === 2, "voice lyrics must use one baseline in each system containing tokens");
-    assert(crossLineLyrics.box.y > crossLineVoiceResult.objects[0].box.y, "cross-line lyrics must remain below their first note row");
-    assert(crossLineLyrics.box.y + crossLineLyrics.box.h > crossLineVoiceResult.objects[3].box.y + crossLineVoiceResult.objects[3].box.h,
+    assert(crossLineLyrics.regions[0].y > crossLineVoiceResult.objects[0].box.y, "cross-line lyrics must remain below their first note row");
+    const lastRegion = crossLineLyrics.regions.at(-1)!;
+    assert(lastRegion.y + lastRegion.h > crossLineVoiceResult.objects[3].box.y + crossLineVoiceResult.objects[3].box.h,
         "lyric bounds must include the final system tokens");
 
 });
@@ -263,8 +267,8 @@ test("声部内的普通连音线借用声部间距，超高外扩与 gap/minGap
         "an ordinary tie in the lower voice must not widen voice spacing");
     const tall = layoutOf(`@voices(@voice({1 2}), @voice({3@a 4@b @tie(a,b,height=30px)}))`);
     const upper = tall.objects.find(object => object.box.h > 0)!;
-    const tie = tall.attachments.find(attachment => attachment.layer === "foreground")!;
-    assert(nearly(tie.box.y - (upper.box.y + upper.box.h), 22 * 0.35),
+    const tie = tall.attachments.find(attachment => attachment.layer === "foreground")!.regions[0];
+    assert(nearly(tie.y - (upper.box.y + upper.box.h), 22 * 0.35),
         "an oversized tie in the lower voice must keep minimum voice clearance");
 
     for (const [source, expected] of [
@@ -358,15 +362,15 @@ test("stack 与 voices 不串轨，分支始终在宿主整块之上", () => {
 
 test("多声部括线画在声部名与音符之间，纵向跨足首末声部", () => {
     const bracketed = layoutOf(`@voices(@voice({1}, 上), @voice({2}, 中), @voice({3}, 下))`);
-    const bracket = bracketed.attachments.find(item => item.layer === "background");
-    assert(bracket !== undefined && bracket.box.h > 0, "a multi-voice block must draw one bracket");
+    const bracket = bracketed.attachments.find(item => item.layer === "background")?.regions[0];
+    assert(bracket !== undefined && bracket.h > 0, "a multi-voice block must draw one bracket");
     const bracketVoices = bracketed.objects.filter(object => !object.T.isZero());
-    assert(bracket.box.y < axisOf(bracketVoices[0]) && bracket.box.y + bracket.box.h > axisOf(bracketVoices[2]),
+    assert(bracket.y < axisOf(bracketVoices[0]) && bracket.y + bracket.h > axisOf(bracketVoices[2]),
         "the bracket must span from the first voice to the last voice");
     const bracketName = bracketed.objects.find(object => object.T.isZero());
     assert(bracketName !== undefined
-        && bracket.box.x > bracketName.box.x + bracketName.box.anchor
-        && bracket.box.x + bracket.box.w < bracketVoices[0].box.x,
+        && bracket.x > bracketName.box.x + bracketName.box.anchor
+        && bracket.x + bracket.w < bracketVoices[0].box.x,
         "the bracket must sit between the voice names and the notes");
     assert(layoutOf(`@voices(@voice({1}, 上))`).attachments.length === 0,
         "a single-voice block without lyrics must not register empty attachments");
@@ -456,8 +460,9 @@ test("empty voice connections retain exactly one shared thin line", () => {
     strictEqual(commands.length, 1);
     strictEqual(commands[0].kind, "rect");
     const notes = result.objects.filter(object => !object.T.isZero());
-    assert(connector.box.y < axisOf(notes[0])
-        && connector.box.y + connector.box.h > axisOf(notes.at(-1)!),
+    const region = connector.regions[0];
+    assert(region.y < axisOf(notes[0])
+        && region.y + region.h > axisOf(notes.at(-1)!),
     "the shared line must cover the entire block even without brackets");
 });
 
@@ -554,7 +559,8 @@ test("partial braces cover only their range while the shared line spans every vo
             "unconfigured voices must remain connected by the shared line");
         const names = result.objects.filter(object => object.T.isZero());
         const labelRight = Math.max(...names.map(name => name.box.x + name.box.anchor));
-        assert(connector.box.x > labelRight && connector.box.x + connector.box.w < notes[0].box.x,
+        const region = connector.regions[0];
+        assert(region.x > labelRight && region.x + region.w < notes[0].box.x,
             "all connection geometry must fit between labels and notes");
     }
 });
@@ -687,8 +693,9 @@ test("connector group names center on their own connector and offset left of inn
 
     // 文档边界与横向布局必须完整容纳最左侧分组总名称
     const pianoWidth = layoutContext.textMeasurer.measureText("钢琴", piano.style).w;
-    assert(connector.box.x <= piano.x - pianoWidth + 1e-6, "connector bounds must include the leftmost group name");
-    assert(mixed.layout.bounds.x <= connector.box.x + 1e-6 && connector.box.x >= 0,
+    const connectorLeft = Math.min(...connector.regions.map(region => region.x));
+    assert(connectorLeft <= piano.x - pianoWidth + 1e-6, "connector bounds must include the leftmost group name");
+    assert(mixed.layout.bounds.x <= connectorLeft + 1e-6 && connectorLeft >= 0,
         "horizontal layout must reserve left space so group names stay inside positive document bounds");
 
     // 同一行前序声部在上方轨道有长尾内容时，后续多声部块的所有轨道都必须预留分组总名称宽度，不能重叠
@@ -698,7 +705,7 @@ test("connector group names center on their own connector and offset left of inn
     `);
     const inlineText = inline.objects.find(object => object.ast instanceof ASTFunctionNode && object.ast.callName === "text")!;
     const secondBrace = inline.attachments.filter(attachment => attachment.layer === "background")[1]!;
-    assert(secondBrace.box.x >= inlineText.box.x + inlineText.box.w,
+    assert(Math.min(...secondBrace.regions.map(region => region.x)) >= inlineText.box.x + inlineText.box.w,
         "group name on the following voices block must not overlap trailing content on upper tracks");
 });
 

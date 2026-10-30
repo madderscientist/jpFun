@@ -264,7 +264,8 @@ test("房子端点横移越过另一端时仍产生有效边界", () => {
     assert(house.regions.every(region => region.w >= 0),
         "reversed drawing endpoints must not produce negative layout regions");
     const label = attachmentCommands(house).find(command => command.kind === "text");
-    assert(label?.kind === "text" && label.x >= house.box.x && label.x <= house.box.x + house.box.w,
+    const region = house.regions[0];
+    assert(label?.kind === "text" && label.x >= region.x && label.x <= region.x + region.w,
         "the volta label must remain inside its reported layout box");
 });
 

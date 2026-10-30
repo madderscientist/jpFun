@@ -159,7 +159,8 @@ test("automatic cross-line ties use 0.45em for all segments regardless of span",
     assert(nearly(layout.attachments[0].regions[1].h, 22 * 0.09), "middle segments must retain their band thickness");
     const empty = layoutOf("1@a @br(2) 2@b @tie(a,b,height=0)");
     strictEqual(empty.attachments[0].regions.length, 3);
-    assert(Object.values(empty.attachments[0].box).every(Number.isFinite), "empty lines must keep finite geometry");
+    assert(empty.attachments[0].regions.every(region => [region.x, region.y, region.w, region.h].every(Number.isFinite)),
+        "empty lines must keep finite geometry");
     for (const fontSize of [20, 40]) {
         const automatic = commandsOfKind("1@a @br() 2@b @tie(a,b)", "path", fontSize);
         const fixed = commandsOfKind("1@a @br() 2@b @tie(a,b,height=0.45em)", "path", fontSize);
@@ -171,8 +172,8 @@ test("automatic cross-line ties use 0.45em for all segments regardless of span",
         commandsOfKind(source.replace("@tie(a,b)", "@tie(a,b,height=0.45em)"), "path"),
         "middle segments must also match fixed 0.45em geometry",
     );
-    const vertical = layoutOf("@stack({1@a}, {2@b}) @tie(a,b)");
-    assert(Object.values(vertical.attachments[0].box).every(Number.isFinite), "zero horizontal span must keep finite geometry");
+    const vertical = layoutOf("@stack({1@a}, {2@b}) @tie(a,b)").attachments[0].regions[0];
+    assert([vertical.x, vertical.y, vertical.w, vertical.h].every(Number.isFinite), "zero horizontal span must keep finite geometry");
 });
 
 test("named-only height leaves all positional labels and implicit endpoints intact", () => {
@@ -331,7 +332,7 @@ test("进入多声部系统的连音线从大括号右侧开始", () => {
     const closingPath = attachmentCommands(tie).filter(command => command.kind === "path").at(-1);
     assert(closingPath?.kind === "path" && closingPath.commands[0]?.op === "M",
         "the closing tie segment must begin with a path move");
-    assert(closingPath.commands[0].x >= brace.box.x + brace.box.w,
+    assert(closingPath.commands[0].x >= brace.regions[0].x + brace.regions[0].w,
         "the closing tie segment must not pass through the voices brace");
 });
 
@@ -356,7 +357,7 @@ N: 3`;
 test("连音线可以跨行与跨轨，首尾弧从端点固定抬高", () => {
     const crossTrackTieResult = layoutOf(`@stack({1@a}, {2@b}) @tie(a,b)`);
     assert(crossTrackTieResult.attachments.length === 1, "tie must allow endpoints on different tracks");
-    assert(crossTrackTieResult.attachments[0].box.h > 0, "a cross-track tie must produce visible geometry");
+    assert(crossTrackTieResult.attachments[0].regions[0].h > 0, "a cross-track tie must produce visible geometry");
 
     const tieIntoUp = layoutOf(`@set(tie.height=0.5em) 1@x
 
@@ -384,7 +385,7 @@ test("连音线可以跨行与跨轨，首尾弧从端点固定抬高", () => {
 @page(width=200px,height=150px,top=10px,bottom=10px,left=10px,right=10px)
 @stack({1@a 2},{3 4@b}) @tie(a,b,height=60px)
 `);
-    const compactTieBox = compactCrossTrackTie.attachments[0].box;
+    const compactTieBox = compactCrossTrackTie.attachments[0].regions[0];
     assert(compactCrossTrackTie.pages.length === 1, "a cross-track tie must not duplicate its height across tracks");
     assert(compactTieBox.y >= 10 - 1e-6 && compactTieBox.y + compactTieBox.h <= 140 + 1e-6,
         "a cross-track tie must stay inside the measured page content area");
@@ -427,7 +428,8 @@ test("跨页连音线每个逻辑系统一段，几何保持有限", () => {
     assert(crossPageTie.pages.every(page => page.lineEnd > page.lineStart), "cross-page tie layout must not create empty pages");
     assert(attachmentCommands(crossPageTieAttachment).filter(command => command.kind === "path").length === 4,
         "a cross-page tie must retain one segment per logical system");
-    assert(Object.values(crossPageTieAttachment.box).every(Number.isFinite), "cross-page tie geometry must stay finite");
+    assert(crossPageTieAttachment.regions.every(region => [region.x, region.y, region.w, region.h].every(Number.isFinite)),
+        "cross-page tie geometry must stay finite");
 });
 
 test("普通连音线与八度点借用行间留白不拉大行距，超高外扩按 minGap 保底推开", () => {
@@ -452,13 +454,13 @@ test("普通连音线与八度点借用行间留白不拉大行距，超高外�
         const top = Math.min(...layoutOf(source).objects.filter(n => n.layoutLine === 1 && !n.T.isZero()).map(n => n.box.y));
         assert(nearly(top - line0Bottom, minGap), `${source} must keep ${minGap}px minGap`);
     }
-    assert(nearly(layoutOf(`1 2 3 4 @br() 1@a 2@b 3 4 @tie(a,b,height=30px)`).attachments[0].box.y - line0Bottom, 11),
+    assert(nearly(layoutOf(`1 2 3 4 @br() 1@a 2@b 3 4 @tie(a,b,height=30px)`).attachments[0].regions[0].y - line0Bottom, 11),
         "an oversized tie must keep the default 11px minGap");
 
     // 歌词位于基线下方，行距从歌词底部算起；下一行的普通 tie 仍借用这段行距
     const lyricPlain = layoutOf(`@voice({1 2}, , "甲 乙") @br() @voice({3 4})`);
     const lyricTied = layoutOf(`@voice({1 2}, , "甲 乙") @br() @voice({3@a 4@b @tie(a,b)})`);
-    const lyricBox = lyricPlain.attachments[0].box;
+    const lyricBox = lyricPlain.attachments[0].regions[0];
     assert(nearly(line1Axis(lyricPlain) - 11 - (lyricBox.y + lyricBox.h), 22)
         && nearly(line1Axis(lyricTied), line1Axis(lyricPlain)),
         "lyrics must preserve full lineGap below them while allowing next-line ties to borrow it");

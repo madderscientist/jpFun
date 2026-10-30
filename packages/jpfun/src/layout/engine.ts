@@ -76,7 +76,7 @@ type BaseAttachmentContext = Omit<AttachmentLayoutContext, "getAttachmentBox" | 
 
 interface AttachmentItem {
     geometry: AttachmentGeometry;
-    box: Rect;
+    box?: Rect;
 }
 type AttachmentLookup = (attachment: LayoutAttachment, layoutOnly?: boolean) => AttachmentItem | undefined;
 
@@ -349,9 +349,8 @@ export function layoutDocument(
     let next = 0;
     const attachments = layoutAttachments.map<PlacedAttachment>(attachment => {
         const item = subdomainItems.get(attachment);
-        const { geometry, box } = item ? moveSubdomainItem(item) : measured.items[next++];
+        const { geometry } = item ? moveSubdomainItem(item) : measured.items[next++];
         return {
-            box,
             regions: geometry.regions,
             layer: attachment.layer,
             sourceSpan: attachment.sourceSpan,
@@ -368,7 +367,7 @@ export function layoutDocument(
     function* layoutBoxes(): Iterable<Rect> {
         for (const pageResult of pages) yield pageResult.bounds;
         for (const node of objects) yield getLayoutBounds(node);
-        for (const attachment of attachments) yield attachment.box;
+        for (const attachment of attachments) yield* attachment.regions;
     }
     unionLayoutBoxes(bounds, layoutBoxes());
 
@@ -671,13 +670,12 @@ function encloses(owner: TemporalNodeBase, node: TemporalNodeBase) {
 /** 子域是刚性块：按参照成员的位移平移块内测得的几何 */
 function moveSubdomainItem(item: SubdomainItem, layoutOnly = false): AttachmentItem {
     const measured = layoutOnly ? item.layout ?? item : item;
-    const { position, geometry, box } = measured;
+    const { position, geometry } = measured;
     const dx = item.reference.box.x - position.x;
     const dy = item.reference.box.y - position.y;
     if (dx === 0 && dy === 0) return measured;
     const move = <T extends Rect>(rect: T): T => ({ ...rect, x: rect.x + dx, y: rect.y + dy });
     return {
-        box: move(box),
         geometry: {
             regions: geometry.regions.map(move),
             occupancy: geometry.occupancy?.map(move),
@@ -839,6 +837,10 @@ function measureAttachmentPass(
         getAttachmentBox(dependency) {
             const resolved = resolveAttachment(dependency);
             if (!resolved) throw new Error("Layout attachment dependency has not been measured");
+            if (!resolved.box) {
+                resolved.box = { x: 0, y: 0, w: 0, h: 0 };
+                unionLayoutBoxes(resolved.box, resolved.geometry.regions);
+            }
             return resolved.box;
         },
         getContentBounds(content) {
@@ -851,8 +853,10 @@ function measureAttachmentPass(
                 // 端点越出本域的关系交给外层测量，此时还没有几何
                 const resolved = resolveAttachment(attachment);
                 if (!resolved && !attachments.includes(attachment)) continue;
-                const box = resolved?.box ?? context.getAttachmentBox(attachment);
-                if (box.w > 0 || box.h > 0) boxes.push(box);
+                if (!resolved) throw new Error("Layout attachment dependency has not been measured");
+                for (const region of resolved.geometry.regions) {
+                    if (region.w > 0 || region.h > 0) boxes.push(region);
+                }
             }
             const bounds = { x: 0, y: 0, w: 0, h: 0 };
             return unionLayoutBoxes(bounds, boxes) ? bounds : undefined;
@@ -861,9 +865,7 @@ function measureAttachmentPass(
 
     const items = attachments.map(attachment => {
         const geometry = attachment.createGeometry(context);
-        const box: Rect = { x: 0, y: 0, w: 0, h: 0 };
-        unionLayoutBoxes(box, geometry.regions);
-        const item = { geometry, box };
+        const item: AttachmentItem = { geometry };
         measured.set(attachment, item);
         // 当前项立即登记，保证后注册的 attachment 能看到并避让它
         for (const region of geometry.occupancy ?? geometry.regions) {

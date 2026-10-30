@@ -92,19 +92,18 @@ test("连音线跟着被微调的端点走", () => {
 test("作用域里没有对象时，平移的是关系对象本身", () => {
     const base = layoutOf(`1@x 2@y @tie(x,y)`);
     const moved = layoutOf(`1@x 2@y @adjust(@tie(x,y), dy=-6px)`);
-    assert(nearly(tieOf(moved).box.y - moved.objects[0].box.y, tieOf(base).box.y - base.objects[0].box.y - 6),
+    assert(nearly(tieOf(moved).regions[0].y - moved.objects[0].box.y, tieOf(base).regions[0].y - base.objects[0].box.y - 6),
         "整条连音线必须离主体更远 6px");
-    assert(nearly(tieOf(moved).regions[0].y, tieOf(moved).box.y), "regions 必须与外接盒一起平移");
 
     // 框内的关系对象被替换成包装对象，外层 box 必须仍能取到它的边界
     const boxedBase = layoutOf(`@box({1@a 2@b @tie(a,b)}, padding=0px, stroke=1px)`);
     const boxed = layoutOf(`@box({1@a 2@b @adjust(@tie(a,b), dy=-6px)}, padding=0px, stroke=1px)`);
-    assert(contains(frameOf(boxed), tieOf(boxed).box), "框必须包住微调之后的连音线");
+    assert(contains(frameOf(boxed), tieOf(boxed).regions[0]), "框必须包住微调之后的连音线");
     assert(nearly(frameOf(boxed).h, frameOf(boxedBase).h + 6), "框必须跟着微调后的连音线长高");
 
     // 作用域内即使关系对象写在音符之前，也只平移音符而不平移关系对象本身
     const tieBeforeNote = layoutOf(`1@x 2@y @adjust({@tie(x,y) 3}, dx=10px)`);
-    assert(nearly(tieOf(tieBeforeNote).box.x, tieOf(base).box.x), "同作用域存在时间对象时，关系对象不得因书写顺序靠前而被平移");
+    assert(nearly(tieOf(tieBeforeNote).regions[0].x, tieOf(base).regions[0].x), "同作用域存在时间对象时，关系对象不得因书写顺序靠前而被平移");
 });
 
 test("重排两轮与重复调用 layoutDocument 时平移只施加一次", () => {
@@ -138,7 +137,7 @@ test("外包复合函数时保留对象身份与既有布局机制", () => {
 
 test("外包含关系对象的 box 时保留 attachment 依赖", () => {
     const layout = layoutOf(`@adjust(@box({1@a 2@b @tie(a,b)}, padding=0px, stroke=1px), dy=-2px)`);
-    assert(contains(frameOf(layout), tieOf(layout).box), "box 必须仍能读取内部关系对象的边界");
+    assert(contains(frameOf(layout), tieOf(layout).regions[0]), "box 必须仍能读取内部关系对象的边界");
 });
 
 test("adjust 不绕过 attachment 自身的语义校验", () => {
@@ -181,7 +180,7 @@ function tieOf(layout: DocumentLayoutResult): PlacedAttachment {
 function frameOf(layout: DocumentLayoutResult): Rect {
     const frame = layout.attachments.find(item => item.layer === "background");
     assert(frame, "必须生成一个 box 边框");
-    return frame.box;
+    return frame.regions[0];
 }
 
 function tieStart(layout: DocumentLayoutResult) {

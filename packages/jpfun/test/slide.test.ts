@@ -80,7 +80,7 @@ test("slide supports local layouts, nesting and multi-line content", () => {
 });
 
 test("slide scales with the host font and validates arguments", () => {
-    const width = (size: number) => compileValid(`@set(fontsize=${size}) @slide(1)`).layout.attachments[0].box.w;
+    const width = (size: number) => compileValid(`@set(fontsize=${size}) @slide(1)`).layout.attachments[0].regions[0].w;
     assert(nearly(width(40), width(20) * 2), "arrow scales with font");
     expectCompileError("@slide(1, side=bad)", "E_SLIDE_SIDE");
     expectCompileError("@slide(1, direction=bad)", "E_SLIDE_DIRECTION");

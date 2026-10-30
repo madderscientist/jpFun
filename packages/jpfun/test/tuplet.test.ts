@@ -82,7 +82,7 @@ test("tuplet 在整组上方绘制居中的单位数与括线", () => {
     assert(lines.length === 4, "tuplet must draw two horizontal segments and two end hooks");
     assert(Math.abs(number.x - (memberLeft + memberRight) / 2) < 1e-6,
         "the tuplet number must be centered over the member span");
-    assert(attachment.box.y < Math.min(...members.map(member => member.box.y)),
+    assert(attachment.regions[0].y < Math.min(...members.map(member => member.box.y)),
         "the tuplet bracket must reserve space above its members");
 
 });
@@ -96,7 +96,8 @@ test("tuplet 括线只避让自己盖住的列，区间外的高对象顶不起�
         );
         assert(attachment, "tuplet must create an attachment");
         const first = result.objects[0] as VisualTemporalNode;
-        return first.box.y - (attachment.box.y + attachment.box.h);
+        const region = attachment.regions[0];
+        return first.box.y - (region.y + region.h);
     };
 
     const plain = bracketGap(`@tuplet({1/23},4) 3`);
@@ -109,10 +110,11 @@ test("嵌套 tuplet 的外层括线排在内层括线之外", () => {
     const result = layoutOf(`@tuplet({@tuplet({1/2/3/},2) 4},3)`);
     const brackets = result.attachments
         .filter(item => attachmentCommands(item).some(command => command.kind === "text"))
-        .sort((left, right) => left.box.y - right.box.y);
+        .map(item => item.regions[0])
+        .sort((left, right) => left.y - right.y);
     assert(brackets.length === 2, "nested tuplets must draw two brackets");
     const [outer, inner] = brackets;
-    assert(outer.box.y + outer.box.h <= inner.box.y + 1e-6,
+    assert(outer.y + outer.h <= inner.y + 1e-6,
         "the outer bracket must clear the inner one instead of overlapping it");
 });
 
@@ -121,10 +123,10 @@ test("tuplet 主体横移或纵移后仍按最终位置避让", () => {
         const result = layoutOf(`@adjust({@tuplet({1/23},4)}, ${adjustment})`);
         const bracket = result.attachments.find(item =>
             attachmentCommands(item).some(command => command.kind === "text" && command.text === "5"),
-        );
+        )?.regions[0];
         assert(bracket, `tuplet must create an attachment after ${adjustment}`);
         const hostTop = Math.min(...result.objects.map(host => host.box.y));
-        assert(bracket.box.y + bracket.box.h <= hostTop + 1e-6,
+        assert(bracket.y + bracket.h <= hostTop + 1e-6,
             `the bracket must stay above adjusted hosts: ${adjustment}`);
     }
 });
@@ -136,11 +138,11 @@ test("tuplet brackets stay above folded grace members", () => {
     ]) {
         const result = compileScore(source);
         const bracket = result.layout.attachments.find(item =>
-            attachmentCommands(item).some(command => command.kind === "text" && command.text === "3"));
+            attachmentCommands(item).some(command => command.kind === "text" && command.text === "3"))?.regions[0];
         const members = [...result.lowering.astToTemporal.values()].flat()
             .filter(node => node.foldedInto && node.ast.sourceSpan.start > source.indexOf("tuplet")) as VisualTemporalNode[];
         assert(bracket && members.length === 3, "all folded tuplet members must remain addressable");
-        assert(bracket.box.y + bracket.box.h <= Math.min(...members.map(node => node.box.y)),
+        assert(bracket.y + bracket.h <= Math.min(...members.map(node => node.box.y)),
             "the entire bracket must clear its folded members");
     }
 });
@@ -153,9 +155,9 @@ test("folded tuplets clear nested brackets and enclosed frames", () => {
         const result = layoutOf(`@grace(1,${content})`);
         const attachments = result.attachments.filter(item =>
             item.layer === "background" || attachmentCommands(item).some(command => command.kind === "text"));
-        const [inner, outer] = attachments;
+        const [inner, outer] = attachments.map(item => item.regions[0]);
         assert(attachments.length === 2, "expected the inner frame or bracket and the outer tuplet bracket");
-        assert(outer.box.y + outer.box.h <= inner.box.y,
+        assert(outer.y + outer.h <= inner.y,
             "folded tuplets must clear previously placed attachments inside their scope");
     }
 });

@@ -84,7 +84,7 @@ test("gliss crosses tracks in either vertical direction on the same score line",
         assert(from.track !== to.track, "fixture must cross tracks");
         assert(nearly(start.y, from.box.y + from.box.visualAxis), "cross-track source uses its actual axis");
         assert(nearly(end.y, to.box.y + to.box.visualAxis), "cross-track target uses its actual axis");
-        assert(attachment.box.w > 0 && attachment.box.h > 0, "cross-track bounds must be finite");
+        assert(attachment.regions[0].w > 0 && attachment.regions[0].h > 0, "cross-track bounds must be finite");
         assert(layout.bounds.h < 500, "cross-track occupancy must not repeatedly push tracks apart");
     }
 });
@@ -245,8 +245,8 @@ test("gliss splits across lines into two segments with matching slope and final 
     }
 
     const voices = gliss("1@a @br()\n@voices(@voice({5@b 6}, A), @voice({1 2}, B))\n@gliss(a,b)");
-    const brace = voices.layout.attachments.find(item => item.layer === "background")!;
-    assert(voices.path.commands[2].op === "M" && voices.path.commands[2].x >= brace.box.x + brace.box.w,
+    const brace = voices.layout.attachments.find(item => item.layer === "background")!.regions[0];
+    assert(voices.path.commands[2].op === "M" && voices.path.commands[2].x >= brace.x + brace.w,
         "closing gliss segment starts after the voices brace");
 
     const played = playedNotes(compilePlayback(lower("1@a @br() 3@b @gliss(a,b)"))).map(n => n.midi);
