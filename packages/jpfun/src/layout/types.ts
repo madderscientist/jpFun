@@ -1,10 +1,12 @@
 import type { Painter, TextMeasurer } from "../render/types.js";
-import type { Track } from "../lowering/track.js";
+import type { Extent, Track } from "../lowering/track.js";
 import type { Fraction } from "../fraction.js";
 import type { TemporalNodeBase, VisualTemporalNode } from "../functions/temporal.js";
 import type { SourceSpan } from "../parser/types.js";
 import type { HorizontalLayoutHook } from "./model.js";
-import type { LoweringAttachment, LoweringContent } from "../lowering/types.js";
+import type { LoweringAttachment, LoweringContent, PageConfig } from "../lowering/types.js";
+
+export type { Extent, PageConfig };
 
 /** 轴对齐矩形，是所有排版几何的公共部分 */
 export interface Rect {
@@ -12,15 +14,6 @@ export interface Rect {
     y: number;  // 上边界坐标
     w: number;  // 完整占用宽度
     h: number;  // 完整占用高度
-}
-
-/**
- * 相对某条基线的纵向占用
- * 约定 top <= 0 <= bottom
- */
-export interface Extent {
-    top: number;    // 基线以上的边界，通常为负
-    bottom: number; // 基线以下的边界，通常为正
 }
 
 /**
@@ -52,19 +45,6 @@ export interface TimeLineEvent {
     t: Fraction;  // 事件发生的时间点
     T: Fraction;  // 事件的持续时间
     track: Track; // 事件所在的纵向音轨
-}
-
-/** 文档页面的固化尺寸，所有值均为 px */
-export interface PageConfig {
-    width: number;       // 纸张总宽度
-    height: number;      // 纸张总高度；Infinity 表示只按显式边界分页
-    marginTop: number;
-    marginBottom: number;
-    marginLeft: number;
-    marginRight: number;
-    lineGap: number;     // 相邻谱面行主旋律之间的标准空隙
-    minLineGap: number;  // 顶部外扩借用行距后保留的最小空隙
-    fillRatio: number;   // 自然宽度达到版心比例后撑满
 }
 
 /**

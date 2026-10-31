@@ -1,7 +1,6 @@
 import { Diagnostic } from "../diagnostic.js";
 import { Fraction } from "../fraction.js";
 import { ASTNodeBase } from "../functions/ASTtypes.js";
-import type { PageConfig } from "../layout/types.js";
 import {
     ANCHOR_KEY,
     DEFAULT_BPM,
@@ -16,6 +15,7 @@ import type {
     LoweringGroup,
     LoweringAttachment,
     LoweringResult,
+    PageConfig,
 } from "./types.js";
 import { Track } from "./track.js";
 

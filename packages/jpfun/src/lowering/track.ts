@@ -1,4 +1,11 @@
-import type { Extent } from "../layout/types.js";
+/**
+ * 相对某条基线的纵向占用
+ * 约定 top <= 0 <= bottom
+ */
+export interface Extent {
+    top: number;    // 基线以上的边界，通常为负
+    bottom: number; // 基线以下的边界，通常为正
+}
 
 /** measure 给出的单个成员的局部位置 */
 export interface TrackPlacement {

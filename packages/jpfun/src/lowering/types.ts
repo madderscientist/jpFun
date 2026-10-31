@@ -3,8 +3,20 @@ import type { TemporalNodeBase } from "../functions/temporal.js";
 import type { Diagnostic } from "../diagnostic.js";
 import type { SourceSpan } from "../parser/types.js";
 import type { Fraction } from "../fraction.js";
-import type { PageConfig } from "../layout/types.js";
 import type { Track, TrackArrangement } from "./track.js";
+
+/** 文档页面的固化尺寸，所有值均为 px */
+export interface PageConfig {
+    width: number;       // 纸张总宽度
+    height: number;      // 纸张总高度；Infinity 表示只按显式边界分页
+    marginTop: number;
+    marginBottom: number;
+    marginLeft: number;
+    marginRight: number;
+    lineGap: number;     // 相邻谱面行主旋律之间的标准空隙
+    minLineGap: number;  // 顶部外扩借用行距后保留的最小空隙
+    fillRatio: number;   // 自然宽度达到版心比例后撑满
+}
 
 /** lowering 产生的不推进时间的附属对象；具体能力由 layout/playback 子协议声明 */
 export interface LoweringAttachment {
