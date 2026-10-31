@@ -57,6 +57,14 @@ test("autobeam 可以只关掉单个 div", () => {
     // 被关掉的 div 是分隔符而不是被跳过，所以两侧也连不起来
     const broken = layoutOf(`1/ @div(2, 1, autobeam=false) 3/`).attachments;
     assert(broken.length === 0, "a disabled div must break the run instead of being skipped");
+
+    // n=0 的空操作 div 或不产生可见事件的兄弟 div 不应污染复合宿主的作用域与 autobeam
+    assert(layoutOf(`@div({@up(1/, 3) | @up(2/, 4)}, 0)`).attachments.length === 0,
+        "an n=0 div must not create a scope beam across bar lines");
+    assert(layoutOf(`@div(@up(1/, 3), 0, autobeam=false) 2/`).attachments.length === 1,
+        "an n=0 div must not disable adjacent auto-beaming on a folded host");
+    assert(layoutOf(`{@div(@set(bpm=120), 1, autobeam=false) 1/} ^ 3 2/`).attachments.length === 1,
+        "a zero-event sibling div inside a folded host must not steal the active div scope");
 });
 
 test("自动连梁在拍点、换行、小节线与并行轨处分组", () => {

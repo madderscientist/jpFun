@@ -184,7 +184,6 @@ class GraceFunction extends ASTFunctionNode {
         return new GraceFunction(span, argMap, ctx, null, scale);
     }
 
-    /** 宿主在前：findActiveDivs 下潜子树时要先命中宿主的 @div，而不是倚音的 */
     override get children(): ASTNodeBase[] {
         return [this.host, this.grace];
     }

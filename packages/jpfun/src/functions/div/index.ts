@@ -4,9 +4,15 @@ import type { LayoutDecorationHandler, LayoutHost, LayoutPoint } from "../../lay
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import { WarningDiagnostic } from "../../diagnostic.js";
 import { createAutomaticBeamAttachments } from "../beam/auto.js";
+import type { TemporalNodeBase } from "../temporal.js";
 
 const DIV_FUNC_NAME = "div";
 export const DIV_ADDON_KEY = functionAddonKey(DIV_FUNC_NAME);
+const DIV_OWNER_KEY = Symbol("div.owner");
+
+export function getDivOwner(node: TemporalNodeBase): DivFunction | undefined {
+    return (node.addon as { [DIV_OWNER_KEY]?: DivFunction } | undefined)?.[DIV_OWNER_KEY];
+}
 
 /** div 暴露自己的线段端口，不依赖任何关系函数 */
 export function divLinePortName(level: number, edge: "left" | "right"): string {
@@ -192,11 +198,13 @@ class DivFunction extends ASTFunctionNode {
     override loweringEnter(ctx: LoweringContext) {
         const count = this.n;
         if (count === 0) return [];
+        const self = this;
         ctx.deferFinalize(DivFunction.loweringFinalize, -5);
         ctx.beginLoweringGroup(this, {
             onTemporal(node) {
-                const addon = node.addon ??= {};
+                const addon = (node.addon ??= {}) as typeof node.addon & { [DIV_OWNER_KEY]?: DivFunction };
                 addon[DIV_ADDON_KEY] = (Number(addon[DIV_ADDON_KEY]) || 0) + count;
+                addon[DIV_OWNER_KEY] = self;
                 node.T.divPow2(count);
             },
         });

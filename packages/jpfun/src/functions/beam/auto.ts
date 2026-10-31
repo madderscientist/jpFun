@@ -7,10 +7,9 @@ import {
 import type { LoweringResult } from "../../lowering/types.js";
 import { Fraction } from "../../fraction.js";
 import type { LayoutAttachment } from "../../layout/types.js";
-import type { ASTNodeBase } from "../ASTtypes.js";
 import {
-    DIV_ADDON_KEY,
-    DivNode,
+    getDivOwner,
+    type DivNode,
 } from "../div/index.js";
 import { meterChangeAt } from "../meter/index.js";
 import {
@@ -20,145 +19,61 @@ import {
 
 interface AutoBeamGroup {
     nodes: VisualTemporalNode[];
-    line: number;
     beat: number;
     endTime: Fraction;
 }
 
-interface DivScope {
-    owner: InstanceType<typeof DivNode>;
-    nodes: VisualTemporalNode[];
-}
-
-/** 只返回实际参与当前事件 div addon 的 div，先沿祖先链找，不够再按书写顺序向下补 */
-function findActiveDivs(node: VisualTemporalNode): InstanceType<typeof DivNode>[] {
-    let remainingLevels = Math.max(0, Math.floor(Number(node.addon?.[DIV_ADDON_KEY]) || 0));
-    if (remainingLevels <= 0) return [];
-    const result: InstanceType<typeof DivNode>[] = [];
-
-    const take = (div: InstanceType<typeof DivNode>) => {
-        result.push(div);
-        remainingLevels -= Math.max(0, div.n);
-    };
-
-    let ast = node.ast.parent;
-    while (ast && remainingLevels > 0) {
-        if (ast instanceof DivNode) take(ast);
-        ast = ast.parent;
-    }
-    if (remainingLevels <= 0) return result;
-
-    // 复合节点（如 up）把代表成员的修饰提升成了自己的，提供层级的 div 在子树里
-    const descend = (parent: ASTNodeBase) => {
-        for (const child of parent.children ?? []) {
-            if (remainingLevels <= 0) return;
-            if (child instanceof DivNode) take(child);
-            descend(child);
-        }
-    };
-    descend(node.ast);
-
-    return result;
-}
-
-/** 收集每个 div 作用域内的可见事件，顺序与最终时间列一致 */
-function collectDivScopes(result: LoweringResult): {
-    scopes: DivScope[];
-    nodeScopes: Map<VisualTemporalNode, DivScope[]>;
-} {
-    const scopesByOwner = new Map<InstanceType<typeof DivNode>, DivScope>();
-    const nodeScopes = new Map<VisualTemporalNode, DivScope[]>();
-
+/** 按最外层 div 作用域收集可见事件，顺序与最终时间列一致 */
+function collectDivScopes(result: LoweringResult): Map<InstanceType<typeof DivNode>, VisualTemporalNode[]> {
+    const scopes = new Map<InstanceType<typeof DivNode>, VisualTemporalNode[]>();
     for (const column of result.columns) {
         for (const node of column) {
             if (!isVisualTemporalNode(node)) continue;
-
-            const owners = findActiveDivs(node);
-            if (owners.length === 0) continue;
-
-            const memberships: DivScope[] = [];
-            for (const owner of owners) {
-                let scope = scopesByOwner.get(owner);
-                if (!scope) {
-                    scope = { owner, nodes: [] };
-                    scopesByOwner.set(owner, scope);
-                }
-                scope.nodes.push(node);
-                memberships.push(scope);
-            }
-            nodeScopes.set(node, memberships);
+            const owner = getDivOwner(node);
+            if (!owner) continue;
+            const nodes = scopes.get(owner);
+            if (nodes) nodes.push(node);
+            else scopes.set(owner, [node]);
         }
-    }
-
-    return {
-        scopes: [...scopesByOwner.values()],
-        nodeScopes,
-    };
+    } return scopes;
 }
 
-/** 嵌套 div 由最外层作用域一次连接，内部级别通过端口自然形成次级 beam */
-function outermostScopes(scopes: DivScope[]): DivScope[] {
-    const owners = new Set(scopes.map(scope => scope.owner));
-
-    return scopes.filter(scope => {
-        let parent = scope.owner.parent;
-        while (parent) {
-            if (parent instanceof DivNode && owners.has(parent)) return false;
-            parent = parent.parent;
-        }
-        return true;
-    });
-}
-
-function createAutoBeam(
-    nodes: VisualTemporalNode[],
-    nodeScopes: ReadonlyMap<VisualTemporalNode, readonly DivScope[]>,
-): LayoutAttachment {
+function createAutoBeam(nodes: VisualTemporalNode[]): LayoutAttachment {
     let start = Infinity;
     let end = -Infinity;
     for (const node of nodes) {
-        start = Math.min(start, node.ast.sourceSpan.start);
-        end = Math.max(end, node.ast.sourceSpan.end);
-        for (const { owner } of nodeScopes.get(node) ?? []) {
-            start = Math.min(start, owner.sourceSpan.start);
-            end = Math.max(end, owner.sourceSpan.end);
-        }
+        const owner = getDivOwner(node)!;
+        start = Math.min(start, node.ast.sourceSpan.start, owner.sourceSpan.start);
+        end = Math.max(end, node.ast.sourceSpan.end, owner.sourceSpan.end);
     }
     return createBeamLayoutAttachment(nodes, false, { start, end });
 }
 
 /** 同一个 div 内部始终按轨道连接，手工 beam 端点会截断自动片段 */
 function createScopeBeams(
-    scopes: DivScope[],
-    nodeScopes: ReadonlyMap<VisualTemporalNode, readonly DivScope[]>,
+    scopes: Iterable<readonly VisualTemporalNode[]>,
     explicitEndpoints: ReadonlySet<TemporalNodeBase>,
 ): LayoutAttachment[] {
     const attachments: LayoutAttachment[] = [];
+    const segments = new Map<TemporalNodeBase["track"], VisualTemporalNode[]>();
+    const flush = (segment: VisualTemporalNode[] | undefined) => {
+        if (segment && segment.length >= 2) attachments.push(createAutoBeam(segment));
+    };
 
-    for (const scope of outermostScopes(scopes)) {
-        const tracks = new Map<TemporalNodeBase["track"], VisualTemporalNode[]>();
-        for (const node of scope.nodes) {
-            const trackNodes = tracks.get(node.track);
-            if (trackNodes) trackNodes.push(node);
-            else tracks.set(node.track, [node]);
-        }
-
-        for (const nodes of tracks.values()) {
-            let segment: VisualTemporalNode[] = [];
-            const flush = () => {
-                if (segment.length >= 2) attachments.push(createAutoBeam(segment, nodeScopes));
-                segment = [];
-            };
-
-            for (const node of nodes) {
-                if (explicitEndpoints.has(node)) {
-                    flush();
-                    continue;
-                }
-                segment.push(node);
+    for (const scopeNodes of scopes) {
+        if (scopeNodes.length < 2) continue;
+        for (const node of scopeNodes) {
+            if (explicitEndpoints.has(node)) {
+                flush(segments.get(node.track));
+                segments.delete(node.track);
+                continue;
             }
-            flush();
+            const segment = segments.get(node.track);
+            if (segment) segment.push(node);
+            else segments.set(node.track, [node]);
         }
+        for (const segment of segments.values()) flush(segment);
+        segments.clear();
     }
 
     return attachments;
@@ -173,29 +88,22 @@ function createScopeBeams(
  */
 function createAdjacentBeams(
     result: LoweringResult,
-    nodeScopes: Map<VisualTemporalNode, DivScope[]>,
+    scopes: ReadonlyMap<InstanceType<typeof DivNode>, readonly VisualTemporalNode[]>,
     explicitEndpoints: ReadonlySet<TemporalNodeBase>,
 ): LayoutAttachment[] {
     const attachments: LayoutAttachment[] = [];
     const groups = new Map<TemporalNodeBase["track"], AutoBeamGroup>();
-    const lineStarts = new Map<number, Fraction>();
-    const measureStart = new Fraction();
+    const phaseStart = new Fraction();
     const beatTime = new Fraction();
     const beatDuration = new Fraction(1);
     let candidateDuration: Fraction | number = 1;
-
-    for (const column of result.columns) {
-        for (const node of column) {
-            const current = lineStarts.get(node.layoutLine);
-            if (current === undefined || node.t.compare(current) < 0) lineStarts.set(node.layoutLine, node.t);
-        }
-    }
+    let currentLine = 0;
 
     const flush = (track: TemporalNodeBase["track"]) => {
         const group = groups.get(track);
         if (!group) return;
         groups.delete(track);
-        if (group.nodes.length >= 2) attachments.push(createAutoBeam(group.nodes, nodeScopes));
+        if (group.nodes.length >= 2) attachments.push(createAutoBeam(group.nodes));
     };
 
     const flushAll = () => {
@@ -203,15 +111,17 @@ function createAdjacentBeams(
     };
 
     for (const column of result.columns) {
+        const line = column[0].layoutLine;
         let meter: ReturnType<typeof meterChangeAt>;
         let hasAnchor = false;
         for (const node of column) {
             meter = meterChangeAt(node) ?? meter;
             if (node.mergeKey === ANCHOR_KEY) hasAnchor = true;
         }
-        if (meter || hasAnchor) {
+        if (line !== currentLine || meter || hasAnchor) {
+            currentLine = line;
             flushAll();
-            measureStart.copyFrom(column[0].t);
+            phaseStart.copyFrom(column[0].t);
         }
         if (meter) {
             const { numerator, denominator } = meter;
@@ -226,12 +136,11 @@ function createAdjacentBeams(
         for (const node of column) {
             if (node.mergeKey === ANCHOR_KEY) continue;
 
-            const memberships = isVisualTemporalNode(node) ? nodeScopes.get(node) : undefined;
-            const isIndependentDiv = memberships?.every(scope => scope.nodes.length === 1) ?? false;
-            const autoBeamEnabled = memberships?.every(scope => scope.owner.autoBeamEnabled) ?? false;
+            const owner = isVisualTemporalNode(node) ? getDivOwner(node) : undefined;
             const isCandidate = isVisualTemporalNode(node)
-                && isIndependentDiv
-                && autoBeamEnabled
+                && owner !== undefined
+                && owner.autoBeamEnabled
+                && scopes.get(owner)?.length === 1
                 && node.T.compare(candidateDuration) < 0
                 && !explicitEndpoints.has(node);
 
@@ -242,19 +151,15 @@ function createAdjacentBeams(
                 continue;
             }
 
-            const lineStart = lineStarts.get(node.layoutLine) ?? node.t;
-            const activeStart = measureStart.compare(lineStart) >= 0 ? measureStart : lineStart;
-            beatTime.copyFrom(node.t).sub(activeStart);
+            beatTime.copyFrom(node.t).sub(phaseStart);
             const beat = Math.floor(
                 beatTime.numerator * beatDuration.denominator / (beatTime.denominator * beatDuration.numerator),
             );
             const current = groups.get(node.track);
-            const isContinuous = current && node.t.equals(current.endTime);
-            if (!current || node.layoutLine !== current.line || beat !== current.beat || !isContinuous) {
+            if (!current || beat !== current.beat || !node.t.equals(current.endTime)) {
                 flush(node.track);
                 groups.set(node.track, {
                     nodes: [node],
-                    line: node.layoutLine,
                     beat,
                     endTime: node.t.clone().add(node.T),
                 });
@@ -272,11 +177,11 @@ function createAdjacentBeams(
 
 /** beam 域在 lowering 固化后统一生成作用域连接和相邻自动连接 */
 export function createAutomaticBeamAttachments(result: LoweringResult): void {
-    const { scopes, nodeScopes } = collectDivScopes(result);
-    if (scopes.length === 0) return;
+    const scopes = collectDivScopes(result);
+    if (scopes.size === 0) return;
     const explicitEndpoints = collectExplicitBeamEndpoints(result.attachments);
     result.attachments.push(
-        ...createScopeBeams(scopes, nodeScopes, explicitEndpoints),
-        ...createAdjacentBeams(result, nodeScopes, explicitEndpoints),
+        ...createScopeBeams(scopes.values(), explicitEndpoints),
+        ...createAdjacentBeams(result, scopes, explicitEndpoints),
     );
 }
