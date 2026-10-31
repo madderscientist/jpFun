@@ -5,12 +5,6 @@ export { quote } from "../parser/parse-utils/string-utils.js";
 type HeadTextField = "title" | "subtitle" | "author";
 export type PitchMode = "relative" | "absolute";
 
-export interface SourcePitch {
-    name: string;
-    accidental: string;
-    octave: number;
-}
-
 interface HeadOptions {
     title?: string;
     subtitle?: string;
@@ -26,6 +20,8 @@ const HEAD_TEXT_PRESET = {
     author: "size=0.8em, align=right",
 } as const satisfies Record<HeadTextField, string>;
 
+const RELATIVE_NAMES = ["1", "#1", "2", "#2", "3", "4", "#4", "5", "#5", "6", "#6", "7"] as const;
+
 /** 按书写顺序把多个零时长标记叠到主体上方。 */
 export function attachAbove(source: string, additions: readonly string[]) {
     for (let index = additions.length - 1; index >= 0; index--) {
@@ -34,15 +30,17 @@ export function attachAbove(source: string, additions: readonly string[]) {
     return source;
 }
 
-/** 把已解释为目标记谱方式的音高写成 jpFun token。 */
-export function renderPitch(pitch: SourcePitch, mode: PitchMode, suffix = "") {
-    if (mode === "absolute") {
-        return pitch.octave === 0
-            ? `@note(${pitch.name}, ${pitch.accidental}, 0)${suffix}`
-            : `${pitch.name}${pitch.accidental}${pitch.octave}${suffix}`;
-    }
-    const octaveMarks = pitch.octave > 0 ? "'".repeat(pitch.octave) : ",".repeat(-pitch.octave);
-    return `${pitch.accidental}${pitch.name}${octaveMarks}${suffix}`;
+/** 将相对主音的半音差写成简谱音高 token。 */
+export function renderRelativePitch(semitoneOffset: number) {
+    const pitchClass = ((semitoneOffset % 12) + 12) % 12;
+    const octave = Math.floor(semitoneOffset / 12);
+    const octaveMarks = octave > 0 ? "'".repeat(octave) : ",".repeat(-octave);
+    return `${RELATIVE_NAMES[pitchClass]}${octaveMarks}`;
+}
+
+/** 将绝对音名、升降号与八度写成 jpFun 音高 token。 */
+export function renderAbsolutePitch(name: string, accidental: string, octave: number) {
+    return octave === 0 ? `@note(${name}, ${accidental}, 0)` : `${name}${accidental}${octave}`;
 }
 
 function renderHeadText(field: HeadTextField, value: string) {
