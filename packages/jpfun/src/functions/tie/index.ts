@@ -7,6 +7,7 @@ import {
 } from "../temporal.js";
 import { pathBounds } from "../../layout/path.js";
 import { getLayoutBounds } from "../../layout/engine.js";
+import { lineEntryX, lineRightX } from "../../layout/range.js";
 import type {
     AttachmentLayoutContext,
     LayoutAttachment,
@@ -258,7 +259,7 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
             // 首行先起弧，再沿水平段延伸到当前谱面行最右侧
             segments.push(this.openingSegment(
                 start,
-                this.lineRightX(context, startNode.layoutLine),
+                lineRightX(context, startNode.layoutLine),
                 height,
                 startNode.layoutLine,
                 startNode.track,
@@ -267,8 +268,8 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
             // 中间行可能没有任何可见对象，仍然需要逐行补一段水平线
             for (let line = startNode.layoutLine + 1; line < endNode.layoutLine; line++) {
                 segments.push(this.horizontalSegment(
-                    this.lineEntryX(context, line, startNode.track),
-                    this.lineRightX(context, line),
+                    lineEntryX(context, line, startNode.track),
+                    lineRightX(context, line),
                     this.hostTop(context, line, startNode.track) - height,
                     line,
                     startNode.track,
@@ -277,7 +278,7 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
 
             // 跳过声部名、大括号等位于端点列之前的系统前缀，再落弧到终点
             segments.push(this.closingSegment(
-                this.lineEntryX(context, endNode.layoutLine, endNode.track),
+                lineEntryX(context, endNode.layoutLine, endNode.track),
                 end,
                 height,
                 endNode.layoutLine,
@@ -291,27 +292,6 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
         if (this.height > 0) return this.height;
         const ratio = Math.min(1, span / (this.size * AUTO_SPAN_RATIO));
         return this.size * AUTO_HEIGHT_RATIO * ratio * (2 - ratio);
-    }
-
-    private lineEntryX(
-        context: AttachmentLayoutContext,
-        lineIndex: number,
-        track: Track,
-    ) {
-        const line = context.lines[lineIndex];
-        const host = line.trackRuns.get(track)?.find(host => !host.T.isZero());
-        return host?.box.x ?? context.originX;
-    }
-
-    private lineRightX(context: AttachmentLayoutContext, lineIndex: number) {
-        const runs = context.lines[lineIndex].trackRuns;
-        if (runs.size === 0) return context.originX + context.width;
-
-        let right = context.originX;
-        for (const run of runs.values()) {
-            for (const host of run) right = Math.max(right, host.box.x + host.box.w);
-        }
-        return right;
     }
 
     private hostTop(context: AttachmentLayoutContext, line: number, track: Track) {

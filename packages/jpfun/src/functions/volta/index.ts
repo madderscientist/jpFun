@@ -1,10 +1,10 @@
+import { lineEntryX, lineRightX } from "../../layout/range.js";
 import type {
     AttachmentLayoutContext,
     LayoutAttachment,
     LayoutHost,
 } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
-import type { Track } from "../../lowering/track.js";
 import {
     ANCHOR_KEY,
     isVisualTemporalNode,
@@ -209,10 +209,10 @@ class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
             if (hostTop === Infinity) hostTop = context.getVisualAxis(line, topTrack);
 
             // 换行断点跟随系统的视觉边界；空行没有主体时仍退到内容区页边
-            const rawLeft = line !== firstLine ? this.lineEntryX(context, line, topTrack)
+            const rawLeft = line !== firstLine ? lineEntryX(context, line, topTrack)
                 : leftBar?.layoutLine === line ? leftBar.box.x + leftBar.box.anchor + 5 // 5是防止前后房子竖线重合
                     : head.box.x + (head.ports["body.left"]?.x ?? 0);
-            const rawRight = line !== lastLine ? this.lineRightX(context, line)
+            const rawRight = line !== lastLine ? lineRightX(context, line)
                 : rightBar?.layoutLine === line ? rightBar.box.x + rightBar.box.anchor
                     : tail.box.x + (tail.ports["body.right"]?.x ?? tail.box.w);
             const left = Math.min(rawLeft, rawRight);
@@ -258,21 +258,5 @@ class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
                 }
             },
         };
-    }
-
-    private lineEntryX(context: AttachmentLayoutContext, line: number, track: Track) {
-        const host = context.lines[line].trackRuns.get(track)?.find(item => !item.T.isZero());
-        return host?.box.x ?? context.originX;
-    }
-
-    private lineRightX(context: AttachmentLayoutContext, line: number) {
-        const runs = context.lines[line].trackRuns;
-        if (runs.size === 0) return context.originX + context.width;
-
-        let right = context.originX;
-        for (const run of runs.values()) {
-            for (const host of run) right = Math.max(right, host.box.x + host.box.w);
-        }
-        return right;
     }
 }

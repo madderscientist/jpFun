@@ -1,5 +1,6 @@
 import { ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { pathBounds } from "../../layout/path.js";
+import { lineEntryX, lineRightX } from "../../layout/range.js";
 import type { AttachmentLayoutContext, HorizontalLineView, LayoutAttachment } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { LoweringResult } from "../../lowering/types.js";
@@ -198,10 +199,8 @@ class GlissAttachment implements LayoutAttachment {
         };
         const pairs = [[start, end, from.layoutLine, from.track] as const];
         if (from.layoutLine !== to.layoutLine) {
-            const end1X = Math.max(start.x + size,
-                ...context.lines[from.layoutLine].columns.at(-1)!.map(h => h.box.x + h.box.w));
-            const entry = context.lines[to.layoutLine].trackRuns.get(to.track)?.find(h => !h.T.isZero());
-            const start2X = Math.min(end.x - size, entry?.box.x ?? end.x);
+            const end1X = Math.max(start.x + size, lineRightX(context, from.layoutLine));
+            const start2X = Math.min(end.x - size, lineEntryX(context, to.layoutLine, to.track, end.x));
             const w1 = end1X - start.x;
             const cut = dy * (1 - 2 * w1 / (w1 + end.x - start2X));
             pairs[0] = [start, { x: end1X, y: start.y - dy + cut }, from.layoutLine, from.track];

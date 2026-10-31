@@ -1,5 +1,6 @@
 import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import type { Fraction } from "../../fraction.js";
+import { lineEntryX, lineRightX } from "../../layout/range.js";
 import type { AttachmentLayoutContext, LayoutAttachment } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { Track } from "../../lowering/track.js";
@@ -240,10 +241,10 @@ class DynAttachment implements LayoutAttachment {
 
             ranges.push({
                 line,
-                startX: line === fromLine ? this.fromHost.box.x : this.lineEntryX(context, line),
+                startX: line === fromLine ? this.fromHost.box.x : lineEntryX(context, line, this.track),
                 endX: line === toLine
                     ? this.toHost.box.x + this.toHost.box.w
-                    : this.lineRightX(context, line),
+                    : lineRightX(context, line),
             });
         }
 
@@ -307,21 +308,5 @@ class DynAttachment implements LayoutAttachment {
                 }
             },
         };
-    }
-
-    private lineEntryX(context: AttachmentLayoutContext, line: number) {
-        const host = context.lines[line].trackRuns.get(this.track)?.find(item => !item.T.isZero());
-        return host?.box.x ?? context.originX;
-    }
-
-    private lineRightX(context: AttachmentLayoutContext, line: number) {
-        const runs = context.lines[line].trackRuns;
-        if (runs.size === 0) return context.originX + context.width;
-
-        let right = context.originX;
-        for (const run of runs.values()) {
-            for (const host of run) right = Math.max(right, host.box.x + host.box.w);
-        }
-        return right;
     }
 }

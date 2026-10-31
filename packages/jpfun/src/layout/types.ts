@@ -101,8 +101,7 @@ export interface SubdomainLayout {
     positions: readonly LayoutPoint[];
 }
 
-export type LayoutRange = readonly [from: number, to: number]
-    | readonly [from: LayoutHost, to: LayoutHost];
+export type LayoutRange = readonly [from: LayoutHost, to: LayoutHost];
 
 /** attachment 根据当前视觉轴生成几何时需要的完整页面信息 */
 export interface AttachmentLayoutContext extends LayoutPrepareContext {
@@ -120,20 +119,20 @@ export interface AttachmentLayoutContext extends LayoutPrepareContext {
     /**
      * 本行闭区间内的已定占用；全轨返回按 Track 分组的 Map，单轨直接返回 Extent 或 undefined
      *
-     * 数字端点表示本域的列下标；对象端点沿 foldedInto 上溯到本域的列，跨行对象区间自动截取本行部分。
+     * 对象端点沿 foldedInto 上溯到本域的列，跨行对象区间自动截取本行部分。
      * 子域对外是一个主体，正文查询不进入它的内部。
      * 主体按查询列筛选；attachment 按这些列最终盒子的横向范围筛选，并遵守 track 过滤。
      * attachment 部分与 getAttachmentBox 同一条可见性规则：只看得见比自己先注册的，
      * 也就是「后声明的排在外层」。避让型 attachment 用它把自己排到已有内容之外。
-     * 省略列号表示整行，供跨行 attachment 查询没有可见列的中间行。
+     * 省略范围表示整行，供跨行 attachment 查询没有可见列的中间行。
      */
     getRangeExtents(
         line: number,
-        columns?: LayoutRange,
+        range?: LayoutRange,
     ): ReadonlyMap<Track, Readonly<Extent>>;
     getRangeExtents(
         line: number,
-        columns: LayoutRange | undefined,
+        range: LayoutRange | undefined,
         track: Track,
     ): Readonly<Extent> | undefined;
     /** 按全局 x 区间筛选横向相交的主体及已测附件，返回各轨轴局部占用；空区间返回空 Map */
