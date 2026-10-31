@@ -798,16 +798,17 @@ function measureAttachmentPass(
             else extent = { top, bottom };
         };
         // 主体和附件共用范围筛选，仅累加结果的容器随查询模式变化。
-        const { start, end, wholeLine } = resolveRange(view, range && !("left" in range) ? range : undefined, track, lift);
+        const elementRange = range && !("left" in range) ? range : undefined;
+        const { start, end } = resolveRange(view, elementRange);
         const target = track && lift(track);
 
-        let left = horizontal?.left ?? (wholeLine ? baseContext.originX : Infinity);
-        let right = horizontal?.right ?? (wholeLine ? baseContext.originX + baseContext.width : -Infinity);
+        let left = horizontal?.left ?? (elementRange ? Infinity : baseContext.originX);
+        let right = horizontal?.right ?? (elementRange ? -Infinity : baseContext.originX + baseContext.width);
         for (let column = start; column <= end; column++) {
             for (const host of view.columns[column]) {
                 if (target && host.track !== target) continue;
                 if (horizontal && (host.box.x + host.box.w <= left || host.box.x >= right)) continue;
-                if (!wholeLine) {
+                if (elementRange) {
                     if (host.box.x < left) left = host.box.x;
                     if (host.box.x + host.box.w > right) right = host.box.x + host.box.w;
                 }

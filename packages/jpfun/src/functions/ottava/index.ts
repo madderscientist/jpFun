@@ -1,5 +1,6 @@
 import { Diagnostic, ErrorDiagnostic } from "../../diagnostic.js";
 import { unionLayoutBoxes } from "../../layout/engine.js";
+import { lineEntryX, lineRightX } from "../../layout/range.js";
 import type { AttachmentLayoutContext, LayoutAttachment, LayoutRegion } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { LoweringResult } from "../../lowering/types.js";
@@ -170,16 +171,8 @@ class OttavaAttachment implements LayoutAttachment {
             const line = firstLine + offset;
             const first = line === firstLine;
             const last = line === lastLine;
-            const runs = context.lines[line].trackRuns;
-            let left = first ? from.box.x + (from.ports["body.left"]?.x ?? 0)
-                : runs.get(track)?.find(host => !host.T.isZero())?.box.x ?? context.originX;
-            let right = to.box.x + (to.ports["body.right"]?.x ?? to.box.w);
-            if (!last) {
-                right = context.originX + (runs.size === 0 ? context.width : 0);
-                for (const run of runs.values()) {
-                    for (const host of run) right = Math.max(right, host.box.x + host.box.w);
-                }
-            }
+            let left = first ? from.box.x + (from.ports["body.left"]?.x ?? 0) : lineEntryX(context, line, track);
+            let right = last ? to.box.x + (to.ports["body.right"]?.x ?? to.box.w) : lineRightX(context, line);
             if (left > right) [left, right] = [right, left];
             const lineStart = first ? left + metrics.w + labelGap : left;
             const part = (x: number, y: number, w: number, h: number): LayoutRegion => ({ x, y, w, h, line, track });
