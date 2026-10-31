@@ -11,7 +11,7 @@
 import { DEFAULT_BPM } from "../../functions/temporal.js";
 import type { MidiJson, MidiJsonInstrument, MidiJsonNote, MidiJsonTrack } from "./json.js";
 import { identifyTriplets, type TripletMark } from "./triplet.js";
-import { attachAbove, quote, renderHead, renderPitch, renderSystems, type PitchMode } from "../source.js";
+import { attachAbove, quote, renderAbsolutePitch, renderHead, renderRelativePitch, renderSystems, type PitchMode } from "../source.js";
 import { SHARP_NOTE_NAMES as ABSOLUTE_NAMES } from "../../parser/parse-utils/note-utils.js";
 
 export type * from "./json.js";
@@ -93,7 +93,6 @@ const AUTO_LINE_TARGET_RATIO = 1.03;
 const AUTO_LINE_LIMIT_RATIO = 1.25;
 const AUTO_LINE_UNDERFILL_PENALTY = 4;
 const AUTO_LINE_MAX_BARS = 8;
-const RELATIVE_NAMES = ["1", "1#", "2", "2#", "3", "4", "4#", "5", "5#", "6", "6#", "7"] as const;
 
 function expectSafeInteger(value: number, name: string, min = 0, max = Number.MAX_SAFE_INTEGER) {
     if (!Number.isSafeInteger(value) || value < min || value > max) {
@@ -117,45 +116,10 @@ function coalesceSorted<T extends { at: number }>(items: readonly T[]) {
     return [...result.values()];
 }
 
-function heapPush<T>(heap: T[], value: T, compare: (left: T, right: T) => number) {
-    let index = heap.length;
-    heap.push(value);
-    while (index > 0) {
-        const parent = (index - 1) >> 1;
-        if (compare(heap[parent], value) <= 0) break;
-        heap[index] = heap[parent];
-        index = parent;
-    }
-    heap[index] = value;
-}
-
-function heapPop<T>(heap: T[], compare: (left: T, right: T) => number) {
-    const result = heap[0];
-    const value = heap.pop()!;
-    if (heap.length === 0) return result;
-    let index = 0;
-    while (true) {
-        const left = index * 2 + 1;
-        if (left >= heap.length) break;
-        const right = left + 1;
-        const child = right < heap.length && compare(heap[right], heap[left]) < 0 ? right : left;
-        if (compare(heap[child], value) >= 0) break;
-        heap[index] = heap[child];
-        index = child;
-    }
-    heap[index] = value;
-    return result;
-}
-
 function noteName(midi: number, mode: PitchMode) {
-    const pitchClass = midi % 12;
-    const octave = Math.floor(midi / 12) - 1;
-    const source = mode === "absolute" ? ABSOLUTE_NAMES[pitchClass] : RELATIVE_NAMES[pitchClass];
-    return renderPitch({
-        name: source[0],
-        accidental: source.slice(1),
-        octave: mode === "absolute" ? octave : octave - 4,
-    }, mode);
+    if (mode === "relative") return renderRelativePitch(midi - 60);
+    const source = ABSOLUTE_NAMES[midi % 12];
+    return renderAbsolutePitch(source[0], source.slice(1), Math.floor(midi / 12) - 1);
 }
 
 function meterDuration(point: MeterPoint, scale: number) {
@@ -263,21 +227,10 @@ function groupTriplets(chords: readonly QuantizedChord[]) {
  */
 function splitLanes(items: readonly QuantizedItem[]) {
     const lanes: Lane[] = [];
-    // active 按结束时间回收 lane，available 按原索引优先复用空闲 lane
-    const active: { end: number; laneIndex: number }[] = [];
-    const available: number[] = [];
-    const compareActive = (left: { end: number; laneIndex: number }, right: { end: number; laneIndex: number }) =>
-        left.end - right.end || left.laneIndex - right.laneIndex;
-    const compareLaneIndex = (left: number, right: number) => left - right;
     for (const item of items) {
-        while (active.length > 0 && active[0].end <= item.start) {
-            heapPush(available, heapPop(active, compareActive).laneIndex, compareLaneIndex);
-        }
-        const laneIndex = available.length > 0 ? heapPop(available, compareLaneIndex) : lanes.length;
-        const lane = lanes[laneIndex] ?? { items: [] };
-        if (laneIndex === lanes.length) lanes.push(lane);
+        let lane = lanes.find(candidate => candidate.items.at(-1)!.end <= item.start);
+        if (!lane) lanes.push(lane = { items: [] });
         lane.items.push(item);
-        heapPush(active, { end: item.end, laneIndex }, compareActive);
     }
     // 低音 lane 排在前面，最高 lane 固定承载全谱状态以保持输出稳定
     const averagePitch = (lane: Lane) => {

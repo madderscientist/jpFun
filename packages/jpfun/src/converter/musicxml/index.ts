@@ -33,7 +33,7 @@ import type {
     MusicXmlRepeatPoint as RepeatPoint,
     MusicXmlWedgePoint as WedgePoint,
 } from "./model.js";
-import { attachAbove, quote, renderHead, renderPitch, renderSystems, type PitchMode } from "../source.js";
+import { attachAbove, quote, renderAbsolutePitch, renderHead, renderRelativePitch, renderSystems, type PitchMode } from "../source.js";
 import { matchingLanes, resolveRelations, resolveVoices } from "./resolve.js";
 
 export type { MusicXmlElement, MusicXmlNode } from "./dom.js";
@@ -72,8 +72,6 @@ interface RenderAdjustment {
 
 const MAJOR_KEYS = ["Cb", "Gb", "Db", "Ab", "Eb", "Bb", "F", "C", "G", "D", "A", "E", "B", "F#", "C#"];
 const MINOR_KEYS = ["Ab", "Eb", "Bb", "F", "C", "G", "D", "A", "E", "B", "F#", "C#", "G#", "D#", "A#"];
-// name = token[0] acc = token.slice(1)
-const RELATIVE_NAMES = ["1", "1#", "2", "2#", "3", "4", "4#", "5", "5#", "6", "6#", "7"] as const;
 
 function add(left: Fraction, right: Fraction) {
     return left.clone().add(right);
@@ -624,25 +622,18 @@ function pitchSource(
     metadata: RenderMetadata,
     suffix = "",
 ) {
-    let name: string;
-    let accidental: string;
-    let octave: number;
+    let token: string;
     if (mode === "absolute") {
-        name = pitch.step;
-        accidental = pitch.alter > 0 ? "#".repeat(pitch.alter) : "b".repeat(-pitch.alter);
-        octave = pitch.octave;
+        const accidental = pitch.alter > 0 ? "#".repeat(pitch.alter) : "b".repeat(-pitch.alter);
+        token = renderAbsolutePitch(pitch.step, accidental, pitch.octave);
     } else {
         const midi = (pitch.octave + 1) * 12 + NoteNameMap[pitch.step] + pitch.alter;
         const tonic = tonicName(key);
         const tonicAlter = tonic[1] === "#" ? 1 : tonic[1] === "b" ? -1 : 0;
-        const difference = midi - 60 - NoteNameMap[tonic[0]] - tonicAlter;
-        const pitchClass = ((difference % 12) + 12) % 12;
-        name = RELATIVE_NAMES[pitchClass][0];
-        accidental = RELATIVE_NAMES[pitchClass].slice(1);
-        octave = Math.floor(difference / 12);
+        token = renderRelativePitch(midi - 60 - NoteNameMap[tonic[0]] - tonicAlter);
     }
     const label = metadata.labels.get(pitch);
-    return renderPitch({ name, accidental, octave }, mode, suffix) + (label ? `@${label}` : "");
+    return `${token}${suffix}${label ? `@${label}` : ""}`;
 }
 
 /** 把和弦、倚音、力度和文字组合成一个 jpFun 原子表达式 */
