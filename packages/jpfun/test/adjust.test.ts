@@ -1,7 +1,7 @@
 import { test } from "node:test";
 
 import { layoutDocument, type DocumentLayoutResult } from "../src/layout/engine.js";
-import type { PlacedAttachment, Rect } from "../src/layout/types.js";
+import { isLayoutAttachment, type PlacedAttachment, type Rect } from "../src/layout/types.js";
 import { assert, attachmentCommands, commandsOfKind, expectLoweringError, layoutContext, layoutOf, lower, nearly, recordCommands } from "./helpers.js";
 
 test("dx/dy 在排版之后平移，邻居完全不动", () => {
@@ -110,11 +110,27 @@ test("重排两轮与重复调用 layoutDocument 时平移只施加一次", () =
     // 高连音线会撑开轨道占用，触发第二轮纵向放置
     const base = layoutOf(`1@a 2@b @tie(a,b,height=60px)`);
     const movedLowering = lower(`@adjust({1@a}, dx=5px, dy=-4px) 2@b @tie(a,b,height=60px)`);
+    let calls = 0;
+    for (const attachment of movedLowering.attachments) {
+        if (!isLayoutAttachment(attachment)) continue;
+        const createGeometry = attachment.createGeometry.bind(attachment);
+        attachment.createGeometry = context => (calls++, createGeometry(context));
+    }
     const moved = layoutDocument(movedLowering, layoutContext);
+    assert(calls === 2, `顶层重排时附件只需测 layoutOnly 与最终几何共 2 次，实际 ${calls} 次`);
     const movedAgain = layoutDocument(movedLowering, layoutContext);
     assert(nearly(moved.objects[0].box.x, base.objects[0].box.x + 5), "两轮放置也只能平移一次");
     assert(nearly(movedAgain.objects[0].box.x, moved.objects[0].box.x), "重复 layoutDocument 不能丢失或重复施加 dx");
     assert(nearly(movedAgain.objects[0].box.y, moved.objects[0].box.y), "重复 layoutDocument 不能丢失或重复施加 dy");
+
+    // 新放置的未平移坐标恰好等于上一轮平移后的 placedX/placedY（含单轴偏移）时，不能吞掉偏移
+    const collidedY = layoutOf(`@box({@adjust(1, dy=10px) 2}, padding=10px, stroke=0px)`);
+    assert(nearly(collidedY.objects[0].box.y - collidedY.objects[1].box.y, 10),
+        "重排纵向增量与单轴 dy 相等时仍须施加 dy");
+    const graceBase = textCommands(`@page(left=20px) 2>1`);
+    const collidedX = textCommands(`@page(left=20px) @adjust(2, dx=20px)>1`);
+    assert(nearly(findText(collidedX, "2").x - findText(graceBase, "2").x, 20),
+        "全局放置 x 与子域单轴 placedX 相等时仍须施加 dx");
 
     const enclosed = layoutOf(`@adjust({1@a 2@b @tie(a,b,height=60px)}, dx=5px)`);
     const start = tieStart(enclosed);
@@ -128,10 +144,12 @@ test("外包复合函数时保留对象身份与既有布局机制", () => {
     assert(nearly(frame.w, 120), "adjust 外包定宽 box 时不能让其横向约束失效");
 
     const headBase = textCommands(`@head(left={@text(L)}, center={@text(C)}, right={@text(R)}) @br() 1`);
-    const headMoved = textCommands(`@adjust(@head(left={@text(L)}, center={@text(C)}, right={@text(R)}), dy=-2px) @br() 1`);
+    const headMoved = textCommands(`@adjust(@head(left={@text(L)}, center={@text(C)}, right={@text(R)}), dx=5px, dy=-2px) @br() 1`);
     for (const text of ["L", "C", "R"]) {
-        assert(nearly(findText(headMoved, text).x, findText(headBase, text).x),
-            `adjust 外包 head 时不能破坏 ${text} 的横向对齐`);
+        assert(nearly(findText(headMoved, text).x, findText(headBase, text).x + 5),
+            `adjust 外包 head 时 ${text} 的横向位移必须精确施加一次`);
+        assert(nearly(findText(headMoved, text).y, findText(headBase, text).y - 2),
+            `adjust 外包 head 时 ${text} 的纵向位移必须精确施加一次`);
     }
 });
 

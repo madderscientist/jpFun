@@ -140,13 +140,24 @@ function offsetTemporal(node: VisualTemporalNode, { dx, dy, dw, dh }: AdjustFunc
         node.box.h = Math.max(0, node.box.h + dh);
     };
     if (!firstOffset) return;
+    let { x, y } = node.box;
+    Object.defineProperties(node.box, {
+        x: {
+            get: () => x,
+            set(v: number) { if (v === placedX && x === placedX) placedX = undefined; x = v; }
+        },
+        y: {
+            get: () => y,
+            set(v: number) { if (v === placedY && y === placedY) placedY = undefined; y = v; }
+        },
+    });
     const onPlaced = node.onPlaced;
     node.onPlaced = () => {
-        if (node.box.x !== placedX) node.box.x += node.placementOffset!.x;
-        if (node.box.y !== placedY) node.box.y += node.placementOffset!.y;
+        if (x !== placedX) x += node.placementOffset!.x;
+        if (y !== placedY) y += node.placementOffset!.y;
         onPlaced?.call(node);
-        placedX = node.box.x;
-        placedY = node.box.y;
+        placedX = x;
+        placedY = y;
     };
 }
 
