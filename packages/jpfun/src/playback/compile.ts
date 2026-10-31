@@ -289,8 +289,7 @@ export function compilePlayback(
         const program = node.playbackState?.program;
         if (program !== undefined && activePrograms.get(track) !== program) {
             activePrograms.set(track, program);
-            events.push({ kind: "program-change", at: start.clone(), order: nextEventOrder++,
-                origins: lineage, track, program });
+            events.push({ kind: "program-change", at: start.clone(), order: nextEventOrder++, track, program });
         }
         const bpm = node.playbackState?.bpm;
         if (bpm !== undefined) scheduleControl(start, lineage, state => { state.bpm = bpm; });
@@ -328,8 +327,7 @@ export function compilePlayback(
                 if (scales.length) spanScales.set(span, scales);
                 span.end.add(duration);
             },
-            emit: event => events.push({ ...event, at: event.at.clone(),
-                order: nextEventOrder++, origins: lineage }),
+            emit: event => events.push({ ...event, at: event.at.clone(), order: nextEventOrder++ }),
             control: (at, apply) => scheduleControl(at, lineage, apply),
             /** 只登记效果身份和比例，范围等结构与连接确定后再计算 */
             scaleFollowingBpm(key, numerator, denominator = 1, options) {
@@ -470,11 +468,11 @@ export function compilePlayback(
     // 结构与连接全部确定后，只扫描一次状态；后续声音变换统一读取这份最终结果
     while (changeIndex < changes.length) {
         const at = changes[changeIndex].at;
-        const origins = new Set<PlaybackOrigin>();
+        let lastOrigin: PlaybackOrigin | undefined;
         // 同刻控制和效果边界全部应用后才生成快照，避免输出由扫描顺序造成的瞬时速度
         while (changeIndex < changes.length && changes[changeIndex].at.equals(at)) {
             const change = changes[changeIndex++];
-            for (const origin of change.origins) origins.add(origin);
+            lastOrigin = change.origins.at(-1) ?? lastOrigin;
             if (change.kind === "control") change.apply(system);
             else if (change.kind === "scale") {
                 const { key, factor } = change.scale;
@@ -494,7 +492,7 @@ export function compilePlayback(
         };
         if (!Number.isFinite(snapshot.effectiveBpm) || snapshot.effectiveBpm <= 0) {
             throw new ErrorDiagnostic("E_PLAYBACK_BPM", "系统控制产生了无效速度",
-                [...origins].at(-1)?.node.ast.sourceSpan ?? { start: 0, end: 0 });
+                lastOrigin?.node.ast.sourceSpan ?? { start: 0, end: 0 });
         }
         const previous = statePoints.at(-1)?.state;
         if (!previous || previous.bpm !== snapshot.bpm || !previous.bpmScale.equals(bpmScale)) {
@@ -507,7 +505,6 @@ export function compilePlayback(
                 at: at.clone(),
                 bpm: snapshot.effectiveBpm,
                 order: nextEventOrder++,
-                origins: [...origins],
             });
         }
     }
@@ -532,6 +529,7 @@ export function compilePlayback(
     const canAbsorb = (from: PlaybackNote, to: PlaybackNote) => !transforms.has(to)
         && from.track === to.track && from.midi === to.midi && from.percussion === to.percussion;
 
+    const audible = new Set<TemporalNodeBase["track"]>();
     const realized = new Map<PlaybackNote, {
         on: PlaybackDraftNoteOnEvent;
         off: PlaybackDraftNoteOffEvent;
@@ -588,16 +586,18 @@ export function compilePlayback(
             ? [] as { on: PlaybackDraftNoteOnEvent; off: PlaybackDraftNoteOffEvent }[]
             : undefined;
         for (const sound of owned) {
-            const { start, end, track, midi, velocity, percussion, origins, sourceSpans } = sound;
+            const { start, end, track, midi, velocity, percussion, sourceSpans } = sound;
             const noteId = nextNoteId++;
             const on: PlaybackDraftNoteOnEvent = {
                 kind: "note-on", at: start.clone(), noteId, order: nextEventOrder++,
                 track, midi, velocity, percussion,
-                origins, sourceSpans: [...sourceSpans],
+                sourceSpans: [...sourceSpans],
             };
             const off: PlaybackDraftNoteOffEvent = {
-                kind: "note-off", at: end.clone(), noteId, order: nextEventOrder++, origins,
+                kind: "note-off", at: end.clone(), noteId, order: nextEventOrder++,
+                track, midi,
             };
+            audible.add(track);
             events.push(on, off);
             pairs?.push({ on, off });
         }
@@ -634,9 +634,9 @@ export function compilePlayback(
         }
     }
 
-    // 稳定排序后，由统一出口检查配对、压实轨道编号并剥离编译期字段
+    // 稳定排序后，由统一出口压实轨道编号并剥离编译期字段
     const finalEvents = (removed.size ? events.filter(event => !removed.has(event)) : events).sort(comparePlaybackDraftEvents);
-    const output = finalizePlaybackEvents(finalEvents, lowering.tracks);
+    const output = finalizePlaybackEvents(finalEvents, lowering.tracks, audible);
     const eventEnd = finalEvents.at(-1)?.at;
     if (eventEnd && eventEnd.compare(performanceEnd) > 0) performanceEnd.copyFrom(eventEnd);
     // 秒数是最终 Tempo 事件对 performance QN 的积分，绝不反向改写事件时间

@@ -61,10 +61,9 @@ export interface PlaybackOrigin {
 interface PlaybackDraftEventBase {
     at: Fraction;
     order: number;
-    origins: readonly PlaybackOrigin[];
 }
 
-/** 声音展开后生成的点事件；最终输出前会校验并剥离内部字段 */
+/** 声音展开后生成的点事件；最终输出前压实轨道编号并剥离编译期字段 */
 export interface PlaybackDraftNoteOnEvent extends PlaybackDraftEventBase {
     kind: "note-on";
     noteId: PlaybackNoteId;
@@ -72,13 +71,14 @@ export interface PlaybackDraftNoteOnEvent extends PlaybackDraftEventBase {
     midi: number;
     velocity: number;
     percussion?: true;
-    transpose?: (steps: number) => number;
     sourceSpans: SourceSpan[];
 }
 
 export interface PlaybackDraftNoteOffEvent extends PlaybackDraftEventBase {
     kind: "note-off";
     noteId: PlaybackNoteId;
+    track: Track;
+    midi: number;
 }
 
 export interface PlaybackDraftTempoEvent extends PlaybackDraftEventBase {
@@ -127,40 +127,14 @@ export function comparePlaybackDraftEvents(left: PlaybackDraftEvent, right: Play
 }
 
 /**
- * 校验配对、压实发声 Track 编号并剥掉编译期字段，得到稳定、可序列化的公开事件
- * 输入已经稳定排序；这里保留次序，将编译期的 Track 对象和音符配对转换为公开字段
+ * 压实发声 Track 编号并剥掉编译期字段，得到稳定、可序列化的公开事件
+ * 输入已经稳定排序；这里保留次序，将编译期的 Track 对象转换为公开通道编号
  */
 export function finalizePlaybackEvents(
     events: readonly PlaybackDraftEvent[],
     trackOrder: readonly Track[],
+    audible: ReadonlySet<Track>,
 ): { events: PlaybackEvent[]; tracks: Track[] } {
-    const noteOns = new Map<PlaybackNoteId, PlaybackDraftNoteOnEvent>();
-    const noteOffs = new Map<PlaybackNoteId, PlaybackDraftNoteOffEvent>();
-    // 同一音符的两端不一定相邻，先按 noteId 建立索引并拒绝重复的开音或关音
-    for (const event of events) {
-        if (event.kind === "note-on") {
-            if (noteOns.has(event.noteId)) throw new Error(`Duplicate NoteOn ${event.noteId}`);
-            noteOns.set(event.noteId, event);
-        } else if (event.kind === "note-off") {
-            if (noteOffs.has(event.noteId)) throw new Error(`Duplicate NoteOff ${event.noteId}`);
-            noteOffs.set(event.noteId, event);
-        }
-    }
-    const audible = new Set<Track>();
-    // 物理合并完成后仍必须一一配对，并保留正时值和可追溯的来源；同时收集实际发声轨道
-    for (const [noteId, on] of noteOns) {
-        const off = noteOffs.get(noteId);
-        if (!off) throw new Error(`Note ${noteId} has no NoteOff`);
-        if (off.at.compare(on.at) <= 0) throw new Error(`Note ${noteId} has a non-positive duration`);
-        if (on.origins.length === 0 || off.origins.length === 0) throw new Error(`Note ${noteId} has no origin`);
-        audible.add(on.track);
-    }
-    // 仅当关音数量多于开音时反查孤立的 NoteOff
-    if (noteOffs.size !== noteOns.size) {
-        for (const noteId of noteOffs.keys()) {
-            if (!noteOns.has(noteId)) throw new Error(`NoteOff ${noteId} has no NoteOn`);
-        }
-    }
     // 保留 lowering 的稳定轨道顺序，只过滤未实际发声的轨道
     const trackIds = new Map<Track, number>();
     for (const track of trackOrder) {
@@ -187,9 +161,10 @@ export function finalizePlaybackEvents(
             });
             continue;
         }
+        const track = trackIds.get(event.track);
+        if (track === undefined) continue;
         if (event.kind === "program-change") {
-            const track = trackIds.get(event.track);
-            if (track !== undefined) output.push({
+            output.push({
                 kind: "program-change",
                 at: event.at,
                 track,
@@ -197,9 +172,6 @@ export function finalizePlaybackEvents(
             });
             continue;
         }
-        // NoteOff 从配对的 NoteOn 取得轨道和键号，保证两端始终使用相同的最终身份
-        const on = event.kind === "note-on" ? event : noteOns.get(event.noteId)!;
-        const track = trackIds.get(on.track)!;
         if (event.kind === "note-on") {
             output.push({
                 kind: "note-on",
@@ -218,7 +190,7 @@ export function finalizePlaybackEvents(
             at: event.at,
             noteId: event.noteId,
             track,
-            midi: on.midi,
+            midi: event.midi,
         });
     }
     return { events: output, tracks: [...trackIds.keys()] };
