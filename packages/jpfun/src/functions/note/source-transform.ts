@@ -34,8 +34,7 @@ function targetPitch(note: NoteSource, operation: NoteTransform) {
     const spelling = operation === "semitone-down" ? FLAT_NOTE_NAMES : SHARP_NOTE_NAMES;
     let name: string, acc: string, octave: number;
     if (operation === "to-absolute") {
-        const tonicLetter = LETTERS.indexOf(note.keySignature[0]);
-        const base = tonicLetter < 0 ? LETTERS.indexOf(SHARP_NOTE_NAMES[mod(tonic, 12)][0]) : tonicLetter;
+        const base = LETTERS.indexOf(note.keySignature[0]);
         const degree = Number(note.ast.name) - 1;
         name = LETTERS[(base + degree) % 7];
         const tonicAcc = mod(tonic - NoteNameMap[LETTERS[base]] + 6, 12) - 6;
@@ -44,9 +43,7 @@ function targetPitch(note: NoteSource, operation: NoteTransform) {
         acc = accidental(midi - ((octave + 1) * 12 + NoteNameMap[name]));
     } else if (operation === "to-relative") {
         const ast = note.ast;
-        const key = LETTERS.includes(note.keySignature[0]) ? note.keySignature
-            : SHARP_NOTE_NAMES[mod(tonic, 12)] + (Math.floor(tonic / 12) - 1);
-        const relative = resolveLetterNameToJianpu(ast.name, ast.acc, ast.octave + ast.jeOctaveOffset, key);
+        const relative = resolveLetterNameToJianpu(ast.name, ast.acc, ast.octave + ast.jeOctaveOffset, note.keySignature);
         if (!relative) fail(ast.sourceSpan);
         ({ renderName: name, renderAcc: acc, renderOctave: octave } = relative);
     } else {

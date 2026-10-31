@@ -34,30 +34,29 @@ export interface RelativeJianpuPitch {
     renderOctave: number;
 }
 
-// 输入 C4 D#3 B3b G, A 等音符字符串，输出 MIDI 数值；格式不合法返回 null
-// 要求非常严格：必须 [大写字母或数字][升降号#bn只能一个][绝对八度]
-export function tonality2Midi(tonality: string, defaultOctave = 4): number | null {
+// 输入 C4 D#3 Bb3 等调性字符串，输出 MIDI 数值；格式不合法返回 null
+// 要求非常严格：必须 [大写字母][最多一个 #b][绝对八度]
+export function tonality2Midi(tonality: string): number | null {
     // 解析音名
     const note = tonality[0];
+    if (!note || note < "A" || note > "G") return null;
     let acc = "";
     let i = 1;
     // 解析升降号
-    if (i < tonality.length && (tonality[i] === '#' || tonality[i] === 'b' || tonality[i] === 'n')) {
+    if (i < tonality.length && (tonality[i] === "#" || tonality[i] === "b")) {
         acc = tonality[i];
         i++;
     }
     // 组合音名和升降号
-    let noteValue = NoteNameMap[note + acc];
+    const noteValue = NoteNameMap[note + acc];
     if (noteValue === undefined) return null;
     // 解析八度
-    if (i < tonality.length) {
-        const octave = tonality.slice(i);
-        defaultOctave = Number(octave);
-        if (!/^-?\d+$/.test(octave) || !Number.isSafeInteger(defaultOctave)) {
-            return null;
-        }
+    const octaveText = tonality.slice(i);
+    const octave = Number(octaveText);
+    if (!/^-?\d+$/.test(octaveText) || !Number.isSafeInteger(octave)) {
+        return null;
     }
-    return (defaultOctave + 1) * 12 + noteValue;
+    return (octave + 1) * 12 + noteValue;
 }
 
 // ignoreNatural: 是否忽略还原号对升降号的重置作用。默认为true，即默认自然音符不重置acc

@@ -311,8 +311,9 @@ test("不规范的调性先按音高归一化，读不懂才退回 C4，严格�
     /** 源码里数字 1 解析出的 MIDI，说明最终生效的到底是哪个调 */
     const tonicOf = (tonality: string) => {
         const compiled = compileScore(`@1(${tonality}) 1`);
+        const key = compiled.layout.objects[0].ast as { tonality?: string };
         const note = compiled.layout.objects[1] as VisualTemporalNode & { resolvedMidi: number };
-        return { midi: note.resolvedMidi, diagnostics: compiled.lowering.diagnostics };
+        return { tonality: key.tonality, midi: note.resolvedMidi, diagnostics: compiled.lowering.diagnostics };
     };
 
     // parseNoteName 比 tonality2Midi 宽松得多，这些以前会一路蒙混到 lowering 才崩
@@ -322,6 +323,7 @@ test("不规范的调性先按音高归一化，读不懂才退回 C4，严格�
         ["B#4", 72],    // 升到下一个八度 -> C5
         ["Cn", 60],     // 还原号
         ["c", 60],      // 小写
+        ["5", 67],      // 数字音名 -> G4
         ["5'", 79],     // 数字音名加相对八度 -> G5
     ];
     for (const [tonality, midi] of cases) {
@@ -337,8 +339,10 @@ test("不规范的调性先按音高归一化，读不懂才退回 C4，严格�
         expectCompileError(`@set(strict=true) @1(${tonality}) 1`, "E_KEY_TONALITY");
     }
 
-    for (const tonality of ["C4", "F#3", "Bb", "5"]) {
-        assert(!tonicOf(tonality).diagnostics.some(item => item.code === "W_KEY_TONALITY"),
+    for (const [tonality, expected] of [["C4", "C4"], ["F#3", "F#3"], ["C", "C4"], ["Bb", "Bb4"]] as const) {
+        const result = tonicOf(tonality);
+        assert(result.tonality === expected, `合法调性 "${tonality}" 应归一化为 "${expected}"，实际 "${result.tonality}"`);
+        assert(!result.diagnostics.some(item => item.code === "W_KEY_TONALITY"),
             `合法调性 "${tonality}" 不应报警`);
     }
 });

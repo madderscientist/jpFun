@@ -2,7 +2,7 @@ import { DEFAULT_TONALITY, TemporalNodeBase, type TimeState } from "../temporal.
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, LengthValue, ParserContext, SourceSpan } from "../ASTtypes.js";
 import { ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { parseNoteName } from "../note/noteName.js";
-import { acc2Offset, NoteNameMap, tonality2Midi } from "../../parser/parse-utils/note-utils.js";
+import { acc2Offset, NoteNameMap } from "../../parser/parse-utils/note-utils.js";
 import { paintAccidental, placeAccidentals, type PlacedAccidental } from "../note/accidentals.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
@@ -10,12 +10,10 @@ import type { Painter, TextStyle } from "../../render/types.js";
 /**
  * 把宽松的调性写法收敛成 tonality2Midi 认得的 [音名][最多一个 #b][绝对八度]
  *
- * 本来就合法就原样返回，彻底读不懂返回 null
+ * 彻底读不懂返回 null
  * `C###` 这种超过一个变音记号的写法按实际音高换字母（→ D#4），落在黑键上则跟随原来的升降方向拼写
  */
 function normalizeTonality(tonality: string): string | null {
-    if (tonality2Midi(tonality) !== null) return tonality;
-
     const normalizedInput = tonality.replace(/^[a-g]/, letter => letter.toUpperCase());
     const parsed = parseNoteName(normalizedInput, 0, normalizedInput.length, false);
     if (!parsed || parsed.next !== normalizedInput.length) return null;
@@ -25,6 +23,7 @@ function normalizeTonality(tonality: string): string | null {
     const offset = acc2Offset(parsed.acc ?? "", false);
     const octave = parsed.absOctave ? parsed.octave ?? 4 : 4 + (parsed.octave ?? 0);
     const midi = (octave + 1) * 12 + pitchClass + offset;
+    if (!Number.isSafeInteger(midi)) return null;
     // NoteNameMap 里同一音高的升号拼写在前、降号在后，正好用来挑方向；数字音名不参与拼写
     const spellings = Object.keys(NoteNameMap).filter(name =>
         NoteNameMap[name] === ((midi % 12) + 12) % 12 && /^[A-G]/.test(name));
@@ -75,14 +74,14 @@ class KeyFunction extends ASTFunctionNode {
         this.size = ctx.length2px(size);
 
         const normalized = normalizeTonality(tonality);
-        if (normalized !== tonality) {
+        this.tonality = normalized ?? DEFAULT_TONALITY;
+        if (normalized !== tonality && normalized !== `${tonality}4`) {
             if (ctx.variables.strict) throw new ErrorDiagnostic(
                 "E_KEY_TONALITY",
                 '@key 无法解析调性 "{tonality}"',
                 sourceSpan,
                 { tonality },
             );
-            this.tonality = normalized ?? DEFAULT_TONALITY;
             ctx.diagnostics.push(new WarningDiagnostic(
                 "W_KEY_TONALITY",
                 '@key 的调性 "{input}" 不是规范写法，已自动切换到 {tonality}',
