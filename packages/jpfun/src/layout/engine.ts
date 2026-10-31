@@ -343,7 +343,7 @@ export function layoutDocument(
 
     if (measured.needsRelayout) {
         placement = placeVertically();
-        measured = measureAttachments(documentAttachments, placement.attachmentContext, lines, lift, subdomainGeometry, hosts);
+        measured = measureAttachmentPass(documentAttachments, placement.attachmentContext, lines, lift, subdomainGeometry, false);
     }
     const pages = placement.pages;
     let next = 0;

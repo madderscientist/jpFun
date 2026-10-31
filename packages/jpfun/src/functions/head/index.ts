@@ -94,6 +94,7 @@ class HeadBoundaryTemporal extends TemporalNodeBase {
     members: TemporalNodeBase[] = [];
     slots: { ast: HeadSlotNode; start: HeadBoundaryTemporal; end: HeadBoundaryTemporal }[] = [];
     private titleBottom = 0;
+    private aligned = false; // 侧栏横向重排在一轮布局中只执行一次，避免二次 onPlaced 把成员微调后的 box.x 当成未偏移基准
     private sideExtents: Record<SideName, Extent | null> = { left: null, right: null };
 
     constructor(ast: HeadSlotNode) {
@@ -114,7 +115,10 @@ class HeadBoundaryTemporal extends TemporalNodeBase {
         }
     }
 
-    override prepareLayout() { this.box.w = this.box.h = this.box.anchor = this.box.visualAxis = 0; }
+    override prepareLayout() {
+        this.box.w = this.box.h = this.box.anchor = this.box.visualAxis = 0;
+        this.aligned = false;
+    }
 
     override prepareHorizontal(line: HorizontalLineView) {
         // 只由第一个边界协调一次整块 Head，避免六个边界重复改弹簧
@@ -122,7 +126,10 @@ class HeadBoundaryTemporal extends TemporalNodeBase {
     }
 
     override onPlaced() {
-        if (this.slots.length > 0) this.alignHead();
+        if (this.slots.length > 0 && !this.aligned) {
+            this.aligned = true;
+            this.alignHead();
+        }
     }
 
     onTemporal(node: TemporalNodeBase) { this.members.push(node); }
@@ -193,7 +200,7 @@ class HeadBoundaryTemporal extends TemporalNodeBase {
             else cells.set(cell, [member]);
         }
         const [left, , right] = this.slots;
-        this.packRows(left.ast, left.start.box.x, cells);
+        this.packRows(left.ast, left.start.box.x - (left.start.placementOffset?.x ?? 0), cells);
         this.packRows(right.ast, right.end.box.x, cells);
     }
 
