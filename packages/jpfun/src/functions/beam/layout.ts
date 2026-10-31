@@ -101,8 +101,7 @@ export function collectExplicitBeamEndpoints(
     for (const attachment of attachments) {
         if (!(attachment instanceof BeamLayoutAttachment) || !attachment.explicit) continue;
         for (const endpoint of attachment.endPoints) result.add(endpoint);
-    }
-    return result;
+    } return result;
 }
 
 class BeamLayoutAttachment implements LayoutAttachment {

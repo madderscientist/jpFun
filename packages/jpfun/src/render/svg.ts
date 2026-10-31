@@ -4,7 +4,6 @@ import { DEFAULT_TEXT_FONT, JIANPU_NUMBER_FONT } from "./text.js";
 import type { PaintStyle, Painter, PathCommand, PathTransform, TextStyle } from "./types.js";
 
 export interface SvgRenderOptions {
-    padding?: number;       // viewBox 四周额外保留的空间
     background?: string;    // 可选背景颜色，默认透明
 }
 
@@ -69,11 +68,6 @@ function pathCommandsToSvg(
     return parts.join(" ");
 }
 
-function opacityAttribute(style?: PaintStyle): string {
-    if (style?.opacity === void 0) return "";
-    return ` opacity="${number(style.opacity)}"`;
-}
-
 /** 生成独立 SVG 字符串的 Painter；路径直接输出最终坐标 */
 export class SvgPainter implements Painter {
     private body: string[] = [];
@@ -94,7 +88,7 @@ export class SvgPainter implements Painter {
             + (style.fontStyle && style.fontStyle !== "normal" ? ` font-style="${escapeXml(style.fontStyle)}"` : "")
             + (fill !== "#000" ? ` fill="${escapeXml(fill)}"` : "")
             + (/\s/.test(text) ? ` xml:space="preserve"` : "")
-            + `${opacityAttribute(style)}>${escapeXml(text)}</text>`,
+            + `>${escapeXml(text)}</text>`,
         );
     }
 
@@ -104,8 +98,7 @@ export class SvgPainter implements Painter {
         this.body.push(
             `<line x1="${number(x1)}" y1="${number(y1)}" `
             + `x2="${number(x2)}" y2="${number(y2)}" `
-            + `stroke="${escapeXml(stroke)}" stroke-width="${number(strokeWidth)}" stroke-linecap="round"`
-            + `${opacityAttribute(style)} />`,
+            + `stroke="${escapeXml(stroke)}" stroke-width="${number(strokeWidth)}" stroke-linecap="round" />`,
         );
     }
 
@@ -118,7 +111,7 @@ export class SvgPainter implements Painter {
             + `width="${number(Math.max(0, w))}" height="${number(Math.max(0, h))}"`
             + (fill !== "#000" ? ` fill="${escapeXml(fill)}"` : "")
             + (stroke !== "none" ? ` stroke="${escapeXml(stroke)}" stroke-width="${number(strokeWidth)}"` : "")
-            + `${opacityAttribute(style)} />`,
+            + ` />`,
         );
     }
 
@@ -131,7 +124,7 @@ export class SvgPainter implements Painter {
             + `r="${number(Math.max(0, r))}"`
             + (fill !== "#000" ? ` fill="${escapeXml(fill)}"` : "")
             + (stroke !== "none" ? ` stroke="${escapeXml(stroke)}" stroke-width="${number(strokeWidth)}"` : "")
-            + `${opacityAttribute(style)} />`,
+            + ` />`,
         );
     }
 
@@ -148,7 +141,7 @@ export class SvgPainter implements Painter {
             + (stroke !== "none"
                 ? ` stroke="${escapeXml(stroke)}" stroke-width="${number(strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"`
                 : "")
-            + `${opacityAttribute(style)} />`,
+            + ` />`,
         );
     }
 
@@ -156,11 +149,10 @@ export class SvgPainter implements Painter {
         bounds: DocumentLayoutResult["bounds"],
         options: SvgRenderOptions = {},
     ): string {
-        const padding = Math.max(0, options.padding ?? 0);
-        const left = bounds.x - padding;
-        const top = bounds.y - padding;
-        const width = Math.max(1, bounds.w + padding * 2);
-        const height = Math.max(1, bounds.h + padding * 2);
+        const left = bounds.x;
+        const top = bounds.y;
+        const width = Math.max(1, bounds.w);
+        const height = Math.max(1, bounds.h);
         const background = options.background
             ? `<rect x="${number(left)}" y="${number(top)}" width="${number(width)}" height="${number(height)}" fill="${escapeXml(options.background)}" />`
             : "";

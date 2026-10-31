@@ -321,8 +321,8 @@ tinySynth 与 midi.js 均从 `https://madderscientist.github.io/noteDigger/lib/`
 `compileScore` 返回的 `layout` 可直接传入两个渲染后端：
 
 ```ts
-renderLayoutPagesToSvg(layout, { padding, background }) // 返回分页 SVG 字符串数组
-renderLayoutPagesToCanvas(layout, contexts)             // 画到每页的 2D context
+renderLayoutPagesToSvg(layout, { background })  // 返回分页 SVG 字符串数组
+renderLayoutPagesToCanvas(layout, contexts)     // 画到每页的 2D context
 ```
 
 SVG 路径直接使用最终坐标，不生成 `<defs>/<use>`，以简化渲染结构。SVG 内容与缩放无关，缩放时只修改 `style.width/height`，无需重新生成。

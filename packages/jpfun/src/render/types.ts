@@ -19,7 +19,6 @@ export interface PaintStyle {
     fill?: string;          // 填充颜色，不设置时由命令选择默认值
     stroke?: string;        // 描边颜色，不设置时不描边或使用命令默认值
     strokeWidth?: number;   // 描边宽度，单位为布局坐标像素
-    opacity?: number;       // 整体透明度，范围为 0 到 1
 }
 
 /**
@@ -35,7 +34,6 @@ export interface TextStyle {
     fontStyle?: "normal" | "italic" | "oblique";
     textAlign?: "left" | "center" | "right"; // x 坐标对应文本的哪一侧
     fill?: string;
-    opacity?: number;
 }
 
 /**

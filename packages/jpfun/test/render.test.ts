@@ -19,7 +19,6 @@ function allNumbersFinite(value: unknown): boolean {
 function recordingCanvasContext(calls: string[]) {
     const note = (name: string) => () => { calls.push(name); };
     return {
-        globalAlpha: 1,
         save: note("save"), restore: note("restore"),
         translate: (x: number, y: number) => { calls.push(`translate(${x},${y})`); },
         beginPath: note("beginPath"), closePath: note("closePath"),
@@ -40,7 +39,7 @@ function recordCanvasCalls(result: DocumentLayoutResult) {
 /** 综合样例：一次画出文本、减时线、方框、八度点与连音线，供多个用例共享 */
 const result = layoutOf(`@box({1@a #2'./ 8 9# 3@b @tie(a,b)}, 2px, 1px) @text("<tag & text>")`);
 const commands = recordCommands(result);
-const [svg] = renderLayoutPagesToSvg(result, { padding: 4 });
+const [svg] = renderLayoutPagesToSvg(result);
 const canvasCalls = recordCanvasCalls(result);
 
 test("综合乐谱产生各类绘制命令且坐标全部有限", () => {
@@ -227,24 +226,16 @@ test("Canvas 后端能执行描边、曲线与文本绘制", () => {
     assert(canvasCalls.includes("fillText"), "Canvas backend must draw arbitrary text");
 
     const calls: string[] = [];
-    const alphas: number[] = [];
     const joins: string[] = [];
     const context = recordingCanvasContext(calls);
-    context.globalAlpha = 0.8;
-    context.fillText = () => {
-        calls.push("fillText");
-        alphas.push(context.globalAlpha);
-    };
     context.strokeRect = () => {
         calls.push("strokeRect");
         joins.push(context.lineJoin);
     };
     const painter = new CanvasPainter(context);
-    painter.drawText("A", 0, 0, { fontSize: 16, opacity: 0.5 });
+    painter.drawText("A", 0, 0, { fontSize: 16 });
     painter.drawPath([{ op: "M", x: 0, y: 0 }, { op: "L", x: 5, y: 5 }], { stroke: "#000" });
     painter.drawRect(0, 0, 10, 10, { stroke: "#000" });
-    assert(nearly(alphas[0], 0.4), "drawText must multiply caller globalAlpha by style.opacity");
-    assert(nearly(context.globalAlpha, 0.8), "CanvasPainter must restore globalAlpha after drawing with opacity");
     strictEqual(joins[0], "miter", "drawRect stroke must reset lineJoin after drawPath");
 });
 
