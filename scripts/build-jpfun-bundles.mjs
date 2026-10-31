@@ -25,10 +25,10 @@ async function bundle(entry, outfile) {
   });
 }
 
-await bundle("dist/iife/full.js", "dist/jpfun.min.js");
-const core = await bundle("dist/iife/core.js", "dist/jpfun.core.min.js");
-const fromMidi = await bundle("dist/iife/from-midi.js", "dist/jpfun.from-midi.min.js");
-const fromMusicXml = await bundle("dist/iife/from-musicxml.js", "dist/jpfun.from-musicxml.min.js");
+await bundle("src/iife/full.ts", "dist/jpfun.min.js");
+const core = await bundle("src/iife/core.ts", "dist/jpfun.core.min.js");
+const fromMidi = await bundle("src/iife/from-midi.ts", "dist/jpfun.from-midi.min.js");
+const fromMusicXml = await bundle("src/iife/from-musicxml.ts", "dist/jpfun.from-musicxml.min.js");
 
 function assertExcludes(result, name, patterns) {
   const inputs = Object.keys(result.metafile.inputs).map(input => input.replaceAll("\\", "/"));
@@ -39,5 +39,5 @@ function assertExcludes(result, name, patterns) {
 }
 
 assertExcludes(core, "core bundle", ["/converter/"]);
-assertExcludes(fromMidi, "from-midi bundle", ["/pipeline.js", "/layout/", "/render/", "/playback/"]);
-assertExcludes(fromMusicXml, "from-musicxml bundle", ["/pipeline.js", "/layout/", "/render/", "/playback/"]);
+assertExcludes(fromMidi, "from-midi bundle", ["/pipeline.", "/layout/", "/render/", "/playback/"]);
+assertExcludes(fromMusicXml, "from-musicxml bundle", ["/pipeline.", "/layout/", "/render/", "/playback/"]);
