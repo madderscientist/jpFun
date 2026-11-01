@@ -81,6 +81,10 @@ class DashTemporalNode extends TemporalNodeBase {
         this.box.visualAxis = size * 0.5;
     }
 
+    override finalizeLayout() {
+        this.ports["lyric"] = { x: this.box.anchor, y: this.box.h };
+    }
+
     /**
      * 在结构阶段延长前方同轨、时间相接的一组区间
      * 有声与无声目标都保留原对象，后续声音变换才能使用延长后的完整时值

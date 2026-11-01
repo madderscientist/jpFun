@@ -830,7 +830,7 @@ function renderBlocks(
                 if (bar) prefix.push(bar);
             }
             const continuation = item.rest ? "0" : "-";
-            let slotCount = item.rest ? 0 : 1;
+            let slotCount = 0;
             for (const [pointIndex, { at, end, duration }] of slices[groupIndex].entries()) {
                 const changes = adjustments.get(keyOf(at));
                 const head = pointIndex === 0 || changes
@@ -842,7 +842,7 @@ function renderBlocks(
                 const fragment = durationSource(head, continuation, duration);
                 fragment.tailDuration.mul(modification.normal, modification.actual);
                 prefix.push(metadata.labelEnding(fragment, end));
-                if (item.rest) slotCount += fragment.slotCount;
+                slotCount += fragment.slotCount;
             }
             lyricEvents.push({ event: item, slotCount });
             prefix.push(...metadata.afterSources.get(item) ?? []);
@@ -1247,8 +1247,7 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagno
                 const fragment = durationSource(head, continuation, duration);
                 outputs.at(-1)!.push(metadata.labelEnding(fragment, next));
                 if (start) outputs.at(-1)!.push(...metadata.afterSources.get(event) ?? []);
-                if (event.rest) addLyricSlots(start ? event : undefined, fragment.slotCount);
-                else if (start) addLyricSlots(event, 1);
+                addLyricSlots(start ? event : undefined, fragment.slotCount);
             } else {
                 const head = changes
                     ? (suffix: string) => attachAdjustment(`0${suffix}`, changes)

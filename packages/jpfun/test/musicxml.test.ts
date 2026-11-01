@@ -604,14 +604,14 @@ test("MusicXML time-modification 精确生成 jpFun tuplet", () => {
   <score-partwise version="4.0">
     <part-list><score-part id="P1"><part-name>Voice</part-name></score-part></part-list>
     <part id="P1"><measure number="1">
-    <attributes><divisions>1</divisions><time><beats>3</beats><beat-type>4</beat-type></time></attributes>
-    <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><lyric number="1"><syllabic>begin</syllabic><text>Hel</text><elision>‿</elision><text>le</text></lyric><lyric number="2"><text>你好</text></lyric></note>
+    <attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><lyric number="1"><syllabic>begin</syllabic><text>Hel</text><elision>‿</elision><text>le</text></lyric><lyric number="2"><text>你好</text></lyric></note>
     <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><lyric number="1"><syllabic>end</syllabic><text>lo</text></lyric></note>
     <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><lyric number="2"><text>呀</text></lyric></note>
     </measure></part>
   </score-partwise>`);
-    assert(source.includes('"Hel~le- lo @"') && source.includes('"{你好} @ 呀"'),
-      `两段歌词与占位应写入 voice：${source}`);
+    assert(source.includes('"Hel~le- @ lo @"') && source.includes('"{你好} @ @ 呀"'),
+      `两段歌词、增时线与缺词音符占位应写入 voice：${source}`);
     const commands = recordCommands(compileScore(source).layout);
     assert(commands.some(command => command.kind === "text" && command.text === "Hel~le-")
       && commands.some(command => command.kind === "text" && command.text === "lo")

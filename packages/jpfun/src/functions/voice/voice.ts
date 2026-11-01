@@ -7,10 +7,10 @@ import { type CallArgumentInfo, GrammarNode, GrammarSugarNode } from "../../pars
 import { findRightParen } from "../../parser/parse-utils/call-utils.js";
 import { findClosingQuote, quote } from "../../parser/parse-utils/string-utils.js";
 import { ParserContext, skipSpaces } from "../../parser/parserContext.js";
-import { paintRichLine, prepareRichLine, type PreparedRichLine, type RichTextRun } from "../../render/text.js";
+import { paintRichLine, prepareRichLine, type PreparedRichLine } from "../../render/text.js";
 import type { Painter, TextStyle } from "../../render/types.js";
 import { isVisualTemporalNode, TemporalNodeBase, type VisualTemporalNode } from "../temporal.js";
-import { lyricNameStyle, parseLyric, serializeLyric, VoiceLyricsAttachment } from "./lyrics.js";
+import { lyricNameStyle, type LyricSlot, parseLyric, serializeLyric, VoiceLyricsAttachment } from "./lyrics.js";
 import { VoicesFunction } from "./voices.js";
 
 /** 无大括号时标签右侧的空隙，相对声部字号 */
@@ -41,7 +41,7 @@ export class VoiceFunction extends ASTFunctionNode {
 ~~~
 - **额外参数**：每项为一行歌词；命名参数同时给出歌词行名，位置参数表示无行名。省略声部名但仍需歌词时，保留空位，如 \`@voice({1 2 3}, , ha ha ha)\`。
 
-歌词可用引号包裹；调用 \`@voice\` 时歌词若含逗号须加引号。英文用空格或连字符 \`-\` 分词，用 \`@\` 留空。名称与歌词均支持 \`*斜体*\`、\`**粗体**\`、\`_下划线_\`、\`^上标^\`（可跨多个音符，如 \`*春眠不觉晓*\`）。
+歌词可用引号包裹；调用 \`@voice\` 时歌词若含逗号须加引号。英文用空格或连字符 \`-\` 分词，用 \`@\` 留空；\`{你好}\` 合为一个音符槽，末尾加 \`@\`（如 \`{a@@}\`）可左对齐并覆盖多个音符槽。名称与歌词均支持 \`*斜体*\`、\`**粗体**\`、\`_下划线_\`、\`^上标^\`（可跨多个音符，如 \`*春眠不觉晓*\`）。
 
 **简写**：\`N\` 声明音符行，\`L\` 声明歌词行，括号内的名称可省略：
 ~~~jpfun
@@ -247,7 +247,7 @@ L: la la la
     readonly font: string;
     lyrics: {
         name: string;
-        tokens: RichTextRun[][];   // 分词后的歌词内容
+        tokens: LyricSlot[];   // 分词后的歌词内容
     }[];
     override get children() { return [this.content]; }
 

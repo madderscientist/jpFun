@@ -68,22 +68,41 @@ function measureLyricToken(runs: readonly RichTextRun[], style: TextStyle, measu
     return { richLine, prefixWidth: rangeWidth(0, start), bodyWidth: rangeWidth(start, end) };
 }
 
+export type LyricSlot = RichTextRun[] | null;
+
+function lyricLeftPortX(target: VisualTemporalNode): number {
+    return target.ports["body.left"]?.x ?? 0;
+}
+
+/** 将刚性半宽提升至 min，并从同侧弹簧 margin 中等量扣减：未超长时保持 WL/WR+margin 总宽不变，压缩时以刚性下界防重叠 */
+function reserveSide(el: { WL: number; WR: number; margin_L: number; margin_R: number }, side: "L" | "R", min: number) {
+    const w = side === "L" ? "WL" : "WR";
+    const m = side === "L" ? "margin_L" : "margin_R";
+    if (min > el[w]) {
+        el[m] = Math.max(0, el[w] + el[m] - min);
+        el[w] = min;
+    }
+}
+
 /**
  * 把歌词拆成与音符一一对应的富文本槽位，同时支持跨槽或槽内的 Markdown 样式（`**`、`*`、`_`、`^`）。
  * 例如 `hello world` 拆成 `hello`、`world`，`hel-lo` 拆成 `hel-`、`lo`；
- * `你好吗` 默认逐字拆分，`你 @ 好` 中的 `@` 留出一个空槽，`{你好} 啊` 则把 `你好` 放在同一个槽位。
+ * `你好吗` 默认逐字拆分，`你 @ 好` 中的 `@` 留出一个空槽，
+ * `{你好} 啊` 把 `你好` 放在同一个槽位，`{a@@}` 则左对齐并覆盖三个槽位（后续槽记为 `null`）。
  */
-export function parseLyric(value: string): RichTextRun[][] {
+export function parseLyric(value: string): LyricSlot[] {
     let closeBraces = 0;
     for (let i = 0; i < value.length; i++) {
         if (value[i] === "\\") i++;
         else if (value[i] === "}") closeBraces++;
     }
 
-    const result: RichTextRun[][] = [];
+    const result: LyricSlot[] = [];
     let pending: RichTextRun[] = [];
+    let lastToken: RichTextRun[] | undefined;
     let hasBody = false;
     let grouped = false;
+    let keepRuns = 0, keepLen = 0, span = 0;
 
     const add = (text: string, mask: number) => {
         appendRun(pending, text, mask);
@@ -91,7 +110,7 @@ export function parseLyric(value: string): RichTextRun[][] {
     };
     const flush = (force = false) => {
         if (!force && !hasBody) return;
-        result.push(pending);
+        result.push(lastToken = pending);
         pending = [];
         hasBody = false;
     };
@@ -100,10 +119,25 @@ export function parseLyric(value: string): RichTextRun[][] {
         if (!escaped && ch === "}") closeBraces--;
         if (grouped) {
             if (!escaped && ch === "}") {
-                flush(true);
+                if (span) {
+                    pending.length = keepRuns;
+                    if (keepRuns) pending[keepRuns - 1].text = pending[keepRuns - 1].text.slice(0, keepLen);
+                }
+                if (!keepRuns && span) while (span--) result.push([]);
+                else {
+                    flush(true);
+                    while (span--) result.push(null);
+                }
+                keepRuns = keepLen = span = 0;
                 grouped = false;
+            } else if (!escaped && (ch === "@" || WHITESPACE_RE.test(ch))) {
+                if (ch === "@") span++;
+                add(ch, mask);
             } else {
-                appendRun(pending, ch, mask);
+                add(ch, mask);
+                keepRuns = pending.length;
+                keepLen = pending[keepRuns - 1].text.length;
+                span = 0;
             }
         } else if (!escaped && ch === "{" && closeBraces > 0) {
             flush();
@@ -122,11 +156,12 @@ export function parseLyric(value: string): RichTextRun[][] {
                 flush();
             }
             result.push([]);
+            lastToken = undefined;
         } else if (LYRIC_OPENING_PUNCTUATION.has(ch)) {
             flush();
             appendRun(pending, ch, mask);
         } else if (LYRIC_SILENT_PUNCTUATION.has(ch)) {
-            appendRun(pending.length > 0 || !result.at(-1)?.length ? pending : result.at(-1)!, ch, mask);
+            appendRun(pending.length > 0 || !lastToken?.length ? pending : lastToken, ch, mask);
         } else if (ch.charCodeAt(0) > 0x7F) {
             flush();
             add(ch, mask);
@@ -138,8 +173,8 @@ export function parseLyric(value: string): RichTextRun[][] {
 
     flush();
     if (pending.length > 0) {
-        if (result.at(-1)?.length) {
-            for (const run of pending) appendRun(result.at(-1)!, run.text, run.mask);
+        if (lastToken?.length) {
+            for (const run of pending) appendRun(lastToken, run.text, run.mask);
         } else {
             result.push(pending);
         }
@@ -147,16 +182,17 @@ export function parseLyric(value: string): RichTextRun[][] {
     return result;
 }
 
-export function serializeLyric(tokens: readonly (readonly RichTextRun[])[]): string {
-    return quote(tokens.map(runs => {
+export function serializeLyric(tokens: readonly (readonly RichTextRun[] | null)[]): string {
+    return quote(tokens.flatMap((runs, i) => {
+        if (runs === null) return [];
         if (runs.length === 0) return "@";
-        let mask = 0;
-        let inner = "";
+        let span = 0, mask = 0, inner = "";
+        while (tokens[i + 1 + span] === null) span++;
         for (const run of runs) {
             inner += markdownToggles(mask ^ run.mask) + run.text.replace(/[\\{}@\-*_^]/g, "\\$&");
             mask = run.mask;
         }
-        return `{${inner}${markdownToggles(mask)}}`;
+        return `{${inner}${markdownToggles(mask)}${"@".repeat(span)}}`;
     }).join(" "));
 }
 
@@ -175,26 +211,56 @@ export class VoiceLyricsAttachment implements LayoutAttachment {
         const targets = this.nodes.filter(node => node.ports?.["lyric"]);
         if (targets.length === 0) return;
         const { lyrics, size, font } = this.nameHost.ast;
-
         const style = lyricNameStyle(size, font);
-        for (let i = 0; i < targets.length; i++) {
-            const target = targets[i];
-            let halfWidth = 0;
-            for (const lyric of lyrics) {
-                const runs = lyric.tokens[i];
-                if (runs?.length) {
-                    halfWidth = Math.max(halfWidth, measureLyricToken(runs, style, context.textMeasurer).bodyWidth / 2);
+
+        for (const { tokens } of lyrics) {
+            for (let i = 0; i < tokens.length && i < targets.length; i++) {
+                const runs = tokens[i];
+                if (!runs?.length) continue;
+                const { bodyWidth } = measureLyricToken(runs, style, context.textMeasurer);
+                if (bodyWidth === 0) continue;
+                const first = targets[i];
+                if (tokens[i + 1] !== null) {
+                    // 只扩大求解占用；视觉盒和端口不动，音符内部几何因此保持原位。
+                    lines[first.layoutLine]?.registerHorizontalLayoutHook(first, first, ({ columns, start }) => {
+                        const element = columns[start].find(item => item.time === first);
+                        if (!element) return;
+                        const lyricOffset = first.ports["lyric"].x - first.box.anchor;
+                        element.WL = Math.max(element.WL, bodyWidth / 2 - lyricOffset);
+                        element.WR = Math.max(element.WR, bodyWidth / 2 + lyricOffset);
+                    });
+                    continue;
                 }
+                let end = i;
+                while (tokens[i + 1] === null) {
+                    i++;
+                    if (targets[i]?.layoutLine === first.layoutLine && targets[i].track === first.track) end = i;
+                }
+                const leftExtent = first.box.anchor - lyricLeftPortX(first);
+                const rightSpan = Math.max(0, bodyWidth - leftExtent);
+                // 跨槽词从首音符 body.left 向右延伸 rightSpan：
+                // 1. 词未超过自然宽度（total - lastEl.margin_R）时，按各段自然宽度比例从 margin 置换刚性下界，自然间距不变；
+                // 2. 词超过自然宽度时，scale > 1 按原间距比例等比撑开各列，并借 keepMargin 保留末音右侧的弹性间隙。
+                lines[first.layoutLine]?.registerHorizontalLayoutHook(first, targets[end], ({ columns, start, end }) => {
+                    const row = columns[start].findIndex(item => item.time === first);
+                    if (row < 0) return;
+                    const lastEl = columns[end][row];
+                    reserveSide(columns[start][row], "L", leftExtent);
+                    let total = lastEl.WR + lastEl.margin_R;
+                    for (let c = start; c < end; c++) {
+                        const a = columns[c][row], b = columns[c + 1][row];
+                        total += a.WR + a.margin_R + b.WL + b.margin_L;
+                    }
+                    const keepMargin = Math.max(0, Math.min(lastEl.margin_R, rightSpan - (total - lastEl.margin_R)));
+                    const scale = (rightSpan + keepMargin) / total;
+                    for (let c = start; c < end; c++) {
+                        const a = columns[c][row], b = columns[c + 1][row];
+                        reserveSide(a, "R", (a.WR + a.margin_R) * scale);
+                        reserveSide(b, "L", (b.WL + b.margin_L) * scale);
+                    }
+                    reserveSide(lastEl, "R", (lastEl.WR + lastEl.margin_R) * scale - keepMargin);
+                });
             }
-            if (halfWidth === 0) continue;
-            // 只扩大求解占用；视觉盒和端口不动，音符内部几何因此保持原位。
-            lines[target.layoutLine]?.registerHorizontalLayoutHook(target, target, ({ columns, start }) => {
-                const element = columns[start].find(item => item.time === target);
-                if (!element) return;
-                const lyricOffset = target.ports["lyric"].x - target.box.anchor;
-                element.WL = Math.max(element.WL, halfWidth - lyricOffset);
-                element.WR = Math.max(element.WR, halfWidth + lyricOffset);
-            });
         }
     }
 
@@ -272,12 +338,15 @@ export class VoiceLyricsAttachment implements LayoutAttachment {
                 const runs = lyric.tokens[i];
                 const target = targets[i];
                 const baseline = baselines.get(target.layoutLine)?.get(target.track);
-                if (!runs.length || !baseline) continue;
+                if (!runs?.length || !baseline) continue;
 
                 const { richLine, prefixWidth, bodyWidth } = measureLyricToken(runs, style, context.textMeasurer);
+                const leftAligned = lyric.tokens[i + 1] === null;
                 preparedText.push({
                     ...richLine,
-                    x: target.box.x + target.ports["lyric"].x - bodyWidth / 2 - prefixWidth,
+                    x: target.box.x + (leftAligned
+                        ? lyricLeftPortX(target) - prefixWidth
+                        : target.ports["lyric"].x - bodyWidth / 2 - prefixWidth),
                     y: baselineOf(baseline.bottom, row) - richLine.baseline,
                     line: target.layoutLine,
                     track: baseline.owner,

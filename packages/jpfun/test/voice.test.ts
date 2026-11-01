@@ -213,6 +213,46 @@ test("长英文歌词把宽度折算到对应音符", () => {
         "adjacent long lyric tokens must not overlap");
 });
 
+test("一词多音 {a@@} 左对齐首音符并按比例撑开覆盖的音符与增时线", () => {
+    const parsed = compileValid(
+        String.raw`@voice({1 2 3 4 5 6 7 1 2 3 4 5}, , "{a@@} {your @ @} {hello world @} {b @ c} {d\@} {e\@@@}")`,
+    ).ast.content[0];
+    assert("lyrics" in parsed, "voice node must carry lyrics");
+    const run = (text: string) => [{ text, mask: 0 }];
+    deepStrictEqual(parsed.lyrics, [{
+        name: "",
+        tokens: [run("a"), null, null, run("your"), null, null, run("hello world"), null, run("b @ c"), run("d@"), run("e@"), null, null],
+    }]);
+    const serialized = parsed.toString("");
+    assert(serialized.includes(String.raw`"{a@@} {your@@} {hello world@} {b \\@ c} {d\\@} {e\\@@@}"`), serialized);
+    deepStrictEqual((parse(serialized).content[0] as typeof parsed).lyrics, parsed.lyrics);
+
+    // 左对齐到首音符数字左沿，首尾静音标点悬挂，增时线 - 占槽并参与跨槽覆盖
+    const aligned = layoutOf(`@voice({#1 - - 2}, , "{forever@@} end")`);
+    const punctuated = layoutOf(`@voice({#1 - - 2}, , "“{forever@@}！” end")`);
+    const [firstRegion, secondRegion] = aligned.attachments[0].regions;
+    assert(nearly(firstRegion.x, aligned.objects[0].box.x + aligned.objects[0].ports["body.left"].x),
+        "melisma lyric body must left-align with the first note digit");
+    assert(nearly(secondRegion.x + secondRegion.w / 2, aligned.objects[3].box.x + aligned.objects[3].ports["lyric"].x),
+        "token after 3-slot melisma over #1 - - must land on note 2");
+    assert(aligned.objects.every((obj, i) => nearly(obj.box.x, punctuated.objects[i].box.x)),
+        "hanging punctuation on melisma lyric must not alter note positions");
+
+    // 词宽未超出时不改变音符位置；超出或整行压缩时按原间距比例撑开，不重叠
+    const base = layoutOf(`@voice({1 2/ 3/ 4}, , "@ @ @ next")`);
+    const short = layoutOf(`@voice({1 2/ 3/ 4}, , "{love@@} next")`);
+    const long = layoutOf(`@voice({1 2/ 3/ 4}, , "{internationalization@@} next")`);
+    assert(base.objects.every((obj, i) => nearly(obj.box.x, short.objects[i].box.x)),
+        "melisma narrower than covered notes must not change note positions");
+    const gapRatio = (res: typeof base) => (res.objects[1].box.x - res.objects[0].box.x) / (res.objects[2].box.x - res.objects[1].box.x);
+    assert(nearly(gapRatio(long), gapRatio(base)) && long.attachments[0].regions[0].x + long.attachments[0].regions[0].w <= long.attachments[0].regions[1].x,
+        "long melisma must stretch covered notes proportionally without overlapping the next lyric");
+
+    const crowded = layoutOf(`@voice({1 2 3 4 ${"1/ ".repeat(18)}}, , "{forever@@} next")`);
+    assert(crowded.attachments[0].regions[0].x + crowded.attachments[0].regions[0].w <= crowded.attachments[0].regions[1].x,
+        "melisma in a compressed line must keep rigid lower bounds to avoid overlapping");
+});
+
 test("跨行歌词在每个含词的系统各用一条基线", () => {
     const crossLineVoiceResult = layoutOf(`@voice({1 2 @br() 3 4}, , "一 二 三 四")`);
     const crossLineLyrics = crossLineVoiceResult.attachments[0];
