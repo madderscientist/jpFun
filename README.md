@@ -73,8 +73,10 @@ pnpm run typecheck         # 只做类型检查（tsx 跑测试时不检查类�
 - `scripts/`：仓库开发脚本
 
 ## 应用
-1. 人工手写外，本项目的语法非常适合让大语言模型生成简谱内容。只要将 [grammar.md](./packages/jpfun/grammar.md) 交给大模型，就可以实现简谱图片转脚本、五线谱图片转脚本等功能。
-2. 将简谱嵌入自己的网站！就像本项目的教程一样。
+1. 从五线谱制作工具到简谱：导出为 MusicXML 再导入本项目。
+2. 从图片到简谱：用 Audivers 等工具得到 MusicXML，再导入本项目。
+3. 作为大模型操作音乐的工具。比如将 [grammar.md](./packages/jpfun/grammar.md) 交给多模态大模型，直接根据图片谱生成 jpFun 脚本。
+4. 将简谱嵌入自己的网站！就像本项目的教程一样。
 
 ## todo
 - [ ] VSCode 插件
