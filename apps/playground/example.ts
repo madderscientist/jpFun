@@ -88,7 +88,7 @@ N: {
   @program(40) @set(note.color=#f0f)
   @box({
     #1,// n2/ b3'. -
-  }, padding=0.2em) @adjust(5 ^ "微调高度", dy=-10px)
+  }, padding=0.2em) @adjust(5 ^ "**微调**高度", dy=-10px)
 }
 N: @instrument(73) F7#/^@text(D调的F#) {5@tx 6/@ty} & {6/^$tr++ {7_$p}<#4} {C3/ ^ E3 ^ @tempo(120)} @tie(tx, ty)
 % 排版控制：顶层空行等价于 @br() 换行；@pagebreak()（别名 @pb）可强制换页

@@ -18,8 +18,8 @@ const guides = [
   { label: "DEVELOPERS", title: "理解内部实现", text: "编译流水线、模块边界与扩展。", href: "docs/developer/" },
 ];
 
-const indexJPFUN = `@set(fontsize=13px, voices.connect="[1-2]{3-4}[5-]")
-@page(width=720px, height=0px, top=0px, bottom=0px, left=25px, right=25px, gap=0.8em)
+const indexJPFUN = `@set(fontsize=13px)
+@page(width=720px, height=0px, top=0px, bottom=0px, left=25px, right=25px, gap=0.8em, barNumbering="(1)")
 H.title: Another Day of Sun
 H.subtitle: OST from movie "La La Land"
 H.author: Justin Hurwitz/Benj Pasek/Justin Paul
@@ -27,10 +27,13 @@ H.author: jpFun 制谱
 H.signature: 1=Eb4 4/4
 H.tempo: 126
 
+V[]:
 N("Flute"): { @program(73) 0 0 0 0 | 0 0 0 0 | 0 0 0 0 | 0 0 0 0 | {Ab4/ _ $mf} C5/ Eb5/ Eb5// Ab4// 0// Ab4// C5/ Eb5/ Eb5/ | }
 N("Clarinet in Bb"): { @program(71) 0 0 0 0 | 0 0 0 0 | 0 0 0 0 | 0 0 0 0 | {Bb3/ _ $mf} D4/ F4/ F4// Bb3// 0// Bb3// D4/ F4/ F4/ | }
-N("Piano "): { @program(0) {Ab3/ _ $mf} C4/ Eb4/ Eb4// Ab3//@mx114 Ab3//@mx115 @tie(mx114, mx115) Ab3// C4/ Eb4/ Eb4/ | Ab3/ D4/ F4/ F4// Bb3//@mx116 Bb3//@mx117 @tie(mx116, mx117) D4// F4/ Bb4/ Ab4/ | G4/ Eb4/ C4/ C4// G4//@mx118 G4//@mx119 @tie(mx118, mx119) G4// Eb4/ C4/ C4/ | D4/ Bb3/ G3/ G3// D4//@mx120 D4//@mx121 @tie(mx120, mx121) D4// Bb3/ G3/ G3/ | Ab3/ C4/ Eb4/ Eb4// Ab3//@mx122 Ab3//@mx123 @tie(mx122, mx123) Ab3// C4/ Eb4/ Eb4/ | }
+V{Piano}:
+N: { @program(0) {Ab3/ _ $mf} C4/ Eb4/ Eb4// Ab3//@mx114 Ab3//@mx115 @tie(mx114, mx115) Ab3// C4/ Eb4/ Eb4/ | Ab3/ D4/ F4/ F4// Bb3//@mx116 Bb3//@mx117 @tie(mx116, mx117) D4// F4/ Bb4/ Ab4/ | G4/ Eb4/ C4/ C4// G4//@mx118 G4//@mx119 @tie(mx118, mx119) G4// Eb4/ C4/ C4/ | D4/ Bb3/ G3/ G3// D4//@mx120 D4//@mx121 @tie(mx120, mx121) D4// Bb3/ G3/ G3/ | Ab3/ C4/ Eb4/ Eb4// Ab3//@mx122 Ab3//@mx123 @tie(mx122, mx123) Ab3// C4/ Eb4/ Eb4/ | }
 N: { @program(0) {Ab2/ _ $mf} C3/ Eb3/ Eb3// Ab2//@mx308 Ab2//@mx309 @tie(mx308, mx309) Ab2// C3/ Eb3/ Eb3/ | Ab2/ D3/ F3/ F3// Bb2//@mx310 Bb2//@mx311 @tie(mx310, mx311) D3// F3/ Bb3/ Ab3/ | G3/ Eb3/ C3/ C3// G3//@mx312 G3//@mx313 @tie(mx312, mx313) G3// Eb3/ C3/ C3/ | D3/ Bb2/ G2/ G2// D3//@mx314 D3//@mx315 @tie(mx314, mx315) D3// Bb2/ G2/ G2/ | Ab2/ C3/ Eb3/ Eb3// Ab2//@mx316 Ab2//@mx317 @tie(mx316, mx317) Ab2// C3/ Eb3/ Eb3/ |  }
+V[]:
 N("Violin"): { @program(40) 0 0 0 0 | 0 0 0 0 | 0 0 0 0 | 0 0 0 0 | {{Ab4/ ^ $accent} _ $mf} 0/ 0 0 0/ {Ab4/ ^ $accent} | }
 N("ViolonCello"): { @program(42) 0 0 0 0 | 0 0 0 0 | 0 0 0 0 | 0 0 0 0 | {{F2/ ^ $accent} _ $mf} 0/ 0 0 0/ {F2/ ^ $accent} | }
 
