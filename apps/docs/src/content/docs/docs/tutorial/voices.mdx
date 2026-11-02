@@ -24,7 +24,7 @@ import ScoreExample from "../../../../components/ScoreExample.astro";
 export const voicesFunctionExample = `\
 @voices(
     @voice({1 2 3 5 | 3 2 1 -}, "**主唱**", "微风轻轻，吹过来。"),
-    @voice({1, - 5, - | 1, - - -}, **伴奏**, 啊啊啊)
+    @voice({1, - 5, - | 1, - - -}, **伴奏**, "啊 @ 啊 @ 啊")
 )`;
 
 <ScoreExample title="多声部例子" source={voicesFunctionExample} />
@@ -36,7 +36,7 @@ export const voicesSugarExample = `\
 N(**主唱**): 1 2 3 5 | 3 2 1 -
 L: 微风轻轻，吹过来。
 N(**伴奏**): 1, - 5, - | 1, - - -
-L: 啊啊啊`;
+L: 啊 @ 啊 @ 啊`;
 
 <ScoreExample title="连续写 N，组成多声部" source={voicesSugarExample} />
 

@@ -1,4 +1,10 @@
-@page(width=794px, height=0px, top=57px, bottom=57px, left=56px, right=50px, numbering="jpFun 制谱")
+@page(
+  width=800px, height=0px,
+  top=50px, bottom=60px, left=50px, right=50px,
+  numbering="jpFun 制谱", barNumbering="(1)  ",
+  minGap=0.7em
+)
+@set(font="'Times New Roman', KaiTi, STKaiti, serif")
 H.title: Forever Friends
 H.subtitle: 动画电影《升空的焰火，从下面看还是从侧面看?》插曲
 H.author: Remedios  作曲
@@ -6,20 +12,91 @@ H.author: Daoko  歌手
 H.signature: 1=Db5 4/4
 H.tempo: 75
 
-Ab4/ Db5/ Eb5/ Ab5// F5// F5 @tie() - | F5/ Eb5/ F5/ Gb5// Eb5// Eb5 @tie() - | F5/ Eb5/ F5/ Gb5// Eb5// Eb5 @tie() - | Eb5/ Db5/ Eb5/ Gb5// F5// F5// @tie() Gb5/. Db5/ Bb4// Db5// |
+N: {
+  Ab4/ Db5/ Eb5/ Ab5// F5// F5 @tie() - |
+  F5/ Eb5/ F5/ Gb5// Eb5// Eb5 @tie() - |
+  F5/ Eb5/ F5/ Gb5// Eb5// Eb5 @tie() - |
+}
+L: Hold me like a {friend, @@} kiss me like a {friend, @@} say we'll ne-ver {end,@@}
 
-Db5 @tie() - Bb4 - | C5// Db5// Eb5/ Eb5/ F5/ Ab4/ Db5 Db5/ | Db5 @tie() - Db5/ Eb5/ Bb4/ Eb5/ | Eb5. @tie() F5// Db5// Eb5 0 | Ab4/ Db5// Eb5/. Ab5// F5// F5 @tie() - |
+N: {
+  Eb5/ Db5/ Eb5/ Gb5// F5// F5// @tie() Gb5/. Db5/ Bb4// Db5// |
+  Db5 @tie() - Bb4 - |
+  C5// Db5// Eb5/ Eb5/ F5/ Ab4/ Db5 Db5/ |
+}
+L: sear-ching for the {co- @} lors of the {rain-@@} bow, @ me-lo-dy ne-ver say good-bye,
 
-F5/ Eb5/ F5/ Gb5// Eb5// Eb5 @tie() - | F5/ Eb5/ F5/ Gb5// Eb5// Eb5 @tie() - | Eb5/ Db5// Eb5// Eb5/ @tie() Gb5// F5// F5// @tie() Gb5/. Db5/ Bb4// Db5// | Db5 @tie() - Bb4 - | C5// Db5// Eb5/ Eb5/ F5/ Ab4/ Db5 Db5/ |
+N: {
+  Db5 @tie() - Db5/ Eb5/ Bb4/ Eb5/ |
+  Eb5. @tie() F5// Db5// Eb5 0 |
+  Ab4/ Db5// Eb5/. Ab5// F5// F5 @tie() - |
+  F5/ Eb5/ F5/ Gb5// Eb5// Eb5 @tie() - |
+}
+L: @@ I' ll be {near @} @ @ you. @ Hold me like a {friend, @@} kiss me like a {friend, @@}
+L: @@@@@@@@@@@ When the ri-ver {flows,@@} off to par-{t us} {both,@@}
 
-Db5 @tie() - Db5/ Eb5/ Bb4/ Eb5/ | Eb5. @tie() F5// Db5// Eb5 0 | 0/ Eb5/ Eb5/ Ab5/ Ab5/ Bb5// Bb5// Bb5/ @tie() C6/ | C6/ Db6/ Ab5 Ab5. @tie() Bb5// C6// |
+N: {
+  F5/ Eb5/ F5/ Gb5// Eb5// Eb5 @tie() - |
+  Eb5/ Db5// Eb5// Eb5/ @tie() Gb5// F5// F5// @tie() Gb5/. Db5/ Bb4// Db5// |
+}
+L: say we'll ne-ver {end, @@} sear-ching {for @} the {co- @} lors of the rain-
+L: on-ly hea-ven {knows, @@} I will {be@} a {boa-@} {t to} sail a-round
 
-C6// Db6/ Db6// Db6/ @tie() Eb6// Bb5/// Cb6/// Bb5// Ab5/. Ab5/ @tie() Bb5/ | Bb5// C6/ C6// C6/. @tie() Bb5// C6// Bb5// Ab5. | Ab5/ @tie() Ab5/ Ab5/. Ab5// Ab5// Ab5// Ab5 Cb6/ |
+N: {
+  Db5 @tie() - Bb4 - |
+  C5// Db5// Eb5/ Eb5/ F5/ Ab4/ Db5 Db5/ |
+  Db5 @tie() - Db5/ Eb5/ Bb4/ Eb5/ |
+  Eb5. @tie() F5// Db5// Eb5 0 |
+}
+L: @@ {bow, @} me-lo-dy ne-ver say good-{bye, @@} I' ll be {near@} @ @ you.
+L: @@ {you,@} me-lo-dy ne-ver say good-{bye, @@} I' ll be {near@} @ @ you.
 
-Bb5/ Cb6// Bb5// Bb5/ @tie() Cb6/ Bb5/ Ab5/ Gb5/ Ab5/ | Ab5. Eb5/ Ab5 - | 0@x 0 0 0 | Ab4/ Db5/ Eb5/ Ab5// F5// F5 @tie() - | F5/ Eb5/ F5/ Gb5// Eb5// Eb5 @tie() - |
+N: {
+0/ Eb5/ Eb5/ Ab5/ Ab5/ Bb5// Bb5// Bb5/ @tie() C6/ |
+C6/ Db6/ Ab5 Ab5. @tie() Bb5// C6// |
+}
+L: @ Some peo-ple han-dle {love @} and ne-ver {try, @} I can
 
-F5/ Eb5/ F5/ Gb5// Eb5// Eb5 @tie() - | Eb5/ Db5/ Eb5/ Gb5// F5// F5// @tie() Gb5/. Db5/ Bb4// Db5// | Db5 @tie() - Bb4 - | C5// Db5// Eb5/ Eb5/ C5/ Db5/ C5// Db5// Db5/ @tie() Bb4/ |
+N: {
+  C6// Db6/ Db6// Db6/ @tie() Eb6// Bb5/// Cb6/// Bb5// Ab5/. Ab5/ @tie() Bb5/ |
+  Bb5// C6/ C6// C6/. @tie() Bb5// C6// Bb5// Ab5. |
+}
+L: al-most {fly @} with {your @@} {wings @} to set me {higher ~~~~~~~~@@@@@}
 
-Gb5/ Ab5// Db5// Db5 @tie() Db5/. @tie() Db5// Db5// C5/ Db5// | Db5 @tie() - - - | @rest(4)@y @adj(@volta(x, y, 1), dy=-2.5) :| Eb6/@a Eb6// Eb6/. Eb6/ Ab5 -@b @volta(a, b, 2) | Bb5 - - 0/ C5// Bb4// | Eb5 - A4 - |
+N: {
+  Ab5/ @tie() Ab5/ Ab5/. Ab5// Ab5// Ab5// Ab5 Cb6/ |
+  Bb5/ Cb6// Bb5// Bb5/ @tie() Cb6/ Bb5/ Ab5/ Gb5/ Ab5/ |
+  Ab5. Eb5/ Ab5 - |
+}
+L: @ Some day we'll see the world and through the {grey @} have fai-th in the {hands ~~ @@@}
+L: @ One day we'll see the world and through the {grey @} have fai-th in the {hands ~~ @@@}
 
-D5. C5/ A4 - | C5 - - D5 | Bb4 - - - | Bb4/ A4/ C5 - Bb4 | C5 - - - |||
+N: {
+  0@x 0 0 0 | Ab4/ Db5/ Eb5/ Ab5// F5// F5 @tie() - |
+  F5/ Eb5/ F5/ Gb5// Eb5// Eb5 @tie() - |
+}
+L: @@@@Hold me like a {friend, @@} kiss me like a {friend, @@}
+
+N: {
+  F5/ Eb5/ F5/ Gb5// Eb5// Eb5 @tie() - |
+  Eb5/ Db5/ Eb5/ Gb5// F5// F5// @tie() Gb5/. Db5/ Bb4// Db5// |
+  Db5 @tie() - Bb4 - |
+}
+L: say we'll ne-ver {end, @@} Sear-ching for the {co- @} lors of the {rain-@@} {bow,@}
+
+N: {
+  C5// Db5// Eb5/ Eb5/ C5/ Db5/ C5// Db5// Db5/ @tie() Bb4/ |
+  Gb5/ Ab5// Db5// Db5 @tie() Db5/. @tie() Db5// Db5// C5/ Db5// |
+  Db5 @tie() - - - |
+  @rest(4)@y @volta(x, y, 1) :|
+}
+L: me-lo-dy ne-ver say good-{bye, @} we'll al-ways {be@@} for-e-ver {friends. @@@@}
+
+N: {
+Eb6/@a Eb6// Eb6/. Eb6/ Ab5 -@b @volta(a, b, 2) |
+Bb5 - - 0/ C5// Bb4// | Eb5 - A4 - |
+D5. C5/ A4 - |
+}
+L: till the ri-ver {en-@@@}ds…
+
+N: C5 - - D5 | Bb4 - - - | Bb4/ A4/ C5 - Bb4 | C5 - - - |||

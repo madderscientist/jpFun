@@ -13,7 +13,7 @@ export const examples = [
   {
     id: "Forever Friends",
     title: "Forever Friends",
-    description: "动画电影《升空的焰火，从下面看还是从侧面看?》插曲，单声部展示。",
+    description: "动画电影《升空的焰火，从下面看还是从侧面看?》插曲，单声部+英文歌词展示。",
     source: foreverFriends,
   },
   {
