@@ -399,12 +399,17 @@ H.tempo: 94
         const explicitContent = source[contentStart] === "@" || source[contentStart] === "{";
         // 裸文本整行归 Head 所有，直接越过可避免其中的 F 等字符被识别成音符
         // 显式 DSL 仍从冒号后继续扫描，保留内部函数高亮
+        const last = skipSpacesBack(source, lineEnd - 1, contentStart);
+        const contentSpan = explicitContent ? undefined : { start: contentStart, end: Math.max(contentStart, last + 1) };
         return {
             next: explicitContent ? pos : lineEnd,
             node: {
                 kind: "sugar",
-                data: { class: HeadFunction, field },
+                data: { class: HeadFunction, field, contentSpan },
                 span: { start, end: pos },
+                syntaxKind: contentSpan && field !== "signature" && field !== "tempo" && contentSpan.start < contentSpan.end
+                    ? [{ kind: "operator", span: { start, end: pos } }, { kind: "string", span: contentSpan }]
+                    : undefined,
             } as GrammarSugarNode,
         };
     }
@@ -414,23 +419,20 @@ H.tempo: 94
         if (sugar.data?.class !== HeadFunction) return null;
         const field = sugar.data.field as HeadField;
         let breakAt = at;
-        for (; breakAt < nodes.length; breakAt++) {
-            const node = nodes[breakAt];
-            if (typeof node === "number" && (ctx.source[node] === "\r" || ctx.source[node] === "\n")) break;
-            if (typeof node !== "number" && node.kind === "sugar" && node.data?.class === HeadFunction) break;
+        let span = sugar.data.contentSpan as SourceSpan | undefined;
+        let parsed: ASTNodeBase[] | undefined;
+        if (!span) {
+            for (; breakAt < nodes.length; breakAt++) {
+                const node = nodes[breakAt];
+                if (typeof node === "number" && (ctx.source[node] === "\r" || ctx.source[node] === "\n")) break;
+                if (typeof node !== "number" && node.kind === "sugar" && node.data?.class === HeadFunction) break;
+            }
+            const sub = new ParserContext(ctx);
+            sub.makeNodes(nodes.slice(at, breakAt));
+            parsed = sub.nodes;
+            const last = parsed.at(-1)?.sourceSpan.end ?? sugar.span.end;
+            span = { start: skipSpaces(ctx.source, sugar.span.end, last), end: last };
         }
-        const stop = nodes[breakAt];
-        // 裸文本在第一轮被整体越过，EOF 时 nodes 中没有末尾标记，需从源码恢复边界
-        let boundary: number;
-        if (typeof stop === "number") boundary = stop;
-        else if (stop) boundary = stop.span.start;
-        else if (breakAt > at) {
-            const last = nodes[breakAt - 1];
-            boundary = typeof last === "number" ? last + 1 : last.span.end;
-        } else boundary = findLineEnd(ctx.source, sugar.span.end);
-        const start = skipSpaces(ctx.source, sugar.span.end, boundary);
-        const last = skipSpacesBack(ctx.source, boundary - 1, start);
-        const span = { start, end: Math.max(start, last + 1) };
         if (span.start >= span.end) {
             throw new ErrorDiagnostic(
                 "E_HEAD_EMPTY_DECLARATION",
@@ -439,13 +441,7 @@ H.tempo: 94
                 { field },
             );
         }
-        const text = ctx.source.slice(span.start, span.end).trim();
-        let parsed: ASTNodeBase[] | undefined;
-        if (text.startsWith("@") || text.startsWith("{")) {
-            const sub = new ParserContext(ctx);
-            sub.makeNodes(nodes.slice(at, breakAt));
-            parsed = sub.nodes;
-        }
+        const text = ctx.source.slice(span.start, span.end);
         const previous = ctx.nodes.at(-1);
         // 只有相邻的 H.* 声明合并；普通节点或空行都会切断组合
         const head = previous instanceof HeadFunction && previous.createdBySugar
@@ -457,6 +453,7 @@ H.tempo: 94
         head.sourceSpan.end = span.end;
         if (head !== previous) ctx.pushNode(head);
 
+        const stop = nodes[breakAt];
         if (typeof stop !== "number") return breakAt;
         let next = breakAt + 1;
         if (ctx.source[stop] === "\r") {

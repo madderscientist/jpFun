@@ -141,13 +141,18 @@ export function createPreviewNavigationMap(compiled: CompileScoreResult): Previe
     }
 
     for (const attachment of compiled.layout.attachments) {
-        if (!attachment.sourceSpan || attachment.regions.length === 0) continue;
-        hitTargets.push({
-            span: attachment.sourceSpan,
-            regions: attachment.regions,
-            kind: "attachment",
-        });
-        attachmentSpans.add(`${attachment.sourceSpan.start}:${attachment.sourceSpan.end}`);
+        if (attachment.regions.length === 0) continue;
+        if (attachment.sourceSpan) {
+            attachmentSpans.add(`${attachment.sourceSpan.start}:${attachment.sourceSpan.end}`);
+        }
+        const shared: Rect[] = [];
+        for (const region of attachment.regions) {
+            if (region.sourceSpan) hitTargets.push({ span: region.sourceSpan, regions: [region], kind: "attachment" });
+            else shared.push(region);
+        }
+        if (attachment.sourceSpan && shared.length > 0) {
+            hitTargets.push({ span: attachment.sourceSpan, regions: shared, kind: "attachment" });
+        }
     }
 
     for (const object of objects) {

@@ -12,8 +12,8 @@ export type GrammarNode =
 export interface GrammarNodeBase {
     kind: "brace" | "label" | "call" | "sugar";
     span: SourceSpan;
-    /** 语法高亮类型；缺省为 operator */
-    syntaxKind?: SyntaxTokenKind;
+    /** 语法高亮类型；缺省为 operator，复合语法糖可直接给出多段 SyntaxToken */
+    syntaxKind?: SyntaxTokenKind | SyntaxToken[];
 }
 
 export interface GrammarBraceNode extends GrammarNodeBase {
@@ -32,7 +32,7 @@ interface GrammarCallNodeBase extends GrammarNodeBase {
 
 export interface GrammarCallNodeRaw extends GrammarCallNodeBase, CallInfo {
     typed: false;
-}
+}   // 只有正规函数调用写法才会生成 GrammarCallNodeRaw
 
 export interface GrammarCallNodeTyped extends GrammarCallNodeBase {
     typed: true;

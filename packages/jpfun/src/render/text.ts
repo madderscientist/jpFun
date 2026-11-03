@@ -31,21 +31,22 @@ export function appendRun(runs: RichTextRun[], text: string, mask: number): void
  */
 export function scanMarkdown(
     source: string,
-    onChar: (ch: string, mask: number, escaped: boolean) => void,
+    onChar: (ch: string, mask: number, escaped: boolean, start: number, end: number) => void,
     escapable = "\\*_^",
 ): void {
     let mask = 0;
     for (let i = 0; i < source.length; i++) {
+        const start = i;
         const ch = String.fromCodePoint(source.codePointAt(i)!);
         i += ch.length - 1;
         if (ch === "\\" && i + 1 < source.length && escapable.includes(source[i + 1])) {
-            onChar(source[++i], mask, true);
+            onChar(source[++i], mask, true, start, i + 1);
             continue;
         }
         if (ch === "*") { mask ^= source[i + 1] === "*" ? (i++, STYLE_BOLD) : STYLE_ITALIC; continue; }
         if (ch === "_") { mask ^= STYLE_UNDERLINE; continue; }
         if (ch === "^") { mask ^= STYLE_SUP; continue; }
-        onChar(ch, mask, false);
+        onChar(ch, mask, false, start, i + 1);
     }
 }
 

@@ -274,7 +274,7 @@ export interface PlacedAttachment {
  * 总是计入外接盒；同时声明 line 和 track 时，还会折算成该轨道的纵向占用
  * 只想影响画布边界、不想撑高行的图形（括线、边框）省略归属即可
  */
-export type LayoutRegion = Rect & (
+export type LayoutRegion = Rect & { sourceSpan?: SourceSpan } & (
     | { line: number; track: Track }
     | { line?: never; track?: never }
 );

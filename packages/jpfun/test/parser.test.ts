@@ -89,6 +89,8 @@ H.title: @box(@text(测试))`;
     const tokenText = (token: typeof syntax.tokens[number]) => source.slice(token.span.start, token.span.end);
     assert(syntax.tokens.some(token => token.kind === "operator" && tokenText(token) === "H.title:"),
         "head declaration prefix must be one operator token");
+    assert(syntax.tokens.some(token => token.kind === "string" && tokenText(token) === "jpFun 简谱示例"),
+        "bare head text must be colored as a string token");
     assert(!syntax.tokens.some(token => tokenText(token) === "H.title: jpFun 简谱示例"),
         "bare head text must not be included in the operator token");
     assert(!syntax.tokens.some(token => token.kind === "atom" && tokenText(token) === "F"),
@@ -202,6 +204,18 @@ test("命名参数与标签保留无歧义的字面量类型", () => {
     assert(hasToken("label", "a") && hasToken("label", "b"), "tie endpoints must use its variadic label contract");
     assert(hasToken("length", "0.5em"), "unknown named arguments must retain unambiguous literal types");
     assert(typedSyntax.tokens.filter(token => token.kind === "atom").length >= 4, "up variadic content must expose nested atoms");
+});
+
+test("歌词行前缀着色为运算符，歌词正文着色为字符串", () => {
+    const items = (source: string) => analyzeScoreSyntax(source).syntax.tokens.map(
+        token => [token.kind, source.slice(token.span.start, token.span.end)],
+    );
+    deepStrictEqual(items(`N(主): 1\nL(男): {for-@@}ev-er @`), [
+        ["operator", "N(主):"],
+        ["atom", "1"],
+        ["operator", "L(男):"],
+        ["string", "{for-@@}ev-er @"],
+    ]);
 });
 
 test("syntaxOnly 不改变被识别的语法节点", () => {

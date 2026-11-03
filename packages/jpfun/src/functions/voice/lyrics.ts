@@ -8,6 +8,7 @@ import type {
 } from "../../layout/types.js";
 import type { Track } from "../../lowering/track.js";
 import { quote } from "../../parser/parse-utils/string-utils.js";
+import type { SourceSpan } from "../../parser/types.js";
 import {
     appendRun,
     markdownToggles,
@@ -90,7 +91,7 @@ function reserveSide(el: { WL: number; WR: number; margin_L: number; margin_R: n
  * `你好吗` 默认逐字拆分，`你 @ 好` 中的 `@` 留出一个空槽，
  * `{你好} 啊` 把 `你好` 放在同一个槽位，`{a@@}` 则左对齐并覆盖三个槽位（后续槽记为 `null`）。
  */
-export function parseLyric(value: string): LyricSlot[] {
+export function parseLyric(value: string, offsets?: readonly number[], tokenSpans?: (SourceSpan | undefined)[]): LyricSlot[] {
     let closeBraces = 0;
     for (let i = 0; i < value.length; i++) {
         if (value[i] === "\\") i++;
@@ -100,74 +101,78 @@ export function parseLyric(value: string): LyricSlot[] {
     const result: LyricSlot[] = [];
     let pending: RichTextRun[] = [];
     let lastToken: RichTextRun[] | undefined;
-    let hasBody = false;
-    let grouped = false;
-    let keepRuns = 0, keepLen = 0, span = 0;
+    let lastSpan: SourceSpan | undefined;
+    let tokStart = -1, tokEnd = 0, keepRuns = 0, keepLen = 0, span = 0;
+    let hasBody = false, grouped = false;
 
-    const add = (text: string, mask: number) => {
+    const mark = (from: number, to: number) => { if (tokStart < 0) tokStart = from; tokEnd = to; };
+    const add = (text: string, mask: number, from: number, to: number) => {
         appendRun(pending, text, mask);
+        mark(from, to);
         hasBody = true;
     };
     const flush = (force = false) => {
         if (!force && !hasBody) return;
+        if (tokenSpans && offsets && tokStart >= 0) {
+            tokenSpans[result.length] = lastSpan = { start: offsets[tokStart], end: offsets[tokEnd] };
+        }
         result.push(lastToken = pending);
         pending = [];
+        tokStart = -1;
         hasBody = false;
     };
 
-    scanMarkdown(value, (ch, mask, escaped) => {
+    scanMarkdown(value, (ch, mask, escaped, from, to) => {
         if (!escaped && ch === "}") closeBraces--;
         if (grouped) {
             if (!escaped && ch === "}") {
+                mark(from, to);
                 if (span) {
                     pending.length = keepRuns;
                     if (keepRuns) pending[keepRuns - 1].text = pending[keepRuns - 1].text.slice(0, keepLen);
                 }
-                if (!keepRuns && span) while (span--) result.push([]);
-                else {
-                    flush(true);
-                    while (span--) result.push(null);
-                }
+                if (!keepRuns && span) { while (span--) result.push([]); tokStart = -1; }
+                else { flush(true); while (span--) result.push(null); }
                 keepRuns = keepLen = span = 0;
                 grouped = false;
             } else if (!escaped && (ch === "@" || WHITESPACE_RE.test(ch))) {
                 if (ch === "@") span++;
-                add(ch, mask);
+                add(ch, mask, from, to);
             } else {
-                add(ch, mask);
+                add(ch, mask, from, to);
                 keepRuns = pending.length;
                 keepLen = pending[keepRuns - 1].text.length;
                 span = 0;
             }
         } else if (!escaped && ch === "{" && closeBraces > 0) {
             flush();
+            mark(from, to);
             grouped = true;
         } else if (escaped) {
-            add(ch, mask);
+            add(ch, mask, from, to);
         } else if (WHITESPACE_RE.test(ch)) {
             flush();
         } else if (ch === "-") {
             const shouldFlush = hasBody;
-            add(ch, mask);
+            add(ch, mask, from, to);
             if (shouldFlush) flush();
         } else if (ch === "@") {
-            if (hasBody) {
-                add(ch, mask);
-                flush();
-            }
+            if (hasBody) { add(ch, mask, from, to); flush(); }
             result.push([]);
-            lastToken = undefined;
+            lastToken = lastSpan = undefined;
         } else if (LYRIC_OPENING_PUNCTUATION.has(ch)) {
             flush();
+            mark(from, to);
             appendRun(pending, ch, mask);
         } else if (LYRIC_SILENT_PUNCTUATION.has(ch)) {
-            appendRun(pending.length > 0 || !lastToken?.length ? pending : lastToken, ch, mask);
+            if (pending.length > 0 || !lastToken?.length) { mark(from, to); appendRun(pending, ch, mask); }
+            else { appendRun(lastToken, ch, mask); if (lastSpan && offsets) lastSpan.end = offsets[to]; }
         } else if (ch.charCodeAt(0) > 0x7F) {
             flush();
-            add(ch, mask);
+            add(ch, mask, from, to);
             flush();
         } else {
-            add(ch, mask);
+            add(ch, mask, from, to);
         }
     }, "\\*_{}@-^");
 
@@ -175,7 +180,11 @@ export function parseLyric(value: string): LyricSlot[] {
     if (pending.length > 0) {
         if (lastToken?.length) {
             for (const run of pending) appendRun(lastToken, run.text, run.mask);
+            if (lastSpan && offsets) lastSpan.end = offsets[tokEnd];
         } else {
+            if (tokenSpans && offsets && tokStart >= 0) {
+                tokenSpans[result.length] = { start: offsets[tokStart], end: offsets[tokEnd] };
+            }
             result.push(pending);
         }
     }
@@ -342,6 +351,7 @@ export class VoiceLyricsAttachment implements LayoutAttachment {
 
                 const { richLine, prefixWidth, bodyWidth } = measureLyricToken(runs, style, context.textMeasurer);
                 const leftAligned = lyric.tokens[i + 1] === null;
+                const ast = this.nameHost.ast;
                 preparedText.push({
                     ...richLine,
                     x: target.box.x + (leftAligned
@@ -350,6 +360,7 @@ export class VoiceLyricsAttachment implements LayoutAttachment {
                     y: baselineOf(baseline.bottom, row) - richLine.baseline,
                     line: target.layoutLine,
                     track: baseline.owner,
+                    get sourceSpan() { return ast.lyricTokenSpan(row, i); },
                 });
             }
 

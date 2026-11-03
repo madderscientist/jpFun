@@ -60,6 +60,8 @@ export class ParserContext {
     /** .labelable() 返回的承载节点；null 是边界标记，标签绑定不能越过它 */
     labelableNodes: (ASTFunctionNode | null)[];
 
+    /** 当前正在实例化的显式函数调用节点，供构造函数按需读取原始参数区间 */
+    callNode?: GrammarCallNodeRaw;
     nodes: ASTNodeBase[]; // 解析结果
 
     constructor(ctx: ParserContext | {
@@ -211,7 +213,9 @@ export class ParserContext {
             return;
         }
         if (node.kind === "sugar" || node.typed) {
-            this.addSyntax(node.syntaxKind ?? "operator", node.span);
+            if (Array.isArray(node.syntaxKind)) {
+                for (const token of node.syntaxKind) this.addSyntax(token.kind, token.span);
+            } else this.addSyntax(node.syntaxKind ?? "operator", node.span);
             return;
         }
 
@@ -485,8 +489,10 @@ export class ParserContext {
                 const value = this.parseArgWithType(arg.valueSpan, type, callNode.span.start);
                 if (value !== null) args.set(key, value);
             }
+            this.callNode = callNode;
             return new callFNClass(callNode.span, args, this, null);
         }   // 完全信任 typed 时的 arg
+        this.callNode = undefined;
         // 构造函数内用定义查询实际传参
         return new callFNClass(callNode.span, callNode.args, this, null);
     }

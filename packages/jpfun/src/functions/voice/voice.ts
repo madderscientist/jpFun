@@ -4,7 +4,7 @@ import { isLayoutAttachment, type LayoutAttachment, type LayoutBox, type LayoutP
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { LoweringGroup } from "../../lowering/types.js";
 import { type CallArgumentInfo, GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
-import { findRightParen } from "../../parser/parse-utils/call-utils.js";
+import { findRightParen, trimRange } from "../../parser/parse-utils/call-utils.js";
 import { findClosingQuote, quote } from "../../parser/parse-utils/string-utils.js";
 import { ParserContext, skipSpaces } from "../../parser/parserContext.js";
 import { paintRichLine, prepareRichLine, type PreparedRichLine } from "../../render/text.js";
@@ -95,21 +95,20 @@ L: la la la
             return { next: pos, node };
         }
         // 字符串收集
-        pos = skipSpaces(source, pos, end);
-        if (pos >= end) return null;    // 没有内容了 不去糖
+        const from = skipSpaces(source, pos, end);
+        if (from >= end) return null;    // 没有内容了 不去糖
         let lyric: SourceSpan;
         // 双引号才是字符串，单引号不是
-        if (source[pos] === '"') {
+        if (source[from] === '"') {
             // 未闭合就不去糖，词法层每次击键都跑，不能抛
-            const close = findClosingQuote(source, pos, end);
+            const close = findClosingQuote(source, from, end);
             if (close < 0) return null;
-            lyric = { start: pos, end: close + 1 };
-            pos = close + 1;
+            lyric = { start: from, end: close + 1 };
         } else {
             // 没有引号的 以换行符为界切分 预处理已经跳过了转义的换行符了
-            const from = pos;
-            while (pos < end && source[pos] !== "\n") pos++;
-            lyric = { start: from, end: pos };
+            let close = from;
+            while (close < end && source[close] !== "\n") close++;
+            lyric = { start: from, end: close };
         }
         const node: GrammarSugarNode = {
             kind: "sugar",
@@ -118,9 +117,13 @@ L: la la la
                 lyric,
                 name,
             },
-            span: { start, end: pos },
+            span: { start, end: lyric.end },
+            syntaxKind: [
+                { kind: "operator", span: { start, end: pos } },
+                { kind: "string", span: lyric },
+            ],
         };
-        return { next: pos, node };
+        return { next: lyric.end, node };
     }
 
     static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number, members?: VoiceFunction[]) {
@@ -153,7 +156,7 @@ L: la la la
                     n.span,
                 );
             }
-            voiceNode.addLyric(parseStr(n.data.name), parseStr(n.data.lyric), n.span, ctx);
+            voiceNode.addLyric(parseStr(n.data.name), parseStr(n.data.lyric), n.data.lyric, ctx);
             ctx.nodes.length = voiceNodeAt + 1;   // 清除voiceNodeAt之后的TextNode 因为被夹在N和L之间
             // 消费后面可能的换行符 只消费一个
             if (at < nodes.length && typeof nodes[at] === "number" && ctx.source[nodes[at] as number] === "\n") at++;
@@ -249,7 +252,34 @@ L: la la la
         name: string;
         tokens: LyricSlot[];   // 分词后的歌词内容
     }[];
+    private readonly lyricSources: { source: string; lyric: string; span: SourceSpan }[] = [];
+    private cachedLyricSpans?: (SourceSpan | undefined)[][];
     override get children() { return [this.content]; }
+
+    /** 仅在导航定位读取时按需计算词元源码区间，正常编译渲染零开销 */
+    lyricTokenSpan(row: number, index: number): SourceSpan | undefined {
+        this.cachedLyricSpans ??= this.lyricSources.map(item => {
+            if (!item) return [];
+            const { source, lyric, span } = item;
+            const { start, end } = trimRange(source, span.start, span.end);
+            const quoted = end - start >= 2 && source[start] === '"' && source[end - 1] === '"';
+            const base = start + (quoted ? 1 : 0), raw = source.slice(base, end - (quoted ? 1 : 0));
+            const offsets: number[] = [];
+            let c = 0;
+            if (lyric !== raw || !raw.includes("\\u")) {
+                raw.replace(/\\(u[0-9a-fA-F]{4}|["\\])/g, (m, _, i: number) => {
+                    while (c <= i) offsets.push(base + c++);
+                    c = i + m.length;
+                    return "";
+                });
+            }
+            while (c <= raw.length) offsets.push(base + c++);
+            const tokenSpans: (SourceSpan | undefined)[] = [];
+            parseLyric(lyric, offsets, tokenSpans);
+            return tokenSpans;
+        });
+        return this.cachedLyricSpans[row]?.[index];
+    }
 
     /**
      * voice 的音符内容仍按普通 sequence 进入全局时间列
@@ -302,7 +332,7 @@ L: la la la
         this.lyrics = [];
         for (const [key, value] of args) {
             if (typeof value === "string") {
-                this.addLyric(key, value);
+                this.addLyric(key, value, ctx.callNode?.args[key as number]?.valueSpan ?? null, ctx);
                 continue;
             }
             const arg = value as CallArgumentInfo;
@@ -314,7 +344,7 @@ L: la la la
                     arg.valueSpan,
                     { key },
                 ));
-            } else this.addLyric(key, v as string);
+            } else this.addLyric(key, v as string, arg.valueSpan, ctx);
         }
     }
 
@@ -329,6 +359,8 @@ L: la la la
                 { name },
             ));
         }
+        this.cachedLyricSpans = undefined;
+        if (ctx && span) this.lyricSources[this.lyrics.length] = { source: ctx.source, lyric, span };
         this.lyrics.push({ name, tokens });
         if (span) {
             // 歌词是成节点之后才补上来的，祖先的 span 得一起长，否则按源码位置查节点会漏掉歌词那几行
