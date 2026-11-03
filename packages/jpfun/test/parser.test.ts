@@ -338,7 +338,7 @@ test("后缀语法糖包装带标签目标时保留标签，合并重复后缀�
             `replacing ${source} with ${replaced} must preserve the labeled tie endpoint`);
     }
 
-    for (const source of ["1/ /", "1. .", "1@a / /"]) {
+    for (const source of ["1/ /", "1. .", "1@a / /", "@div(1)/", "@div(1)//", "@dot(1)."]) {
         const node = parse(source).content[0];
         deepStrictEqual(node.sourceSpan, { start: 0, end: source.length }, source);
     }

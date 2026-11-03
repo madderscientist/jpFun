@@ -193,7 +193,11 @@ function docTooltip(from: number, to: number, doc: string, desugared?: string): 
     };
 }
 
-function hoverAt(view: EditorView, pos: number): Tooltip | null {
+function hoverAt(view: EditorView, boundary: number, side: -1 | 1): Tooltip | null {
+    // CM 给的是离鼠标最近的字符边界，side < 0 表示鼠标在它左边那个字符上
+    const pos = side < 0 ? boundary - 1 : boundary;
+    const line = view.state.doc.lineAt(boundary);
+    if (pos < line.from || pos >= line.to) return null;
     const calls = view.state.field(syntaxField).analysis.calls;
     const call = calls.find(item => pos >= item.nameSpan.start && pos < item.nameSpan.end);
     const def = call && defByName.get(call.name.toLowerCase());
@@ -218,7 +222,7 @@ let locking = false;
 
 const functionHover = hoverTooltip((view, pos, side) => {
     if (view.plugin(hoverControl)?.suppressed) return null;
-    if (locking) return hoverAt(view, pos);
+    if (locking) return hoverAt(view, pos, side);
     // 借 CM 的触发时机与定位，但必须开成 locked 悬浮框：否则鼠标一离开 token 就被 CM 关掉，根本走不进去
     locking = true;
     try { activateHover(view, pos, side, { tooltip: functionHover }); } finally { locking = false; }
@@ -256,8 +260,8 @@ const hoverControl = ViewPlugin.define(view => {
         if (hideTimer < 0) hideTimer = window.setTimeout(() => {
             hide();
             // CM 在悬浮框开着时不重算 hover，关掉后得自己补一次，否则停在相邻函数上不出新的
-            const pos = view.posAtCoords(last);
-            if (pos !== null) activateHover(view, pos, 1, { tooltip: functionHover });
+            const hit = view.posAndSideAtCoords(last);
+            if (hit) activateHover(view, hit.pos, hit.assoc, { tooltip: functionHover });
         }, HOVER_HIDE_DELAY);
     }, { signal });
 
