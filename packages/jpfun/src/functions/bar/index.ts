@@ -313,24 +313,38 @@ class BarTemporalNode extends TemporalNodeBase {
 }
 
 
-/** 反复段起点标记：`:|` 靠它找回跳目标，遍数也按它计数 */
+/** 反复段起止标记：`:|` 靠起点找回跳目标，遍数按段内到过的终点计数 */
 const REPEAT_START = "repeat.start";
+const REPEAT_END = "repeat.end";
 
 /**
  * 某一列此刻处在所属反复段的第几遍
  *
+ * 每条 `:|` 只回跳一次，所以遍数是 1 加上本段已到过的 `:|` 数；
+ * 别处再跳回本段时它已停在最后一遍，只进最后一个房子。
+ * 没有 `:|` 的段只能靠别处跳回，进段几次就是第几遍。
  * 遍数是回跳的直接后果，所以和跳转规则一样归小节线所有；房子只消费这个数。
  * 没有 `|:` 时整首曲子就是一段。
  */
 export function repeatPass(cursor: PlaybackCursor, column: number): number {
-    return cursor.visits(cursor.seek(REPEAT_START, column + 1, -1) ?? 0);
+    const start = cursor.seek(REPEAT_START, column + 1, -1) ?? 0;
+    // `:|:` 既是下一段起点又回跳本段，所以段尾要含下一段起点
+    const next = cursor.seek(REPEAT_START, start, 1) ?? Infinity;
+    let pass = 1, ends = 0;
+    for (let end = cursor.seek(REPEAT_END, start, 1); end !== undefined && end <= next;
+        end = cursor.seek(REPEAT_END, end, 1)) {
+        ends++;
+        if (cursor.visits(end) > 0) pass++;
+    }
+    return ends ? pass : cursor.visits(start);
 }
 
 /** 只有反复线参与播放顺序；普通小节线太多，进控制流扫描是纯开销 */
 class RepeatBarTemporalNode extends BarTemporalNode implements PlaybackFlow {
     /** 只在 type 3–5 时创建，所以三种分别是：3 段首、4 段尾、5 两者都是 */
     playbackMarks(): readonly string[] {
-        return this.ast.type === 4 ? [] : [REPEAT_START];
+        const { type } = this.ast;
+        return type === 3 ? [REPEAT_START] : type === 4 ? [REPEAT_END] : [REPEAT_START, REPEAT_END];
     }
 
     /** 每条反复线只回跳一次，所以连写几条就是几遍 */

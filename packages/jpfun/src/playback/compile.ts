@@ -35,7 +35,7 @@ import { isPlaybackRelation } from "./types.js";
  * 按控制流声明展开出实际访问的列顺序
  *
  * 核心只维护游标、到达次数和标记表，跳转规则全部由函数在自己的 `playbackFlow` 里写：
- * 反复线找最近的段起点标记，房子按段起点被访问过几次决定本遍演不演。
+ * 反复线找最近的段起点标记，房子按本段已回跳过几次决定本遍演不演。
  * 本阶段只产生列索引；游标计数和标记索引每次编译重新建立，不会回写 lowering。
  */
 function linearizeColumns(lowering: LoweringResult, diagnostics: Diagnostic[], maxFlowSteps: number) {

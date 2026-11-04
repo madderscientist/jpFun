@@ -49,6 +49,22 @@ test("一个房子可以承担多遍", () => {
         "遍数一遍都够不着时该房子就不发声，不做扯回来的保底");
 });
 
+test("D.C./D.S. 跳回后各反复段只走最后一遍", () => {
+    assert(played(`|: 1 2@a :| 3@b $fine || 4 $dc @volta(a,a,1) @volta(b,b,2)`)
+        === "1@0 3@1 1@2 5@3 6@4 1@5 5@6",
+        "D.C. 后应跳过第一房子、不再反复，进第二房子并在 Fine 收尾");
+    assert(played(`|: 1 2@a :| 3@b :| 4@c || 5 $dc @volta(a,a,1) @volta(b,b,2) @volta(c,c,3)`)
+        === "1@0 3@1 1@2 5@3 1@4 6@5 8@6 1@7 6@8 8@9",
+        "三遍的反复段跳回后直接进第三房子");
+    assert(played(`|: 1 $segno 2@a :| 3@b || 5 $ds @volta(a,a,1) @volta(b,b,2)`)
+        === "1@0 3@1 1@2 5@3 8@4 5@5 8@6",
+        "D.S. 落在反复段中间时同样只走最后一遍");
+    assert(played(`1 2@a $dc 3@b || @volta(a,a,1) @volta(b,b,2)`) === "1@0 3@1 1@2 5@3",
+        "没有 :| 时 D.C. 本身就是反复，跳回后应进第二房子");
+    assert(played(`$segno 1 2@a $ds 3@b || @volta(a,a,1) @volta(b,b,2)`) === "1@0 3@1 1@2 5@3",
+        "没有 :| 时 D.S. 同理");
+});
+
 test("反复让谱面进度回退，演奏时间继续前进", () => {
     const lowering = lower(`|: 1 2 :|`);
     const plan = compilePlayback(lowering);
