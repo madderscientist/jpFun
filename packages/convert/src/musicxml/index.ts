@@ -8,8 +8,7 @@
  *
  * XML 文本解析和 .mxl 解压都属于应用边界，core 不依赖具体 XML parser
  */
-import { Fraction } from "../../fraction.js";
-import { NoteNameMap } from "../../parser/parse-utils/note-utils.js";
+import { Fraction, NoteNameMap } from "jpfun";
 import {
     child, children, nameOf, number, text,
     type MusicXmlElement,

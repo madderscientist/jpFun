@@ -1,6 +1,6 @@
 /** MIDI 与 MusicXML 共享的 jpFun 源码片段生成工具 */
-import { quote } from "../parser/parse-utils/string-utils.js";
-export { quote } from "../parser/parse-utils/string-utils.js";
+import { quoteSourceString as quote } from "jpfun";
+export { quoteSourceString as quote } from "jpfun";
 
 type HeadTextField = "title" | "subtitle" | "author";
 export type PitchMode = "relative" | "absolute";

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { compileScore, paintLayout, RecordingPainter } from "jpfun";
-import { createPreviewNavigationMap, playbackRegionAt, previewHitAt, sourceTargetAt } from "../preview-navigation.ts";
+import { createPreviewNavigationMap, playbackRegionAt, previewHitAt, sourceTargetAt } from "@jpfun/editor-tools/navigation";
 
 test("上八度点迁入 decoration 后仍命中所属音符", () => {
     let count = 0;

@@ -1,6 +1,4 @@
-import { ANCHOR_KEY } from "../../functions/temporal.js";
-import { DEFAULT_PAGE_CONFIG } from "../../layout/page.js";
-import { compileScore } from "../../pipeline.js";
+import { ANCHOR_KEY, DEFAULT_PAGE_CONFIG, compileScore } from "jpfun";
 import {
     convertMidiJsonToJpFun,
     type MidiToJpFunOptions,

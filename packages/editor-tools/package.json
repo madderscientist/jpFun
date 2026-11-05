@@ -1,0 +1,37 @@
+{
+  "name": "@jpfun/editor-tools",
+  "version": "0.1.0",
+  "description": "Host-independent editor utilities for jpFun",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./navigation": { "types": "./dist/navigation.d.ts", "import": "./dist/navigation.js" },
+    "./language": { "types": "./dist/language.d.ts", "import": "./dist/language.js" },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": { "node": ">=18" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/madderscientist/jpFun.git",
+    "directory": "packages/editor-tools"
+  },
+  "publishConfig": { "access": "public" },
+  "scripts": {
+    "build": "tsc -b",
+    "prepack": "pnpm run build",
+    "typecheck": "tsc -p test/tsconfig.json",
+    "test": "node --import tsx --test \"test/*.test.mjs\""
+  },
+  "peerDependencies": { "jpfun": "workspace:^" },
+  "devDependencies": {
+    "jpfun": "workspace:*",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  },
+  "author": "madderscientist",
+  "license": "Apache-2.0"
+}

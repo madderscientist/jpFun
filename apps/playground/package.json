@@ -8,6 +8,8 @@
     "dev": "vite --host 127.0.0.1 --port 4173"
   },
   "dependencies": {
+    "@jpfun/convert": "workspace:*",
+    "@jpfun/editor-tools": "workspace:*",
     "jpfun": "workspace:*",
     "markdown-it": "^15.0.2"
   },

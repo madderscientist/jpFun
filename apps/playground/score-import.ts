@@ -25,7 +25,7 @@ export async function importScoreFile(file: File) {
         return { source: await file.text(), fileName: file.name, linked: true };
     }
     if (extension === "musicxml") {
-        const { musicXmlToJpFun } = await import("jpfun/converter/musicxml");
+        const { musicXmlToJpFun } = await import("@jpfun/convert/musicxml");
         return {
             source: musicXmlToJpFun(parseMusicXml(await file.text())).script,
             fileName: jpFunName(file.name),
@@ -33,7 +33,7 @@ export async function importScoreFile(file: File) {
         };
     }
     if (extension === "mid" || extension === "midi") {
-        const { midiJsonToJpFun } = await import("jpfun/converter/midi");
+        const { midiJsonToJpFun } = await import("@jpfun/convert/midi");
         const { midi } = await loadMidiApi();
         const parsed = midi.import(new Uint8Array(await file.arrayBuffer()));
         if (!parsed) throw new TypeError("无法识别 MIDI 文件");

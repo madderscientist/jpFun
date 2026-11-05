@@ -25,9 +25,11 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm run typecheck
+      - run: pnpm --filter jpfun build
 
-      - run: pnpm test
+      - run: pnpm --filter jpfun typecheck
+
+      - run: pnpm --filter jpfun test
 
       # 忘记 bump 版本时 npm 只会回一个难懂的 403，这里提前拦下
       - name: Verify tag matches package version
@@ -35,6 +37,6 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME#v}"
           pkg=$(node -p "require('./packages/jpfun/package.json').version")
-          test "$tag" = "$pkg" || { echo "tag=$tag but package.json=$pkg"; exit 1; }
+          test "$tag" = "$pkg" || { echo "tag=$tag but jpfun/package.json=$pkg"; exit 1; }
 
-      - run: npm publish ./packages/jpfun --access public --provenance
+      - run: pnpm --filter jpfun -r publish --access public --provenance

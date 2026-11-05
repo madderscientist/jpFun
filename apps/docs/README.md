@@ -85,7 +85,7 @@ Markdown 中的数学公式由 KaTeX 渲染；`mermaid` 代码块会按需转换
 
 首页为 `src/pages/index.astro`，公共页面外框为 `src/components/SitePage.astro`，全站颜色与文档样式为 `src/styles/custom.css`。jpFun 品牌使用系统内置 Trebuchet MS 粗体，不安装或下载品牌字体。logo 右侧的渐隐谱面使用 `ScoreSvg`，当前源码为 `PLAYGROUND_EXAMPLE`；替换它的 `source` 即可更换谱面，无需手工生成 SVG。竖屏时谱面仍在右侧，高度延伸到操作按钮下方，靠近底部才淡出。
 
-未来的真实截图放在 `public/images/`，在首页优势区域之后增加 `<figure>`，图片地址使用 `withBase("images/文件名.webp")`。
+页面截图放在 `public/images/`，在首页优势区域之后增加 `<figure>`，图片地址使用 `withBase("images/文件名.webp")`。
 
 ## 本地验证
 

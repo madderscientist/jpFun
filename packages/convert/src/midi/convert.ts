@@ -8,11 +8,10 @@
  *
  * MIDI 字节解析不属于 core；这里接收的是 midi.js 已解析好的 JSON。
  */
-import { DEFAULT_BPM } from "../../functions/temporal.js";
+import { DEFAULT_BPM, SHARP_NOTE_NAMES as ABSOLUTE_NAMES } from "jpfun";
 import type { MidiJson, MidiJsonInstrument, MidiJsonNote, MidiJsonTrack } from "./json.js";
 import { identifyTriplets, type TripletMark } from "./triplet.js";
 import { attachAbove, quote, renderAbsolutePitch, renderHead, renderRelativePitch, renderSystems, type PitchMode } from "../source.js";
-import { SHARP_NOTE_NAMES as ABSOLUTE_NAMES } from "../../parser/parse-utils/note-utils.js";
 
 export type * from "./json.js";
 

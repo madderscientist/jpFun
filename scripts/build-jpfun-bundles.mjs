@@ -10,34 +10,23 @@ const banner = "/*! jpfun | Apache-2.0 | github.com/madderscientist/jpFun */";
 
 await copyFile(path.join(root, "Bravura-LICENSE.txt"), path.join(root, "dist", "Bravura-LICENSE.txt"));
 
-async function bundle(entry, outfile) {
-  return build({
-    absWorkingDir: root,
-    entryPoints: [entry],
-    outfile,
-    bundle: true,
-    minify: true,
-    format: "iife",
-    target: "es2022",
-    legalComments: "inline",
-    banner: { js: banner },
-    metafile: true,
-  });
+const result = await build({
+  absWorkingDir: root,
+  entryPoints: ["src/iife/full.ts"],
+  outfile: "dist/jpfun.min.js",
+  bundle: true,
+  minify: true,
+  format: "iife",
+  target: "es2022",
+  legalComments: "inline",
+  banner: { js: banner },
+  metafile: true,
+});
+
+const companionPaths = ["../convert/", "../editor-tools/"];
+const unexpected = Object.keys(result.metafile.inputs)
+  .map(input => input.replaceAll("\\", "/"))
+  .filter(input => companionPaths.some(pattern => input.includes(pattern)));
+if (unexpected.length > 0) {
+  throw new Error(`Default bundle unexpectedly includes:\n${unexpected.join("\n")}`);
 }
-
-await bundle("src/iife/full.ts", "dist/jpfun.min.js");
-const core = await bundle("src/iife/core.ts", "dist/jpfun.core.min.js");
-const fromMidi = await bundle("src/iife/from-midi.ts", "dist/jpfun.from-midi.min.js");
-const fromMusicXml = await bundle("src/iife/from-musicxml.ts", "dist/jpfun.from-musicxml.min.js");
-
-function assertExcludes(result, name, patterns) {
-  const inputs = Object.keys(result.metafile.inputs).map(input => input.replaceAll("\\", "/"));
-  const unexpected = inputs.filter(input => patterns.some(pattern => input.includes(pattern)));
-  if (unexpected.length > 0) {
-    throw new Error(`${name} unexpectedly includes:\n${unexpected.join("\n")}`);
-  }
-}
-
-assertExcludes(core, "core bundle", ["/converter/"]);
-assertExcludes(fromMidi, "from-midi bundle", ["/pipeline.", "/layout/", "/render/", "/playback/"]);
-assertExcludes(fromMusicXml, "from-musicxml bundle", ["/pipeline.", "/layout/", "/render/", "/playback/"]);

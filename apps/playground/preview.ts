@@ -17,7 +17,7 @@ import {
     previewHitAt,
     sourceTargetAt,
     type PreviewNavigationMap,
-} from "./preview-navigation.js";
+} from "@jpfun/editor-tools/navigation";
 
 type PreviewBackend = "svg" | "canvas";
 export type ImageExportFormat = "svg" | "png" | "jpeg";

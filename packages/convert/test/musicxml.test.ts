@@ -6,8 +6,8 @@ import {
   ASTFunctionNode,
   compilePlayback,
   compileScore,
-  musicXmlToJpFun as convertMusicXmlElement,
-} from "../src/index.js";
+} from "jpfun";
+import { musicXmlToJpFun as convertMusicXmlElement } from "@jpfun/convert/musicxml";
 import { assert, attachmentCommands, compileValid, lower, nearly, playedNotes, recordCommands } from "./helpers.js";
 
 function importMusicXml(

@@ -1,4 +1,4 @@
-import type { MidiJson } from "jpfun";
+import type { MidiJson } from "@jpfun/convert/midi";
 import { loadClassicScript } from "./platform.js";
 
 const MIDI_URL = "https://madderscientist.github.io/noteDigger/lib/midi.js";

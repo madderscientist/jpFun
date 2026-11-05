@@ -18,18 +18,9 @@ Or load via CDN (`globalThis.jpfun`):
 <script src="https://unpkg.com/jpfun"></script>
 ```
 
-In production, pin all CDN bundles to the same `jpfun@x.y.z` version.
+This loads `dist/jpfun.min.js` and exposes the public APIs as `globalThis.jpfun`. Pin a version in production, for example `https://unpkg.com/jpfun@1.0.0`.
 
-IIFE bundles under `jpfun/dist/` share the `jpfun` global:
-
-| Bundle | Capabilities |
-| --- | --- |
-| `jpfun.min.js` | Core and both converters |
-| `jpfun.core.min.js` | Compilation, rendering, playback, and source editing; no converters |
-| `jpfun.from-midi.min.js` | MIDI JSON import; automatic line breaking also requires core |
-| `jpfun.from-musicxml.min.js` | Standalone MusicXML import |
-
-For standalone MIDI import, set a positive `barsPerLine`.
+Conversion scripts are distributed separately by `@jpfun/convert`.
 
 ## Quick Start
 
@@ -59,7 +50,11 @@ Check returned `diagnostics` for recoverable problems and catch compilation erro
 
 For Canvas, create and size one canvas per layout page; see the [rendering example](https://madderscientist.github.io/jpFun/docs/developer/use/#渲染结果). The default text measurer estimates widths; `CanvasTextMeasurer` measures browser font widths for both SVG and Canvas layout.
 
+Node.js TypeScript consumers must include `"DOM"` in `compilerOptions.lib` (for example, `["ES2022", "DOM"]`) because the public Canvas declarations use `CanvasRenderingContext2D`. This only supplies types; it does not add browser APIs at runtime.
+
 ## Core APIs
+
+Import public APIs directly from `jpfun`, including built-in function nodes, `ParserContext`, `LoweringContext`, parser utilities, layout helpers, playback events, painters, and symbol definitions.
 
 ### Custom Symbols (`symbols`)
 
@@ -88,11 +83,11 @@ The registry is shared across compilations. Names are case-insensitive, and late
 
 ### MIDI & MusicXML Import
 
-Import from dedicated subpaths (or from `"jpfun"`):
+Install the optional converter package with `npm install @jpfun/convert`:
 
 ```ts
-import { midiJsonToJpFun } from "jpfun/converter/midi";
-import { musicXmlToJpFun } from "jpfun/converter/musicxml";
+import { midiJsonToJpFun } from "@jpfun/convert/midi";
+import { musicXmlToJpFun } from "@jpfun/convert/musicxml";
 
 const fromMidi = midiJsonToJpFun(parsedMidiJson, { pitchMode: "absolute", alignRate: 4, barsPerLine: 0 });
 const { script, diagnostics } = musicXmlToJpFun(xmlDocument.documentElement, { pitchMode: "absolute", barsPerLine: 4 });
@@ -104,4 +99,4 @@ See the [Developer Documentation](https://madderscientist.github.io/jpFun/docs/d
 
 ## License
 
-[Apache-2.0](LICENSE), except the `$turn` / `$iturn` / `$coda` glyphs derived from [Bravura](https://github.com/steinbergmedia/bravura), licensed under [SIL OFL 1.1](Bravura-LICENSE.txt). Include `Bravura-LICENSE.txt` when redistributing these glyphs or bundles containing them.
+[Apache-2.0](https://github.com/madderscientist/jpFun/blob/main/LICENSE), except the `$turn` / `$iturn` / `$coda` glyphs derived from [Bravura](https://github.com/steinbergmedia/bravura), licensed under [SIL OFL 1.1](Bravura-LICENSE.txt). Include `Bravura-LICENSE.txt` when redistributing these glyphs or bundles containing them.

@@ -1,0 +1,40 @@
+{
+  "name": "@jpfun/convert",
+  "version": "0.1.0",
+  "description": "MIDI JSON and MusicXML conversion to jpFun source",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./midi": { "types": "./dist/midi/index.d.ts", "import": "./dist/midi/index.js" },
+    "./musicxml": { "types": "./dist/musicxml/index.d.ts", "import": "./dist/musicxml/index.js" },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": { "node": ">=18" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/madderscientist/jpFun.git",
+    "directory": "packages/convert"
+  },
+  "publishConfig": { "access": "public" },
+  "scripts": {
+    "build": "tsc -b && node ../../scripts/build-convert-bundles.mjs && node --test ../../scripts/test-convert-bundles.mjs",
+    "prepack": "pnpm run build",
+    "typecheck": "tsc -p test/tsconfig.json",
+    "test": "node --import tsx --test \"test/*.test.ts\""
+  },
+  "peerDependencies": { "jpfun": "workspace:^" },
+  "devDependencies": {
+    "jpfun": "workspace:*",
+    "@types/node": "^26.5.1",
+    "@xmldom/xmldom": "^0.9.12",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  },
+  "author": "madderscientist",
+  "license": "Apache-2.0"
+}

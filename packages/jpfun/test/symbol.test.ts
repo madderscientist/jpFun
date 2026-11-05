@@ -4,7 +4,7 @@ import { deepStrictEqual, strictEqual, throws } from "node:assert/strict";
 import { DEFAULT_VELOCITY, TemporalNodeBase } from "../src/functions/temporal.js";
 import { symbolBounds, type SymbolShape } from "../src/functions/symbol/shape.js";
 import { trSymbol } from "../src/functions/symbol/symbols/tr.js";
-import { symbols, type SymbolDefinition } from "../src/core.js";
+import { symbols, type SymbolDefinition } from "../src/index.js";
 import { analyzeScoreSyntax, compileScore } from "../src/pipeline.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import { assert, compileValid, expectDiagnostic, layoutOf, lower, nearly, parse, playedNotes, recordCommands } from "./helpers.js";

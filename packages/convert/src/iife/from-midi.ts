@@ -2,8 +2,8 @@ import {
     convertMidiJsonToJpFun,
     type MidiLayoutCapability,
     type MidiToJpFunOptions,
-} from "../converter/midi/convert.js";
-import type { MidiJson } from "../converter/midi/json.js";
+} from "../midi/convert.js";
+import type { MidiJson } from "../midi/json.js";
 
 type CoreGlobal = Record<string, unknown> & {
     compileScore?: MidiLayoutCapability["compileScore"];

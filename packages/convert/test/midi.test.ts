@@ -5,9 +5,9 @@ import {
     midiJsonToJpFun,
     type MidiJson,
     type MidiJsonNote,
-} from "../src/index.js";
-import { convertMidiJsonToJpFun } from "../src/converter/midi/convert.js";
-import { compilePlayback } from "../src/playback/compile.js";
+} from "@jpfun/convert/midi";
+import { convertMidiJsonToJpFun } from "../src/midi/convert.js";
+import { compilePlayback } from "jpfun";
 import { assert, lower, playedNotes } from "./helpers.js";
 
 function midi(

@@ -41,7 +41,7 @@ function isPlaybackCursorNode(node: TemporalNodeBase): node is VisualTemporalNod
         && (node.box.w > 0 || node.box.h > 0);
 }
 
-/** 当前谱面时刻对应的可见时间列；没有主体的时刻沿用此前区域。 */
+/** 当前谱面时刻对应的可见时间列；没有主体的时刻沿用此前区域 */
 export function playbackRegionAt(navigation: PreviewNavigationMap, scoreTime: number): Rect | null {
     const regions = navigation.playbackRegions;
     let low = 0;
@@ -105,7 +105,7 @@ export function createPreviewNavigationMap(compiled: CompileScoreResult): Previe
         lineBottoms[line] = Math.max(lineBottoms[line], bounds.y + bounds.h);
     }
 
-    // grace/up 等折叠成员不在 layout.objects，但布局完成后仍保留最终 box。
+    // grace/up 等折叠成员不在 layout.objects，但布局完成后仍保留最终 box
     for (const temporals of compiled.lowering.astToTemporal.values()) {
         for (const temporal of temporals) {
             if (isVisualTemporalNode(temporal) && (temporal.box.w > 0 || temporal.box.h > 0)) {

@@ -3,7 +3,8 @@ import MarkdownIt from "markdown-it";
 import { insertNewlineAndIndent } from "@codemirror/commands";
 import { EditorSelection, EditorState, RangeSetBuilder, StateEffect, StateField, type ChangeSpec, type StateCommand } from "@codemirror/state";
 import { activateHover, closeHoverTooltips, Decoration, EditorView, hoverTooltip, keymap, showTooltip, ViewPlugin, type DecorationSet, type Tooltip } from "@codemirror/view";
-import { analyzeScoreSyntax, ASTFunctionNode, ASTLabelNode, ASTNodeBase, defaultFunctions, resolveArgDef, resolveArgType, symbols, type CallInfo, type FunctionArgDef, type FunctionDef, type SourceSpan, type SyntaxAnalysis, type SyntaxToken, type SyntaxTokenKind } from "jpfun";
+import { analyzeScoreSyntax, ASTNodeBase, type SourceSpan, type SyntaxTokenKind } from "jpfun";
+import { argumentDoc, completionsAt, functionDefinitions as defByName, functionDoc, functionNodeAt, labelJumpAt as getLabelJump, labelSymbolAt, parameterCompletionEdit, parameterDocAt as getParameterDoc } from "@jpfun/editor-tools/language";
 
 const syntaxClasses: Record<SyntaxTokenKind, string> = {
     comment: "cm-jpfun-comment",
@@ -79,56 +80,9 @@ export function publishSemanticAst(view: EditorView, ast: ASTNodeBase | null) {
     view.dispatch({ effects: setSemanticAst.of(ast) });
 }
 
-/** 沿命中路径取最深的具名函数节点；text/label 节点没有可展示的信息 */
-function functionNodeAt(node: ASTNodeBase, pos: number): ASTFunctionNode | null {
-    if (pos < node.sourceSpan.start || pos >= node.sourceSpan.end) return null;
-    for (const child of node.children ?? []) {
-        const deeper = functionNodeAt(child, pos);
-        if (deeper) return deeper;
-    }
-    return node instanceof ASTFunctionNode && node.def ? node : null;
-}
-
 //====== 补全与文档 ======//
 
-const defByName = new Map<string, FunctionDef>();
-for (const fnClass of defaultFunctions) {
-    const def = fnClass.prototype.def;
-    if (!def) continue;
-    for (const name of Array.isArray(def.name) ? def.name : [def.name]) defByName.set(name.toLowerCase(), def);
-}
-
 const markdown = new MarkdownIt({ html: false });
-
-function argumentDoc(def: FunctionDef, argument: FunctionArgDef, position?: number): string {
-    if (!argument.namedOnly && position === undefined) {
-        position = 0;
-        for (const item of def.args) {
-            if (!item.namedOnly) position++;
-            if (item === argument) break;
-        }
-    }
-    const value = argument.default;
-    const defaultValue = value !== null && typeof value === "object" && "unit" in value
-        ? `${value.value}${value.unit}` : JSON.stringify(value);
-    const title = argument.namedOnly
-        ? `**${argument.name}** · 仅命名参数`
-        : `**${position}. ${argument.name ?? "位置参数"}**`;
-    return `${title} · \`${argument.type}\` · ${value === null ? "必填" : `默认 \`${defaultValue}\``}`
-        + (argument.description ? `\n\n${argument.description}` : "");
-}
-
-export function functionDoc(def: FunctionDef): string {
-    const names = Array.isArray(def.name) ? def.name : [def.name];
-    let position = 0;
-    return [
-        `**@${names[0]}** · ${def.description}`,
-        names.length > 1 ? `别名：${names.slice(1).map(name => `\`@${name}\``).join("、")}` : "",
-        def.details,
-        def.args.length ? def.args.map(argument => argumentDoc(def, argument, argument.namedOnly ? undefined : ++position)).join("\n\n") : "无固定参数",
-        def.allowExtraArgs ? `支持额外参数${def.extraArgType ? `，额外位置参数类型为 \`${def.extraArgType}\`` : "，由函数解析"}` : "不接受额外参数",
-    ].filter(Boolean).join("\n\n");
-}
 
 function renderFunctionDoc(source: string) {
     const body = document.createElement("div");
@@ -136,19 +90,6 @@ function renderFunctionDoc(source: string) {
     body.innerHTML = markdown.render(source);
     return body;
 }
-
-const functionCompletions: Completion[] = [...defByName].map(([name, def]) => snippetCompletion(`@${name}(\${})`, {
-    label: "@" + name,
-    type: "function",
-    detail: def.description,
-    info: () => renderFunctionDoc(functionDoc(def)),
-}));
-
-const symbolCompletions: Completion[] = Array.from(symbols.table.values(), symbol => ({
-    label: "$" + symbol.name,
-    type: "constant",
-    detail: symbol.description,
-}));
 
 /** 悬浮框与行框之间留的缝，免得压住光标 */
 const TOOLTIP_GAP = 4;
@@ -272,34 +213,9 @@ const hoverControl = ViewPlugin.define(view => {
 });
 
 /** calls 按起点升序且同级不重叠，所以最后一个命中的必然是最内层 */
-function callAt(calls: readonly CallInfo[], pos: number): CallInfo | undefined {
-    let found: CallInfo | undefined;
-    for (const call of calls) {
-        if (call.span.start > pos) break;
-        if (pos >= call.openParenSpan.end && pos <= (call.closeParenSpan?.start ?? call.span.end)) found = call;
-    }
-    return found;
-}
-
-function argumentIndexAt(call: CallInfo, pos: number): number {
-    return call.args.findIndex(argument => pos <= (argument.commaSpan?.start ?? call.closeParenSpan?.start ?? call.span.end));
-}
-
 export function parameterDocAt(state: EditorState): { pos: number; doc: string } | null {
     if (!state.selection.main.empty) return null;
-    const pos = state.selection.main.head;
-    const call = callAt(state.field(syntaxField).analysis.calls, pos);
-    const def = call && defByName.get(call.name.toLowerCase());
-    if (!call || !def) return null;
-    const suppliedIndex = argumentIndexAt(call, pos);
-    const supplied = call.args[suppliedIndex];
-    const name = supplied?.nameSpan && state.sliceDoc(supplied.nameSpan.start, supplied.nameSpan.end).toLowerCase();
-    const position = suppliedIndex < 0 ? call.args.length : suppliedIndex;
-    const argument = resolveArgDef(def, name, position);
-    if (argument) return { pos, doc: `\`@${call.name}\`\n\n${argumentDoc(def, argument)}` };
-    if (!def.allowExtraArgs) return null;
-    const type = name ? "动态类型" : def.extraArgType ?? "动态类型";
-    return { pos, doc: `\`@${call.name}\`\n\n**${position + 1}. ${name || "额外位置参数"}** · \`${type}\`\n\n此参数由函数处理，具体用法见函数说明` };
+    return getParameterDoc(state.doc.toString(), state.field(syntaxField).analysis, state.selection.main.head);
 }
 
 const dismissParameter = StateEffect.define<void>();
@@ -330,64 +246,37 @@ const parameterField = StateField.define<Tooltip | null>({
 /** 过滤仍按光标前缀，接受时用最新名称范围替换，保留已有等号和值 */
 function applyParameterCompletion(view: EditorView, completion: Completion, from: number, to: number): void {
     const state = view.state;
-    const call = callAt(state.field(syntaxField).analysis.calls, to);
-    const name = call && call.args[argumentIndexAt(call, to)]?.nameSpan;
+    const edit = parameterCompletionEdit(state.field(syntaxField).analysis, { start: from, end: to }, completion.label);
     view.dispatch({
-        ...insertCompletionText(state, completion.label + (name ? "" : "="), name?.start ?? from, name?.end ?? to),
+        ...insertCompletionText(state, edit.text, edit.span.start, edit.span.end),
         annotations: pickedCompletion.of(completion),
     });
 }
 
 function complete(context: CompletionContext): CompletionResult | null {
-    const word = context.matchBefore(/[@$\w./-]*/)!;
-    const source = context.state.doc.toString();
-    if (source.slice(word.from, context.pos).startsWith("@")) {
-        return { from: word.from, options: functionCompletions, validFor: /^@[\w./-]*$/ };
-    }
-    if (word.text.startsWith("$")) {
-        return { from: word.from, options: symbolCompletions, validFor: /^\$[\w./-]*$/ };
-    }
-
-    const { tokens, calls } = context.state.field(syntaxField).analysis;
-    const call = callAt(calls, context.pos);
-    const def = call && defByName.get(call.name.toLowerCase());
-    if (!call || !def) return null;
-
-    const argIndex = argumentIndexAt(call, context.pos);
-    const arg = argIndex < 0 ? undefined : call.args[argIndex];
-    const named = (span?: SourceSpan) => span && source.slice(span.start, span.end).toLowerCase();
-    const inValue = arg?.equalsSpan !== undefined && context.pos > arg.equalsSpan.start;
-    const position = argIndex < 0 ? call.args.length : argIndex;
-    const type = resolveArgType(def, inValue ? named(arg?.nameSpan) : undefined, position);
-    if (type === "content") {
-        const parameterStart = (position > 0 ? call.args[position - 1].commaSpan?.end : undefined) ?? call.openParenSpan.end;
-        const atParameterName = !inValue
-            && /^\s*$/.test(source.slice(parameterStart, word.from))
-            && (!arg || arg.nameSpan !== undefined || context.pos >= arg.span.end)
-            && !tokens.some(token => token.kind === "atom" && token.span.start === word.from && token.span.end === context.pos);
-        // content 只在参数起点补全仅命名选项，不能把音符或内容块当成参数名
-        if (!atParameterName) return null;
-    }
-
-    const used = new Set(call.args.filter(item => item !== arg).map(item => named(item.nameSpan)));
-    const options: Completion[] = inValue ? [] : def.args.flatMap((item, index) =>
-        item.name && !used.has(item.name.toLowerCase())
-            && (type !== "content" || item.namedOnly && item.name.toLowerCase().startsWith(word.text.toLowerCase())) ? [{
-            label: item.name!,
-            type: "parameter",
-            detail: item.type,
-            sortText: String(index).padStart(String(def.args.length).length, "0"),
-            info: () => renderFunctionDoc(argumentDoc(def, item)),
-            apply: applyParameterCompletion,
-        }] : []);
-    if (type === "label" && (inValue || !arg?.nameSpan)) {
-        // `@x` 形式的才是声明，函数参数里的裸标签是引用
-        const declared = tokens.filter(token => token.kind === "label" && source[token.span.start] === "@");
-        for (const name of new Set(declared.map(token => source.slice(token.span.start + 1, token.span.end)))) {
-            options.push({ label: name, type: "variable" });
-        }
-    }
-    return options.length ? { from: word.from, options, validFor: type === "content" ? undefined : /^[\w.-]*$/ } : null;
+    const result = completionsAt(context.state.doc.toString(), context.state.field(syntaxField).analysis, context.pos);
+    if (!result) return null;
+    return {
+        from: result.range.start,
+        validFor: result.validFor,
+        options: result.candidates.map(item => {
+            const option: Completion = {
+                label: item.label,
+                type: item.kind === "symbol" ? "constant" : item.kind === "label" ? "variable" : item.kind,
+                detail: item.detail,
+                sortText: item.sortText,
+            };
+            if (item.kind === "function") {
+                option.info = () => renderFunctionDoc(functionDoc(item.definition!));
+                return snippetCompletion(`${item.label}(\${})`, option);
+            }
+            if (item.kind === "parameter") {
+                option.info = () => renderFunctionDoc(argumentDoc(item.definition!, item.argument!));
+                option.apply = applyParameterCompletion;
+            }
+            return option;
+        }),
+    };
 }
 
 //====== 标签导航与重命名 ======//
@@ -397,68 +286,9 @@ function jumpModifier(event: MouseEvent | KeyboardEvent) {
     return event.ctrlKey || event.metaKey;
 }
 
-/** 声明写作 `@x`，引用是关系函数参数里的裸名字 */
-function isDeclaration(state: EditorState, token: SyntaxToken) {
-    return state.doc.sliceString(token.span.start, token.span.start + 1) === "@";
-}
-
-/** 名字本身占的区间，声明要跳过开头的 `@`；重命名直接把它变成选区 */
-function labelNameRange(state: EditorState, token: SyntaxToken) {
-    return {
-        from: token.span.start + (isDeclaration(state, token) ? 1 : 0),
-        to: token.span.end,
-    };
-}
-
-function labelName(state: EditorState, token: SyntaxToken) {
-    const range = labelNameRange(state, token);
-    return state.doc.sliceString(range.from, range.to);
-}
-
-function labelTokenAt(analysis: SyntaxAnalysis, pos: number): SyntaxToken | null {
-    return analysis.tokens.find(token =>
-        token.kind === "label" && pos >= token.span.start && pos <= token.span.end) ?? null;
-}
-
-/**
- * 引用绑定到哪个声明。规则抄自 parserContext 的 label 参数解析：
- * 在引用所属调用之前，从后往前第一个同名声明。同一个名字因此可以被反复使用
- */
-function declarationFor(state: EditorState, analysis: SyntaxAnalysis, reference: SyntaxToken): SyntaxToken | null {
-    const call = callAt(analysis.calls, reference.span.start);
-    if (!call) return null;
-    const name = labelName(state, reference);
-    let found: SyntaxToken | null = null;
-    for (const token of analysis.tokens) {
-        if (token.span.start >= call.span.start) break;   // tokens 已按起点升序
-        if (token.kind === "label" && isDeclaration(state, token) && labelName(state, token) === name) found = token;
-    }
-    return found;
-}
-
-/** target 指向被标注对象；parent 是树结构、会被容器改写，不能拿来问这个 */
-function labelTargetSpan(node: ASTNodeBase, declaration: SourceSpan): SourceSpan | null {
-    if (node instanceof ASTLabelNode && node.sourceSpan.start === declaration.start) {
-        return node.target.sourceSpan;
-    }
-    for (const child of node.children ?? []) {
-        const found = labelTargetSpan(child, declaration);
-        if (found) return found;
-    }
-    return null;
-}
-
 /** 光标落在标签引用上时，算出它指的谱面对象写在源码哪里 */
 function labelJumpAt(state: EditorState, pos: number) {
-    const { analysis } = state.field(syntaxField);
-    const reference = labelTokenAt(analysis, pos);
-    if (!reference || isDeclaration(state, reference)) return null;
-    const declaration = declarationFor(state, analysis, reference);
-    if (!declaration) return null;
-    const ast = state.field(semanticField);
-    // 编译失败或刚改过文档时没有 AST，退到声明自身，只差几个字符
-    const target = (ast && labelTargetSpan(ast, declaration.span)) ?? declaration.span;
-    return { reference: reference.span, target };
+    return getLabelJump(state.doc.toString(), state.field(syntaxField).analysis, pos, state.field(semanticField));
 }
 
 const setLabelLink = StateEffect.define<SourceSpan | null>();
@@ -530,33 +360,17 @@ const labelLinkClick = EditorView.domEventHandlers({
     },
 });
 
-/** 一个声明连同它管辖的引用。同名标签可以属于不同的组，所以不能按名字全改 */
-function labelSymbolAt(state: EditorState, pos: number) {
-    const { analysis } = state.field(syntaxField);
-    const token = labelTokenAt(analysis, pos);
-    if (!token) return null;
-    const declaration = isDeclaration(state, token) ? token : declarationFor(state, analysis, token);
-    if (!declaration) return null;
-    const name = labelName(state, declaration);
-    const ranges = [labelNameRange(state, declaration)];
-    for (const other of analysis.tokens) {
-        if (other.kind !== "label" || isDeclaration(state, other) || labelName(state, other) !== name) continue;
-        if (declarationFor(state, analysis, other) !== declaration) continue;
-        ranges.push(labelNameRange(state, other));
-    }
-    return ranges;
-}
-
 /** 重命名不弹输入框：把这一组变成多光标，直接打字就同步改 */
 function renameLabel(view: EditorView) {
     const head = view.state.selection.main.head;
-    const ranges = labelSymbolAt(view.state, head);
-    if (!ranges) return false;
+    const symbol = labelSymbolAt(view.state.doc.toString(), view.state.field(syntaxField).analysis, head);
+    if (!symbol) return false;
+    const ranges = [symbol.declaration, ...symbol.references];
     // 光标停在声明的 `@` 上时不落在任何名字区间内，退回第一个
-    const main = ranges.findIndex(range => head >= range.from && head <= range.to);
+    const main = ranges.findIndex(range => head >= range.start && head <= range.end);
     view.dispatch({
         selection: EditorSelection.create(
-            ranges.map(range => EditorSelection.range(range.from, range.to)),
+            ranges.map(range => EditorSelection.range(range.start, range.end)),
             Math.max(0, main),
         ),
     });

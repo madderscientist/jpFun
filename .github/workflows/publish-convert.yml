@@ -1,0 +1,32 @@
+name: Publish @jpfun/convert
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter @jpfun/convert... build
+
+      - run: pnpm --filter @jpfun/convert typecheck
+
+      - run: pnpm --filter @jpfun/convert test
+
+      - run: pnpm --filter @jpfun/convert -r publish --access public --provenance

@@ -27,7 +27,7 @@ const pages = renderLayoutPagesToSvg(result.layout);
 
 `pages` 是按页排列的 SVG 字符串数组。浏览器可以将其插入页面，Node.js 可以写入文件，静态站点可以在构建时嵌入 HTML。编译成功后，应用仍应检查 `result.diagnostics` 中的可恢复问题。
 
-不使用打包器时，可以通过 classic script 加载浏览器全量包，API 暴露在全局变量 `jpfun` 上：
+不使用打包器时，可以通过 classic script 加载浏览器核心包，API 暴露在全局变量 `jpfun` 上：
 
 ```html
 <div id="score"></div>
@@ -49,10 +49,12 @@ const pages = renderLayoutPagesToSvg(result.layout);
 | 显示或导出谱面 | `compileScore` + `renderLayoutPagesToSvg` |
 | 绘制到浏览器画布 | `compileScore` + `renderLayoutPagesToCanvas` |
 | 生成播放计划 | `compileScore` + `compilePlayback` |
-| MIDI 转为 jpFun | `jpfun/converter/midi` |
-| MusicXML 转为 jpFun | `jpfun/converter/musicxml` |
+| MIDI JSON 转为 jpFun | `@jpfun/convert/midi` |
+| MusicXML 根节点转为 jpFun | `@jpfun/convert/musicxml` |
 | 注册或管理乐谱符号 | `symbols` |
 | 编辑器即时语法反馈 | `analyzeScoreSyntax` |
+| 函数文档与当前参数查询 | `@jpfun/editor-tools/language` |
+| 源码、谱面与播放位置映射 | `@jpfun/editor-tools/navigation` |
 | 自定义绘制后端 | `compileScore` + `paintLayout` / `Painter` |
 
 渲染和播放是两条独立的输出路径：渲染消费布局，播放消费音乐时间数据。`compileScore` 提供两者所需的结果，但不会自动绘制或发声。
@@ -195,10 +197,10 @@ console.log(plan.durationSeconds);
 
 ## 导入 MIDI
 
-`midiJsonToJpFun` 接收 [midi.js](https://madderscientist.github.io/noteDigger/lib/midi.js) 的 `JSON()` 结果并生成可继续编辑的 jpFun 源码。MIDI 字节解析属于应用边界，jpFun 不会替你读取 `.mid` 文件：
+先安装 `jpfun` 和 `@jpfun/convert`。`midiJsonToJpFun` 接收满足 `MidiJson` 接口的数据并生成可继续编辑的 jpFun 源码；[midi.js](https://madderscientist.github.io/noteDigger/lib/midi.js) 的 `JSON()` 结果符合这一接口，也可以使用其他解析器并适配为相同结构。MIDI 字节解析属于应用边界，不进入这两个 npm 包：
 
 ```ts
-import { midiJsonToJpFun } from "jpfun/converter/midi";
+import { midiJsonToJpFun } from "@jpfun/convert/midi";
 
 const source = midiJsonToJpFun(parsedMidiJson, {
   title: "My Score",
@@ -220,7 +222,7 @@ const source = midiJsonToJpFun(parsedMidiJson, {
 `musicXmlToJpFun` 接收已经解析好的 XML 根元素。浏览器可以直接使用原生 `DOMParser`：
 
 ```ts
-import { musicXmlToJpFun } from "jpfun/converter/musicxml";
+import { musicXmlToJpFun } from "@jpfun/convert/musicxml";
 
 const xml = await file.text();
 const document = new DOMParser().parseFromString(xml, "application/xml");
@@ -233,7 +235,7 @@ const { script, diagnostics } = musicXmlToJpFun(document.documentElement, {
 });
 ```
 
-返回对象包含源码 `script` 和结构化诊断数组 `diagnostics`。原先直接使用字符串返回值的调用方需要改为读取 `.script`。转换失败仍抛异常，不返回部分结果。
+返回对象包含源码 `script` 和结构化诊断数组 `diagnostics`。调用方读取 `.script` 并检查 `.diagnostics`；转换失败仍抛异常，不返回部分结果。
 
 每条 `MusicXmlDiagnostic` 包含稳定编号 `code`、级别 `severity: "warning"`、说明 `message` 和原始 MusicXML 位置 `location`：
 
@@ -261,14 +263,14 @@ const { script, diagnostics } = musicXmlToJpFun(document.documentElement, {
 
 ### 让转换器按需分包
 
-两个转换器既可以从 `jpfun` 根入口导入，也各自提供独立子路径。应用始终需要某个转换器时，优先静态导入对应子路径；这样入口依赖更明确，也避免把另一个转换器带进同一模块图。
+两个转换器可以从 `@jpfun/convert` 根入口导入，也各自提供 `/midi` 和 `/musicxml` 子路径；核心 `jpfun` 不再导出转换器。应用始终需要某个转换器时，优先静态导入对应子路径；这样入口依赖更明确，也避免把另一个转换器带进同一模块图。
 
 对于“点击导入后才需要”的功能，使用动态 `import()` 可以让 Vite、Rollup、webpack 等构建工具把转换器生成独立 chunk：
 
 ```ts
 async function importScore(file: File) {
   if (/\.musicxml$/i.test(file.name)) {
-    const { musicXmlToJpFun } = await import("jpfun/converter/musicxml");
+    const { musicXmlToJpFun } = await import("@jpfun/convert/musicxml");
     const document = new DOMParser().parseFromString(
       await file.text(),
       "application/xml",
@@ -277,7 +279,7 @@ async function importScore(file: File) {
   }
 
   if (/\.midi?$/i.test(file.name)) {
-    const { midiJsonToJpFun } = await import("jpfun/converter/midi");
+    const { midiJsonToJpFun } = await import("@jpfun/convert/midi");
     const parsedMidiJson = await parseMidiFile(file);
     return midiJsonToJpFun(parsedMidiJson);
   }
@@ -286,7 +288,7 @@ async function importScore(file: File) {
 }
 ```
 
-分包由应用构建工具完成。`import("jpfun")` 会以整个根入口作为异步边界；分别延迟加载 MIDI 和 MusicXML 时，应使用上面的两个子路径。未配置打包器的原生 ESM 环境仍会按模块加载，但不会自动生成可部署的 chunk 文件。
+异步 chunk 由应用构建工具生成。`import("@jpfun/convert")` 会以转换包的整个根入口作为异步边界；分别延迟加载 MIDI 和 MusicXML 时，应使用上面的两个子路径。未配置打包器的原生 ESM 环境仍会按模块加载，但不会自动生成可部署的 chunk 文件。
 
 ## 扩展与管理乐谱符号
 

@@ -1,4 +1,4 @@
-import type { Fraction } from "../../fraction.js";
+import type { Fraction } from "jpfun";
 
 export interface MusicXmlDiagnostic {
     code: "W_MUSICXML_PERCUSSION_SKIPPED" | "W_MUSICXML_APPROXIMATED"

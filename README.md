@@ -39,7 +39,11 @@
 但是“函数式”其实也带来了一些设计的困难，比如“连音线”这种有跨度的多元素关系。具体怎么做的……看看[语法](./packages/jpfun/grammar.md)吧！
 
 ## npm 包
-核心包位于 [`packages/jpfun`](./packages/jpfun/README.md)，使用 Apache-2.0 许可证。
+- [`jpfun`](./packages/jpfun/README.md)：核心包，负责编译、排版、基础渲染和播放计划。
+- [`@jpfun/convert`](./packages/convert/README.md)：MIDI JSON 和 MusicXML 根节点到 jpFun 源码的转换，不包含文件解析库。
+- [`@jpfun/editor-tools`](./packages/editor-tools/README.md)：宿主无关的函数文档、参数查询和源码/谱面导航，可用于 Playground 和 VS Code 插件。
+
+后两个包单向依赖 `jpfun`。
 
 ## 开发
 项目使用 pnpm workspace：
@@ -55,8 +59,9 @@ pnpm dev                   # 一起启动文档、编辑器及核心编译监听
 pnpm dev:playground        # 只启动编辑器
 pnpm dev:docs              # 只启动文档
 pnpm run build:core        # 构建核心包
+pnpm run build:packages    # 按依赖顺序构建三个 npm 包
 pnpm run build:playground  # 构建 Playground
-pnpm run typecheck         # 只做类型检查（tsx 跑测试时不检查类型）
+pnpm run typecheck         # 构建包依赖后检查包和编辑器类型（tsx 跑测试时不检查类型）
 ```
 
 `pnpm dev` 的统一入口默认是 `http://127.0.0.1:4321/`：
@@ -68,7 +73,9 @@ pnpm run typecheck         # 只做类型检查（tsx 跑测试时不检查类�
 
 ## 仓库结构
 - `packages/jpfun/`：可独立发布的 `jpfun` npm 包、源码与测试
-- `apps/playground/`：通过 `workspace:*` 使用公开包入口的 Vite 网页应用
+- `packages/convert/`：`@jpfun/convert` 的源码、转换测试和浏览器转换脚本
+- `packages/editor-tools/`：不依赖 DOM、CodeMirror 或 VS Code 的编辑器工具
+- `apps/playground/`：通过 `workspace:*` 使用三个包公开入口的 Vite 网页应用；负责文件读写、MIDI/XML 文件解析和音频调度
 - `apps/docs/`：基于 Starlight 的文档网站，包含教程、函数速查和开发者文档
 - `scripts/`：仓库开发脚本
 

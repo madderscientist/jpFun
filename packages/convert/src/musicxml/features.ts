@@ -6,7 +6,7 @@ import type {
     MusicXmlArpeggio, MusicXmlDiagnostic, MusicXmlDirectionPoint,
     MusicXmlEvent, MusicXmlPitch, MusicXmlRepeatPoint, MusicXmlRepeatSymbol, ParsedMusicXmlScore,
 } from "./model.js";
-import { NoteNameMap, SHARP_NOTE_NAMES } from "../../parser/parse-utils/note-utils.js";
+import { NoteNameMap, SHARP_NOTE_NAMES } from "jpfun";
 
 /** 统一两种 MusicXML 根结构中的小节内容与外层小节容器 */
 export interface MusicXmlMeasureSource {

@@ -7,7 +7,28 @@ sidebar:
 
 [playground](https://github.com/madderscientist/jpFun/tree/HEAD/apps/playground/) 是核心库的应用层集成。编辑器负责维护文档状态、协调不同有效期的编译结果，并将几何与播放计划接到浏览器界面和设备；它不定义另一套记谱语义。
 
-本文先说明数据依赖与结果生命周期，再介绍 playground 的具体功能实现。VS Code 部分提供扩展点的接入建议，相关插件尚未实现。
+本文介绍数据依赖、结果生命周期、playground 的功能实现及 VS Code 扩展点的接入方式。
+
+## 共享工具包
+
+`@jpfun/editor-tools` 是 Playground 和 VS Code 插件共用的无界面工具层，只依赖 `jpfun`，不依赖 DOM、CodeMirror 或 VS Code。安装 `jpfun` 和该包后，可直接在扩展宿主的 Node.js 环境中调用：
+
+```ts
+import { analyzeScoreSyntax } from "jpfun";
+import { parameterDocAt } from "@jpfun/editor-tools/language";
+
+const source = "@br(2)";
+const { syntax } = analyzeScoreSyntax(source);
+const info = parameterDocAt(source, syntax, 4);
+```
+
+`/language` 提供函数定义索引、Markdown 文档、参数查询、AST 函数定位、`completionsAt` 补全候选项、`parameterCompletionEdit` 参数替换、`labelJumpAt` 标签跳转和 `labelSymbolAt` 标签分组；`/navigation` 提供 `createPreviewNavigationMap`、`sourceTargetAt`、`previewHitAt`、`playbackTimeAt` 和 `playbackRegionAt`。核心编译、诊断、语法分析和音高变换继续从 `jpfun` 导入。
+
+Node.js / VS Code 项目需在 TypeScript 的 `compilerOptions.lib` 中包含 `"DOM"`，例如 `["ES2022", "DOM"]`，以解析核心公开的 Canvas 类型；这只提供类型声明，不引入浏览器运行时，也不要求 `skipLibCheck`。补全候选项包含按需生成文档所需的核心元数据，过滤、snippet 和接受补全时的编辑事务由宿主适配；标签分组明确区分重复声明，不能按同名字符串全局替换。
+
+位置统一为 JavaScript UTF-16 偏移，`SourceSpan` 为左闭右开区间。VS Code 使用 `document.offsetAt` 和 `document.positionAt` 适配；Markdown 文档可转为 `MarkdownString`。源码、语法结果、AST 和导航索引必须来自同一文档版本。
+
+Webview 通信只传 SVG、源码范围或其他普通数据，不直接传包含类实例、Map 和方法的 `CompileScoreResult`。CodeMirror 交互、VS Code Provider、文件读写和预览 DOM 仍由各自宿主实现；共享计算不应返回这些框架的对象。
 
 ## 分析路径与结果有效期
 
