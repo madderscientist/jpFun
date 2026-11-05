@@ -224,7 +224,7 @@ class NoteTemporalNode extends TemporalNodeBase {
         this.numberStyle = {
             fontSize: ast.size,
             fontFamily: ast.font,
-            fontWeight: 400,
+            fontWeight: 700,
             textAlign: "center",
             fill: ast.color,
         };

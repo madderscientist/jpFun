@@ -201,6 +201,12 @@ importers:
 
   apps/playground:
     dependencies:
+      '@jpfun/convert':
+        specifier: workspace:*
+        version: link:../../packages/convert
+      '@jpfun/editor-tools':
+        specifier: workspace:*
+        version: link:../../packages/editor-tools
       jpfun:
         specifier: workspace:*
         version: link:../../packages/jpfun
@@ -239,7 +245,7 @@ importers:
         specifier: ^8.3.5
         version: 8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1)
 
-  packages/jpfun:
+  packages/convert:
     devDependencies:
       '@types/node':
         specifier: ^26.5.1
@@ -247,6 +253,36 @@ importers:
       '@xmldom/xmldom':
         specifier: ^0.9.12
         version: 0.9.12
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      jpfun:
+        specifier: workspace:*
+        version: link:../jpfun
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.15
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
+  packages/editor-tools:
+    devDependencies:
+      jpfun:
+        specifier: workspace:*
+        version: link:../jpfun
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.15
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
+  packages/jpfun:
+    devDependencies:
+      '@types/node':
+        specifier: ^26.5.1
+        version: 26.6.6
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2

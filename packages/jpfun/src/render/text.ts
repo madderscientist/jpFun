@@ -4,7 +4,7 @@ import type { GlyphMetrics, Painter, TextMeasurer, TextStyle } from "./types.js"
 export const DEFAULT_TEXT_FONT = "sans-serif";
 
 /** 简谱数字及同类谱面数字使用的字体栈 */
-export const JIANPU_NUMBER_FONT = "'Cascadia Mono', Consolas, 'Liberation Mono', 'Noto Sans Mono', monospace";
+export const JIANPU_NUMBER_FONT = "Arial, 'Century Schoolbook', 'Palatino Linotype', Cambria, 'Cascadia Mono', monospace";
 
 /** 富文本样式位掩码：四种内联样式正交叠加，通过异或翻转状态 */
 const STYLE_BOLD = 1;

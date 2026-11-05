@@ -62,7 +62,7 @@ export const setScopeExample = `@set(text.size=10px)
 @set(
     fontsize=22px,
     font="sans-serif",
-    numberfont="'Cascadia Mono', Consolas, 'Liberation Mono', 'Noto Sans Mono', monospace",
+    numberfont="Arial, 'Century Schoolbook', 'Palatino Linotype', Cambria, 'Cascadia Mono', monospace",
     strict=false
 )
 ```
@@ -71,7 +71,7 @@ export const setScopeExample = `@set(text.size=10px)
 | --- | --- | --- | --- |
 | `fontsize` | 长度 | `22px` | 基准字号，也是 `em` 长度的换算基准 |
 | `font` | 字符串 | `sans-serif` | 普通文字字体 |
-| `numberfont` | 字符串 | 下方的等宽字体栈 | 音符及同类谱面数字字体 |
+| `numberfont` | 字符串 | 上方的数字字体栈 | 音符及同类谱面数字字体 |
 | `strict` | 布尔值 | `false` | 开启严格的语法检查 |
 
 系统变量与函数预设不同：`fontsize` 改变基准字号，`text.size` 只改变 text 的默认参数。
@@ -109,6 +109,33 @@ jpFun 有两类字体，互不覆盖，影响函数有：
 如果文字里需要反斜杠本身，就写 `\\`。这和[歌词中的换行转义](../voice/#一行歌词太长时)使用的是同一个符号，但处理的内容不同。
 
 > 常用配置 `@set(font="'Times New Roman', KaiTi, STKaiti, serif")` 可让中文使用楷体、英文使用 Times New Roman。
+
+关于音符的字体，常用的有如下选择：
+
+export const noteFontExample = `\
+H.title: 四种音符字体风格\n
+{
+  @set(numberfont="'Nimbus Sans', Arial, Helvetica, 'Liberation Sans', sans-serif")
+  @text("1. jianpu-ly 风格 (无衬线):") @br()
+  0 #1,, b2,. 3'.. - | 4,/^$tr 5,// 6,/// 7^$fermata 9 ||
+}\n
+{
+  @set(numberfont="'Century Schoolbook', 'Times New Roman', Georgia, serif")
+  @text("2. 仓强/人音社风格 (衬线):") @br()
+  0 #1,, b2,. 3'.. - | 4,/^$tr 5,// 6,/// 7^$fermata 9 ||
+}\n
+{
+  @set(numberfont="Cambria, 'Palatino Linotype', 'Book Antiqua', serif")
+  @text("3. Cambria / Book Antiqua 风格:") @br()
+  0 #1,, b2,. 3'.. - | 4,/^$tr 5,// 6,/// 7^$fermata 9 ||
+}\n
+{
+  @set(numberfont="'Cascadia Mono', Consolas, 'Liberation Mono', 'Noto Sans Mono', monospace")
+  @text("4. 等宽字体:") @br()
+  0 #1,, b2,. 3'.. - | 4,/^$tr 5,// 6,/// 7^$fermata 9 ||
+}`
+
+<ScoreExample title="四种音符字体风格对比" source={noteFontExample} />
 
 ### 文字的局部覆盖
 text、page 接受 `font` 参数，也支持 `@set(函数名.font="...")`；函数别名同样有效。优先级为：显式参数 > 函数预设 > 系统 `font`。
