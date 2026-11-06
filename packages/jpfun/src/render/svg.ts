@@ -12,7 +12,10 @@ function number(value: number): string {
     return String(Math.round(value * 1000) / 1000);
 }
 
+const XML_SPECIAL_CHARS = /[&<>"]/;
+
 function escapeXml(value: string): string {
+    if (!XML_SPECIAL_CHARS.test(value)) return value;
     return value
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
