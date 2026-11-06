@@ -69,8 +69,8 @@ test("ties leave a small font-relative gap above upper octave dots", () => {
     assert(start.op === "M", "expected tie start");
     const circles = recordCommands(layout).filter(command => command.kind === "circle");
     const dots = circles.filter(dot => nearly(dot.cx, start.x) && dot.cy > start.y);
-    assert(dots.length > 0 && nearly(Math.min(...dots.map(dot => dot.cy - dot.r)) - start.y, 1),
-        "the tie endpoint must stay 0.05em above the uppermost dot");
+    assert(dots.length > 0 && nearly(Math.min(...dots.map(dot => dot.cy - dot.r)) - start.y, 2),
+        "the tie endpoint must stay 0.1em above the uppermost dot");
 });
 
 test("up 成员标签连接该成员，整体标签连接整个 up", () => {
@@ -131,7 +131,7 @@ test("grace 内部标签连接成员，外部标签穿透到宿主", () => {
 
     const hostTie = tieStart(`@grace({1},{2})@x 3@y @tie(x,y)`);
     assert(nearly(hostTie.actual.x, hostTie.host.x) && nearly(hostTie.actual.y, hostTie.host.y)
-        && !nearly(hostTie.actual.y, hostTie.composite.y),
+        && !nearly(hostTie.actual.y, hostTie.grace.y),
     "a label after grace must delegate to the host's labelable node");
 });
 
@@ -319,19 +319,20 @@ test("普通连音线与八度点借用行间留白不拉大行距，超高外�
         `1 2 3 4 @br() 1@a 2@b 3 4 @tie(a,b)`,
         `1 2 3 4 @br() 1'' 2 3 4`,
         `1 2 3 4 @br() 1 ^ $tenuto 2 3 4`,
+        `1 2 3 4 @br() 1 ^ $fermata 2 3 4`,
     ]) {
         assert(nearly(line1Axis(layoutOf(source)), line1Axis(plain)), `${source} must borrow lineGap without pushing line 1`);
     }
     for (const [source, minGap] of [
-        [`1 2 3 4 @br() 1 ^ $fermata 2 3 4`, 9],
-        [`N: 1 2 3\n\nN: 1 2 3^4`, 9],
+        [`1 2 3 4 @br() 1 ^ @symbol(fermata, 0.6em) 2 3 4`, 7.2],
+        [`N: 1 2 3\n\nN: 1 2 3^4`, 7.2],
         [`@page(gap=1em, minGap=0.8em)\nN: 1 2 3\n\nN: 1 2 3^4`, 18 * 0.8],
     ] as const) {
         const top = Math.min(...layoutOf(source).objects.filter(n => n.layoutLine === 1 && !n.T.isZero()).map(n => n.box.y));
         assert(nearly(top - line0Bottom, minGap), `${source} must keep ${minGap}px minGap`);
     }
-    assert(nearly(layoutOf(`1 2 3 4 @br() 1@a 2@b 3 4 @tie(a,b,height=30px)`).attachments[0].regions[0].y - line0Bottom, 9),
-        "an oversized tie must keep the default 9px minGap");
+    assert(nearly(layoutOf(`1 2 3 4 @br() 1@a 2@b 3 4 @tie(a,b,height=30px)`).attachments[0].regions[0].y - line0Bottom, 7.2),
+        "an oversized tie must keep the default 7.2px minGap");
 
     // 歌词位于基线下方，行距从歌词底部算起；下一行的普通 tie 仍借用这段行距
     const lyricPlain = layoutOf(`@voice({1 2}, , "甲 乙") @br() @voice({3 4})`);

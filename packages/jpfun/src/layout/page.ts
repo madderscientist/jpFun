@@ -28,7 +28,7 @@ export const DEFAULT_PAGE_CONFIG: Readonly<PageConfig> = {
     marginLeft: 40,
     marginRight: 40,
     lineGap: 18,
-    minLineGap: 9,
+    minLineGap: 7.2,
     fillRatio: 0.5,
 };
 

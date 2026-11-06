@@ -116,7 +116,7 @@ N(女低): 1 2 3
                 name: "minGap",
                 namedOnly: true,
                 type: "length" as const,
-                default: { value: 0.35, unit: "em" as const },
+                default: { value: 0.2, unit: "em" as const },
                 description: "上方记号借用间距后保留的最小间距",
             },
         ],

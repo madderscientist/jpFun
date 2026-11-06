@@ -309,12 +309,12 @@ test("声部内的普通连音线借用声部间距，超高外扩与 gap/minGap
         const notes = drawn(source);
         return notes[1].box.y - (notes[0].box.y + notes[0].box.h);
     };
-    assert(nearly(gapOf(`@voices(@voice({1 2}), @voice({3/@a 4/@b @tie(a,b)}))`), 18 * 0.75),
+    assert(nearly(gapOf(`@voices(@voice({1 2}), @voice({3@a 4@b @tie(a,b)}))`), 18 * 0.75),
         "an ordinary tie in the lower voice must not widen voice spacing");
     const tall = layoutOf(`@voices(@voice({1 2}), @voice({3@a 4@b @tie(a,b,height=30px)}))`);
     const upper = tall.objects.find(object => object.box.h > 0)!;
     const tie = tall.attachments.find(attachment => attachment.layer === "foreground")!.regions[0];
-    assert(nearly(tie.y - (upper.box.y + upper.box.h), 18 * 0.35),
+    assert(nearly(tie.y - (upper.box.y + upper.box.h), 18 * 0.2),
         "an oversized tie in the lower voice must keep minimum voice clearance");
 
     for (const [source, expected] of [

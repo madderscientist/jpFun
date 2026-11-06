@@ -31,7 +31,7 @@ class NoteFunction extends ASTFunctionNode {
         description: "创建音符",
         details: `\
 ~~~jpfun
-@note(A, acc=#, octave=3, color=#c33)
+@note(A, acc=#, octave=3, color=#c33, weight=700)
 ~~~
 **简写**：数字音名按“升降号、音名、相对八度”书写；字母音名按“音名、升降号、绝对八度”书写。\`1,,\` 比当前调性基准低两个八度，\`1'\` 高一个八度。
 - 简写的升降号完全由自身决定，省略时为空，不继承 \`@set(note.acc=...)\`；显式调用省略 \`acc\` 时仍继承默认值
@@ -64,7 +64,13 @@ class NoteFunction extends ASTFunctionNode {
                 description: "音符颜色，使用 CSS 颜色值",
                 type: "string" as const,
                 default: "#000",
-            }
+            },
+            {
+                name: "weight",
+                description: "音符数字字重，如 `400` 常规、`700` 粗体",
+                type: "number" as const,
+                default: 700,
+            },
         ]
     };
 
@@ -128,6 +134,7 @@ class NoteFunction extends ASTFunctionNode {
     octave: number;
     acc: string;
     color: string;
+    weight: number;
     size: number;
     readonly font: string;
 
@@ -139,7 +146,7 @@ class NoteFunction extends ASTFunctionNode {
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
         this.hasDefaultAcc = Boolean(ctx.variables["note.acc"]);
-        [this.name, this.acc, this.octave, this.color] = this.getArgValue(args, ctx) as [string, string, number, string];
+        [this.name, this.acc, this.octave, this.color, this.weight] = this.getArgValue(args, ctx) as [string, string, number, string, number];
         this.font = ctx.variables.numberfont;
         this.size = ctx.variables.fontsize;
         // 创建时就固化参数值
@@ -176,7 +183,7 @@ class NoteFunction extends ASTFunctionNode {
     }
 
     override toString() {
-        return `@n(${this.name}, ${this.acc || '""'}, ${this.octave}, ${this.color})`;
+        return `@n(${this.name}, ${this.acc || '""'}, ${this.octave}, ${this.color}, ${this.weight})`;
     }
 }
 
@@ -224,7 +231,7 @@ class NoteTemporalNode extends TemporalNodeBase {
         this.numberStyle = {
             fontSize: ast.size,
             fontFamily: ast.font,
-            fontWeight: 700,
+            fontWeight: ast.weight,
             textAlign: "center",
             fill: ast.color,
         };
@@ -297,12 +304,10 @@ class NoteTemporalNode extends TemporalNodeBase {
 
     override finalizeLayout() {
         this.ports["lyric"] = { x: this.box.anchor, y: this.box.h };
-        if (this.octave > 0) {  // 八度点上方留空间
-            this.ports["tie.top"] = {
-                x: this.box.anchor,
-                y: getLayoutBounds(this, true).y - this.box.y - this.ast.size * 0.05,
-            };
-        }
+        this.ports["tie.top"] = {
+            x: this.box.anchor,
+            y: getLayoutBounds(this, true).y - this.box.y - this.ast.size * 0.1,
+        };
     }
 
     override paint(painter: Painter) {

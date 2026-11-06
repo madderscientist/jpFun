@@ -137,6 +137,23 @@ H.title: 四种音符字体风格\n
 
 <ScoreExample title="四种音符字体风格对比" source={noteFontExample} />
 
+### v0.9.0以及之前的风格
+如果习惯 `v0.9.0` 及之前版本的默认外观，可以在曲谱开头添加以下设置：
+
+export const legacyStyleExample = `\
+@set(
+  fontsize=22px,
+  note.weight=400,
+  numberfont="'Cascadia Mono', Consolas, 'Liberation Mono', 'Noto Sans Mono', monospace"
+)
+N: {
+    @meter(2,4) 5./ ^ "中速 壮大地" 5// |: 1 5, | 3 1 | 5.@x 6/@y @tie(x,y) |
+    5 5/. 5//^$accent | 1' 1' | 6/. 5// 4/ 6/ @tie() |  5- |
+}
+L: 五星红旗迎风飘@扬，胜利歌声多么响@亮！`
+
+<ScoreExample title="v0.9.0以及之前的默认风格" source={legacyStyleExample} />
+
 ### 文字的局部覆盖
 text、page 接受 `font` 参数，也支持 `@set(函数名.font="...")`；函数别名同样有效。优先级为：显式参数 > 函数预设 > 系统 `font`。
 ```jpfun

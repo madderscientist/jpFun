@@ -28,7 +28,7 @@ import ScoreExample from "../../../../components/ScoreExample.astro";
 音符由 `@note` 函数创建，它还有一个较短的别名 `@n`：
 
 ```jpfun
-@note(name, acc="", octave=4, color="#000")
+@note(name, acc="", octave=4, color="#000", weight=700)
 ```
 
 | 参数 | 类型 | 含义 |
@@ -37,6 +37,7 @@ import ScoreExample from "../../../../components/ScoreExample.astro";
 | `acc` | 字符串 | 升降记号，默认为空。`#` 升高半音，`b` 降低半音，`n` 显示还原号，可以连续写多个 |
 | `octave` | 数值 | 八度。数字音名使用相对八度，默认 `0`；字母音名使用绝对八度，默认 `4` |
 | `color` | 字符串 | 音符颜色，默认为 `#000`（黑色） |
+| `weight` | 数值 | 音符数字字重，默认为 `700`（粗体），常规细体可设为 `400` |
 
 下面的谱例完全使用函数调用。第一小节是数字音名，第二小节是字母音名：
 

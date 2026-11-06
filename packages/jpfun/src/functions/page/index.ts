@@ -72,7 +72,7 @@ export class PageFunction extends ASTFunctionNode {
 ~~~jpfun
 @page(
     width=794px, height=1123px, top=48px, bottom=48px,
-    left=40px, right=40px, gap=1em, minGap=0.5em, fillRatio=0.5,
+    left=40px, right=40px, gap=1em, minGap=0.4em, fillRatio=0.5,
     numbering="1/1", barNumbering="(1)"
 )
 ~~~
@@ -86,7 +86,7 @@ export class PageFunction extends ASTFunctionNode {
             { name: "left", description: "页面左边距", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.marginLeft) },
             { name: "right", description: "页面右边距", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.marginRight) },
             { name: "gap", description: "谱面行主旋律之间的标准间距", type: "length" as const, default: { value: 1, unit: "em" as const } },
-            { name: "minGap", description: "行间保留的最小间距", type: "length" as const, default: { value: 0.5, unit: "em" as const } },
+            { name: "minGap", description: "行间保留的最小间距", type: "length" as const, default: { value: 0.4, unit: "em" as const } },
             { name: "numbering", description: "页码格式，空值隐藏；`1`：当前页，`1/1`：显示当前页/总页数", type: "string" as const, default: "" },
             { name: "barNumbering", description: "行首小节号格式，默认空值隐藏；`1` 显示当前小节号，`(1)` 显示带括号的小节号", type: "string" as const, default: "" },
             { name: "font", description: "页码/小节号字体，空值沿用当前字体设置", type: "string" as const, default: "" },

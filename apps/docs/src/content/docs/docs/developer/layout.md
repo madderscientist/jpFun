@@ -113,9 +113,9 @@ place(root, -ext.top)
 
 行距与声部间距以**上一单元下沿 `bottom` 到下一单元主旋律上沿（`axis - size / 2`）**为基准，同时保证完整外接边界之间至少留出 $\text{minClearance} = \min(\text{gap}, \text{minGap})$：
 
-- **声部间距（`@voices(gap=0.75em, minGap=0.35em)`）**：相邻声部 $i-1$ 与 $i$ 的视觉轴间距为：
+- **声部间距（`@voices(gap=0.75em, minGap=0.2em)`）**：相邻声部 $i-1$ 与 $i$ 的视觉轴间距为：
   $$\Delta y = \text{ext}_{i-1}.\text{bottom} + \max(\text{gap} + \text{size}/2,\ \text{minClearance} - \text{ext}_i.\text{top})$$
-- **谱面行距（`@page(gap=1em, minGap=0.5em)`）**：设第 $i$ 行顶部高出最高主旋律上沿的外扩量为 $\text{headroom}_i = \min(\text{axis} - \text{size}/2)$，则该行与上一行完整盒之间的实际间距为：
+- **谱面行距（`@page(gap=1em, minGap=0.4em)`）**：设第 $i$ 行顶部高出最高主旋律上沿的外扩量为 $\text{headroom}_i = \min(\text{axis} - \text{size}/2)$，则该行与上一行完整盒之间的实际间距为：
   $$\text{gap}_i = \max(\text{lineGap} - \text{headroom}_i,\ \text{minClearance})$$
   当 $\text{headroom}_i \le \text{lineGap} - \text{minClearance}$ 时，外扩量在行高与 $\text{gap}_i$ 中抵消，两行主旋律间距保持为 `lineGap`；超出时保留 `minClearance`。
 

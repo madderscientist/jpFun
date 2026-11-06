@@ -224,6 +224,14 @@ for (const [alias, digit, glyph] of [["X", "9", "X"], ["Z", "0", "0"]]) {
     });
 }
 
+test("note weight supports default 700, positional/named arguments and @set", () => {
+    const source = `1 @note(2, "", 0, #000, 400) @note(3, weight=500) { @set(note.weight=600) 4 @n(5, weight=300) } 6`;
+    const weights = recordCommands(layoutOf(source))
+        .filter(command => command.kind === "text")
+        .map(command => command.style.fontWeight);
+    strictAssert.deepEqual(weights, [700, 400, 500, 600, 300, 700]);
+});
+
 test("小节线与音符共享视觉中心轴，并加强附近的弹簧", () => {
     const barAlignmentResult = layoutOf(`1 | 2/ 3, |`);
     const visualAxes = barAlignmentResult.objects.map(object => object.box.y + object.box.visualAxis);
