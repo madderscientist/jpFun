@@ -123,6 +123,7 @@ class OttavaFunction extends ASTFunctionNode {
 export const OttavaNode: ASTFunctionClass = OttavaFunction;
 
 class OttavaAttachment implements LayoutAttachment {
+    readonly kind = "ottava";
     readonly layer = "foreground" as const;
     readonly endPoints: readonly [VisualTemporalNode, VisualTemporalNode];
 

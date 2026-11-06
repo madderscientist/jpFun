@@ -330,6 +330,7 @@ N(女低): 1 2 3
  * 因此不需要反查任何轨道信息
  */
 class VoicesBraceAttachment implements LayoutAttachment {
+    readonly kind = "voices";
     layer = "background" as const;
     private leftWidth = 0;
     private measuredLabels: ({ richLine: PreparedRichLine; leftWidth: number } | undefined)[] = [];

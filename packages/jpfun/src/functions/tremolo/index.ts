@@ -194,6 +194,7 @@ interface TremoloGroup extends LoweringGroup {
 }
 
 class TremoloAttachment implements LayoutAttachment {
+    readonly kind = "tremolo";
     readonly layer = "foreground" as const;
     readonly endPoints: readonly VisualTemporalNode[];
     get sourceSpan() { return this.owner.sourceSpan; }

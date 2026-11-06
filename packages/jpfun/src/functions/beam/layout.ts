@@ -105,6 +105,7 @@ export function collectExplicitBeamEndpoints(
 }
 
 class BeamLayoutAttachment implements LayoutAttachment {
+    readonly kind = "beam";
     layer = "foreground" as const;
 
     readonly endPoints: TemporalNodeBase[];

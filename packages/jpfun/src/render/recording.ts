@@ -1,11 +1,13 @@
-import type { PaintStyle, Painter, PathCommand, PathTransform, TextStyle } from "./types.js";
+import type { PaintGroup, PaintStyle, Painter, PathCommand, PathTransform, TextStyle } from "./types.js";
 
 export type RecordedPaintCommand =
     | { kind: "text"; text: string; x: number; y: number; style: TextStyle }
     | { kind: "line"; x1: number; y1: number; x2: number; y2: number; style?: PaintStyle }
     | { kind: "rect"; x: number; y: number; w: number; h: number; style?: PaintStyle }
     | { kind: "circle"; cx: number; cy: number; r: number; style?: PaintStyle }
-    | { kind: "path"; commands: PathCommand[]; style?: PaintStyle };
+    | { kind: "path"; commands: PathCommand[]; style?: PaintStyle }
+    | { kind: "begin-group"; group: PaintGroup }
+    | { kind: "end-group" };
 
 /**
  * 记录通用绘制命令而不产生图像
@@ -24,8 +26,18 @@ export class RecordingPainter implements Painter {
                 case "rect": painter.drawRect(command.x, command.y, command.w, command.h, command.style); break;
                 case "circle": painter.drawCircle(command.cx, command.cy, command.r, command.style); break;
                 case "path": painter.drawPath(command.commands, command.style); break;
+                case "begin-group": painter.beginGroup?.(command.group); break;
+                case "end-group": painter.endGroup?.(); break;
             }
         }
+    }
+
+    beginGroup(group: PaintGroup) {
+        this.commands.push({ kind: "begin-group", group });
+    }
+
+    endGroup() {
+        this.commands.push({ kind: "end-group" });
     }
 
     drawText(text: string, x: number, y: number, style: TextStyle) {

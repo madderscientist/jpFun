@@ -2,7 +2,7 @@
  * 时间线事件的基类
  * 由 AST 产生，跨越 lowering / layout / playback 三个阶段
  */
-import type { ASTNodeBase } from "./ASTtypes.js";
+import { ASTFunctionNode, type ASTNodeBase } from "./ASTtypes.js";
 import { Fraction } from "../fraction.js";
 import type {
     HorizontalSpringConfig,
@@ -100,6 +100,15 @@ export class TemporalNodeBase implements TimeLineEvent {
         return host;
     }
 
+    /**
+     * 绘制分组的语义类型，渲染器据此输出 `<g data-kind>`；空串表示不开组。
+     *
+     * 缺省取来源函数的主名，同一函数生成的对象画法不同时由子类覆盖。
+     */
+    get kind(): string {
+        return this.ast instanceof ASTFunctionNode ? this.ast.callName : "";
+    }
+
     /** 由 LoweringContext 在列归并后固化的谱面行号 */
     layoutLine = 0;
 
@@ -142,7 +151,7 @@ export class TemporalNodeBase implements TimeLineEvent {
      * 2. Temporal.prepareLayout 可先加入节点自身的装饰，例如下八度点；
      * 3. 引擎再通过 addon 对应的 layoutDecorationHandler 加入函数装饰；
      * 4. 引擎分别按 above/below.order 分配空间并调用 place
-     * 5. 最终 paintLayout 在主体 paint 后调用可选的 decoration.paint
+     * 5. 最终 paintVisual 在主体 paint 后调用可选的 decoration.paint
      *
      * 数组必须保留到绘制结束，因为 decoration 通常以闭包保存本次测量得到的几何。它只属于当前 layout pass，不能跨 pass 复用。
      * prepare 阶段生成、place 后冻结、paint 后失效

@@ -136,6 +136,7 @@ class BarFunction extends ASTFunctionNode {
  * 单声部行首无连谱号时统一右对齐到版心左边界 originX 外侧，保证各行纵向对齐且不压住行首升降号或记号。
  */
 class BarNumberAttachment implements LayoutAttachment {
+    readonly kind = "bar-number";
     readonly layer = "foreground" as const;
     readonly sourceSpan = undefined;
 

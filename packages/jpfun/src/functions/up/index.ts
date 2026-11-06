@@ -17,6 +17,7 @@ import type { Track } from "../../lowering/track.js";
 import { getLayoutBounds, layoutLocalSequence } from "../../layout/engine.js";
 import type { HorizontalLineView, LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";
+import { paintVisual } from "../../render/paint.js";
 import type { PlaybackEmitter } from "../../playback/types.js";
 
 /**
@@ -456,9 +457,6 @@ class FoldTemporal extends TemporalNodeBase {
     }
 
     override paint(painter: Painter) {
-        for (const member of this.members) {
-            member.paint(painter);
-            for (const decoration of member.decorations) decoration.paint?.(painter);
-        }
+        for (const member of this.members) paintVisual(painter, member);
     }
 }

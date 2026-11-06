@@ -169,6 +169,7 @@ export const TupletNode: ASTFunctionClass = TupletFunction;
  * layout 根据最终宿主坐标测量数字和括线，paint 只回放已冻结的绝对几何。
  */
 class TupletLayoutAttachment implements LayoutAttachment {
+    readonly kind = "tuplet";
     layer = "foreground" as const;
 
     /** lowering 固化的连音语义；重复 layout 时保持不变 */

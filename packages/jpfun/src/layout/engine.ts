@@ -351,6 +351,7 @@ export function layoutDocument(
         const item = subdomainItems.get(attachment);
         const { geometry } = item ? moveSubdomainItem(item) : measured.items[next++];
         return {
+            kind: attachment.kind,
             regions: geometry.regions,
             layer: attachment.layer,
             sourceSpan: attachment.sourceSpan,

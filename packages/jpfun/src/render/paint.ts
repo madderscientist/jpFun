@@ -1,6 +1,7 @@
 import type { DocumentLayoutResult } from "../layout/engine.js";
-import type { Rect } from "../layout/types.js";
-import type { PaintStyle, Painter, PathCommand, PathTransform, TextStyle } from "./types.js";
+import type { PlacedAttachment, Rect } from "../layout/types.js";
+import type { VisualTemporalNode } from "../functions/temporal.js";
+import type { PaintGroup, PaintStyle, Painter, PathCommand, PathTransform, TextStyle } from "./types.js";
 
 export function layoutPageBounds(result: DocumentLayoutResult): readonly Rect[] {
     return result.pages.length > 0
@@ -8,25 +9,66 @@ export function layoutPageBounds(result: DocumentLayoutResult): readonly Rect[] 
         : [result.bounds];
 }
 
-/** 按固定层级把布局结果绘制到一个 Painter */
-export function paintLayout(result: DocumentLayoutResult, painter: Painter) {
-    for (const attachment of result.attachments) {
-        if (attachment.layer === "background") attachment.paint(painter);
-    }
-    for (const node of result.objects) {
-        node.paint(painter);
-        for (const decoration of node.decorations) decoration.paint?.(painter);
-    }
-    for (const attachment of result.attachments) {
-        if (attachment.layer === "foreground") attachment.paint(painter);
+/**
+ * 绘制一个可见时值对象：主体后接装饰，整体放进 node.kind 分组
+ *
+ * up、grace、arpeggio 等容器绘制成员时也应调用它，成员的组因此嵌套在容器组内
+ */
+export function paintVisual(painter: Painter, node: VisualTemporalNode) {
+    const kind = node.kind;
+    if (kind) painter.beginGroup?.({ kind });
+    node.paint(painter);
+    for (const decoration of node.decorations) decoration.paint?.(painter);
+    if (kind) painter.endGroup?.();
+}
+
+function paintAttachments(
+    painter: Painter,
+    attachments: readonly PlacedAttachment[],
+    layer: PlacedAttachment["layer"],
+) {
+    for (const attachment of attachments) {
+        if (attachment.layer !== layer) continue;
+        const kind = attachment.kind;
+        if (kind) painter.beginGroup?.({ kind });
+        attachment.paint(painter);
+        if (kind) painter.endGroup?.();
     }
 }
 
+/** 按固定层级把布局结果绘制到一个 Painter */
+export function paintLayout(result: DocumentLayoutResult, painter: Painter) {
+    paintAttachments(painter, result.attachments, "background");
+    for (const node of result.objects) paintVisual(painter, node);
+    paintAttachments(painter, result.attachments, "foreground");
+}
+
 class PagePainter implements Painter {
+    /** 当前打开的分组，由外到内 */
+    private readonly groups: PaintGroup[] = [];
+    /** 页下标 → 该页已补开的层数；只记录有未结束分组的页，没有图元的页不开组 */
+    private readonly opened = new Map<number, number>();
+
     constructor(
         private readonly pages: readonly Rect[],
         private readonly painters: readonly Painter[],
     ) {}
+
+    beginGroup(group: PaintGroup) {
+        this.groups.push(group);
+    }
+
+    endGroup() {
+        const depth = this.groups.length;
+        this.groups.pop();
+        // 各页层数不超过 depth，等于 depth 的页才打开过这一组
+        for (const [index, opened] of this.opened) {
+            if (opened < depth) continue;
+            this.painters[index].endGroup?.();
+            if (depth > 1) this.opened.set(index, depth - 1);
+            else this.opened.delete(index);
+        }
+    }
 
     private route(top: number, bottom: number, paint: (painter: Painter) => void) {
         let low = 0;
@@ -37,8 +79,14 @@ class PagePainter implements Painter {
             if (page.y + page.h < top) low = middle + 1;
             else high = middle;
         }
+        const depth = this.groups.length;
         for (let index = low; index < this.pages.length && this.pages[index].y <= bottom; index++) {
-            paint(this.painters[index]);
+            const painter = this.painters[index];
+            const opened = this.opened.get(index) ?? 0;
+            if (opened < depth) {
+                for (let level = opened; level < depth; level++) painter.beginGroup?.(this.groups[level]);
+                this.opened.set(index, depth);
+            } paint(painter);
         }
     }
 

@@ -38,6 +38,7 @@ function formatPageNumber(pattern: string, current: number, total: number): stri
 
 /** 浮在每页下边距带里的页码，不属于任何谱面行，因此不申报 Track 占用 */
 class PageNumberAttachment implements LayoutAttachment {
+    readonly kind = "page-number";
     readonly layer = "foreground" as const;
 
     constructor(

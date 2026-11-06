@@ -140,6 +140,7 @@ interface TieSegment extends Rect {
 }
 
 class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
+    readonly kind = "tie";
     layer = "foreground" as const;
     readonly sourceSpan: SourceSpan;
 

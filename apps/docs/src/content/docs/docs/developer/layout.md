@@ -260,6 +260,8 @@ host.decorations.push({
 
 引擎只对 `LoweringResult.attachments` 中实现了 `LayoutAttachment` 的对象执行布局，再根据最终 geometry 生成只读的 `PlacedAttachment`。`DocumentLayoutResult.attachments` 保存的是最终结果，不包含中间测量状态。
 
+`LayoutAttachment` 可选声明只读字段 `kind`，表示绘制分组的语义类型，例如 `tie`、`beam`、`lyrics`；SVG 后端把它输出为 `<g data-kind>`，未声明或为空串时不额外包分组。引擎生成 `PlacedAttachment` 时原样复制这个字段，`@adjust` 等包装不会改变它。同一个值只对应一种图形，不要与时值对象的 kind 重名，取值规则和内置取值见[渲染后端](../render/#语义分组)。
+
 ### 查询占用与避让
 
 附件在自己所属的域里查询：正文附件查正文行，子域附件查子域。根据所需数据选择接口：

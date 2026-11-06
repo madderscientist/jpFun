@@ -15,6 +15,7 @@ import {
 import { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { ParserContext } from "../../parser/parserContext.js";
 import type { Painter, PathCommand } from "../../render/types.js";
+import { paintVisual } from "../../render/paint.js";
 import type { PlaybackEmitter } from "../../playback/types.js";
 import {
     ASTFunctionClass,
@@ -494,10 +495,7 @@ export class GraceTemporal extends TemporalNodeBase {
     }
 
     override paint(painter: Painter) {
-        for (const member of [this.host, ...this.graces]) {
-            member.paint(painter);
-            for (const decoration of member.decorations) decoration.paint?.(painter);
-        }
+        for (const member of [this.host, ...this.graces]) paintVisual(painter, member);
 
         if (!this.hookOrigin) return;
         const graceEm = this.ast.size * GRACE_SCALE;

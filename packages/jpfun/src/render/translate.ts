@@ -1,4 +1,4 @@
-import type { PaintStyle, Painter, PathCommand, PathTransform, TextStyle } from "./types.js";
+import type { PaintGroup, PaintStyle, Painter, PathCommand, PathTransform, TextStyle } from "./types.js";
 
 /** Painter 没有变换栈，整体平移的几何只能逐条命令平移 */
 export class TranslatingPainter implements Painter {
@@ -7,6 +7,14 @@ export class TranslatingPainter implements Painter {
         private readonly dx: number,
         private readonly dy: number,
     ) {}
+
+    beginGroup(group: PaintGroup) {
+        this.target.beginGroup?.(group);
+    }
+
+    endGroup() {
+        this.target.endGroup?.();
+    }
 
     drawText(text: string, x: number, y: number, style: TextStyle) {
         this.target.drawText(text, x + this.dx, y + this.dy, style);

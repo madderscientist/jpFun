@@ -60,6 +60,12 @@ export interface PathTransform {
     scaleY: number;
 }
 
+/** 一组图元的语义信息，SVG 输出为 `<g data-kind>` */
+export interface PaintGroup {
+    /** 时值对象取 TemporalNodeBase.kind，attachment 取 LayoutAttachment.kind */
+    readonly kind: string;
+}
+
 /**
  * 所有渲染后端必须实现的最小绘制接口
  *
@@ -72,4 +78,8 @@ export interface Painter {
     drawRect(x: number, y: number, w: number, h: number, style?: PaintStyle): void;
     drawCircle(cx: number, cy: number, r: number, style?: PaintStyle): void;
     drawPath(commands: readonly PathCommand[], style?: PaintStyle, transform?: PathTransform): void;
+    /** 开始一个语义分组，必须与 endGroup 成对调用，可以嵌套；不关心分组的后端可以不实现 */
+    beginGroup?(group: PaintGroup): void;
+    /** 结束最近一个未结束的分组 */
+    endGroup?(): void;
 }

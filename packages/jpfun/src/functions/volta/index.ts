@@ -117,6 +117,7 @@ function barIn(column: readonly LayoutHost[] | undefined) {
 }
 
 class VoltaAttachment implements LayoutAttachment, PlaybackFlow {
+    readonly kind = "volta";
     layer = "foreground" as const;
 
     constructor(

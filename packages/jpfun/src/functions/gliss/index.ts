@@ -85,6 +85,7 @@ function layoutHost(node: VisualTemporalNode, line?: HorizontalLineView): Visual
 }
 
 class GlissAttachment implements LayoutAttachment {
+    readonly kind = "gliss";
     readonly layer = "foreground" as const;
     endPoints: [VisualTemporalNode, VisualTemporalNode];
     private direction: number | undefined;

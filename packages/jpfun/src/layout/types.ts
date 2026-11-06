@@ -239,6 +239,11 @@ export interface AttachmentGeometry {
  * 实例只保存语义输入和一次横向准备状态，不保存最终 box、regions 或绘制几何。
  */
 export interface LayoutAttachment extends LoweringAttachment {
+    /**
+     * 绘制分组的语义类型，SVG 输出为 `<g data-kind>`；缺省或空串表示不开组
+     * 同一个值只对应一种图形，不应与时值对象的 kind 重名；取值规则见 render 文档
+     */
+    readonly kind?: string;
     /** 后置平移仅影响绘制，不参与占用求解 */
     placementOffset?: LayoutPoint;
     /** 几何端点；端点全部落在同一子域的成员上时，附件属于该子域。不表示内容包含或播放端点投影 */
@@ -249,7 +254,6 @@ export interface LayoutAttachment extends LoweringAttachment {
     readonly sourceSpan?: SourceSpan;
     /**
      * 横向求解前：可测量资源、调整弹簧参数或注册横向布局 hook，不得改变对象/列顺序
-     *
      * 此时 box 的固有尺寸 w/h/anchor/visualAxis 已是终值，只有 x/y 未定
      */
     prepareHorizontal?(lines: HorizontalLineView[], context: LayoutPrepareContext): void;
@@ -261,6 +265,8 @@ export function isLayoutAttachment(attachment: LoweringAttachment): attachment i
 
 /** layoutDocument 输出的最终 attachment 快照 */
 export interface PlacedAttachment {
+    /** 取自 LayoutAttachment.kind */
+    readonly kind?: string;
     readonly regions: readonly LayoutRegion[];
     /** 相对于 Temporal 主体的绘制层；background 比内容先绘制 */
     readonly layer: "background" | "foreground";

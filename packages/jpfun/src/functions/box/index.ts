@@ -118,6 +118,7 @@ class BoxFunction extends ASTFunctionNode {
 export const BoxNode: ASTFunctionClass = BoxFunction;
 
 class BoxLayoutAttachment implements LayoutAttachment {
+    readonly kind = "box";
     layer = "background" as const;
     readonly reservedHost?: VisualTemporalNode;
 

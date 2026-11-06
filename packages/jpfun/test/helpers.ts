@@ -92,19 +92,23 @@ export function layoutOf(source: string, fontSize?: number) {
 
 // ---- 绘制记录 ----
 
+type DrawCommand = Exclude<RecordedPaintCommand, { kind: "begin-group" | "end-group" }>;
+
+/** 只保留图元命令，分组结构由 svg-group 用例单独检查 */
 export function recordCommands(result: DocumentLayoutResult) {
     const recording = new RecordingPainter();
     paintLayout(result, recording);
-    return recording.commands;
+    return recording.commands.filter((command): command is DrawCommand =>
+        command.kind !== "begin-group" && command.kind !== "end-group");
 }
 
-export function commandsOfKind<K extends RecordedPaintCommand["kind"]>(
+export function commandsOfKind<K extends DrawCommand["kind"]>(
     source: string,
     kind: K,
     fontSize?: number,
 ) {
     return recordCommands(layoutOf(source, fontSize)).filter(
-        (command): command is Extract<RecordedPaintCommand, { kind: K }> => command.kind === kind,
+        (command): command is Extract<DrawCommand, { kind: K }> => command.kind === kind,
     );
 }
 

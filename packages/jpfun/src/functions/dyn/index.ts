@@ -209,6 +209,7 @@ interface HairpinRange {
 }
 
 class DynAttachment implements LayoutAttachment {
+    readonly kind = "dyn";
     readonly layer = "foreground" as const;
 
     constructor(

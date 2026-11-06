@@ -206,6 +206,7 @@ export function serializeLyric(tokens: readonly (readonly RichTextRun[] | null)[
 }
 
 export class VoiceLyricsAttachment implements LayoutAttachment {
+    readonly kind = "lyrics";
     layer = "foreground" as const;
 
     get sourceSpan() { return this.nameHost.ast.sourceSpan; }

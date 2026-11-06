@@ -103,6 +103,7 @@ interface SlideGroup extends LoweringGroup {
 }
 
 class SlideAttachment implements LayoutAttachment {
+    readonly kind = "slide";
     readonly layer = "foreground" as const;
     readonly endPoints: readonly VisualTemporalNode[];
     get sourceSpan() { return this.owner.sourceSpan; }

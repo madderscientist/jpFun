@@ -6,6 +6,7 @@ import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { Track } from "../../lowering/track.js";
 import type { PlaybackEmitter, PlaybackOrigin } from "../../playback/types.js";
 import type { Painter, PathCommand } from "../../render/types.js";
+import { paintVisual } from "../../render/paint.js";
 import {
     ASTFunctionNode,
     type ASTFunctionClass,
@@ -224,7 +225,6 @@ class ArpeggioTemporal extends TemporalNodeBase {
         painter.drawPath(this.markCommands, { fill: "#000" }, {
             x: this.box.x, y: getLayoutBounds(this.host, true).y, scaleX: 1, scaleY: 1,
         });
-        this.host.paint(painter);
-        for (const decoration of this.host.decorations) decoration.paint?.(painter);
+        paintVisual(painter, this.host);
     }
 }

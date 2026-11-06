@@ -1,7 +1,7 @@
 import type { DocumentLayoutResult } from "../layout/engine.js";
 import { layoutPageBounds, paintLayoutPages } from "./paint.js";
 import { DEFAULT_TEXT_FONT, JIANPU_NUMBER_FONT } from "./text.js";
-import type { PaintStyle, Painter, PathCommand, PathTransform, TextStyle } from "./types.js";
+import type { PaintGroup, PaintStyle, Painter, PathCommand, PathTransform, TextStyle } from "./types.js";
 
 export interface SvgRenderOptions {
     background?: string;    // 可选背景颜色，默认透明
@@ -71,6 +71,21 @@ function pathCommandsToSvg(
 /** 生成独立 SVG 字符串的 Painter；路径直接输出最终坐标 */
 export class SvgPainter implements Painter {
     private body: string[] = [];
+    /** 未结束分组的开标签在 body 中的下标 */
+    private groupStarts: number[] = [];
+
+    beginGroup(group: PaintGroup) {
+        this.groupStarts.push(this.body.length);
+        this.body.push(`<g data-kind="${escapeXml(group.kind)}">`);
+    }
+
+    endGroup() {
+        const start = this.groupStarts.pop();
+        if (start === undefined) return;
+        // 组内没有图元时连开标签一起删掉，内层空组已先被删除
+        if (this.body.length === start + 1) this.body.pop();
+        else this.body.push("</g>");
+    }
 
     drawText(text: string, x: number, y: number, style: TextStyle) {
         const family = style.fontFamily ?? DEFAULT_TEXT_FONT;
