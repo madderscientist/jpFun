@@ -25,7 +25,7 @@ import type { VoiceNameTemporal } from "./voice.js";
 const WHITESPACE_RE = /\s/;
 
 /** 歌词与歌词行名称相对声部字号的字号 */
-export const LYRIC_SIZE_RATIO = 0.82;
+export const LYRIC_SIZE_RATIO = 0.88;
 
 // 分词跟后面的标点
 const LYRIC_OPENING_PUNCTUATION = new Set("（([［｛〈《「『【〔〖〘〚‘“");
@@ -321,8 +321,8 @@ export class VoiceLyricsAttachment implements LayoutAttachment {
         }
 
         const style = lyricNameStyle(size, font);
-        const rowAdvance = style.fontSize + size * 0.24;
-        const baselineOffset = context.textMeasurer.measureText("M", style).baseline + size * 0.32;
+        const rowAdvance = style.fontSize + size * 0.25;
+        const baselineOffset = context.textMeasurer.measureText("M", style).baseline + size * 0.4;
         const baselineOf = (bottom: number, row: number) => bottom + baselineOffset + row * rowAdvance;
         // 跨轨框外的歌词由最下轨承担占用，各原始轨的歌词行依次排列
         if (this.frames.length) for (const [line, byTrack] of baselines) {

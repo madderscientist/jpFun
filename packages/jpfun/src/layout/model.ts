@@ -6,7 +6,7 @@ import type { HorizontalSpringConfig, LayoutBox, TimeLineEvent } from "./types.j
 import { Fraction } from "../fraction.js";
 
 const DEFAULT_F = 1.0;  // 多大力让一行的 margin 全变为 0
-const DEFAULT_ALPHA = 6;    // 控制无约束时元素的margin
+const DEFAULT_ALPHA = 8;    // 控制无约束时元素的margin
 const DEFAULT_MU = 16;
 const DEFAULT_CROSS_PUNISH = 32;
 const MIN_ALPHA = 1e-6;

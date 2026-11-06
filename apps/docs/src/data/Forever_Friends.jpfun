@@ -1,6 +1,6 @@
 @page(
-  width=800px, height=0px,
-  top=50px, bottom=60px, left=50px, right=50px,
+  width=795px, height=0px,
+  top=50px, bottom=80px, left=72px, right=72px,
   numbering="jpFun 制谱", barNumbering="(1)  ",
   minGap=0.7em
 )

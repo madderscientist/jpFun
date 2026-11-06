@@ -61,9 +61,9 @@ test("倚音比宿主小一级字号，坐在宿主基线之上的左侧", () =>
 
 test("倚音中的上下堆叠间距随字号逐层缩放，重复布局不累积", () => {
     for (const [settings, content, gaps] of [
-        ["", "1_2^3_4^5", [22 * 0.12, 22 * 0.12, 22 * 0.12, 22 * 0.12]],
+        ["", "1_2^3_4^5", [18 * 0.12, 18 * 0.12, 18 * 0.12, 18 * 0.12]],
         ["@set(up.gap=12px,down.gap=9px)", "1_2^3_4^5", [12, 12, 9, 9]],
-        ["", "@down(@up(@up(1,3,gap=10px),5,gap=0.2em),2,4,gap=9px)", [10, 22 * 0.2, 9, 9]],
+        ["", "@down(@up(@up(1,3,gap=10px),5,gap=0.2em),2,4,gap=9px)", [10, 18 * 0.2, 9, 9]],
     ] as const) {
         for (const [wrapped, depth] of [[content, 0], [`@grace(6,{${content}})`, 1], [`{${content}}>6>7`, 2]] as const) {
             const source = `${settings} ${wrapped}`;
@@ -122,7 +122,7 @@ test("连续倚音合并成一条整线", () => {
     const unevenGraces = layoutGrace(`{3,, 4}>4`);
     const unevenTexts = unevenGraces.commands
         .filter(command => command.kind === "text")
-        .filter(command => command.style.fontSize < 22);
+        .filter(command => command.style.fontSize < 18);
     assert(unevenTexts.length === 2 && nearly(unevenTexts[0].y, unevenTexts[1].y),
         "grace notes must align on their visual axis even when one carries octave dots");
     assert(unevenGraces.commands.filter(command => command.kind === "line").length === 1,
@@ -179,7 +179,7 @@ test("后置倚音不动宿主对齐点，两侧倚音共用一条肩线", () =>
         "a host carrying graces on both sides must not grow taller than a single-sided one");
     const bothGraceTexts = bothSides.commands
         .filter(command => command.kind === "text")
-        .filter(command => command.style.fontSize < 22);
+        .filter(command => command.style.fontSize < 18);
     assert(bothGraceTexts.length === 2 && nearly(bothGraceTexts[0].y, bothGraceTexts[1].y),
         "the pre-grace and the post-grace of one note must share the same shoulder line");
 });

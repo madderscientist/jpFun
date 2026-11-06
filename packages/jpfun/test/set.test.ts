@@ -69,7 +69,7 @@ test("别名写法归一到主名", () => {
 
 test("长度默认值与 em 字号按声明类型和当前字号解析", () => {
     for (const source of ["@set(text.size=2em) @text(A)", "@set(fontsize=2em) @text(A, size=1em)"]) {
-        assert(nearly(layoutOf(source).objects[0].ast.size, 44), source);
+        assert(nearly(layoutOf(source).objects[0].ast.size, 36), source);
     }
 });
 

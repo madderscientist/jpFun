@@ -16,8 +16,8 @@ interface HeadOptions {
 
 const HEAD_TEXT_PRESET = {
     title: "size=2em, align=center",
-    subtitle: "size=0.85em, align=center",
-    author: "size=0.8em, align=right",
+    subtitle: "size=1em, align=center",
+    author: "size=0.88em, align=right",
 } as const satisfies Record<HeadTextField, string>;
 
 const RELATIVE_NAMES = ["1", "#1", "2", "#2", "3", "4", "#4", "5", "#5", "6", "#6", "7"] as const;

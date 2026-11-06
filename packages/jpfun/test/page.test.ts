@@ -187,7 +187,7 @@ test("重复与嵌套的 page 声明只报警并保留第一份", () => {
 
 test("放不下的内容和无效的版心各自报错", () => {
     const pageOverflow = expectLayoutError(
-        `@page(width=200px, height=40px, top=10px, bottom=10px, left=10px, right=10px) 1`,
+        `@page(width=200px, height=36px, top=10px, bottom=10px, left=10px, right=10px) 1`,
         "E_PAGE_OVERFLOW",
     );
     assert(pageOverflow.span.start === pageOverflow.span.end - 1,
@@ -208,7 +208,7 @@ test("页码单个占位符显示当前页，多个占位符的末尾显示总�
         ["固定文字", ["固定文字", "固定文字", "固定文字"]],
     ] as const) {
         const result = compileScore(`
-@page(width=200px, height=100px, top=10px, bottom=20px,
+@page(width=200px, height=90px, top=10px, bottom=20px,
     left=20px, right=20px, gap=5px, numbering="${pattern}")
 1 @br() 2 @br() 3 @br() 4 @br() 5 @br() 6
 `);
@@ -224,7 +224,7 @@ test("页码单个占位符显示当前页，多个占位符的末尾显示总�
 
 test("页码是 @page 自己注册的 attachment，逐页浮在下边距带内", () => {
     const paged = layoutOf(`
-@page(width=200px, height=100px, top=10px, bottom=20px, left=20px, right=20px, gap=5px, numbering="1 / 1")
+@page(width=200px, height=90px, top=10px, bottom=20px, left=20px, right=20px, gap=5px, numbering="1 / 1")
 1 @br() 2 @br() 3 @br() 4 @br() 5 @br() 6
 `);
     assert(paged.attachments.length === 1, "numbering must contribute exactly one attachment");
@@ -408,7 +408,7 @@ test("pb 沿用跨持续事件、刚性复合体和单行溢出的校验", () =>
     expectLoweringError("@up({1 @pb() 2}, 3)", "E_UP_INVALID_CHILD");
     expectLoweringError("@grace(3, {1 @pb() 2})", "E_GRACE_INVALID_CONTENT");
     expectLoweringError("@head(center={@pb()})", "E_HEAD_INTERNAL_BREAK");
-    expectLayoutError("@page(height=40px, top=10px, bottom=10px) @pb() 1", "E_PAGE_OVERFLOW");
+    expectLayoutError("@page(height=36px, top=10px, bottom=10px) @pb() 1", "E_PAGE_OVERFLOW");
     assert(compileValid("{1 @pb(false) 2}").layout.pages.length === 2, "ordinary content blocks must support pb");
     const invalid = compileScore("1 @pb(justify=invalid) 2");
     assert(invalid.diagnostics.some(item => item.code === "W_INVALID_BOOL"), "invalid justify must be diagnosed");

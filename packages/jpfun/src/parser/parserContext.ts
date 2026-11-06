@@ -22,7 +22,7 @@ function classifySyntaxValue(type: paramType | undefined, text: string): SyntaxT
     return undefined;
 }
 
-export const DEFAULT_FONT_SIZE = 22;
+export const DEFAULT_FONT_SIZE = 18;
 
 // 解析上下文
 export class ParserContext {

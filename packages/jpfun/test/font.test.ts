@@ -117,7 +117,8 @@ test("head generated text uses text settings without a head font override", () =
         const commands = recordCommands(compiled.layout).filter(command => command.kind === "text");
         strictEqual(commands.length, 6);
         ok(commands.every(command => command.style.fontFamily === expected));
-        deepStrictEqual(commands.map(command => command.style.fontSize), [17.6, 44, 18.7, 17.6, 17.6, 17.6]);
+        deepStrictEqual(commands.map(command => command.style.fontSize),
+            [0.8, 2, 1, 0.8, 0.88, 0.8].map(ratio => DEFAULT_FONT_SIZE * ratio));
         const head = compiled.ast.content.find(node => node instanceof ASTFunctionNode && node.callName === "head")!;
         const roundTrip = texts(`@set(font="Later", text.font="Later") ${head.toString(source)}`);
         ok(roundTrip.every(command => command.style.fontFamily === expected));

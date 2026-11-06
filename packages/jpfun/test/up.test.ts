@@ -266,7 +266,7 @@ test("up 和 down 支持 gap 参数与 @set 设置，并校验非负长度", () 
         });
     };
     for (const [source, expected] of [
-        [`1 ^ 3`, [22 * 0.12]],
+        [`1 ^ 3`, [18 * 0.12]],
         [`@up(1, 3, gap=10px)`, [10]],
         [`@down(1, 3, gap=8px)`, [8]],
         [`@set(up.gap=12px) 1 ^ 3`, [12]],

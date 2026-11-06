@@ -58,7 +58,7 @@ test("连音线弧高支持自动跨度缩放、显式长度、作用域继承�
     deepStrictEqual(crossAuto, crossFixed, "cross-line automatic height uses 0.45em");
 
     const inherited = compileValid("@set(tie.height=2em) 1@a 2@b @tie(a,b)");
-    strictEqual(inherited.ast.content.at(-1)!.toString("@set(tie.height=2em) 1@a 2@b @tie(a,b)"), "@tie(a, b, height=44px)");
+    strictEqual(inherited.ast.content.at(-1)!.toString("@set(tie.height=2em) 1@a 2@b @tie(a,b)"), "@tie(a, b, height=36px)");
     assert(compileScore("1@a 2@b @tie(a,b,height=bad)").diagnostics.some(d => d.code === "W_INVALID_LENGTH"), "invalid length");
 });
 
@@ -244,7 +244,7 @@ test("连音线可以跨行与跨轨，首尾弧从端点固定抬高", () => {
         && closingPath.commands[0]?.op === "M"
         && closingPath.commands[2]?.op === "Q",
     "the closing tie segment must contain its plateau and endpoint");
-    assert(nearly(closingPath.commands[2].y - closingPath.commands[0].y, 11),
+    assert(nearly(closingPath.commands[2].y - closingPath.commands[0].y, 9),
         "a closing tie plateau must be exactly one configured height above its endpoint");
 
     const tieOutOfUp = layoutOf(`@set(tie.height=0.5em) @up(3,4) 5@x @br() 1@y @tie(x,y)`);
@@ -254,7 +254,7 @@ test("连音线可以跨行与跨轨，首尾弧从端点固定抬高", () => {
         && openingPath.commands[0]?.op === "M"
         && openingPath.commands[1]?.op === "Q",
     "the opening tie segment must contain its endpoint and plateau");
-    assert(nearly(openingPath.commands[0].y - openingPath.commands[1].y, 11),
+    assert(nearly(openingPath.commands[0].y - openingPath.commands[1].y, 9),
         "an opening tie plateau must be exactly one configured height above its endpoint");
 
     const compactCrossTrackTie = layoutOf(`
@@ -323,21 +323,21 @@ test("普通连音线与八度点借用行间留白不拉大行距，超高外�
         assert(nearly(line1Axis(layoutOf(source)), line1Axis(plain)), `${source} must borrow lineGap without pushing line 1`);
     }
     for (const [source, minGap] of [
-        [`1 2 3 4 @br() 1 ^ $fermata 2 3 4`, 11],
-        [`N: 1 2 3\n\nN: 1 2 3^4`, 11],
-        [`@page(gap=1em, minGap=0.8em)\nN: 1 2 3\n\nN: 1 2 3^4`, 22 * 0.8],
+        [`1 2 3 4 @br() 1 ^ $fermata 2 3 4`, 9],
+        [`N: 1 2 3\n\nN: 1 2 3^4`, 9],
+        [`@page(gap=1em, minGap=0.8em)\nN: 1 2 3\n\nN: 1 2 3^4`, 18 * 0.8],
     ] as const) {
         const top = Math.min(...layoutOf(source).objects.filter(n => n.layoutLine === 1 && !n.T.isZero()).map(n => n.box.y));
         assert(nearly(top - line0Bottom, minGap), `${source} must keep ${minGap}px minGap`);
     }
-    assert(nearly(layoutOf(`1 2 3 4 @br() 1@a 2@b 3 4 @tie(a,b,height=30px)`).attachments[0].regions[0].y - line0Bottom, 11),
-        "an oversized tie must keep the default 11px minGap");
+    assert(nearly(layoutOf(`1 2 3 4 @br() 1@a 2@b 3 4 @tie(a,b,height=30px)`).attachments[0].regions[0].y - line0Bottom, 9),
+        "an oversized tie must keep the default 9px minGap");
 
     // 歌词位于基线下方，行距从歌词底部算起；下一行的普通 tie 仍借用这段行距
     const lyricPlain = layoutOf(`@voice({1 2}, , "甲 乙") @br() @voice({3 4})`);
     const lyricTied = layoutOf(`@voice({1 2}, , "甲 乙") @br() @voice({3@a 4@b @tie(a,b)})`);
     const lyricBox = lyricPlain.attachments[0].regions[0];
-    assert(nearly(line1Axis(lyricPlain) - 11 - (lyricBox.y + lyricBox.h), 22)
+    assert(nearly(line1Axis(lyricPlain) - 9 - (lyricBox.y + lyricBox.h), 18)
         && nearly(line1Axis(lyricTied), line1Axis(lyricPlain)),
         "lyrics must preserve full lineGap below them while allowing next-line ties to borrow it");
 });

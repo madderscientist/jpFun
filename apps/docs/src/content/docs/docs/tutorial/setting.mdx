@@ -60,7 +60,7 @@ export const setScopeExample = `@set(text.size=10px)
 
 ```jpfun
 @set(
-    fontsize=22px,
+    fontsize=18px,
     font="sans-serif",
     numberfont="Arial, 'Century Schoolbook', 'Palatino Linotype', Cambria, 'Cascadia Mono', monospace",
     strict=false
@@ -69,7 +69,7 @@ export const setScopeExample = `@set(text.size=10px)
 
 | 变量 | 类型 | 默认值 | 作用 |
 | --- | --- | --- | --- |
-| `fontsize` | 长度 | `22px` | 基准字号，也是 `em` 长度的换算基准 |
+| `fontsize` | 长度 | `18px` | 基准字号，也是 `em` 长度的换算基准 |
 | `font` | 字符串 | `sans-serif` | 普通文字字体 |
 | `numberfont` | 字符串 | 上方的数字字体栈 | 音符及同类谱面数字字体 |
 | `strict` | 布尔值 | `false` | 开启严格的语法检查 |
@@ -90,7 +90,7 @@ export const setScopeExample = `@set(text.size=10px)
 ## 字体设置
 jpFun 有两类字体，互不覆盖，影响函数有：
 - `font`：text、voice 的声部名和歌词（含歌词行名）、tempo 文字、page 页码与行首小节号、H 裸文本。
-- `numberfont`：note（音符）、key（调号）、meter（拍号的数字）、tuplet（多连音上面的数字）、volta（跳房子中的数字）。
+- `numberfont`：note（音符）、rest（整小节休止的数字）、key（调号）、meter（拍号的数字）、tuplet（多连音上面的数字）、volta（跳房子中的数字）、ottava（八度记号的数字）。
 
 ```jpfun
 @set(font="'Noto Sans SC', sans-serif", numberfont="Consolas, monospace")
@@ -164,7 +164,7 @@ text、page 接受 `font` 参数，也支持 `@set(函数名.font="...")`；函�
 @set(font="", numberfont="", fontsize=0px, strict=false)
 ```
 
-空字体字符串恢复对应系统默认字体，零字号恢复 `22px`，`strict=false` 关闭严格模式。这是恢复系统默认值，不是恢复外层值；要自动恢复外层设置，请使用局部内容块。
+空字体字符串恢复对应系统默认字体，零字号恢复 `18px`，`strict=false` 关闭严格模式。这是恢复系统默认值，不是恢复外层值；要自动恢复外层设置，请使用局部内容块。
 
 函数参数的空值没有统一的“恢复默认”含义，仍由参数自身解释。例如 `@set(voices.connect="")` 表示只有细连谱线；要恢复默认括线，应写 `@set(voices.connect="[-]")`。同样，不要把 `0` 或 `false` 一律当成未设置。
 

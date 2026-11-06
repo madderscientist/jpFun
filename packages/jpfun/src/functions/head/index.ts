@@ -34,7 +34,7 @@ const FIELD_SLOT = {
 type HeadField = keyof typeof FIELD_SLOT;
 
 const TEXT_PRESET = {
-    title: [2, "center"], subtitle: [0.85, "center"], author: [0.8, "right"],
+    title: [2, "center"], subtitle: [1, "center"], author: [0.88, "right"],
 } as const;
 const ITEM_GAP_EM = 0.25;
 const DEFAULT_GAP_PX = 5;

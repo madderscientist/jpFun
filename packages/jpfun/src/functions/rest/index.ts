@@ -155,7 +155,7 @@ class RestTemporal extends TemporalNodeBase {
         this.mergeKey = REST_KEY;
         restsByHost.set(this, this);
         this.initLayoutBox();
-        this.textStyle = { fontSize: ast.size, fontFamily: ast.font, textAlign: "center" };
+        this.textStyle = { fontSize: ast.size, fontFamily: ast.font, fontWeight: 700, textAlign: "center" };
     }
 
     override onTimeState(state: TimeState) {

@@ -201,7 +201,7 @@ test("歌词行共用基线且随声部字号缩放", () => {
     const scaledLyric = commandsOfKind(`@voice({1}, , "词")`, "text", 40)
         .find(command => command.text === "词");
     assert(scaledLyric !== undefined, "scaled voice must emit its lyric");
-    assert(nearly(scaledLyric.style.fontSize, 32.8), "voice lyric size must use the voice parse-time font size");
+    assert(nearly(scaledLyric.style.fontSize, 40 * 0.88), "voice lyric size must use the voice parse-time font size");
 });
 
 test("长英文歌词把宽度折算到对应音符", () => {
@@ -309,20 +309,20 @@ test("声部内的普通连音线借用声部间距，超高外扩与 gap/minGap
         const notes = drawn(source);
         return notes[1].box.y - (notes[0].box.y + notes[0].box.h);
     };
-    assert(nearly(gapOf(`@voices(@voice({1 2}), @voice({3@a 4@b @tie(a,b)}))`), 22 * 0.75),
+    assert(nearly(gapOf(`@voices(@voice({1 2}), @voice({3/@a 4/@b @tie(a,b)}))`), 18 * 0.75),
         "an ordinary tie in the lower voice must not widen voice spacing");
     const tall = layoutOf(`@voices(@voice({1 2}), @voice({3@a 4@b @tie(a,b,height=30px)}))`);
     const upper = tall.objects.find(object => object.box.h > 0)!;
     const tie = tall.attachments.find(attachment => attachment.layer === "foreground")!.regions[0];
-    assert(nearly(tie.y - (upper.box.y + upper.box.h), 22 * 0.35),
+    assert(nearly(tie.y - (upper.box.y + upper.box.h), 18 * 0.35),
         "an oversized tie in the lower voice must keep minimum voice clearance");
 
     for (const [source, expected] of [
         [`@voices(@voice({1}), @voice({2}), gap=30px)`, 30],
         [`@set(voices.gap=28px)\nN: 1\nN: 2`, 28],
-        [`@set(vs.gap=2em) @vs(@voice({1}), @voice({2}))`, 44],
+        [`@set(vs.gap=2em) @vs(@voice({1}), @voice({2}))`, 36],
         [`@voices(@voice({1}), @voice({3^4}), gap=20px, minGap=14px)`, 14],
-        [`@set(voices.minGap=15px)\nN: 1\nN: 3^4`, 15],
+        [`@set(voices.minGap=12px)\nN: 1\nN: 3^4`, 12],
     ] as const) {
         assert(nearly(gapOf(source), expected), `${source}: expected ${expected}`);
     }
@@ -342,7 +342,7 @@ test("声部内的普通连音线借用声部间距，超高外扩与 gap/minGap
         const [u1, l1, u2, l2] = sameLine.layout.objects.filter(object => object.box.h > 0);
         assert(u1.track === u2.track && l1.track === l2.track
             && nearly(u1.box.y, u2.box.y) && nearly(l1.box.y, l2.box.y)
-            && nearly(l1.box.y - (u1.box.y + u1.box.h), 440), pair);
+            && nearly(l1.box.y - (u1.box.y + u1.box.h), 360), pair);
     }
 });
 
@@ -536,7 +536,7 @@ test("connector group names center on their own connector and offset left of inn
 
     // "伴奏" 所在 3-4 声部无声部名，直接对齐到 anchorX；"钢琴" 与 "总谱" 包含有名称的 1-2 声部，向左错开 0.5em
     assert(nearly(accomp.x, anchorX), "group without inner voice names must align to the label anchor");
-    assert(nearly(piano.x, anchorX - innerRight - 22 * 0.5), "group with inner voice names must sit left of those names");
+    assert(nearly(piano.x, anchorX - innerRight - 18 * 0.5), "group with inner voice names must sit left of those names");
     assert(nearly(tutti.x, piano.x), "overlapping group must offset only by its own inner voice names without extra avoidance");
 
     // Y 坐标各自取所属连接范围首末声部视觉轴的中点，重叠谱号不做纵向避让

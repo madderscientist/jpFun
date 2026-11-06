@@ -23,7 +23,7 @@ class MinMax {
 
 /** 提成模块级而不是写成 cubicExtrema 内部的箭头函数：那里每次调用分配一个闭包，实测占了 96% 的耗时 */
 function cubicAt(t: number, p0: number, p1: number, p2: number, p3: number, extent: MinMax) {
-    if (!(t > 0 && t < 1)) return;
+    if (!(t > 1e-9 && t < 1 - 1e-9)) return;
     const u = 1 - t;
     extent.add(u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3);
 }
