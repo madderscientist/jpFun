@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { GraceTemporal } from "../src/functions/grace/index.js";
 import { getLayoutBounds, layoutDocument } from "../src/layout/engine.js";
 import { isLayoutAttachment, type LayoutAttachment } from "../src/layout/types.js";
-import { isVisualTemporalNode } from "../src/functions/temporal.js";
+import { ANCHOR_KEY, isVisualTemporalNode } from "../src/functions/temporal.js";
 import { compileScore } from "../src/pipeline.js";
 import { assert, layoutContext, layoutOf, lower, nearly, recordCommands } from "./helpers.js";
 
@@ -225,3 +225,86 @@ test("重复调用 layoutDocument 重置 springConfig，不累乘连梁、小节
         deepStrictEqual(recordCommands(again), commands);
     }
 });
+
+test("相邻同小节数的无挤压撑满行通过注水投影对齐内部小节线，并兼容行首尾记号与定宽休止", () => {
+    const barAnchors = (layout: ReturnType<typeof layoutOf>, line: number) => layout.objects
+        .filter(node => node.layoutLine === line && node.mergeKey === ANCHOR_KEY)
+        .map(node => node.box.x + node.box.anchor);
+
+    // 余量充足且含行首调号/拍号/反复线与行尾终止线差异时，内部 3 根小节线完全对齐
+    const aligned = layoutOf(`
+@page(width=900px)
+@key(G) @meter(4,4) |: 1 2 3 4 | 5/ 6/ 7/ 1'/ 2'/ 3'/ 4'/ 5'/ | 6 5 4 3 | 2 - - - | @br()
+1 2 3 4 | 5 6 7 1' | 2'/ 3'/ 4'/ 5'/ 6'/ 5'/ 4'/ 3'/ | 1 - - - |||
+`);
+    const line0Internal = barAnchors(aligned, 0).slice(1, -1);
+    const line1Internal = barAnchors(aligned, 1).slice(0, -1);
+    assert(line0Internal.length === 3 && line1Internal.length === 3, "两行均应识别出 3 根内部小节线");
+    for (let i = 0; i < 3; i++) {
+        assert(nearly(line0Internal[i], line1Internal[i]),
+            `第 ${i + 1} 根内部小节线应完全对齐: ${line0Internal[i]} vs ${line1Internal[i]}`);
+    }
+
+    // 余量紧张（单行有余量但包络总宽超过行宽）时，在不挤压任何小节的前提下尽最大余量向邻行靠拢
+    const tightPage = "@page(width=620px,left=10px,right=10px,fillRatio=0) ";
+    const lineA = "1 2 | 3/ 4/ 5/ 6/ 7/ 1'/ 2'/ 3'/ 4'/ 5'/ | 6 7 | 1' 2' |";
+    const lineB = "1 2 | 3 4 | 5/ 6/ 7/ 1'/ 2'/ 3'/ 4'/ 5'/ 6'/ 7'/ | 1' 2' |";
+    const singleA = barAnchors(layoutOf(`${tightPage}${lineA}`), 0);
+    const singleB = barAnchors(layoutOf(`${tightPage}${lineB}`), 0);
+    const paired = layoutOf(`${tightPage}${lineA} @br() ${lineB}`);
+    const pairedA = barAnchors(paired, 0);
+    const pairedB = barAnchors(paired, 1);
+    assert(nearly(pairedA[0], pairedB[0]) && nearly(pairedA[2], pairedB[2]),
+        "首末内部小节线在下界一致时应保持对齐");
+    assert(Math.abs(pairedA[1] - pairedB[1]) < Math.abs(singleA[1] - singleB[1]),
+        "中间小节线应消耗可用余白向邻行靠拢");
+
+    // 连续 4 行同小节数且全段包络不超宽时，4 行共享同一水位填充目标，消除中间行跳变
+    const fourLines = layoutOf(`
+@page(width=900px)
+1/ 2/ 3/ 4/ 5/ 6/ 7/ 1'/ | 1 2 3 4 | 5 6 7 1' | 2 - - - | @br()
+1 2 3 4 | 5 6 7 1' | 2 3 4 5 | 6 - - - | @br()
+1 2 3 4 | 5 6 7 1' | 2 3 4 5 | 6 - - - | @br()
+1 2 3 4 | 5 6 7 1' | 2 3 4 5 | 1'/ 7/ 6/ 5/ 4/ 3/ 2/ 1/ |
+`);
+    const baseBars = barAnchors(fourLines, 0).slice(0, -1);
+    for (let line = 1; line < 4; line++) {
+        const current = barAnchors(fourLines, line).slice(0, -1);
+        for (let i = 0; i < 3; i++) {
+            assert(nearly(current[i], baseBars[i]),
+                `第 ${line} 行第 ${i + 1} 根小节线应与首行完全对齐: ${current[i]} vs ${baseBars[i]}`);
+        }
+    }
+
+    // 成倍数小节行（如 4 → 2 → 4）共享细网格：2 小节行的中分小节线对齐 4 小节行的第 2 根小节线，且上下 4 小节行隔行对齐
+    const proportional = layoutOf(`
+@page(width=900px)
+1/ 2/ 3/ 4/ 5/ 6/ 7/ 1'/ | 1 2 3 4 | 5 6 7 1' | 2 - - - | @br()
+1 2 3 4 5/ 6/ 7/ 1'/ | 2/ 3/ 4/ 5/ 6/ 7/ 1'/ 2'/ 3' 4' | @br()
+1 2 3 4 | 5 6 7 1' | 2'/ 3'/ 4'/ 5'/ 6'/ 5'/ 4'/ 3'/ | 1 - - - |
+`);
+    const prop0 = barAnchors(proportional, 0).slice(0, -1);
+    const prop1 = barAnchors(proportional, 1).slice(0, -1);
+    const prop2 = barAnchors(proportional, 2).slice(0, -1);
+    assert(prop0.length === 3 && prop1.length === 1 && prop2.length === 3, "三行内部小节线数应分别为 3、1、3");
+    assert(nearly(prop1[0], prop0[1]) && nearly(prop1[0], prop2[1]),
+        `2 小节行的中间小节线应与上下 4 小节行的第 2 根小节线完全对齐: ${prop1[0]} vs ${prop0[1]}, ${prop2[1]}`);
+    for (let i = 0; i < 3; i++) {
+        assert(nearly(prop0[i], prop2[i]),
+            `隔着 2 小节行的上下两行 4 小节线应全部对齐: ${prop0[i]} vs ${prop2[i]}`);
+    }
+
+    // 邻行含 @rest 锁死小节宽度且不小于邻行对应小节自然宽时，本行休止间隙保持固定，另一行自动对齐到该小节线
+    const withRest = layoutOf(`
+@page(fillRatio=0.3) @meter(4,4)
+| 1 2 3 4 | @rest(1,width=100px) | 5 6 7 1' | @br()
+| 1 2 3 4 | 5 6 | 7 1' 2' 3' |
+`);
+    const restLineBars = barAnchors(withRest, 0).slice(1, -1);
+    const noteLineBars = barAnchors(withRest, 1).slice(1, -1);
+    for (let i = 0; i < 2; i++) {
+        assert(nearly(restLineBars[i], noteLineBars[i]),
+            `含 @rest 的邻行内部小节线应与普通行对齐: ${restLineBars[i]} vs ${noteLineBars[i]}`);
+    }
+});
+

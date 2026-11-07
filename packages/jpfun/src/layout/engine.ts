@@ -1,6 +1,7 @@
 import { Diagnostic } from "../diagnostic.js";
 import type { Track, TrackGroup, TrackPlacement } from "../lowering/track.js";
 import {
+    ANCHOR_KEY,
     isVisualTemporalNode,
     type TemporalNodeBase,
     type VisualTemporalNode,
@@ -247,8 +248,9 @@ export function layoutDocument(
     const horizontal = lines.map((line, index) => prepareHorizontalLine(line.columns, index, options));
     const views = horizontal.map(line => line.view);
     for (const attachment of documentAttachments) attachment.prepareHorizontal?.(views, context);
+    const regions = horizontal.map(line => line.layout(contentWidth, page.fillRatio));
+    alignHorizontalBars(views, regions, contentWidth);
     for (const line of horizontal) {
-        line.layout(contentWidth, page.fillRatio);
         for (const column of line.view.columns) {
             for (const node of column) node.box.x += originX;
         }
@@ -538,10 +540,132 @@ export function prepareHorizontalLine(
                 if (compact) element.margin_L = element.margin_R = 0;
                 return element;
             }));
-            layoutHorizontal(elements, limit, options, hooks, fillMinRatio);
-            return elements;
+            const solved = layoutHorizontal(elements, limit, options, hooks, fillMinRatio);
+            return Object.assign(elements, { extra: solved.extra, groupOf: solved.groupOf });
         },
     };
+}
+
+/** 利用无挤压撑满行的剩余宽度，向同小节数或成倍数邻行的公共台阶做水位填充，使行间小节线对齐 */
+function alignHorizontalBars(
+    views: readonly HorizontalLineView[],
+    regions: readonly { extra: number; groupOf?: Uint32Array }[],
+    contentWidth: number,
+) {
+    // 1. 提取每行的内部小节线，并扣除单行撑满时平摊的 extra，还原各小节的自然宽度底线 minW
+    const states = views.map(({ columns }, i) => {
+        const { extra, groupOf } = regions[i];
+        if (extra < 0 || !columns.length) return;
+        const bars: number[] = [];
+        let hasMusic = false;
+        for (let c = 0; c < columns.length; c++) {
+            if (columns[c].some(n => n.mergeKey === ANCHOR_KEY)) {
+                if (hasMusic) { bars.push(c); hasMusic = false; }
+            } else if (columns[c].some(n => !n.T.isZero())) hasMusic = true;
+        }
+        // 丢弃右侧没有正时值事件的行尾小节线；行首记号与 |: 因左侧尚无音符已在上面自动跳过
+        if (!hasMusic) bars.pop();
+        if (!bars.length) return;
+
+        // groupAt 将原始列映射到合并后的自由虚拟列；两列之差即其间的自由间隙数
+        const groupAt = (c: number) => groupOf ? groupOf[c] : c;
+        const totalGaps = groupAt(columns.length - 1);
+        const ends = [...bars.map(groupAt), totalGaps];
+        let prevX = 0, prevG = 0;
+        const gaps = ends.map(g => (g -= prevG, prevG += g, g));
+        const minW = ends.map((_, m) => {
+            const x = m < bars.length ? columns[bars[m]][0].box.x + columns[bars[m]][0].box.anchor : contentWidth;
+            const w = x - prevX;
+            prevX = x;
+            return totalGaps > 0 ? w - extra * (gaps[m] / totalGaps) : w;
+        });
+        return { columns, extra, groupAt, totalGaps, ends, gaps, minW };
+    });
+
+    const ok = (a?: typeof states[0], b?: typeof states[0]) =>
+        !!a && !!b && (a.minW.length % b.minW.length === 0 || b.minW.length % a.minW.length === 0);
+
+    for (let l = 0; l < states.length; l++) {
+        const s = states[l];
+        if (!s || s.extra <= 0 || !s.totalGaps) continue;
+        const M = s.minW.length;
+        // 2. 向两侧扩展收集小节数相同或成整数倍的连续行段；遇到 extra = 0 的挤压行即作为刚性边界停下
+        let start = l, end = l;
+        while (states[start]!.extra > 0 && ok(states[start - 1], s) && ok(states[start - 1], states[end])) start--;
+        while (states[end]!.extra > 0 && ok(states[end + 1], s) && ok(states[end + 1], states[start])) end++;
+        if (start === end) continue;
+
+        // 在段内最大小节数 L 的细网格上求公共台阶，并通过水位填充（涨水填谷）补足剩余空白
+        const env = (lo: number, hi: number) => {
+            const group = states.slice(lo, hi + 1) as NonNullable<typeof s>[];
+            const L = Math.max(...group.map(n => n.minW.length)), r = L / M;
+            const grid = new Array<number>(L).fill(0);
+            // 先填细网格行，再把粗网格行（如 2 小节行）超出对应细格之和的差额平摊进去
+            for (const n of [...group].sort((a, b) => b.minW.length - a.minW.length)) {
+                const step = L / n.minW.length;
+                for (let m = 0; m < n.minW.length; m++) {
+                    const w = n.minW[m];
+                    let sum = 0;
+                    for (let j = 0; j < step; j++) sum += grid[m * step + j];
+                    if (w > sum) for (let j = 0; j < step; j++) grid[m * step + j] += (w - sum) / step;
+                }
+            }
+            // 公共台阶总和不超过行宽时，把水位拉到 avg，只填平低于水位的窄格，不拉大已高于水位的宽格
+            const free = grid.map((_, g) => Number(group.every(n => n.gaps[Math.floor(g * n.minW.length / L)] > 0)));
+            let rem = contentWidth;
+            for (let g = 0; g < L; g++) if (!free[g]) rem -= grid[g];
+            for (let step = 0; step < L; step++) {
+                const freeSum = free.reduce((a, b) => a + b, 0);
+                if (!freeSum || rem <= 0) break;
+                const avg = rem / freeSum;
+                if (!grid.some((w, g) => free[g] && w > avg && (rem -= w, free[g] = 0, true))) {
+                    for (let g = 0; g < L; g++) if (free[g]) grid[g] = avg;
+                    break;
+                }
+            }
+            // 将每 r 个细格合回本行的 1 个小节目标宽度（本行被 @rest 等完全锁死的小节保持原宽）
+            const target = s.minW.map((w, m) => {
+                if (!s.gaps[m]) return w;
+                let sum = 0;
+                for (let j = 0; j < r; j++) sum += grid[m * r + j];
+                return sum;
+            });
+            return { group, target };
+        };
+        let { group, target } = env(start, end);
+        // 若整段公共台阶总和超出行宽，退回只与上下紧邻行对齐
+        if (target.reduce((a, b) => a + b, 0) > contentWidth + 1e-6) {
+            ({ group, target } = env(Math.max(start, l - 1), Math.min(end, l + 1)));
+        }
+
+        // 3. 退水触底：若目标总宽仍超出行宽（空白不够追平邻行），同步回缩并在碰到本行底线 minW 时锁死
+        const free = s.gaps.map((g, m) => g > 0 ? Number(group.every(n => n.gaps[Math.floor(m * n.minW.length / M)] > 0)) : 0);
+        if (!free.some(Boolean)) for (let m = 0; m < M; m++) free[m] = Number(s.gaps[m] > 0);
+        for (let step = 0; step < M; step++) {
+            let rem = contentWidth, remTarget = 0, freeSum = 0;
+            for (let m = 0; m < M; m++) {
+                if (free[m]) { remTarget += target[m]; freeSum++; }
+                else rem -= target[m];
+            }
+            if (!freeSum || Math.abs(rem - remTarget) <= 1e-6) break;
+            const shift = (rem - remTarget) / freeSum;
+            if (!target.some((w, m) => free[m] && w + shift < s.minW[m] && (target[m] = s.minW[m], free[m] = 0, true))) {
+                for (let m = 0; m < M; m++) if (free[m]) target[m] += shift;
+                break;
+            }
+        }
+
+        // 4. 将每小节新分到的空白与原平摊空白之差均摊到小节内各自由间隙，累加写回 box.x
+        const shift = new Float64Array(s.totalGaps + 1);
+        for (let m = 0, k = 0; m < M; m++) {
+            const delta = s.gaps[m] > 0 ? (target[m] - s.minW[m]) / s.gaps[m] - s.extra / s.totalGaps : 0;
+            for (; k < s.ends[m]; k++) shift[k + 1] = shift[k] + delta;
+        }
+        for (let c = 0; c < s.columns.length; c++) {
+            const dx = shift[s.groupAt(c)];
+            if (dx) for (const node of s.columns[c]) node.box.x += dx;
+        }
+    }
 }
 
 /** 局部序列按给定顺序完成尺寸、约束与零间隙自然横排，归零占位左沿并返回完整宽度 */

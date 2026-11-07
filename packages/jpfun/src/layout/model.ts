@@ -350,6 +350,9 @@ function solveHorizontal(
  * @param limit 当前区间左右墙之间的可用宽度
  * @param options 已补齐默认值的求解参数
  * @param fillMinRatio 自然宽度至少占可用宽度的比例时才 fill；省略表示不 fill，0 表示无条件 fill。fill 表示是否精确将左右拉到可用宽度，包括宽度不足和弹簧导致的溢出
+ * @returns
+ * - `extra`：撑满状态与剩余可调宽度：`> 0` 表示无挤压撑满时平摊到自由间隙的剩余宽度（`limit - naturalWidth`），`= 0` 表示已撑满但经过压缩或恰好贴合（无剩余宽度可调），`-1` 表示未撑满
+ * - `groupOf`：存在固定间隙时，记录每个原始列所属的合并虚拟列下标（两列的虚拟列下标之差即其间的自由间隙数）；无固定间隙时为 `undefined`
  */
 export function layoutHorizontalRegion(
     columns: LayoutElement[][],
@@ -359,11 +362,11 @@ export function layoutHorizontalRegion(
     limit: number,
     options: Required<SolverOptions>,
     fillMinRatio?: number,
-): void {
+): { extra: number; groupOf?: Uint32Array } {
     if (X.length !== columns.length || fixed.length !== Math.max(0, X.length - 1)) {
         throw new Error("Horizontal region state does not match its columns");
     }
-    if (X.length === 0 || rows === 0) return;
+    if (X.length === 0 || rows === 0) return { extra: -1 };
 
     const hasFixed = fixed.some(value => value !== 0);
     let groupOf, offsets;
@@ -419,6 +422,7 @@ export function layoutHorizontalRegion(
     const hasRoom = solveHorizontal(solvedColumns, rows, solvedX, limit, options);
     fixed.fill(1);
 
+    let extra = -1;
     if (fillMinRatio !== void 0) {
         let leftWidth = 0;
         let rightWidth = 0;
@@ -430,11 +434,14 @@ export function layoutHorizontalRegion(
         if (!hasRoom || naturalWidth >= limit * fillMinRatio) {
             // 让首尾贴墙，并把余量平均分到自由间隙
             const shift = leftWidth - solvedX[0];
-            const extra = limit - naturalWidth;
+            const spare = limit - naturalWidth;
             for (let i = 0; i < solvedX.length; i++) {
                 solvedX[i] += shift + (solvedX.length > 1
-                    ? extra * i / (solvedX.length - 1)
+                    ? spare * i / (solvedX.length - 1)
                     : 0);
+            }
+            if (solvedX.length > 1 || Math.abs(spare) <= 1e-6) {
+                extra = hasRoom && solvedX.length > 1 && spare > 0 ? spare : 0;
             }
         }
     }
@@ -442,6 +449,7 @@ export function layoutHorizontalRegion(
     if (hasFixed) { // 把虚拟列的求解结果写回原始列
         for (let i = 0; i < X.length; i++) X[i] = solvedX[groupOf![i]] + offsets![i];
     }
+    return { extra, groupOf };
 }
 
 /**
@@ -450,7 +458,7 @@ export function layoutHorizontalRegion(
  * @param columns 二维数组，第一维为列，第二维为行，元素包含物理属性和状态属性
  * @param limit 宽度约束
  * @param options 排版物理配置
- * @returns 同一个解算完成的二维矩阵，所有盒子的绝对 box.x (左侧x坐标) 已就地更新
+ * @returns 解算并补齐占位后的二维矩阵（所有盒子的 `box.x` 已就地更新），同时在返回数组上附带 {@link layoutHorizontalRegion} 返回的 `extra` 与 `groupOf`
  */
 export function layoutHorizontal(
     columns: LayoutElement[][],
@@ -458,7 +466,7 @@ export function layoutHorizontal(
     options: SolverOptions = {},
     horizontalLayoutHooks: readonly HorizontalLayoutHookEntry[] = [],
     fillMinRatio?: number,
-): LayoutElement[][] {
+): LayoutElement[][] & { extra: number; groupOf?: Uint32Array } {
     const normalizedOptions = normalizeSolverOptions(options);
     const { mat, rows } = fillPlaceholders(columns, normalizedOptions.globalC);
     const X = new Float64Array(mat.length);
@@ -478,11 +486,11 @@ export function layoutHorizontal(
             options: normalizedOptions,
         });
     }
-    layoutHorizontalRegion(mat, rows, X, fixed, limit, normalizedOptions, fillMinRatio);
+    const region = layoutHorizontalRegion(mat, rows, X, fixed, limit, normalizedOptions, fillMinRatio);
 
     // 坐标写回
     for (let c = 0; c < mat.length; c++) {
         for (const el of mat[c]) el.box.x = X[c] - el.box.anchor;
     }
-    return mat;
+    return Object.assign(mat, region);
 }
