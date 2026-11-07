@@ -31,7 +31,7 @@ class NoteFunction extends ASTFunctionNode {
         description: "创建音符",
         details: `\
 ~~~jpfun
-@note(A, acc=#, octave=3, color=#c33, weight=700)
+@note(A, acc=#, octave=3, color=#c33)
 ~~~
 **简写**：数字音名按“升降号、音名、相对八度”书写；字母音名按“音名、升降号、绝对八度”书写。\`1,,\` 比当前调性基准低两个八度，\`1'\` 高一个八度。
 - 简写的升降号完全由自身决定，省略时为空，不继承 \`@set(note.acc=...)\`；显式调用省略 \`acc\` 时仍继承默认值
@@ -64,13 +64,7 @@ class NoteFunction extends ASTFunctionNode {
                 description: "音符颜色，使用 CSS 颜色值",
                 type: "string" as const,
                 default: "#000",
-            },
-            {
-                name: "weight",
-                description: "音符数字字重，如 `400` 常规、`700` 粗体",
-                type: "number" as const,
-                default: 700,
-            },
+            }
         ]
     };
 
@@ -134,9 +128,9 @@ class NoteFunction extends ASTFunctionNode {
     octave: number;
     acc: string;
     color: string;
-    weight: number;
     size: number;
     readonly font: string;
+    readonly weight: number;
 
     // JE 八度偏移量
     jeOctaveOffset: number;
@@ -146,8 +140,9 @@ class NoteFunction extends ASTFunctionNode {
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
         this.hasDefaultAcc = Boolean(ctx.variables["note.acc"]);
-        [this.name, this.acc, this.octave, this.color, this.weight] = this.getArgValue(args, ctx) as [string, string, number, string, number];
+        [this.name, this.acc, this.octave, this.color] = this.getArgValue(args, ctx) as [string, string, number, string];
         this.font = ctx.variables.numberfont;
+        this.weight = ctx.variables.numberweight;
         this.size = ctx.variables.fontsize;
         // 创建时就固化参数值
         // 校验 note name
@@ -183,7 +178,7 @@ class NoteFunction extends ASTFunctionNode {
     }
 
     override toString() {
-        return `@n(${this.name}, ${this.acc || '""'}, ${this.octave}, ${this.color}, ${this.weight})`;
+        return `@n(${this.name}, ${this.acc || '""'}, ${this.octave}, ${this.color})`;
     }
 }
 

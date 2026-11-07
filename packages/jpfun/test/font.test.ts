@@ -7,25 +7,27 @@ import { defaultFunctions } from "../src/functions/default.js";
 import { ASTBraceNode, ASTFunctionNode } from "../src/functions/ASTtypes.js";
 import type { TextStyle } from "../src/render/types.js";
 import { DEFAULT_TEXT_FONT, JIANPU_NUMBER_FONT } from "../src/render/text.js";
-import { DEFAULT_FONT_SIZE, ParserContext } from "../src/parser/parserContext.js";
+import { DEFAULT_FONT_SIZE, DEFAULT_NUMBER_WEIGHT, ParserContext } from "../src/parser/parserContext.js";
 import { createLowering, createParser, recordCommands } from "./helpers.js";
 
 test("ParserContext variables preserve defaults, resets and child scope", () => {
     const parent = new ParserContext({ source: "" });
-    const defaults = { font: DEFAULT_TEXT_FONT, numberfont: JIANPU_NUMBER_FONT, fontsize: DEFAULT_FONT_SIZE, strict: false };
+    const defaults = { font: DEFAULT_TEXT_FONT, numberfont: JIANPU_NUMBER_FONT, numberweight: DEFAULT_NUMBER_WEIGHT, fontsize: DEFAULT_FONT_SIZE, strict: false };
     deepStrictEqual(parent.variables, defaults);
     parent.setVariable("font", "Ordinary");
     parent.setVariable("numberfont", "Digits");
+    parent.setVariable("numberweight", 400);
     parent.setVariable("fontsize", { value: 30, unit: "px" });
     parent.setVariable("strict", true);
     const child = new ParserContext(parent);
     deepStrictEqual(child.variables, parent.variables);
     child.setVariable("font", "");
     child.setVariable("numberfont", "");
+    child.setVariable("numberweight", 0);
     child.setVariable("fontsize", undefined);
     child.setVariable("strict", false);
     deepStrictEqual(child.variables, defaults);
-    deepStrictEqual(parent.variables, { font: "Ordinary", numberfont: "Digits", fontsize: 30, strict: true });
+    deepStrictEqual(parent.variables, { font: "Ordinary", numberfont: "Digits", numberweight: 400, fontsize: 30, strict: true });
     for (const name of Object.keys(defaults)) child.setVariable(name, undefined);
     deepStrictEqual(child.variables, defaults);
     deepStrictEqual(new ParserContext({ source: "" }).variables, defaults);
@@ -33,9 +35,9 @@ test("ParserContext variables preserve defaults, resets and child scope", () => 
 
 test("ParserContext preserves raw root overrides independently and setVariable resets defaults", () => {
     for (const variables of [
-        { font: "Custom", numberfont: "Digits", fontsize: 30, strict: true, custom: "" },
-        { font: "", numberfont: undefined, fontsize: 0, strict: false, custom: undefined },
-        { font: undefined, numberfont: "", fontsize: NaN, strict: null, custom: 0 },
+        { font: "Custom", numberfont: "Digits", numberweight: 400, fontsize: 30, strict: true, custom: "" },
+        { font: "", numberfont: undefined, numberweight: 0, fontsize: 0, strict: false, custom: undefined },
+        { font: undefined, numberfont: "", numberweight: NaN, fontsize: NaN, strict: null, custom: 0 },
     ]) {
         const original = { ...variables };
         const root = new ParserContext({ source: "", variables });

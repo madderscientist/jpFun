@@ -173,7 +173,7 @@ test("tremolo 支持局部子域、外框、微调、延长记号与重复布局
     deepStrictEqual(secondLayout.objects.map(n => n.box), firstLayout.objects.map(n => n.box));
     strictEqual(
         parse("@tremolo(5, 2)").content[0].toString("@tremolo(5, 2)"),
-        '@tremolo(@n(5, "", 0, #000, 700), n=2)',
+        '@tremolo(@n(5, "", 0, #000), n=2)',
     );
 
     // 同一份 lowering 在控制流中途截断后再完整重编译，不应残留跨次状态

@@ -23,6 +23,7 @@ function classifySyntaxValue(type: paramType | undefined, text: string): SyntaxT
 }
 
 export const DEFAULT_FONT_SIZE = 18;
+export const DEFAULT_NUMBER_WEIGHT = 700;
 
 // 解析上下文
 export class ParserContext {
@@ -31,6 +32,7 @@ export class ParserContext {
         fontsize: { type: "length", default: DEFAULT_FONT_SIZE },
         font: { type: "string", default: DEFAULT_TEXT_FONT },
         numberfont: { type: "string", default: JIANPU_NUMBER_FONT },
+        numberweight: { type: "number", default: DEFAULT_NUMBER_WEIGHT },
         strict: { type: "boolean", default: false },
     };
 

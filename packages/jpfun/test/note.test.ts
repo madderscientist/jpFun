@@ -224,12 +224,27 @@ for (const [alias, digit, glyph] of [["X", "9", "X"], ["Z", "0", "0"]]) {
     });
 }
 
-test("note weight supports default 700, positional/named arguments and @set", () => {
-    const source = `1 @note(2, "", 0, #000, 400) @note(3, weight=500) { @set(note.weight=600) 4 @n(5, weight=300) } 6`;
+test("numberweight controls note, meter and rest with default 700 and lexical scope", () => {
+    const source = [
+        `@meter(2, 4) 1 | @rest(2) |`,
+        `{ @set(numberweight=400) @meter(3, 4) 2 3 4 | @rest(1) | { @set(numberweight=0) 5 } }`,
+        `6`,
+    ].join(" ");
     const weights = recordCommands(layoutOf(source))
         .filter(command => command.kind === "text")
         .map(command => command.style.fontWeight);
-    strictAssert.deepEqual(weights, [700, 400, 500, 600, 300, 700]);
+    strictAssert.deepEqual(weights, [700, 700, 700, 700, 400, 400, 400, 400, 400, 400, 700, 700]);
+
+    const annotations = `@set(numberweight=400) @key(C) @tuplet({1@a 2@b 3}, 2) @volta(a, b, 1) @ottava(a, b, 1)`;
+    const annotationWeights = recordCommands(layoutOf(annotations))
+        .filter(command => command.kind === "text" && !["1", "2", "3"].includes(command.text))
+        .map(command => [command.text, command.style.fontWeight]);
+    strictAssert.deepEqual(annotationWeights, [
+        ["1=", undefined],
+        ["C", undefined],
+        ["1.", undefined],
+        ["8", undefined],
+    ]);
 });
 
 test("小节线与音符共享视觉中心轴，并加强附近的弹簧", () => {

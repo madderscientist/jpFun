@@ -52,6 +52,7 @@ class RestFunction extends ASTFunctionNode {
     readonly width: number;
     readonly size: number;
     readonly font: string;
+    readonly weight: number;
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
@@ -66,6 +67,7 @@ class RestFunction extends ASTFunctionNode {
             throw new ErrorDiagnostic("E_REST_SIZE", "@rest 的 width 必须有限且非负，size 必须有限且为正", span);
         }
         this.font = ctx.variables.numberfont;
+        this.weight = ctx.variables.numberweight;
     }
 
     // 可以被 volta 这样的标记
@@ -155,7 +157,7 @@ class RestTemporal extends TemporalNodeBase {
         this.mergeKey = REST_KEY;
         restsByHost.set(this, this);
         this.initLayoutBox();
-        this.textStyle = { fontSize: ast.size, fontFamily: ast.font, fontWeight: 700, textAlign: "center" };
+        this.textStyle = { fontSize: ast.size, fontFamily: ast.font, fontWeight: ast.weight, textAlign: "center" };
     }
 
     override onTimeState(state: TimeState) {

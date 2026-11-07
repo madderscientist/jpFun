@@ -75,11 +75,13 @@ class MeterFunction extends ASTFunctionNode {
     readonly size: number;
     readonly strict: boolean;
     readonly font: string;
+    readonly weight: number;
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
         let [num, den, size] = this.getArgValue(args, ctx) as [number, number, LengthValue];
         this.font = ctx.variables.numberfont;
+        this.weight = ctx.variables.numberweight;
         if (!Number.isSafeInteger(num) || !Number.isSafeInteger(num * 4) || num < 0
             || !Number.isSafeInteger(den) || den < 0) {
             const message = `@meter 的分子和分母必须是非负整数`;
@@ -178,6 +180,7 @@ class MeterTemporal extends TemporalNodeBase {
         this.style = {
             fontSize: ast.size,
             fontFamily: ast.font,
+            fontWeight: ast.weight,
             textAlign: "center",
             fill: "#000",
         };

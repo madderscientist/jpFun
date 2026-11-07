@@ -177,8 +177,8 @@ test("meter 使用紧凑字号绘制真分数", () => {
         "meter must draw numerator and denominator text");
     assert(lines.length === 1 && lines[0].w === meter.box.w,
         "meter must draw one full-width fraction line");
-    assert(texts.every(command => nearly(command.style.fontSize, 18 * 0.7)),
-        "meter must default each digit to 0.7em");
+    assert(texts.every(command => nearly(command.style.fontSize, 18 * 0.7) && command.style.fontWeight === 700),
+        "meter must default each digit to 0.7em and fontWeight 700");
 });
 
 test("meter 零分子或零分母表示散板，不限制小节时长", () => {

@@ -81,7 +81,11 @@ test("bool 默认值不会被当成非空字符串", () => {
 });
 
 test("目标参数不存在时报警而不是静默无效", () => {
-    for (const target of ["text.sizee", ...["note", "n", "key", "meter", "tuplet", "head", "symbol", "volta", "voice", "v", "voices", "vs"].map(name => `${name}.font`)]) {
+    for (const target of [
+        "text.sizee",
+        "note.weight", "n.weight", "meter.weight", "rest.weight",
+        ...["note", "n", "key", "meter", "tuplet", "head", "symbol", "volta", "voice", "v", "voices", "vs"].map(name => `${name}.font`),
+    ]) {
         const source = `@set(${target}="Unused")`;
         const parser = createParser(source);
         parser.parse();

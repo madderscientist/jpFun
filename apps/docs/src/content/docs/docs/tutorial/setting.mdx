@@ -56,13 +56,14 @@ export const setScopeExample = `@set(text.size=10px)
 正如我们之前所说：整个 jpFun 脚本本身就是一个巨大的内容块，我们可以想象为外面套了一层虚拟的花括号。因此写在最外层的 `@set` 会影响之后的所有脚本。
 
 ## 系统变量
-`@set` 不仅能修改函数参数的默认值，也能设置影响当前作用域的系统变量。它们的名字不带函数名前缀，目前有四个：
+`@set` 不仅能修改函数参数的默认值，也能设置影响当前作用域的系统变量。它们的名字不带函数名前缀，目前有五个：
 
 ```jpfun
 @set(
     fontsize=18px,
     font="sans-serif",
     numberfont="Arial, 'Century Schoolbook', 'Palatino Linotype', Cambria, 'Cascadia Mono', monospace",
+    numberweight=700,
     strict=false
 )
 ```
@@ -72,6 +73,7 @@ export const setScopeExample = `@set(text.size=10px)
 | `fontsize` | 长度 | `18px` | 基准字号，也是 `em` 长度的换算基准 |
 | `font` | 字符串 | `sans-serif` | 普通文字字体 |
 | `numberfont` | 字符串 | 上方的数字字体栈 | 音符及同类谱面数字字体 |
+| `numberweight` | 数值 | `700` | 主谱面数字字重（仅控制 `note`、`meter`、`rest`，常规细体可设为 `400`） |
 | `strict` | 布尔值 | `false` | 开启严格的语法检查 |
 
 系统变量与函数预设不同：`fontsize` 改变基准字号，`text.size` 只改变 text 的默认参数。
@@ -90,7 +92,7 @@ export const setScopeExample = `@set(text.size=10px)
 ## 字体设置
 jpFun 有两类字体，互不覆盖，影响函数有：
 - `font`：text、voice 的声部名和歌词（含歌词行名）、tempo 文字、page 页码与行首小节号、H 裸文本。
-- `numberfont`：note（音符）、rest（整小节休止的数字）、key（调号）、meter（拍号的数字）、tuplet（多连音上面的数字）、volta（跳房子中的数字）、ottava（八度记号的数字）。
+- `numberfont`：note（音符）、rest（整小节休止的数字）、key（调号）、meter（拍号的数字）、tuplet（多连音上面的数字）、volta（跳房子中的数字）、ottava（八度记号的数字）。其中 `numberweight` 只控制 **note、meter、rest** 三个主谱面数字的字重（默认 `700` 粗体），其余辅助数字保持常规字重。
 
 ```jpfun
 @set(font="'Noto Sans SC', sans-serif", numberfont="Consolas, monospace")
@@ -143,7 +145,7 @@ H.title: 四种音符字体风格\n
 export const legacyStyleExample = `\
 @set(
   fontsize=22px,
-  note.weight=400,
+  numberweight=400,
   numberfont="'Cascadia Mono', Consolas, 'Liberation Mono', 'Noto Sans Mono', monospace"
 )
 N: {
@@ -178,10 +180,10 @@ text、page 接受 `font` 参数，也支持 `@set(函数名.font="...")`；函�
 
 ## 恢复默认值
 ```jpfun
-@set(font="", numberfont="", fontsize=0px, strict=false)
+@set(font="", numberfont="", numberweight=0, fontsize=0px, strict=false)
 ```
 
-空字体字符串恢复对应系统默认字体，零字号恢复 `18px`，`strict=false` 关闭严格模式。这是恢复系统默认值，不是恢复外层值；要自动恢复外层设置，请使用局部内容块。
+空字体字符串恢复对应系统默认字体，零字重恢复 `700`，零字号恢复 `18px`，`strict=false` 关闭严格模式。这是恢复系统默认值，不是恢复外层值；要自动恢复外层设置，请使用局部内容块。
 
 函数参数的空值没有统一的“恢复默认”含义，仍由参数自身解释。例如 `@set(voices.connect="")` 表示只有细连谱线；要恢复默认括线，应写 `@set(voices.connect="[-]")`。同样，不要把 `0` 或 `false` 一律当成未设置。
 
