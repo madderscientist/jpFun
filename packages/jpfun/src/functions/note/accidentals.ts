@@ -4,6 +4,7 @@ interface AccidentalDefinition {
     w: number;
     h: number;
     baseline: number;
+    fill?: boolean;
     commands: readonly PathCommand[];
 }
 
@@ -11,6 +12,7 @@ export interface PreparedAccidental {
     w: number;
     h: number;
     baseline: number;
+    fill?: boolean;
     strokeWidth: number;
     commands: readonly PathCommand[];
 }
@@ -30,18 +32,31 @@ const RAISE_RATIO = 0.42;
 
 const ACCIDENTALS: Partial<Record<string, AccidentalDefinition>> = {
     "#": {
-        w: 0.46,
-        h: 0.78,
-        baseline: 0.63,
+        w: 0.42,
+        h: 0.82,
+        baseline: 0.67,
+        fill: true,
         commands: [
-            { op: "M", x: 0.34, y: 0.05 },
-            { op: "L", x: 0.27, y: 0.95 },
-            { op: "M", x: 0.72, y: 0.05 },
-            { op: "L", x: 0.65, y: 0.95 },
-            { op: "M", x: 0.08, y: 0.38 },
-            { op: "L", x: 0.9, y: 0.28 },
-            { op: "M", x: 0.05, y: 0.72 },
-            { op: "L", x: 0.87, y: 0.62 },
+            { op: "M", x: 0.22, y: 0.07 },
+            { op: "L", x: 0.35, y: 0.07 },
+            { op: "L", x: 0.35, y: 1 },
+            { op: "L", x: 0.22, y: 1 },
+            { op: "Z" },
+            { op: "M", x: 0.65, y: 0 },
+            { op: "L", x: 0.78, y: 0 },
+            { op: "L", x: 0.78, y: 0.93 },
+            { op: "L", x: 0.65, y: 0.93 },
+            { op: "Z" },
+            { op: "M", x: 0, y: 0.33 },
+            { op: "L", x: 1, y: 0.18 },
+            { op: "L", x: 1, y: 0.32 },
+            { op: "L", x: 0, y: 0.47 },
+            { op: "Z" },
+            { op: "M", x: 0, y: 0.68 },
+            { op: "L", x: 1, y: 0.53 },
+            { op: "L", x: 1, y: 0.67 },
+            { op: "L", x: 0, y: 0.82 },
+            { op: "Z" },
         ],
     },
     b: {
@@ -73,13 +88,12 @@ const ACCIDENTALS: Partial<Record<string, AccidentalDefinition>> = {
 };
 
 /**
- * 把升降号串按同一基线依次排在 x 右侧
+ * 把升降号串按同一基线依次紧挨着排在 x 右侧
  * @param size 宿主数字的字号
  * @param baselineY 宿主文字基线在宿主盒局部坐标中的 y
- * @param gap 相邻升降号之间的间隔；末尾也留一份，宿主据此得到 right
  * @returns right 是下一个字形的起点，top 是最高处（可能为负，宿主自行决定是否下移）
  */
-export function placeAccidentals(symbols: string, size: number, x: number, baselineY: number, gap: number) {
+export function placeAccidentals(symbols: string, size: number, x: number, baselineY: number) {
     const placed: PlacedAccidental[] = [];
     const glyphSize = size * GLYPH_SCALE;
     const raise = size * RAISE_RATIO;
@@ -92,13 +106,14 @@ export function placeAccidentals(symbols: string, size: number, x: number, basel
             w: definition.w * glyphSize,
             h: definition.h * glyphSize,
             baseline: definition.baseline * glyphSize,
+            fill: definition.fill,
             strokeWidth: size * STROKE_RATIO,
             commands: definition.commands,
         };
         const y = baselineY - shape.baseline - raise;
         placed.push({ shape, x: right, y });
         if (y < top) top = y;
-        right += shape.w + gap;
+        right += shape.w;
     }
     return { placed, right, top };
 }
@@ -112,7 +127,7 @@ export function paintAccidental(
 ) {
     painter.drawPath(
         shape.commands,
-        { stroke: color, strokeWidth: shape.strokeWidth },
+        shape.fill ? { fill: color } : { stroke: color, strokeWidth: shape.strokeWidth },
         { x: origin.x + x, y: origin.y + y, scaleX: shape.w, scaleY: shape.h },
     );
 }

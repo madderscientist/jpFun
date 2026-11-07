@@ -114,16 +114,16 @@ test("rest has fixed minimum graphical width, size-based anchor, thick bar and r
         const rest = layout.objects.find(node => named(node, "rest"))!;
         strictEqual(rest.box.anchor, size * 0.4);
         const commands = recordCommands(layout);
-        const lines = commands.filter(command => command.kind === "line");
-        strictEqual(lines.length, 3);
-        const [bar, left, right] = lines;
-        assert(nearly(bar.style?.strokeWidth ?? 0, size * 0.24)
-            && nearly(left.style?.strokeWidth ?? 0, size * 0.12), "horizontal stroke must be twice the caps");
+        const rects = commands.filter(command => command.kind === "rect" && command.x >= rest.box.x - 1e-6 && command.x + command.w <= rest.box.x + rest.box.w);
+        strictEqual(rects.length, 3);
+        const [bar, left, right] = rects;
+        assert(nearly(bar.h, size * 0.24)
+            && nearly(left.w, size * 0.12), "horizontal stroke must be twice the caps");
         const number = commands.filter(command => command.kind === "text").find(command => command.text === "3")!;
-        const numberGap = bar.y1 - (bar.style?.strokeWidth ?? 0) / 2 - number.y;
+        const numberGap = bar.y - number.y;
         assert(nearly(numberGap, size * 0.255), "the number must sit close to the horizontal stroke at every size");
-        assert(nearly(left.x1 - size * 0.06, rest.box.x), "painted left edge must match the box left edge");
-        const paintedRight = right.x1 + size * 0.06;
+        assert(nearly(left.x, rest.box.x), "painted left edge must match the box left edge");
+        const paintedRight = right.x + right.w;
         assert(paintedRight - rest.box.x >= 80 - 1e-6, "width must reserve at least the requested graphical width");
         assert(nearly(rest.box.x + rest.box.w - paintedRight, size * 0.25), "right gap must be reserved in the ordinary box");
         const [svg] = renderLayoutPagesToSvg(layout);

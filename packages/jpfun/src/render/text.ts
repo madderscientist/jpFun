@@ -148,10 +148,10 @@ export function paintRichLine(
         while (i < runs.length && (runs[i].mask & (STYLE_UNDERLINE | STYLE_SUP)) === (mask & (STYLE_UNDERLINE | STYLE_SUP))) {
             endX += runs[i++].w;
         }
+        const h = Math.max(1, style.fontSize * 0.06);
         const y = runY(mask) + style.fontSize * 0.12;
-        painter.drawLine(cursor, y, endX, y, {
-            stroke: baseStyle.fill ?? "#000",
-            strokeWidth: Math.max(1, style.fontSize * 0.06),
+        painter.drawRect(cursor, y - h / 2, endX - cursor, h, {
+            fill: baseStyle.fill ?? "#000",
         });
         cursor = endX;
     }

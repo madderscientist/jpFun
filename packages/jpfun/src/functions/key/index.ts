@@ -139,9 +139,8 @@ class KeyTemporalNode extends TemporalNodeBase {
         const prefix = context.textMeasurer.measureText(PREFIX, style);
         const name = context.textMeasurer.measureText(this.ast.displayName, style);
 
-        const accidentalGap = size * 0.02;
         const { placed, right, top } = placeAccidentals(
-            this.ast.displayAcc, size, prefix.w, prefix.baseline, accidentalGap,
+            this.ast.displayAcc, size, prefix.w, prefix.baseline,
         );
         this.accidentals = placed;
 

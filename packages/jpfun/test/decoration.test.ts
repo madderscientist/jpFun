@@ -11,7 +11,7 @@ function octaveGeometry(layout: DocumentLayoutResult) {
     const number = commands.find(command => command.kind === "text" && command.text === "1");
     assert(number?.kind === "text", "the lower-octave host must paint its number");
     const dots = commands.filter(command => command.kind === "circle").filter(dot => nearly(dot.cx, number.x));
-    const lines = commands.filter(command => command.kind === "line").filter(line => line.x1 < number.x && line.x2 > number.x);
+    const lines = commands.filter(command => command.kind === "rect").filter(line => line.x < number.x && line.x + line.w > number.x);
     assert(dots.length > 0, "the lower-octave host must paint its dots");
     return { dots, lines, size: number.style.fontSize, top: dots[0].cy - dots[0].r - number.y };
 }
@@ -67,7 +67,7 @@ test("无减时线的下八度点贴近数字，有减时线时保留避让间�
                 assert(dots.length === count && lines.length === level, "all octave dots and div levels must be painted");
                 firstDotTops.push(top);
                 if (level === 0) assert(nearly(top, size * 0.12), "unlined dots must sit close to the number baseline");
-                else assert(nearly(dots[0].cy - dots[0].r - lines.at(-1)!.y1 - divLineWidth(size) / 2, size * 0.08),
+                else assert(nearly(dots[0].cy - dots[0].r - (lines.at(-1)!.y + lines.at(-1)!.h), size * 0.08),
                     "octave dots must retain their gap below the last div stroke");
                 for (let dot = 1; dot < dots.length; dot++) {
                     assert(nearly(dots[dot].cy - dots[dot - 1].cy, size * 0.23), "octave dot spacing must stay unchanged");

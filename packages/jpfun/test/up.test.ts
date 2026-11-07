@@ -131,10 +131,10 @@ test("up 内外的减时与附点修饰都由宿主承担", () => {
 test("和弦的减时线交还给代表成员，落在数字与下八度点之间", () => {
     const chordDivCommands = recordCommands(layoutOf(`1,,,/^3`));
     const chordDivDots = chordDivCommands.filter(command => command.kind === "circle");
-    const chordDivLines = chordDivCommands.filter(command => command.kind === "line");
+    const chordDivLines = chordDivCommands.filter(command => command.kind === "rect");
     assert(chordDivDots.length === 3 && chordDivLines.length === 1,
         "the chord's lead member must carry its own octave dots and div line");
-    assert(chordDivLines[0].y1 < Math.min(...chordDivDots.map(command => command.cy)),
+    assert(chordDivLines[0].y + chordDivLines[0].h / 2 < Math.min(...chordDivDots.map(command => command.cy)),
         "the chord div line must stay between the digit and its octave dots");
 });
 

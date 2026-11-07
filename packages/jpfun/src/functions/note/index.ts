@@ -239,10 +239,8 @@ class NoteTemporalNode extends TemporalNodeBase {
 
         this.numberY = mainMetrics.baseline;
 
-        // 升降号贴近数字左上角，按同一 baseline 排在数字左侧；
-        // 缩小右侧间隔会在全局 anchor 不变时把升降号向右移动
-        const accidentalGap = size * 0.01;
-        const { placed, right: mainX } = placeAccidentals(this.acc, size, 0, this.numberY, accidentalGap);
+        // 升降号盒直接紧挨数字盒左缘，按同一 baseline 排在数字左侧
+        const { placed, right: mainX } = placeAccidentals(this.acc, size, 0, this.numberY);
         this.accidentals = placed;
 
         this.box.w = mainX + mainMetrics.w;

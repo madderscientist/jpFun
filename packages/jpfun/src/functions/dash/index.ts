@@ -124,13 +124,13 @@ class DashTemporalNode extends TemporalNodeBase {
     }
 
     override paint(painter: Painter) {
-        const y = this.box.y + this.box.visualAxis;
-        painter.drawLine(
+        const h = Math.max(1, this.ast.size * 0.1);
+        painter.drawRect(
             this.box.x,
-            y,
-            this.box.x + this.lineWidth,
-            y,
-            { stroke: "#000", strokeWidth: Math.max(1, this.ast.size * 0.1) },
+            this.box.y + this.box.visualAxis - h / 2,
+            this.lineWidth,
+            h,
+            { fill: "#000" },
         );
     }
 }

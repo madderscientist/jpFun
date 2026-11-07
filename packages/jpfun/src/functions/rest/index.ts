@@ -236,14 +236,14 @@ class RestTemporal extends TemporalNodeBase {
     override paint(painter: Painter) {
         const { size, count } = this.ast;
         const left = this.box.x;
-        const right = left + this.lineWidth;
         const axis = this.box.y + this.box.visualAxis;
         const stroke = size * 0.12;
         const barStroke = stroke * 2;
-        const halfCap = (size * 0.65 - stroke) / 2;
-        painter.drawLine(left + barStroke / 2, axis, right - barStroke / 2, axis, { strokeWidth: barStroke });
-        painter.drawLine(left + stroke / 2, axis - halfCap, left + stroke / 2, axis + halfCap, { strokeWidth: stroke });
-        painter.drawLine(right - stroke / 2, axis - halfCap, right - stroke / 2, axis + halfCap, { strokeWidth: stroke });
+        const capHeight = size * 0.65;
+        const style = { fill: "#000" };
+        painter.drawRect(left, axis - barStroke / 2, this.lineWidth, barStroke, style);
+        painter.drawRect(left, axis - capHeight / 2, stroke, capHeight, style);
+        painter.drawRect(left + this.lineWidth - stroke, axis - capHeight / 2, stroke, capHeight, style);
         painter.drawText(String(count), left + this.lineWidth / 2, this.box.y + this.metrics.baseline, this.textStyle);
     }
 }

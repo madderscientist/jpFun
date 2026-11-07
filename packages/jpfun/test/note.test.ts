@@ -139,7 +139,7 @@ test("升降号与附点悬在节奏范围之外", () => {
     const hangingCommands = recordCommands(hangingAccidentalResult);
     const hangingNumber = hangingCommands.find(command => command.kind === "text");
     const hangingPath = hangingCommands.find(command => command.kind === "path");
-    const hangingLines = hangingCommands.filter(command => command.kind === "line");
+    const hangingLines = hangingCommands.filter(command => command.kind === "rect");
     const hangingDot = hangingCommands.find(command => command.kind === "circle");
 
     assert(hangingNumber?.kind === "text", "decorated note must emit its number text");
@@ -156,14 +156,14 @@ test("升降号与附点悬在节奏范围之外", () => {
     const hangingNumberRight = hangingNumber.x + hangingNumberHalfWidth;
     const hangingPathBounds = commandBounds(hangingPath.commands);
     assert(
-        hangingLines.every(line => nearly(line.x1, hangingNumberLeft)),
+        hangingLines.every(line => nearly(line.x, hangingNumberLeft)),
         "div lines must start at the number left edge",
     );
     assert(
-        hangingLines.every(line => nearly(line.x2, hangingNumberRight)),
+        hangingLines.every(line => nearly(line.x + line.w, hangingNumberRight)),
         "div lines must end at the number right edge",
     );
-    assert(hangingPathBounds.x + hangingPathBounds.w < hangingNumberLeft,
+    assert(hangingPathBounds.x + hangingPathBounds.w <= hangingNumberLeft + 1e-6,
         "hanging accidental must stay outside the rhythm range");
     assert(hangingDot.cx > hangingNumberRight, "augmentation dot must stay outside the rhythm range");
     assert(hangingAccidentalResult.bounds.x <= hangingPathBounds.x,
@@ -265,7 +265,7 @@ test("小节线与音符共享视觉中心轴，并加强附近的弹簧", () =>
         .map(command => command.y - command.style.fontSize * 0.3);
     const alignedBarCenters = barAlignmentCommands
         .filter(command => command.kind === "rect")
-        .filter(command => command.style?.fill === "#000")
+        .filter(command => command.style?.fill === "#000" && command.h > command.w)
         .map(command => command.y + command.h / 2);
 
     strictAssert.equal(alignedNumberCenters.length, 3);

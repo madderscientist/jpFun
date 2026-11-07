@@ -156,7 +156,7 @@ test("琶音中的颤音与多倚音在剩余窗口内保持正时值", () => {
 });
 
 test("琶音转发减时线端口状态，参与自动连梁时不重复画线", () => {
-    const lines = recordCommands(layoutOf(`{@arp(1^3) 2}/`)).filter(command => command.kind === "line");
+    const lines = recordCommands(layoutOf(`{@arp(1^3) 2}/`)).filter(command => command.kind === "rect");
     assert(lines.length === 1, "beamed arpeggio and following note must share one beam line");
 });
 

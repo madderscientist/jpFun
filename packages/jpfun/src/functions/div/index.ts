@@ -179,17 +179,13 @@ class DivFunction extends ASTFunctionNode {
             },
             paint(painter) {
                 // 未被关系对象接管的级别仍由本装饰独立绘制
+                const x = host.box.x + lineLeft;
+                const w = lineRight - lineLeft;
+                const top = host.box.y + firstLine - strokeWidth / 2;
                 for (let i = 0; i < count; i++) {
                     const leftPort = host.ports[divLinePortName(i, "left")] as DivLinePort;
                     if (leftPort.state.claimed) continue;
-                    const y = host.box.y + firstLine + i * lineGap;
-                    painter.drawLine(
-                        host.box.x + lineLeft,
-                        y,
-                        host.box.x + lineRight,
-                        y,
-                        { stroke: "#000", strokeWidth },
-                    );
+                    painter.drawRect(x, top + i * lineGap, w, strokeWidth, { fill: "#000" });
                 }
             },
         };

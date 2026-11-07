@@ -133,11 +133,11 @@ test("综合样例的每个 LayoutBox 都有效且保持横向顺序", () => {
 
 test("增时线与附点之间保留细小间隙", () => {
     const commands = recordCommands(layoutOf("1 -."));
-    const dash = commands.find(command => command.kind === "line");
+    const dash = commands.find(command => command.kind === "rect");
     const dot = commands.find(command => command.kind === "circle");
-    assert(dash?.kind === "line" && dot?.kind === "circle", "应绘制一根增时线和一个附点");
+    assert(dash?.kind === "rect" && dot?.kind === "circle", "应绘制一根增时线和一个附点");
 
-    const gap = dot.cx - dot.r - (dash.x2 + (dash.style?.strokeWidth ?? 0) / 2);
+    const gap = dot.cx - dot.r - (dash.x + dash.w);
     assert(gap > 0 && gap < 22 * 0.2, `增时线与附点应留一丁点间隙，实际为 ${gap}px`);
 });
 

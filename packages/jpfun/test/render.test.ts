@@ -36,8 +36,8 @@ function recordCanvasCalls(result: DocumentLayoutResult) {
     return calls;
 }
 
-/** 综合样例：一次画出文本、减时线、方框、八度点与连音线，供多个用例共享 */
-const result = layoutOf(`@box({1@a #2'./ 8 9# 3@b @tie(a,b)}, 2px, 1px) @text("<tag & text>")`);
+/** 综合样例：一次画出文本、减时线、方框、八度点、连音线与保持音线，供多个用例共享 */
+const result = layoutOf(`@box({1@a b2'./ 8 9# 3@b ^ $tenuto @tie(a,b)}, 2px, 1px) @text("<tag & text>")`);
 const commands = recordCommands(result);
 const [svg] = renderLayoutPagesToSvg(result);
 const canvasCalls = recordCanvasCalls(result);
@@ -45,8 +45,8 @@ const canvasCalls = recordCanvasCalls(result);
 test("综合乐谱产生各类绘制命令且坐标全部有限", () => {
     const kinds = new Set(commands.map(command => command.kind));
     assert(kinds.has("text"), "arbitrary text must emit text commands");
-    assert(kinds.has("line"), "div decorations must emit line commands");
-    assert(kinds.has("rect"), "box must emit a rectangle command");
+    assert(kinds.has("line"), "line symbols must emit line commands");
+    assert(kinds.has("rect"), "box and div must emit rectangle commands");
     assert(kinds.has("circle"), "octave and dot decorations must emit circle commands");
     assert(kinds.has("path"), "tie must emit a path command");
     assert(commands.every(allNumbersFinite), "all recorded drawing coordinates must be finite");

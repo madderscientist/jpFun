@@ -191,7 +191,7 @@ test("Markdown 粗体、斜体、下划线、上标及组合样式测量与绘�
     const layout = layoutOf(`"普通 *斜体* **粗体** ***粗斜*** _下划线_ C^7^"`);
     const commands = recordCommands(layout);
     const texts = commands.filter(cmd => cmd.kind === "text");
-    const lines = commands.filter(cmd => cmd.kind === "line");
+    const lines = commands.filter(cmd => cmd.kind === "rect");
 
     deepStrictEqual(texts.map(t => [t.text, t.style.fontWeight ?? "normal", t.style.fontStyle ?? "normal"]), [
         ["普通 ", "normal", "normal"],
@@ -211,17 +211,17 @@ test("Markdown 粗体、斜体、下划线、上标及组合样式测量与绘�
     assert(nearly(supText.y, baseText.y - baseText.style.fontSize * 0.35), "superscript must shift baseline up");
     assert(lines.length === 1, `Expected 1 underline, got ${lines.length}`);
     const [underline] = lines;
-    assert(underline.y1 > baseText.y && nearly(underline.y1, underline.y2), "underline must sit below baseline");
+    assert(underline.y + underline.h / 2 > baseText.y && underline.h > 0, "underline must sit below baseline");
 
     const supDecorated = recordCommands(layoutOf(`"_^7^_"`));
     const supGlyph = supDecorated.find(cmd => cmd.kind === "text")!;
-    const supUnderline = supDecorated.find(cmd => cmd.kind === "line")!;
-    assert(nearly(supUnderline.y1, supGlyph.y + supGlyph.style.fontSize * 0.12),
+    const supUnderline = supDecorated.find(cmd => cmd.kind === "rect")!;
+    assert(nearly(supUnderline.y + supUnderline.h / 2, supGlyph.y + supGlyph.style.fontSize * 0.12),
         "superscript underline must follow the superscript baseline and size");
 });
 
 test("连续下划线跨多段样式时合并为单条线段，未闭合标记持續生效且支持转义", () => {
-    assert(commandsOfKind(`"_普通 **粗体** 普通_"`, "line").length === 1,
+    assert(commandsOfKind(`"_普通 **粗体** 普通_"`, "rect").length === 1,
         "contiguous underline across styled runs must merge into one line");
 
     // 未闭合时状态机将样式保持到末尾（含跨行）
@@ -239,7 +239,7 @@ test("连续下划线跨多段样式时合并为单条线段，未闭合标记�
         `@text(${escaped})`,
     ]) {
         const textCmds = commandsOfKind(source, "text");
-        const lineCmds = commandsOfKind(source, "line");
+        const lineCmds = commandsOfKind(source, "rect");
         deepStrictEqual(textCmds.map(t => t.text).join(""), expected, source);
         assert(textCmds.every(t => !t.style.fontWeight && !t.style.fontStyle), "escaped markers must not trigger bold/italic");
         assert(lineCmds.length === 0, "escaped markers must not trigger underline");

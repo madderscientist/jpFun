@@ -158,14 +158,8 @@ class BeamLayoutAttachment implements LayoutAttachment {
         return {
             regions,
             paint(painter: Painter) {
-                for (const line of lines) {
-                    painter.drawLine(
-                        line.start.x,
-                        line.start.y,
-                        line.end.x,
-                        line.end.y,
-                        { stroke: "#000", strokeWidth },
-                    );
+                for (const region of regions) {
+                    painter.drawRect(region.x, region.y, region.w, region.h, { fill: "#000" });
                 }
             },
         };
