@@ -152,7 +152,26 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
 
     constructor(endPoints: VisualTemporalNode[], height: number, sourceSpan: SourceSpan) {
         this.endPoints = endPoints;
-        for (const endpoint of endPoints) tieEndpoints.add(endpoint);
+        for (const endpoint of endPoints) {
+            if (tieEndpoints.has(endpoint)) continue;
+            tieEndpoints.add(endpoint);
+            const prepareLayout = endpoint.prepareLayout;
+            endpoint.prepareLayout = context => {
+                prepareLayout.call(endpoint, context);
+                const size = endpoint.ast.size;
+                const left = endpoint.ports["body.left"]?.x ?? 0;
+                const right = endpoint.ports["body.right"]?.x ?? endpoint.box.w;
+                const halfWidth = Math.max(0, endpoint.box.anchor - left, right - endpoint.box.anchor);
+                const u = Math.min(0.5, halfWidth / (size * AUTO_SPAN_RATIO));
+                let t = Math.min(0.5, u / 0.75);
+                t = u / (0.75 * (1 + 2 * t * (1 - t)));
+                t = Math.min(0.5, u / (0.75 * (1 + 2 * t * (1 - t))));
+                // 上方留空使用没有 paint 的纯留白 decoration，以实现 tie 的避让效果，且 box 会忽略纯留白
+                endpoint.decorations.push({
+                    above: { order: 200, height: size * (0.1 + 4 * t * (1 - t) * AUTO_HEIGHT_RATIO) },
+                });
+            };
+        }
         this.height = height;
         this.sourceSpan = sourceSpan;
         this.size = endPoints.reduce(

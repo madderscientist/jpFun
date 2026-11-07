@@ -71,6 +71,16 @@ test("ties leave a small font-relative gap above upper octave dots", () => {
     const dots = circles.filter(dot => nearly(dot.cx, start.x) && dot.cy > start.y);
     assert(dots.length > 0 && nearly(Math.min(...dots.map(dot => dot.cy - dot.r)) - start.y, 2),
         "the tie endpoint must stay 0.1em above the uppermost dot");
+
+    const chordLayout = layoutOf("2@x ^3, 2@y ^3, @tie(x,y)", 20);
+    const [chordTie] = attachmentCommands(chordLayout.attachments[0]).filter(command => command.kind === "path");
+    const chordStart = chordTie.commands[0];
+    assert(chordStart.op === "M", "expected chord tie start");
+    const upperDots = recordCommands(chordLayout)
+        .filter(command => command.kind === "circle")
+        .filter(dot => nearly(dot.cx, chordStart.x));
+    assert(upperDots.length === 1 && chordStart.y - (upperDots[0].cy + upperDots[0].r) > 20 * 0.3,
+        "heightening a tied lower chord member must push the upper member's lower octave dot clear of the tie arc");
 });
 
 test("up 成员标签连接该成员，整体标签连接整个 up", () => {
@@ -274,10 +284,11 @@ test("跨轨连音线只占用主体上方，不撑开两条轨之间的间距",
         return { gap: lower.box.y - upper.box.y, top: upper.box.y };
     };
     const plain = measure(`@stack({1@a},{2@b})`);
+    const shortTied = measure(`@stack({1@a},{2@b}) @tie(a,b)`);
     const tied = measure(`@stack({1@a},{2@b}) @tie(a,b,height=60px)`);
 
-    assert(nearly(plain.gap, tied.gap),
-        `a cross-track tie must not widen the branch gap: ${plain.gap.toFixed(2)} -> ${tied.gap.toFixed(2)}`);
+    assert(nearly(shortTied.gap, tied.gap),
+        `a cross-track tie must not widen the branch gap: ${shortTied.gap.toFixed(2)} -> ${tied.gap.toFixed(2)}`);
     assert(tied.top - plain.top > 40,
         "a cross-track tie must still reserve its own height above the upper track");
 });
