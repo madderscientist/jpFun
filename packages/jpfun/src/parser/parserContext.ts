@@ -28,12 +28,32 @@ export const DEFAULT_NUMBER_WEIGHT = 700;
 // 解析上下文
 export class ParserContext {
     /** 系统变量，供 `@set` 读取 */
-    static systemVariables: Record<string, { type: paramType; default: paramValue }> = {
-        fontsize: { type: "length", default: DEFAULT_FONT_SIZE },
-        font: { type: "string", default: DEFAULT_TEXT_FONT },
-        numberfont: { type: "string", default: JIANPU_NUMBER_FONT },
-        numberweight: { type: "number", default: DEFAULT_NUMBER_WEIGHT },
-        strict: { type: "boolean", default: false },
+    static systemVariables: Record<string, { type: paramType; default: paramValue; description: string }> = {
+        fontsize: {
+            type: "length",
+            default: DEFAULT_FONT_SIZE,
+            description: "基准字号，也是 `em` 长度的换算基准"
+        },
+        font: {
+            type: "string",
+            default: DEFAULT_TEXT_FONT,
+            description: "普通文字字体"
+        },
+        numberfont: {
+            type: "string",
+            default: JIANPU_NUMBER_FONT,
+            description: "音符及同类谱面数字字体"
+        },
+        numberweight: {
+            type: "number",
+            default: DEFAULT_NUMBER_WEIGHT,
+            description: "主谱面数字字重，仅控制 `note`、`meter`、`rest`"
+        },
+        strict: {
+            type: "boolean",
+            default: false,
+            description: "开启严格的语法检查"
+        }
     };
 
     /** 根解析器为 0，内容参数和大括号子解析器依次加一 */

@@ -9,12 +9,14 @@ test("parameter help handles incomplete, named and nested calls", () => {
         ["@page(width=120px, height=200px)", 15, "width"],
         ["@page(width=120px, height=200px)", 28, "height"],
         ["@up(1, @br(2))", 12, "offset"],
+        ["@set(fontsize=20px)", 10, "18px"],
+        ["@set(n.octave=5)", 14, "@note"],
     ]) {
         const { syntax } = analyzeScoreSyntax(source);
         const help = parameterDocAt(source, syntax, position);
         assert.ok(help?.doc.includes(parameter), source);
     }
-    for (const source of ["1 2 3", "@unknown(1)"]) {
+    for (const source of ["1 2 3", "@unknown(1)", "@set()", "@set(note.)"]) {
         assert.equal(parameterDocAt(source, analyzeScoreSyntax(source).syntax, source.length - 1), null);
     }
 });
@@ -58,18 +60,26 @@ test("shared completion candidates preserve function, symbol, parameter and labe
     assert.ok(!parameters.some(item => item.label === "width"));
     const labels = query("1@a 2@b @tie(").candidates.filter(item => item.kind === "label");
     assert.deepEqual(labels.map(item => item.label), ["a", "b"]);
-    assert.equal(query("@up(1"), null);
-    assert.equal(query("@page(width=100"), null);
-    assert.equal(query("@unknown("), null);
+    const setStage1 = query("@set(tie.height=1em, ").candidates.map(item => item.label);
+    assert.ok(setStage1.includes("fontsize") && setStage1.includes("note") && !setStage1.includes("tie") && !setStage1.includes("n"));
+    assert.deepEqual(query("@set(n.color=#f00, note.").candidates.map(item => item.label), ["name", "acc", "octave"]);
+    assert.deepEqual(query("@set(tie.").candidates.map(item => item.label), ["height"]);
+    for (const source of ["@up(1", "@page(width=100", "@unknown(", "@set(fontsize=20", "@set(unknown."]) {
+        assert.equal(query(source), null, source);
+    }
 });
 
 test("parameter completion replaces the complete name but preserves its value", () => {
-    for (const [source, expected] of [
-        ["@page(heig=100px)", "@page(height=100px)"],
-        ["@page(he", "@page(height="],
+    for (const [source, pos, name, expected] of [
+        ["@page(heig=100px)", 8, "height", "@page(height=100px)"],
+        ["@page(he", 8, "height", "@page(height="],
+        ["@set(fo=20px)", 7, "fontsize", "@set(fontsize=20px)"],
+        ["@set(no", 7, "note", "@set(note."],
+        ["@set(note.oc", 12, "octave", "@set(note.octave="],
+        ["@set(note.oct=5)", 12, "octave", "@set(note.octave=5)"],
     ]) {
-        const start = source.indexOf("he");
-        const edit = parameterCompletionEdit(analyzeScoreSyntax(source).syntax, { start, end: start + 2 }, "height");
+        const syntax = analyzeScoreSyntax(source).syntax;
+        const edit = parameterCompletionEdit(syntax, completionsAt(source, syntax, pos).range, name);
         assert.equal(source.slice(0, edit.span.start) + edit.text + source.slice(edit.span.end), expected);
     }
 });

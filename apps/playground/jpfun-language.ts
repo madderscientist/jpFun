@@ -1,4 +1,4 @@
-import { insertCompletionText, pickedCompletion, snippetCompletion, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import { insertCompletionText, pickedCompletion, snippet, startCompletion, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import MarkdownIt from "markdown-it";
 import { insertNewlineAndIndent } from "@codemirror/commands";
 import { EditorSelection, EditorState, RangeSetBuilder, StateEffect, StateField, type ChangeSpec, type StateCommand } from "@codemirror/state";
@@ -251,6 +251,8 @@ function applyParameterCompletion(view: EditorView, completion: Completion, from
         ...insertCompletionText(state, edit.text, edit.span.start, edit.span.end),
         annotations: pickedCompletion.of(completion),
     });
+    // `@set` 第一阶段补出 `函数名.` 后，pickedCompletion 默认会收起弹窗，需主动唤起第二阶段补全
+    if (edit.text.endsWith(".")) startCompletion(view);
 }
 
 function complete(context: CompletionContext): CompletionResult | null {
@@ -268,10 +270,16 @@ function complete(context: CompletionContext): CompletionResult | null {
             };
             if (item.kind === "function") {
                 option.info = () => renderFunctionDoc(functionDoc(item.definition!));
-                return snippetCompletion(`${item.label}(\${})`, option);
+                const apply = snippet(`${item.label}(\${})`);
+                option.apply = (view, completion, from, to) => {
+                    apply(view, completion, from, to);
+                    // `@set` 没有位置参数，补出括号后直接唤起第一阶段参数补全
+                    if (item.label === "@set") startCompletion(view);
+                };
+                return option;
             }
             if (item.kind === "parameter") {
-                option.info = () => renderFunctionDoc(argumentDoc(item.definition!, item.argument!));
+                option.info = () => renderFunctionDoc(argumentDoc(item.definition!, item.argument));
                 option.apply = applyParameterCompletion;
             }
             return option;
