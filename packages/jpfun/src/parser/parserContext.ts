@@ -2,6 +2,7 @@ import { deSugarAtomFunction, deSugarRelationFunction, LengthValue, SourceSpan }
 import { Diagnostic } from "../diagnostic.js";
 import { DEFAULT_TEXT_FONT, JIANPU_NUMBER_FONT } from "../render/text.js";
 import { GrammarBraceNode, GrammarCallNode, GrammarCallNodeRaw, GrammarLabelNode, GrammarNode, type CallArgumentInfo, type SyntaxAnalysis, type SyntaxTokenKind } from "./grammarType.js";
+import { isNonLineWhitespace } from "./preprocess.js";
 import { readCall, trimRange } from "./parse-utils/call-utils.js";
 import { parseString } from "./parse-utils/string-utils.js";
 import { readBrace } from "./parse-utils/brace-utils.js";
@@ -613,26 +614,11 @@ export class ParserContext {
 
 // 换行转义已经在预处理解决了，这里不用再跳过了
 export function skipSpaces(s: string, i: number, end: number): number {
-    while (i < end && isWhitespaceButNotNewline(s[i])) i++;
+    while (i < end && isNonLineWhitespace(s.charCodeAt(i))) i++;
     return i;
 }
 /** 反向跳过非换行空白，越界返回 -1 */
 export function skipSpacesBack(s: string, i: number, start: number = 0): number {
-    while (i >= start && isWhitespaceButNotNewline(s[i])) i--;
+    while (i >= start && isNonLineWhitespace(s.charCodeAt(i))) i--;
     return i;
-}
-function isWhitespaceButNotNewline(ch: string): boolean {
-    switch (ch) {
-        case ' ':
-        case '\t':
-        case '\v':  // 垂直制表符
-        case '\f':  // 换页符
-        case '\u00A0':  // 不间断空格
-        case '\uFEFF':  // 零宽不连字空格
-        case '\u3000':  // 中文全角空格
-            return true;
-        default:
-            return false;
-        // \n 和 \r 不算
-    }
 }

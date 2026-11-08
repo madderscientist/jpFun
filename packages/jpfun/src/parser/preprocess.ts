@@ -11,21 +11,21 @@ import { findClosingQuote } from "./parse-utils/string-utils.js";
  *    - 若 n 为奇数，则该行换行符也替换为空格（续行）
  * 4. 字符串外 CRLF 中的 CR 等长替换为空格，词法层只消费 LF
  */
-const CHAR_LF = 10;
-const CHAR_CR = 13;
-const CHAR_TAB = 9;
-const CHAR_VTAB = 11;
-const CHAR_FF = 12;
-const CHAR_SPACE = 32;
-const CHAR_NBSP = 160;
-const CHAR_OGHAM_SPACE_MARK = 5760;
-const CHAR_NARROW_NO_BREAK_SPACE = 8239;
-const CHAR_MEDIUM_MATHEMATICAL_SPACE = 8287;
-const CHAR_IDEOGRAPHIC_SPACE = 12288;
-const CHAR_BOM = 65279;
-const CHAR_QUOTE_DOUBLE = 34;
-const CHAR_BACKSLASH = 92;
-const CHAR_PERCENT = 37;
+const CHAR_LF = 10;                         // \n 换行
+const CHAR_CR = 13;                         // \r 回车
+const CHAR_TAB = 9;                         // \t 水平制表符
+const CHAR_VTAB = 11;                       // \v 垂直制表符
+const CHAR_FF = 12;                         // \f 换页符
+const CHAR_SPACE = 32;                      // ' ' 普通空格
+const CHAR_NBSP = 160;                      // \u00A0 不间断空格
+const CHAR_OGHAM_SPACE_MARK = 5760;         // \u1680 欧甘空格
+const CHAR_NARROW_NO_BREAK_SPACE = 8239;    // \u202F 窄不间断空格
+const CHAR_MEDIUM_MATHEMATICAL_SPACE = 8287;// \u205F 中等数学空格
+const CHAR_IDEOGRAPHIC_SPACE = 12288;       // \u3000 中文全角空格
+const CHAR_BOM = 65279;                     // \uFEFF 零宽不连字空格 (BOM)
+const CHAR_QUOTE_DOUBLE = 34;               // '"'
+const CHAR_BACKSLASH = 92;                  // '\\'
+const CHAR_PERCENT = 37;                    // '%'
 
 // 掩码几乎都是短注释和续行反斜杠，长的既少重复又要一直占着内存，所以只缓存短的
 const MAX_CACHED_SPACES = 32;
@@ -36,17 +36,19 @@ function getSpaces(length: number): string {
 }
 
 /**
- * 判断 非换行空白
- * 说明：CR/LF 由主循环单独处理，这里只负责可被“行尾回看”忽略的空白
+ * 判断非换行空白（对齐 ECMAScript `\s` 中除 `\r`/`\n`/`\u2028`/`\u2029` 外的全部空白字符）：
+ * - ASCII 空白：`' '` (32)、`'\t'` (9)、`'\v'` (11)、`'\f'` (12)
+ * - Unicode 空白：`'\u00A0'` 不间断空格、`'\u1680'` 欧甘空格、`'\u2000'`..`'\u200A'` (8192..8202) 排版空格族、
+ *   `'\u202F'` 窄不间断空格、`'\u205F'` 中等数学空格、`'\u3000'` 中文全角空格、`'\uFEFF'` BOM
  */
-function isNonLineWhitespace(ch: number): boolean {
+export function isNonLineWhitespace(ch: number): boolean {
     // 热路径优先处理 ASCII
     if (ch === CHAR_SPACE || ch === CHAR_TAB || ch === CHAR_VTAB || ch === CHAR_FF) return true;
     if (ch < 128) return false;
     return (
         ch === CHAR_NBSP ||
         ch === CHAR_OGHAM_SPACE_MARK ||
-        (ch >= 8192 && ch <= 8202) ||
+        (ch >= 8192 && ch <= 8202) || // \u2000..\u200A：En/Em Quad、En/Em/Three-Per-Em/Four-Per-Em/Six-Per-Em/Figure/Punctuation/Thin/Hair Space
         ch === CHAR_NARROW_NO_BREAK_SPACE ||
         ch === CHAR_MEDIUM_MATHEMATICAL_SPACE ||
         ch === CHAR_IDEOGRAPHIC_SPACE ||
