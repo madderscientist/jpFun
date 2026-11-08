@@ -30,9 +30,13 @@
                             <span class="file-dot" id="fileDirty" aria-hidden="true"></span>
                             <span class="source-name" id="sourceName">score.jpfun</span>
                         </button>
-                        <button class="pane-tab" id="playbackTab" type="button" role="tab" data-left-tab="playback" aria-selected="false" aria-controls="playbackPane">
+                        <button class="pane-tab" id="playbackTab" type="button" role="tab" data-left-tab="playback" aria-selected="false" aria-controls="playbackPane" title="播放" aria-label="播放">
                             <span class="tab-icon" aria-hidden="true">▶</span>
-                            播放
+                            <span class="tab-label">播放</span>
+                        </button>
+                        <button class="pane-tab" id="visualTab" type="button" role="tab" data-left-tab="visual" aria-selected="false" aria-controls="visualPane" title="交互" aria-label="交互">
+                            <span class="tab-icon" aria-hidden="true">✎</span>
+                            <span class="tab-label">交互</span>
                         </button>
                     </div>
                     <div class="pane-toolbar-actions">
@@ -49,6 +53,7 @@
                         <label class="auto-format"><input id="autoFormat" type="checkbox" checked /><span>自动格式化</span></label>
                         <span class="source-size" id="sourceSize">0 字符</span>
                         <a class="docs-link" href="../docs/" target="_blank" rel="noopener noreferrer" aria-label="打开帮助文档" title="帮助文档">?</a>
+                        <button class="tool-button panel-collapse-button" id="panelCollapseButton" type="button" aria-expanded="true" aria-label="折叠面板" title="折叠面板">▾</button>
                     </div>
                 </div>
 
@@ -84,6 +89,8 @@
                             </section>
                         </div>
                     </section>
+
+                    <section class="visual-pane" id="visualPane" role="tabpanel" aria-labelledby="visualTab" hidden></section>
                 </div>
             </section>
 

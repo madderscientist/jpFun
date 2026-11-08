@@ -22,7 +22,7 @@ const { syntax } = analyzeScoreSyntax(source);
 const info = parameterDocAt(source, syntax, 4);
 ```
 
-`/language` 提供函数定义索引、Markdown 文档、参数查询、AST 函数定位、`completionsAt` 补全候选项、`parameterCompletionEdit` 参数替换、`labelJumpAt` 标签跳转和 `labelSymbolAt` 标签分组；`/navigation` 提供 `createPreviewNavigationMap`、`sourceTargetAt`、`previewHitAt`、`playbackTimeAt` 和 `playbackRegionAt`。核心编译、诊断、语法分析和音高变换继续从 `jpfun` 导入。
+`/language` 提供函数定义索引、Markdown 文档、参数查询、AST 函数定位、`completionsAt` 补全候选项、`parameterCompletionEdit` 参数替换、`labelJumpAt` 标签跳转和 `labelSymbolAt` 标签分组；`/navigation` 提供 `createPreviewNavigationMap`、`sourceTargetAt`、`previewHitAt`、`playbackTimeAt` 和 `playbackRegionAt`；`/edit` 提供可视化直接编辑索引 `createScoreEditIndex`、目标与插入槽定位（`editTargetAt`、`editHitAt`、`adjacentEditTarget`、`insertSlotAfter`）、单目标与步进编辑 `applyScoreEditAction` 以及多目标关系命令 `applyRelationCommand`。核心编译、诊断、语法分析和音高变换继续从 `jpfun` 导入。
 
 Node.js / VS Code 项目需在 TypeScript 的 `compilerOptions.lib` 中包含 `"DOM"`，例如 `["ES2022", "DOM"]`，以解析核心公开的 Canvas 类型；这只提供类型声明，不引入浏览器运行时，也不要求 `skipLibCheck`。补全候选项包含按需生成文档所需的核心元数据，过滤、snippet 和接受补全时的编辑事务由宿主适配；标签分组明确区分重复声明，不能按同名字符串全局替换。
 

@@ -222,6 +222,14 @@ button:focus-visible, [tabindex]:focus-visible {
 .file-dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 .source-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab-icon { color: var(--accent); font-size: 9px; }
+.panel-collapse-button {
+    display: none;
+    width: 26px;
+    min-height: 26px;
+    padding: 0;
+    place-items: center;
+    font-size: 12px;
+}
 .tab-badge {
     display: grid;
     min-width: 18px;
@@ -597,6 +605,475 @@ button:focus-visible, [tabindex]:focus-visible {
     background: color-mix(in srgb, var(--accent) 20%, transparent);
     transition: left 80ms linear, top 80ms linear, width 80ms linear, height 80ms linear;
 }
+.preview-edit-box {
+    position: absolute;
+    box-sizing: border-box;
+    border: 2px solid var(--accent);
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    pointer-events: none;
+    transition: left 60ms ease-out, top 60ms ease-out, width 60ms ease-out, height 60ms ease-out;
+}
+.preview-edit-box[data-kind="insert"] {
+    border-style: dashed;
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.preview-edit-box[data-kind="picked"] {
+    border-color: var(--success);
+    background: color-mix(in srgb, var(--success) 16%, transparent);
+}
+.preview-edit-badge {
+    position: absolute;
+    top: -9px;
+    right: -9px;
+    display: grid;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    place-items: center;
+    border-radius: 9px;
+    color: #ffffff;
+    background: var(--accent);
+    font-family: "Cascadia Mono", monospace;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+}
+.preview-edit-box[data-kind="insert"] .preview-edit-badge {
+    inset: 0;
+    top: 0;
+    right: 0;
+    min-width: 0;
+    height: auto;
+    color: var(--accent);
+    background: transparent;
+    font-size: 14px;
+}
+.preview-edit-box[data-kind="picked"] .preview-edit-badge {
+    background: var(--success);
+}
+
+.visual-pane {
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    background: var(--surface);
+}
+.scorepad {
+    height: 100%;
+    outline: none;
+}
+.scorepad-normal-view {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 100%;
+}
+.scorepad-normal-view[hidden], .scorepad-relation-view[hidden] {
+    display: none;
+}
+.scorepad-relation-view {
+    display: grid;
+    align-content: start;
+    padding: 18px 14px;
+    height: 100%;
+    overflow: auto;
+}
+.relation-view-card {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface-raised);
+}
+.relation-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line-subtle);
+}
+.relation-title-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.relation-title {
+    font-size: 14px;
+    font-weight: 700;
+}
+.relation-options-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+.relation-options-row:empty { display: none; }
+.relation-picked-box {
+    display: grid;
+    gap: 6px;
+    min-height: 84px;
+    padding: 8px;
+    border: 1.5px solid var(--accent);
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+    align-content: start;
+}
+.picked-empty {
+    display: grid;
+    min-height: 64px;
+    place-items: center;
+    color: var(--muted);
+    font-size: 11px;
+}
+.picked-item {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr) 24px;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--surface);
+}
+.picked-index {
+    display: grid;
+    width: 18px;
+    height: 18px;
+    place-items: center;
+    border-radius: 50%;
+    color: #ffffff;
+    background: var(--success);
+    font-family: "Cascadia Mono", monospace;
+    font-size: 10px;
+    font-weight: 700;
+}
+.picked-token {
+    font-family: "Cascadia Mono", monospace;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--syntax-function);
+}
+.picked-remove {
+    display: grid;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    place-items: center;
+    border: 0;
+    border-radius: 3px;
+    color: var(--muted);
+    background: transparent;
+    font-size: 15px;
+    cursor: pointer;
+}
+.picked-remove:hover {
+    color: var(--error);
+    background: var(--error-surface);
+}
+.icon-action-btn {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    place-items: center;
+}
+.command-cancel {
+    color: #ffffff;
+    border-color: var(--error);
+    background: var(--error);
+    font-weight: 700;
+}
+.command-cancel:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--error) 86%, #000000);
+    border-color: color-mix(in srgb, var(--error) 86%, #000000);
+}
+.scorepad-header {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line-subtle);
+    background: var(--surface-raised);
+}
+.scorepad-status-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+.scorepad-hero {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+.scorepad-snippet {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 68px;
+    min-height: 36px;
+    padding: 4px 12px;
+    border: 1.5px solid var(--accent);
+    border-radius: 5px;
+    color: var(--syntax-function);
+    background: var(--surface);
+    font-family: "Cascadia Mono", monospace;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+}
+.scorepad-snippet[data-mode="insert"] {
+    border-style: dashed;
+}
+.scorepad-beat-pill {
+    padding: 3px 7px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    color: var(--muted);
+    background: var(--surface);
+    font-family: "Cascadia Mono", monospace;
+    font-size: 11px;
+    font-weight: 600;
+}
+.scorepad-beat-pill[hidden] { display: none; }
+.scorepad-nav-buttons, .command-bar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+}
+.nav-btn {
+    min-width: 34px;
+    min-height: 34px;
+    font-family: "Cascadia Mono", monospace;
+    font-weight: 700;
+}
+.command-hint { color: var(--muted); font-family: "Cascadia Mono", monospace; font-size: 12px; font-weight: 700; }
+.scorepad-body {
+    overflow: auto;
+    padding: 12px 14px 20px;
+    display: grid;
+    align-content: start;
+    gap: 14px;
+}
+.scorepad-section {
+    display: grid;
+    gap: 7px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line-subtle);
+}
+.scorepad-section:last-child { border-bottom: 0; padding-bottom: 0; }
+.pad-btn {
+    min-height: 30px;
+    padding: 0 9px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    color: var(--ink);
+    background: var(--surface);
+    font-size: 11px;
+    cursor: pointer;
+    user-select: none;
+}
+.pad-btn:hover:not(:disabled) { background: var(--hover); }
+.pad-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.pad-btn[aria-pressed="true"] {
+    color: #ffffff;
+    border-color: var(--accent);
+    background: var(--accent);
+}
+.pad-btn[aria-pressed="true"]:hover:not(:disabled) {
+    color: #ffffff;
+    border-color: var(--accent-dark);
+    background: var(--accent-dark);
+}
+.pad-btn[aria-pressed="true"] span,
+.pad-btn[aria-pressed="true"] code { color: #ffffff; }
+.danger-btn {
+    color: var(--error);
+    border-color: color-mix(in srgb, var(--error) 28%, var(--line));
+}
+.danger-btn:hover:not(:disabled) {
+    background: var(--error-surface);
+}
+.command-confirm {
+    color: #ffffff;
+    border-color: var(--success);
+    background: var(--success);
+    font-weight: 700;
+}
+.command-confirm:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--success) 86%, #000000);
+}
+.scorepad-rhythm-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 8px;
+}
+.rhythm-group {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(38px, 1fr));
+    flex: 2 1 168px;
+    gap: 6px;
+}
+.rhythm-group.dot-group {
+    grid-template-columns: repeat(2, minmax(38px, 1fr));
+    flex: 1 1 84px;
+}
+.rhythm-divider {
+    width: 1px;
+    margin: 4px 0;
+    background: var(--line-subtle);
+}
+.rhythm-btn, .dot-btn {
+    display: grid;
+    place-items: center;
+    min-height: 44px;
+    padding: 4px 6px;
+}
+.x-glyph {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    line-height: 1;
+}
+.x-main {
+    display: inline-flex;
+    align-items: center;
+    font-family: "Cascadia Mono", monospace;
+    font-size: 16px;
+    font-weight: 700;
+}
+.x-char {
+    display: inline-block;
+    width: 12px;
+    text-align: center;
+}
+.x-dots {
+    margin-left: 1px;
+    font-size: 16px;
+    font-weight: 900;
+    letter-spacing: -1px;
+}
+.x-beams {
+    display: flex;
+    flex-direction: column;
+    width: 12px;
+    min-height: 8px;
+    margin-top: 2px;
+    gap: 2px;
+}
+.x-beam {
+    display: block;
+    width: 100%;
+    height: 1.6px;
+    border-radius: 1px;
+    background: currentColor;
+}
+.scorepad-pitch-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(36px, 1fr));
+    gap: 6px;
+}
+.pitch-key {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 4px 2px;
+    font-family: "Cascadia Mono", monospace;
+    font-size: 16px;
+    font-weight: 700;
+}
+.scorepad-modifiers {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 8px;
+}
+.octave-stepper {
+    display: grid;
+    grid-template-columns: 36px minmax(48px, 1fr) 36px;
+    flex: 1 1 130px;
+    gap: 4px;
+}
+.octave-step-btn {
+    min-height: 40px;
+    padding: 0;
+    font-family: "Cascadia Mono", monospace;
+    font-size: 16px;
+    font-weight: 700;
+}
+.octave-state-btn {
+    display: grid;
+    place-items: center;
+    min-height: 40px;
+    padding: 2px 6px;
+}
+.x-octave-glyph {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: "Cascadia Mono", monospace;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1;
+}
+.x-oct-dots {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 9px;
+    gap: 1.5px;
+}
+.x-oct-dots.up { justify-content: flex-end; margin-bottom: 1px; }
+.x-oct-dots.down { justify-content: flex-start; margin-top: 1px; }
+.x-oct-dot {
+    display: block;
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: currentColor;
+}
+.acc-group {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(38px, 1fr));
+    flex: 1 1 124px;
+    gap: 6px;
+}
+.acc-group .mod-btn {
+    min-height: 40px;
+    font-size: 16px;
+    font-weight: 700;
+}
+.scorepad-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+.chip-group-label {
+    min-width: 24px;
+    color: var(--muted);
+    font-family: "Cascadia Mono", monospace;
+    font-size: 11px;
+    font-weight: 700;
+}
+.chip-btn {
+    min-width: 34px;
+    min-height: 32px;
+}
+.chip-btn code, .chip-btn strong {
+    font-family: "Cascadia Mono", monospace;
+    font-size: 13px;
+    font-weight: 700;
+    color: inherit;
+}
 .preview-focus-ripple::before, .preview-focus-ripple::after {
     position: absolute;
     inset: 0;
@@ -705,16 +1182,56 @@ button:focus-visible, [tabindex]:focus-visible {
 @media (max-width: 800px) {
     html, body { height: auto; min-height: 100%; overflow: auto; }
     .app-shell { display: block; height: auto; min-height: 100vh; padding-bottom: 30px; }
+    .panel-collapse-button { display: inline-grid; }
+    .pane-tab .tab-label { display: none; }
+    .pane-tab .tab-icon { font-size: 13px; }
     .workspace, .workspace[data-view="editor"], .workspace[data-view="preview"] {
         display: grid;
         grid-template-columns: minmax(0, 1fr);
-        grid-template-rows: minmax(480px, 58vh) minmax(480px, 72vh);
+        height: calc(100dvh - 30px);
+        grid-template-rows: minmax(0, 1fr) auto;
     }
-    .workspace[data-view] .editor-panel, .workspace[data-view] .preview-panel { display: grid; }
+    .workspace[data-view] .preview-panel {
+        order: 1;
+        display: grid;
+    }
+    .workspace[data-view] .editor-panel {
+        order: 2;
+        display: flex;
+        flex-direction: column;
+        height: auto;
+        max-height: 30dvh;
+        border-top: 1px solid var(--line);
+        border-bottom: 0;
+        box-shadow: 0 -6px 20px var(--preview-shadow);
+    }
+    .workspace[data-view] .editor-panel > .pane-toolbar {
+        flex: 0 0 40px;
+    }
+    .workspace[data-view] .editor-panel > .pane-stack {
+        flex: 0 1 auto;
+        height: auto;
+        max-height: calc(30dvh - 40px);
+        min-height: 0;
+        overflow: auto;
+    }
+    .workspace[data-panel-collapsed="true"] .editor-panel > .pane-stack {
+        display: none;
+    }
+    .workspace[data-view] .source-pane {
+        height: calc(30dvh - 40px);
+    }
+    .workspace[data-view] .visual-pane,
+    .workspace[data-view] .playback-pane,
+    .workspace[data-view] .scorepad,
+    .workspace[data-view] .scorepad-normal-view,
+    .workspace[data-view] .scorepad-relation-view {
+        height: auto;
+        max-height: calc(30dvh - 40px);
+    }
     .workspace-divider { display: none; }
-    .editor-panel { border-bottom: 1px solid var(--line); }
     .preview-scroll { padding: 14px 0; }
-    .playback-scroll { padding: 18px; }
+    .playback-scroll { padding: 14px; height: auto; }
     .view-switch { display: none; }
     .statusbar { position: fixed; z-index: 30; right: 0; bottom: 0; left: 0; }
 }
@@ -722,10 +1239,7 @@ button:focus-visible, [tabindex]:focus-visible {
 @media (max-width: 480px) {
     .source-size { display: none; }
     .pane-tab { padding: 0 9px; }
-    .preview-panel { grid-template-rows: 80px minmax(0, 1fr); }
-    .result-toolbar { flex-wrap: wrap; gap: 0; padding: 0 6px; }
-    .result-toolbar > .pane-tabs { height: 40px; }
-    .preview-tools { width: 100%; height: 40px; justify-content: flex-end; border-top: 1px solid var(--line); }
+    .result-toolbar { gap: 6px; padding: 0 6px; }
     .compile-button { padding: 0 9px; font-size: 0; }
     .compile-button span { font-size: 9px; }
     .diagnostic-row { grid-template-columns: 3px auto minmax(0, 1fr); }

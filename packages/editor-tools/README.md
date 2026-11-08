@@ -54,6 +54,34 @@ const hit = previewHitAt(navigation, scoreX, scoreY, tolerance);
 
 `playbackTimeAt` maps score coordinates to a score-time onset; `playbackRegionAt` maps score time to a cursor rectangle. Coordinates are layout coordinates, not browser client coordinates. The host handles zoom, scrolling, selections, and drawing.
 
+## Visual Score Editing
+
+```ts
+import { compileScore } from "jpfun";
+import {
+	applyRelationCommand,
+	applyScoreEditAction,
+	applySourceEditsToText,
+	createScoreEditIndex,
+} from "@jpfun/editor-tools/edit";
+
+const source = "H.signature: 1=C 4/4\n1/ 2/";
+const compiled = compileScore(source);
+const index = createScoreEditIndex(source, compiled);
+const inserted = applyScoreEditAction(source, compiled, index, null, {
+	type: "insert-note",
+	slot: index.defaultInsertSlot,
+	pitch: "3",
+	rhythm: { div: 1, dot: 0 },
+});
+const nextSource = applySourceEditsToText(source, inserted.edits);
+```
+
+- `createScoreEditIndex`: indexes editable stream targets (`note`, `dash`, `bar`, `meter`, `key`, `tempo`, `rest`), relation targets (`tie`, `gliss`, `tuplet`, `dyn`, `ottava`, `volta`, `beam`), and the default insertion slot with active meter/measure progress.
+- `editTargetAt` / `editHitAt` / `adjacentEditTarget` / `insertSlotAfter`: resolve targets or insertion slots from source spans or layout coordinates.
+- `applyScoreEditAction`: computes `SourceEdit[]` and the next selection/insertion anchor for note pitch/accidental/octave/rhythm/symbol/grace changes, step note insertion (with optional full-measure auto-barline), barline/meter/key/tempo edits, barline reflow, and deletion (with orphan `@label` cleanup).
+- `applyRelationCommand`: builds multi-endpoint `@tie`, `@gliss`, `@beam`, `@tuplet`, `@dyn`, `@ottava`, and `@volta` edits from picked targets, reusing existing labels or allocating conflict-free labels automatically.
+
 All utilities are also exported from the package root.
 
 ## License

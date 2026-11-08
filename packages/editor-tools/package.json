@@ -9,6 +9,7 @@
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
     "./navigation": { "types": "./dist/navigation.d.ts", "import": "./dist/navigation.js" },
     "./language": { "types": "./dist/language.d.ts", "import": "./dist/language.js" },
+    "./edit": { "types": "./dist/edit.d.ts", "import": "./dist/edit.js" },
     "./package.json": "./package.json"
   },
   "sideEffects": false,

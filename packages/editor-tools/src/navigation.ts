@@ -88,23 +88,11 @@ function compareSourceTargets(left: PreviewNavigationTarget, right: PreviewNavig
         || smallestRegionArea(left) - smallestRegionArea(right);
 }
 
-export function createPreviewNavigationMap(compiled: CompileScoreResult): PreviewNavigationMap {
-    const hitTargets: PreviewNavigationTarget[] = [];
-    const playbackRegions: { scoreTime: number; region: Rect }[] = [];
-    const attachmentSpans = new Set<string>();
-    const ancestorRegions = new Map<ASTFunctionNode, Rect[]>();
-    const objects = new Set<VisualTemporalNode>(compiled.layout.objects.filter(object =>
-        object.box.w > 0 || object.box.h > 0
-    ));
-    const lineTops = new Array<number>(compiled.layout.lineCount).fill(Infinity);
-    const lineBottoms = new Array<number>(compiled.layout.lineCount).fill(-Infinity);
-    for (const object of objects) {
-        const line = object.layoutLine;
-        const bounds = getLayoutBounds(object);
-        lineTops[line] = Math.min(lineTops[line], bounds.y);
-        lineBottoms[line] = Math.max(lineBottoms[line], bounds.y + bounds.h);
+export function collectVisibleTemporalNodes(compiled: CompileScoreResult): Set<VisualTemporalNode> {
+    const objects = new Set<VisualTemporalNode>();
+    for (const object of compiled.layout.objects) {
+        if (object.box.w > 0 || object.box.h > 0) objects.add(object);
     }
-
     // grace/up 等折叠成员不在 layout.objects，但布局完成后仍保留最终 box
     for (const temporals of compiled.lowering.astToTemporal.values()) {
         for (const temporal of temporals) {
@@ -113,6 +101,25 @@ export function createPreviewNavigationMap(compiled: CompileScoreResult): Previe
             }
         }
     }
+    return objects;
+}
+
+export function createPreviewNavigationMap(compiled: CompileScoreResult): PreviewNavigationMap {
+    const hitTargets: PreviewNavigationTarget[] = [];
+    const playbackRegions: { scoreTime: number; region: Rect }[] = [];
+    const attachmentSpans = new Set<string>();
+    const ancestorRegions = new Map<ASTFunctionNode, Rect[]>();
+    const lineTops = new Array<number>(compiled.layout.lineCount).fill(Infinity);
+    const lineBottoms = new Array<number>(compiled.layout.lineCount).fill(-Infinity);
+    for (const object of compiled.layout.objects) {
+        if (object.box.w <= 0 && object.box.h <= 0) continue;
+        const line = object.layoutLine;
+        const bounds = getLayoutBounds(object);
+        lineTops[line] = Math.min(lineTops[line], bounds.y);
+        lineBottoms[line] = Math.max(lineBottoms[line], bounds.y + bounds.h);
+    }
+
+    const objects = collectVisibleTemporalNodes(compiled);
     const visualAsts = new Set<ASTNodeBase>([...objects].map(object => object.ast));
 
     const columns = compiled.lowering.columns;

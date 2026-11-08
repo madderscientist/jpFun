@@ -8,6 +8,7 @@ import {
     type Rect,
 } from "jpfun";
 import type { SourceRange } from "./editor.js";
+import type { VisualHighlight } from "./visual-edit.js";
 import { createDropdown, downloadBlob, requiredElement } from "./platform.js";
 import { createVirtualPages } from "./preview-pages.js";
 import {
@@ -28,6 +29,7 @@ export interface PreviewController {
     invalidateNavigation(): void;
     focusSourcePosition(position: number): void;
     showPlaybackPosition(scoreTime: number | null): void;
+    showVisualHighlights(highlights: readonly VisualHighlight[], reveal?: boolean): void;
     download(format: ImageExportFormat, ppi: number): Promise<void>;
     preparePrint(): void;
     clearPrint(): void;
@@ -38,6 +40,8 @@ interface PreviewControllerOptions {
     onNavigateSource(range: SourceRange, select: boolean): void;
     onSeekPlayback(scoreTime: number): void;
     isPlaybackActive(): boolean;
+    isVisualEditActive?(): boolean;
+    onVisualClick?(x: number, y: number, tolerance: number): void;
 }
 
 const MIN_ZOOM = 0.25;
@@ -135,6 +139,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
     let pendingSourceClickTimer: number | undefined;
     let playbackScoreTime: number | null = null;
     let playbackRegionKey = "";
+    let visualHighlights: readonly VisualHighlight[] = [];
     let recordedPages: RecordedPage[] = [];
     const virtualPages = createVirtualPages(host, scroll, {
         renderPage,
@@ -166,6 +171,71 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
     function clearPlaybackCursor() {
         host.querySelector(".preview-playback-cursor")?.remove();
         playbackRegionKey = "";
+    }
+
+    function clearVisualHighlights() {
+        for (const el of host.querySelectorAll(".preview-edit-box")) el.remove();
+    }
+
+    function renderVisualHighlights(reveal: boolean) {
+        clearVisualHighlights();
+        if (!result || visualHighlights.length === 0) return;
+        let firstElement: HTMLElement | null = null;
+
+        for (const item of visualHighlights) {
+            const { region, kind, badge } = item;
+            const centerY = region.y + region.h / 2;
+            let pageIndex = pageBounds.findIndex(page => centerY >= page.y && centerY <= page.y + page.h);
+            if (pageIndex < 0) pageIndex = 0;
+            const pageRect = pageBounds[pageIndex];
+            const page = host.children[pageIndex];
+            if (!pageRect || !(page instanceof HTMLElement)) continue;
+            const surface = virtualPages.ensure(pageIndex);
+            const overlay = page.querySelector<HTMLElement>(":scope > .preview-overlay");
+            if (!surface || !overlay) continue;
+
+            const rawX = (region.x - pageRect.x) * zoom;
+            const rawY = (region.y - pageRect.y) * zoom;
+            const rawW = region.w * zoom;
+            const rawH = region.h * zoom;
+            const padX = Math.max(2, Math.min(4, 3 * zoom));
+            const padY = Math.max(2, Math.min(4, 3 * zoom));
+            const width = Math.max(8 * zoom, rawW) + padX * 2;
+            const height = Math.max(12 * zoom, rawH) + padY * 2;
+            const left = rawX + rawW / 2 - width / 2;
+            const top = rawY + rawH / 2 - height / 2;
+
+            const box = document.createElement("span");
+            box.className = "preview-edit-box";
+            box.dataset.kind = kind;
+            box.style.left = `${left}px`;
+            box.style.top = `${top}px`;
+            box.style.width = `${width}px`;
+            box.style.height = `${height}px`;
+            if (badge) {
+                const tag = document.createElement("span");
+                tag.className = "preview-edit-badge";
+                tag.textContent = badge;
+                box.append(tag);
+            }
+            overlay.append(box);
+            if (!firstElement) {
+                firstElement = box;
+            }
+        }
+
+        if (reveal && firstElement) {
+            const scrollBounds = scroll.getBoundingClientRect();
+            const boxBounds = firstElement.getBoundingClientRect();
+            const centerX = (boxBounds.left + boxBounds.right) / 2;
+            const centerY = (boxBounds.top + boxBounds.bottom) / 2;
+            if (centerX < scrollBounds.left + 24 || centerX > scrollBounds.right - 24) {
+                scroll.scrollLeft += centerX - scrollBounds.left - scroll.clientWidth / 2;
+            }
+            if (centerY < scrollBounds.top + 24 || centerY > scrollBounds.bottom - 24) {
+                scroll.scrollTop += centerY - scrollBounds.top - scroll.clientHeight / 2;
+            }
+        }
     }
 
     function getNavigation(): PreviewNavigationMap | null {
@@ -308,6 +378,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         virtualPages.redraw();
         playbackRegionKey = "";
         renderPlaybackCursor(false);
+        renderVisualHighlights(false);
     }
 
     function captureZoomAnchor(anchor: { x: number; y: number }) {
@@ -372,6 +443,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         restoreZoomAnchor(savedAnchor, anchor);
         playbackRegionKey = "";
         renderPlaybackCursor(false);
+        renderVisualHighlights(false);
     }
 
     function fitWidth() {
@@ -500,6 +572,12 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
             options.onSeekPlayback(scoreTime);
             return;
         }
+        if (options.isVisualEditActive?.()) {
+            clearPendingSourceClick();
+            event.preventDefault();
+            options.onVisualClick?.(x, y, tolerance);
+            return;
+        }
         const hit = previewHitAt(currentNavigation, x, y, tolerance);
         if (!hit) return;
         event.preventDefault();
@@ -527,6 +605,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
             playbackRegionKey = "";
             if (fitToWidth) fitWidth();
             renderPlaybackCursor(false);
+            renderVisualHighlights(false);
         },
         showError(message) {
             invalidateNavigation();
@@ -545,6 +624,10 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         showPlaybackPosition(scoreTime) {
             playbackScoreTime = scoreTime;
             renderPlaybackCursor(true);
+        },
+        showVisualHighlights(highlights, reveal = false) {
+            visualHighlights = highlights;
+            renderVisualHighlights(reveal);
         },
         download,
         preparePrint,

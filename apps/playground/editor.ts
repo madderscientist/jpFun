@@ -1,5 +1,5 @@
 import { acceptCompletion, autocompletion, closeBrackets, closeBracketsKeymap, type Completion, completionKeymap } from "@codemirror/autocomplete";
-import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory, redo, undo } from "@codemirror/commands";
 import { bracketMatching } from "@codemirror/language";
 import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
@@ -36,6 +36,14 @@ export function applySourceEdits(editor: EditorView, source: string, edits: read
         userEvent: "input.transform",
     }));
     return true;
+}
+
+export function undoSourceEdit(editor: EditorView): boolean {
+    return !editor.composing && undo(editor);
+}
+
+export function redoSourceEdit(editor: EditorView): boolean {
+    return !editor.composing && redo(editor);
 }
 
 interface SourceEditorOptions {

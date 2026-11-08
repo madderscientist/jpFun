@@ -2,7 +2,7 @@ import type { EditorView } from "@codemirror/view";
 import { readStoredValue, requiredElement, storeValue } from "./platform.js";
 
 type ViewMode = "editor" | "split" | "preview";
-type LeftTab = "source" | "playback";
+export type LeftTab = "source" | "playback" | "visual";
 type RightTab = "preview" | "problems";
 
 export interface WorkspaceController {
@@ -13,6 +13,10 @@ export interface WorkspaceController {
 
 function isViewMode(value: string | null | undefined): value is ViewMode {
     return value === "editor" || value === "split" || value === "preview";
+}
+
+function isLeftTab(value: string | null | undefined): value is LeftTab {
+    return value === "source" || value === "playback" || value === "visual";
 }
 
 export function createWorkspaceController(
@@ -27,14 +31,26 @@ export function createWorkspaceController(
     const editorHost = requiredElement<HTMLElement>("#sourceEditor");
     const sourcePane = requiredElement<HTMLElement>("#sourcePane");
     const playbackPane = requiredElement<HTMLElement>("#playbackPane");
+    const visualPane = requiredElement<HTMLElement>("#visualPane");
     const previewPane = requiredElement<HTMLElement>("#previewPane");
     const problemsPane = requiredElement<HTMLElement>("#problemsPane");
     const previewTools = requiredElement<HTMLElement>("#previewTools");
     const sourceSize = requiredElement<HTMLElement>("#sourceSize");
+    const collapseButton = requiredElement<HTMLButtonElement>("#panelCollapseButton");
     const viewButtons = [...document.querySelectorAll<HTMLButtonElement>("[data-view]")];
     const leftTabs = [...document.querySelectorAll<HTMLButtonElement>("[data-left-tab]")];
     const rightTabs = [...document.querySelectorAll<HTMLButtonElement>("[data-right-tab]")];
     let activeLeftTab: LeftTab = "source";
+    let panelCollapsed = false;
+
+    function setPanelCollapsed(collapsed: boolean) {
+        panelCollapsed = collapsed;
+        workspace.dataset.panelCollapsed = String(collapsed);
+        collapseButton.setAttribute("aria-expanded", String(!collapsed));
+        collapseButton.textContent = collapsed ? "▴" : "▾";
+        collapseButton.title = collapsed ? "展开面板" : "折叠面板";
+        collapseButton.setAttribute("aria-label", collapseButton.title);
+    }
 
     function setViewMode(mode: ViewMode) {
         workspace.dataset.view = mode;
@@ -43,10 +59,13 @@ export function createWorkspaceController(
     }
 
     function showSource(tab: LeftTab, notify = true) {
+        if (panelCollapsed) setPanelCollapsed(false);
         const changed = activeLeftTab !== tab;
         activeLeftTab = tab;
+        workspace.dataset.leftTab = tab;
         sourcePane.hidden = tab !== "source";
         playbackPane.hidden = tab !== "playback";
+        visualPane.hidden = tab !== "visual";
         sourceSize.hidden = tab !== "source";
         for (const button of leftTabs) button.setAttribute("aria-selected", String(button.dataset.leftTab === tab));
         storeValue("jpfun-left-tab", tab);
@@ -103,7 +122,8 @@ export function createWorkspaceController(
     }
     for (const button of leftTabs) {
         button.addEventListener("click", () => {
-            const tab = button.dataset.leftTab === "playback" ? "playback" : "source";
+            const raw = button.dataset.leftTab;
+            const tab: LeftTab = isLeftTab(raw) ? raw : "source";
             if (tab === "source" && button.getAttribute("aria-selected") === "true") {
                 options?.onSourceTabReselect();
             } else {
@@ -111,6 +131,9 @@ export function createWorkspaceController(
             }
         });
     }
+    collapseButton.addEventListener("click", () => {
+        setPanelCollapsed(!panelCollapsed);
+    });
     for (const button of rightTabs) {
         button.addEventListener("click", () => showResult(button.dataset.rightTab === "problems" ? "problems" : "preview"));
     }
@@ -119,7 +142,9 @@ export function createWorkspaceController(
     if (Number.isFinite(storedWidth) && storedWidth > 0) setEditorWidth(storedWidth);
     const storedView = readStoredValue("jpfun-view");
     if (isViewMode(storedView)) setViewMode(storedView);
-    if (readStoredValue("jpfun-left-tab") === "playback") showSource("playback", false);
+    const storedLeftTab = readStoredValue("jpfun-left-tab");
+    if (isLeftTab(storedLeftTab)) showSource(storedLeftTab, false);
+    else workspace.dataset.leftTab = "source";
 
     // 面板显隐、视图切换、拖分隔条都会改 editorHost 尺寸，重测量统一从这里走
     new ResizeObserver(() => editor.requestMeasure()).observe(editorHost);

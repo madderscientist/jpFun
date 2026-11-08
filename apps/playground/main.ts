@@ -15,7 +15,7 @@ import {
     loadDraftSource,
 } from "./document.js";
 import { PLAYGROUND_EXAMPLE } from "./example.js";
-import { applySourceEdits, createSourceEditor, revealSourcePosition } from "./editor.js";
+import { applySourceEdits, createSourceEditor, redoSourceEdit, revealSourcePosition, undoSourceEdit } from "./editor.js";
 import { publishSemanticAst } from "./jpfun-language.js";
 import { createDropdown, readStoredValue, requiredElement, storeValue } from "./platform.js";
 import {
@@ -26,7 +26,9 @@ import {
 import { initializeTheme } from "./theme.js";
 import { createWorkspaceController } from "./workspace.js";
 import { createPlaybackController, type PlaybackController } from "./playback.js";
+import { createVisualEditController, type VisualEditController } from "./visual-edit.js";
 import { importScoreFile, isSupportedScoreFile } from "./score-import.js";
+import { applySourceEditsToText } from "@jpfun/editor-tools/edit";
 
 const POSSIBLE_SCORE_MIME_TYPES = new Set([
     "",
@@ -63,6 +65,7 @@ let dropFeedbackTimer: number | undefined;
 let preview: PreviewController;
 let documents: ReturnType<typeof createDocumentController>;
 let playback: PlaybackController | undefined;
+let visualEdit: VisualEditController | undefined;
 let latestCompiled: CompileScoreResult | null = null;
 let latestCompiledSource: string | null = null;
 let playbackSource: string | null = null;
@@ -86,6 +89,7 @@ const editor = createSourceEditor({
         scoreDiagnostics = [];
         playbackDiagnostics = [];
         playback?.invalidate();
+        visualEdit?.onInvalidated();
         diagnostics.render([]);
         updateSourceSize();
         scheduleRender();
@@ -194,6 +198,7 @@ const workspace = createWorkspaceController(editor, {
     },
     onSourceTabChanged(tab) {
         playback?.setActive(tab === "playback");
+        visualEdit?.setActive(tab === "visual");
     },
 });
 preview = createPreviewController({
@@ -207,6 +212,12 @@ preview = createPreviewController({
     },
     isPlaybackActive() {
         return workspace.getSourceTab() === "playback";
+    },
+    isVisualEditActive() {
+        return workspace.getSourceTab() === "visual";
+    },
+    onVisualClick(x, y, tolerance) {
+        visualEdit?.handlePreviewClick(x, y, tolerance);
     },
 });
 const diagnostics = createDiagnosticsController({
@@ -225,6 +236,48 @@ playback = createPlaybackController({
         preview.showPlaybackPosition(scoreTime);
     },
 });
+visualEdit = createVisualEditController({
+    getSource: source,
+    getCompiled: () => latestCompiled,
+    ensureCompiled,
+    applyEdits(original, edits) {
+        const candidate = applySourceEditsToText(original, edits);
+        const checked = compileScore(candidate, compileOptions);
+        const error = checked.diagnostics.find(item => item instanceof ErrorDiagnostic);
+        if (error) throw error;
+        if (!applySourceEdits(editor, original, edits)) return false;
+        window.clearTimeout(renderTimer);
+        compileAndRender();
+        return true;
+    },
+    onUndo() {
+        if (!undoSourceEdit(editor)) return false;
+        window.clearTimeout(renderTimer);
+        compileAndRender();
+        return true;
+    },
+    onRedo() {
+        if (!redoSourceEdit(editor)) return false;
+        window.clearTimeout(renderTimer);
+        compileAndRender();
+        return true;
+    },
+    onHighlightsChanged(highlights, reveal) {
+        preview.showVisualHighlights(highlights, reveal);
+    },
+    onRevealInSource(span) {
+        workspace.revealSource();
+        revealSourcePosition(editor, { from: span.start, to: span.end }, true);
+    },
+    onStatusError(message, detail = "") {
+        statusMessage.dataset.state = "error";
+        statusMessage.textContent = message;
+        statusMessage.title = detail;
+    },
+});
+if (workspace.getSourceTab() === "visual") {
+    visualEdit.setActive(true);
+}
 
 function source(): string {
     return editor.state.doc.toString();
@@ -317,6 +370,7 @@ function compileAndRender(): boolean {
         }
         preview.render(compiled);
         publishSemanticAst(editor, compiled.ast);
+        visualEdit?.onCompiled(sourceText, compiled);
         layoutStats.textContent = `布局 ${compiled.layout.objects.length} 个对象 · `
             + `${compiled.layout.lineCount} 行 · ${compiled.layout.pages.length} 页 · `
             + `${compiled.layout.bounds.w.toFixed(0)} × ${compiled.layout.bounds.h.toFixed(0)}`;
