@@ -41,7 +41,7 @@ interface PreviewControllerOptions {
     onSeekPlayback(scoreTime: number): void;
     isPlaybackActive(): boolean;
     isVisualEditActive?(): boolean;
-    onVisualClick?(x: number, y: number, tolerance: number): void;
+    onVisualClick?(navigation: PreviewNavigationMap, x: number, y: number, tolerance: number): void;
 }
 
 const MIN_ZOOM = 0.25;
@@ -261,10 +261,10 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         if (!surface || !overlay) return clearPlaybackCursor();
 
         const surfaceBounds = surfaceContentBounds(surface);
-        const pageElementBounds = page.getBoundingClientRect();
-        const x = surfaceBounds.left - pageElementBounds.left
+        const overlayBounds = overlay.getBoundingClientRect();
+        const x = surfaceBounds.left - overlayBounds.left
             + (region.x - pageRect.x) / pageRect.w * surfaceBounds.width;
-        const y = surfaceBounds.top - pageElementBounds.top
+        const y = surfaceBounds.top - overlayBounds.top
             + (region.y - pageRect.y) / pageRect.h * surfaceBounds.height;
         const width = Math.max(6, region.w / pageRect.w * surfaceBounds.width);
         const height = Math.max(6, region.h / pageRect.h * surfaceBounds.height);
@@ -283,8 +283,8 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
 
         if (reveal) {
             const scrollBounds = scroll.getBoundingClientRect();
-            const markerCenterX = pageElementBounds.left + x + width / 2;
-            const markerCenterY = pageElementBounds.top + y + height / 2;
+            const markerCenterX = overlayBounds.left + x + width / 2;
+            const markerCenterY = overlayBounds.top + y + height / 2;
             if (markerCenterX < scrollBounds.left || markerCenterX > scrollBounds.right) {
                 scroll.scrollLeft += markerCenterX - scrollBounds.left - scroll.clientWidth / 2;
             }
@@ -337,17 +337,17 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
 
         clearFocus();
         const surfaceBounds = surfaceContentBounds(surface);
-        const pageElementBounds = page.getBoundingClientRect();
+        const overlayBounds = overlay.getBoundingClientRect();
         const centerX = region.x + region.w / 2;
-        const x = surfaceBounds.left - pageElementBounds.left
+        const x = surfaceBounds.left - overlayBounds.left
             + (centerX - pageRect.x) / pageRect.w * surfaceBounds.width;
-        const y = surfaceBounds.top - pageElementBounds.top
+        const y = surfaceBounds.top - overlayBounds.top
             + (centerY - pageRect.y) / pageRect.h * surfaceBounds.height;
 
         if (reveal) {
             const scrollBounds = scroll.getBoundingClientRect();
-            scroll.scrollLeft += pageElementBounds.left + x - scrollBounds.left - scroll.clientWidth / 2;
-            scroll.scrollTop += pageElementBounds.top + y - scrollBounds.top - scroll.clientHeight / 2;
+            scroll.scrollLeft += overlayBounds.left + x - scrollBounds.left - scroll.clientWidth / 2;
+            scroll.scrollTop += overlayBounds.top + y - scrollBounds.top - scroll.clientHeight / 2;
         }
 
         const regionWidth = region.w / pageRect.w * surfaceBounds.width;
@@ -575,7 +575,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         if (options.isVisualEditActive?.()) {
             clearPendingSourceClick();
             event.preventDefault();
-            options.onVisualClick?.(x, y, tolerance);
+            options.onVisualClick?.(currentNavigation, x, y, tolerance);
             return;
         }
         const hit = previewHitAt(currentNavigation, x, y, tolerance);

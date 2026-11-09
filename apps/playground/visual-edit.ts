@@ -23,6 +23,8 @@ import {
     editHitAt,
     editTargetAt,
     insertSlotAfter,
+    MAX_EDIT_OCTAVE,
+    stepOctave,
     type RelationCommandSpec,
     type RhythmSpec,
     type ScoreEditAction,
@@ -31,7 +33,7 @@ import {
     type ScoreEditTarget,
     type ScoreInsertSlot,
 } from "@jpfun/editor-tools/edit";
-import { createPreviewNavigationMap } from "@jpfun/editor-tools/navigation";
+import type { PreviewNavigationMap } from "@jpfun/editor-tools/navigation";
 import { requiredElement } from "./platform.js";
 import {
     RELATION_COMMANDS,
@@ -50,12 +52,19 @@ export interface VisualHighlight {
     readonly badge?: string;
 }
 
+/** 源码变更的位置映射（与 CodeMirror `ChangeSet.mapPos` 结构兼容） */
+export interface PositionMapping {
+    mapPos(pos: number, assoc?: number): number;
+}
+
 export interface VisualEditController {
     setActive(active: boolean): void;
     readonly active: boolean;
     onCompiled(source: string, compiled: CompileScoreResult): void;
-    onInvalidated(): void;
-    handlePreviewClick(x: number, y: number, tolerance: number): void;
+    /** 源码已变更；非本控制器发起的变更会按 `changes` 映射游标并清空选区快照栈 */
+    onInvalidated(changes: PositionMapping): void;
+    /** `navigation` 须与最近一次 `onCompiled` 的编译结果对应 */
+    handlePreviewClick(navigation: PreviewNavigationMap, x: number, y: number, tolerance: number): void;
 }
 
 interface VisualEditOptions {
@@ -76,6 +85,18 @@ interface SelectionSnapshot {
     mode: "select" | "insert";
     selectedSpan: SourceSpan | null;
     insertAfterSpan: SourceSpan | null;
+}
+
+interface SnapshotPair {
+    before: SelectionSnapshot;
+    after: SelectionSnapshot;
+}
+
+function mapSpan(span: SourceSpan | null, changes: PositionMapping): SourceSpan | null {
+    if (!span) return null;
+    const start = changes.mapPos(span.start, 1);
+    const end = changes.mapPos(span.end, -1);
+    return start < end ? { start, end } : null;
 }
 
 export function createVisualEditController(options: VisualEditOptions): VisualEditController {
@@ -107,8 +128,10 @@ export function createVisualEditController(options: VisualEditOptions): VisualEd
     let mode: "select" | "insert" = "insert";
     let selectedSpan: SourceSpan | null = null;
     let insertAfterSpan: SourceSpan | null = null;
-    const undoSnapshots: { before: SelectionSnapshot; after: SelectionSnapshot }[] = [];
-    const redoSnapshots: { before: SelectionSnapshot; after: SelectionSnapshot }[] = [];
+    const undoSnapshots: SnapshotPair[] = [];
+    const redoSnapshots: SnapshotPair[] = [];
+    // 本控制器发起的源码变更已预置好游标，onInvalidated 不得再映射或清栈
+    let ownEdit = false;
 
     // 旋律连续输入预设状态：时值与八度跨音符保持，变音记号仅对下一个输入音符单次生效
     let rhythmPreset: RhythmSpec = { div: 0, dot: 0 };
@@ -238,7 +261,7 @@ export function createVisualEditController(options: VisualEditOptions): VisualEd
             : slot?.meter ? `${slot.meter.numerator}/${slot.meter.denominator}` : "";
         const activeKeyStr = target?.kind === "key" ? `${target.displayName}${target.displayAcc}` : "";
 
-        octaveStateBtn.innerHTML = renderOctaveGlyph(Math.max(-3, Math.min(3, activeOctave)));
+        octaveStateBtn.innerHTML = renderOctaveGlyph(Math.max(-MAX_EDIT_OCTAVE, Math.min(MAX_EDIT_OCTAVE, activeOctave)));
         octaveStateBtn.setAttribute("aria-pressed", String(activeOctave !== 0));
 
         syncPressed("[data-div]", btn => currentRhythm.div === Number(btn.dataset.div));
@@ -267,6 +290,16 @@ export function createVisualEditController(options: VisualEditOptions): VisualEd
         options.onHighlightsChanged(highlights, reveal);
     }
 
+    /** 执行本控制器发起的源码变更；宿主会在其中同步回调 onInvalidated 与 onCompiled */
+    function own(run: () => boolean): boolean {
+        ownEdit = true;
+        try {
+            return run();
+        } finally {
+            ownEdit = false;
+        }
+    }
+
     /**
      * 事务化执行一次编辑计算并提交到源码编辑器：
      * - 先更新游标状态机，以便 `options.applyEdits` 触发同步重编译时 `onCompiled -> syncUI` 直接读取新游标
@@ -283,7 +316,7 @@ export function createVisualEditController(options: VisualEditOptions): VisualEd
             selectedSpan = result.nextMode === "select" ? result.nextSpan : null;
             insertAfterSpan = result.nextSpan;
             const after: SelectionSnapshot = { mode, selectedSpan, insertAfterSpan };
-            if (!options.applyEdits(source, result.edits)) {
+            if (!own(() => options.applyEdits(source, result.edits))) {
                 ({ mode, selectedSpan, insertAfterSpan } = before);
                 relationSession = prevSession;
                 return false;
@@ -299,15 +332,35 @@ export function createVisualEditController(options: VisualEditOptions): VisualEd
         }
     }
 
-    /** 执行单步谱面编辑动作（音高、时值、八度、变音、符号、小节线、拍号、换行、删除等） */
-    function executeAction(action: ScoreEditAction): boolean {
+    /**
+     * 执行单步谱面编辑动作（音高、时值、八度、变音、符号、小节线、拍号、换行、删除等）
+     * @param targetSpan 作用目标，默认取选中目标
+     * @param stayInsert 编辑后保持插入态（以结果锚点为插入位置）
+     */
+    function executeAction(action: ScoreEditAction, targetSpan = mode === "select" ? selectedSpan : null, stayInsert = false): boolean {
         if (!options.ensureCompiled()) return false;
         const compiled = options.getCompiled();
         const source = options.getSource();
         if (!compiled) return false;
         const index = editIndex ?? createScoreEditIndex(source, compiled);
-        const target = mode === "select" && selectedSpan ? editTargetAt(index, selectedSpan) : null;
-        return commitResult(source, () => applyScoreEditAction(source, compiled, index, target, action), "编辑操作未生效");
+        const target = targetSpan ? editTargetAt(index, targetSpan) : null;
+        return commitResult(source, () => {
+            const result = applyScoreEditAction(source, compiled, index, target, action);
+            return stayInsert ? { ...result, nextMode: "insert" } : result;
+        }, "编辑操作未生效");
+    }
+
+    function adoptCompiled(source: string, compiled: CompileScoreResult) {
+        currentSource = source;
+        currentCompiled = compiled;
+        // 未激活时不建索引，激活时再按需补建
+        editIndex = isActive ? createScoreEditIndex(source, compiled) : null;
+    }
+
+    /** 插入槽紧前方的流元素 */
+    function targetBeforeCursor(): ScoreEditTarget | null {
+        if (!editIndex) return null;
+        return insertAfterSpan ? editTargetAt(editIndex, insertAfterSpan) : editIndex.streamTargets.at(-1) ?? null;
     }
 
     /** 确认提交当前多音关系命令（@tie / @gliss / @tuplet / @dyn / @ottava / @volta / @beam） */
@@ -356,10 +409,10 @@ export function createVisualEditController(options: VisualEditOptions): VisualEd
     function adjustOctave(delta: number) {
         const target = getActiveTarget();
         if (mode === "select" && target?.kind === "note") {
-            pendingOctave = Math.max(-3, Math.min(3, target.octave + delta));
+            pendingOctave = stepOctave(target.octave, delta);
             executeAction({ type: "adjust-octave", delta });
         } else {
-            pendingOctave = Math.max(-3, Math.min(3, pendingOctave + delta));
+            pendingOctave = stepOctave(pendingOctave, delta);
             syncUI(false);
         }
     }
@@ -380,7 +433,7 @@ export function createVisualEditController(options: VisualEditOptions): VisualEd
         if (!editIndex) return;
         if (mode === "insert") {
             const next = direction === -1
-                ? (insertAfterSpan ? editTargetAt(editIndex, insertAfterSpan) : editIndex.streamTargets.at(-1) ?? null)
+                ? targetBeforeCursor()
                 : (insertAfterSpan ? adjacentEditTarget(editIndex, insertAfterSpan, 1) : null);
             if (next) {
                 mode = "select";
@@ -408,24 +461,28 @@ export function createVisualEditController(options: VisualEditOptions): VisualEd
             syncUI(false);
             return;
         }
-        const snap = undoSnapshots.pop();
-        if (snap) ({ mode, selectedSpan, insertAfterSpan } = snap.before);
-        if (options.onUndo?.()) {
-            if (snap) redoSnapshots.push(snap);
-        } else if (snap) {
-            ({ mode, selectedSpan, insertAfterSpan } = snap.after);
-        }
+        stepHistory(undoSnapshots, redoSnapshots, "before", options.onUndo);
     }
 
     /** 重做：联动 CodeMirror 重做历史并恢复选区快照 */
     function handleRedo() {
-        if (relationSession) return;
-        const snap = redoSnapshots.pop();
-        if (snap) ({ mode, selectedSpan, insertAfterSpan } = snap.after);
-        if (options.onRedo?.()) {
-            if (snap) undoSnapshots.push(snap);
-        } else if (snap) {
-            ({ mode, selectedSpan, insertAfterSpan } = snap.before);
+        if (!relationSession) stepHistory(redoSnapshots, undoSnapshots, "after", options.onRedo);
+    }
+
+    /** 有快照时先恢复游标再撤销/重做，供宿主同步重编译读取；无快照时由 onInvalidated 按变更映射游标 */
+    function stepHistory(from: SnapshotPair[], to: SnapshotPair[], restore: keyof SnapshotPair, run?: () => boolean) {
+        const snap = from.pop();
+        if (!snap) {
+            run?.();
+            return;
+        }
+        const current: SelectionSnapshot = { mode, selectedSpan, insertAfterSpan };
+        ({ mode, selectedSpan, insertAfterSpan } = snap[restore]);
+        if (own(() => run?.() ?? false)) {
+            to.push(snap);
+        } else {
+            ({ mode, selectedSpan, insertAfterSpan } = current);
+            from.push(snap);
         }
     }
 
@@ -446,17 +503,8 @@ export function createVisualEditController(options: VisualEditOptions): VisualEd
                 executeAction({ type: "delete", slot });
                 return;
             }
-            const beforeTarget = insertAfterSpan ? editTargetAt(editIndex, insertAfterSpan) : editIndex.streamTargets.at(-1) ?? null;
-            if (beforeTarget) {
-                const prevInsertAfter = insertAfterSpan;
-                mode = "select";
-                selectedSpan = beforeTarget.span;
-                const ok = executeAction({ type: "delete" });
-                mode = "insert";
-                insertAfterSpan = ok ? selectedSpan : prevInsertAfter;
-                selectedSpan = null;
-                syncUI(true);
-            }
+            const before = targetBeforeCursor();
+            if (before) executeAction({ type: "delete" }, before.span, true);
         }
     }
 
@@ -531,11 +579,8 @@ export function createVisualEditController(options: VisualEditOptions): VisualEd
 
         // 5. 装饰符号、前后倚音、小节线、拍号、调号与速度
         if (ds.symbol !== undefined) {
-            if (mode !== "select" && editIndex) {
-                const last = insertAfterSpan ? editTargetAt(editIndex, insertAfterSpan) : editIndex.streamTargets.at(-1) ?? null;
-                if (last?.kind === "note") { mode = "select"; selectedSpan = last.span; }
-            }
-            executeAction({ type: "toggle-symbol", symbol: ds.symbol });
+            // 插入态下作用于前一个音符，完成后选中它
+            executeAction({ type: "toggle-symbol", symbol: ds.symbol }, mode === "select" ? selectedSpan : targetBeforeCursor()?.span ?? null);
             return;
         }
         if (ds.grace !== undefined) { executeAction({ type: "insert-grace", side: ds.grace as "pre" | "post" }); return; }
@@ -553,11 +598,19 @@ export function createVisualEditController(options: VisualEditOptions): VisualEd
         }
     });
 
-    // 全局键盘直通：当交互模式开启且焦点不在输入框或源码编辑器时，支持电脑键盘直接打谱
+    // 鼠标点按钮不夺焦，按键仍归面板；键盘 Tab 到按钮上时 Enter 保留原生激活
+    pane.addEventListener("mousedown", event => {
+        if (!(event.target as Element | null)?.closest("button")) return;
+        event.preventDefault();
+        scorepadRoot.focus({ preventScroll: true });
+    });
+
+    // 全局键盘直通：当交互模式开启且焦点不在可输入控件或源码编辑器时，支持电脑键盘直接打谱
     document.addEventListener("keydown", event => {
         if (!isActive || event.defaultPrevented) return;
         const activeEl = document.activeElement;
-        if (activeEl instanceof HTMLInputElement || activeEl instanceof HTMLTextAreaElement || activeEl?.closest(".cm-editor")) return;
+        if (activeEl instanceof HTMLInputElement || activeEl instanceof HTMLTextAreaElement || activeEl instanceof HTMLSelectElement
+            || (activeEl instanceof HTMLElement && activeEl.isContentEditable) || activeEl?.closest(".cm-editor")) return;
 
         const mod = event.ctrlKey || event.metaKey;
         if (mod && !event.altKey) {
@@ -569,6 +622,7 @@ export function createVisualEditController(options: VisualEditOptions): VisualEd
         if (mod || event.altKey) return;
 
         const key = event.key;
+        if (key === "Enter" && activeEl instanceof HTMLButtonElement) return;
         if (relationSession) {
             if (key === "Enter") { event.preventDefault(); commitRelationSession(); }
             else if (key === "Escape") { event.preventDefault(); relationSession = null; syncUI(false); }
@@ -608,30 +662,30 @@ export function createVisualEditController(options: VisualEditOptions): VisualEd
                 options.onHighlightsChanged([], false);
                 return;
             }
-            if (options.ensureCompiled()) {
-                const compiled = options.getCompiled();
-                if (compiled) {
-                    currentSource = options.getSource();
-                    currentCompiled = compiled;
-                    editIndex = createScoreEditIndex(currentSource, compiled);
-                }
-            }
+            // ensureCompiled 触发重编译时 onCompiled 已建好索引
+            const compiled = options.ensureCompiled() && !editIndex ? options.getCompiled() : null;
+            if (compiled) adoptCompiled(options.getSource(), compiled);
             syncUI(true);
             scorepadRoot.focus({ preventScroll: true });
         },
         onCompiled(source: string, compiled: CompileScoreResult) {
-            currentSource = source;
-            currentCompiled = compiled;
-            editIndex = createScoreEditIndex(source, compiled);
+            adoptCompiled(source, compiled);
             if (isActive) syncUI(true);
         },
-        onInvalidated() {
+        onInvalidated(changes: PositionMapping) {
             editIndex = null;
+            if (!ownEdit) {
+                // 外部改动打乱了与 CodeMirror 历史的对应，旧快照与拾取会话的区间都已失效
+                selectedSpan = mapSpan(selectedSpan, changes);
+                insertAfterSpan = mapSpan(insertAfterSpan, changes);
+                undoSnapshots.length = 0;
+                redoSnapshots.length = 0;
+                relationSession = null;
+            }
             if (!isActive) options.onHighlightsChanged([], false);
         },
-        handlePreviewClick(x: number, y: number, tolerance: number) {
-            if (!isActive || !currentCompiled || !editIndex) return;
-            const navigation = createPreviewNavigationMap(currentCompiled);
+        handlePreviewClick(navigation: PreviewNavigationMap, x: number, y: number, tolerance: number) {
+            if (!isActive || !editIndex) return;
             const activeSlot = !relationSession && mode === "insert" ? getActiveInsertSlot() : null;
             const hit = editHitAt(editIndex, navigation, x, y, tolerance, activeSlot);
             scorepadRoot.focus({ preventScroll: true });

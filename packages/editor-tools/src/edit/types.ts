@@ -198,6 +198,15 @@ export function isRelationKind(value: string): value is RelationKind {
     return RELATION_KINDS.has(value);
 }
 
+/** 交互编辑可步进到的最大八度 */
+export const MAX_EDIT_OCTAVE = 3;
+
+/** 八度步进，夹在 ±MAX_EDIT_OCTAVE 内；已超出范围的八度只能向内收 */
+export function stepOctave(octave: number, delta: number): number {
+    const limit = Math.max(MAX_EDIT_OCTAVE, Math.abs(octave));
+    return Math.max(-limit, Math.min(limit, octave + delta));
+}
+
 export function rhythmDuration(rhythm: RhythmSpec): Fraction {
     const div = Math.max(0, Math.trunc(rhythm.div));
     const dot = Math.max(0, Math.trunc(rhythm.dot));

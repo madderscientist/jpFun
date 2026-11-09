@@ -16,13 +16,15 @@ import {
     preprocessSource,
     quoteSourceString,
     readCall,
+    skipSpaces,
+    skipSpacesBack,
     type CompileScoreResult,
     type SourceEdit,
     type SourceSpan,
     type SyntaxAnalysis,
     type TemporalNodeBase,
 } from "jpfun";
-import { labelSymbolAt } from "../language.js";
+import { callAt, labelSymbolAt } from "../language.js";
 import { adjacentEditTarget, countTemporalsInSubtree, editTargetAt } from "./index-targets.js";
 import {
     allocateLabels,
@@ -39,6 +41,7 @@ import {
     BAR_SUGAR,
     isRelationKind,
     rhythmDuration,
+    stepOctave,
     type BarEditTarget,
     type DashEditTarget,
     type MeterEditTarget,
@@ -223,9 +226,7 @@ function toggleSymbolOnNote(source: string, target: NoteEditTarget, symbolName: 
     if (!match) return { edits: [], selectSpan: target.span };
     const removeStart = target.stemSpan.end + match.index;
     let removeEnd = removeStart + match[0].length;
-    if (removeStart === target.stemSpan.end) {
-        while (removeEnd < unitEnd && (source[removeEnd] === " " || source[removeEnd] === "\t")) removeEnd++;
-    }
+    if (removeStart === target.stemSpan.end) removeEnd = skipSpaces(source, removeEnd, unitEnd);
     return { edits: [{ span: { start: removeStart, end: removeEnd }, text: "" }], selectSpan: target.span };
 }
 
@@ -267,6 +268,8 @@ function deleteRelationCallAndOrphanLabels(
 
 /**
  * 按当前拍号重排后续普通单小节线 `|`（保留双小节线 `||`、终止线 `|||` 与反复记号作为硬锚点，且不拆散 `@tuplet`）
+ *
+ * 只重排拍号后首个音符所在的音轨（单声部即主轨，多声部为第一个声部），其余音轨的小节线保持不变。
  */
 function reflowBarsForCurrentMeter(source: string, index: ScoreEditIndex, anchorSpan?: SourceSpan | null): SourceEdit[] {
     const meters = index.streamTargets.filter((t): t is MeterEditTarget => t.kind === "meter");
@@ -278,12 +281,13 @@ function reflowBarsForCurrentMeter(source: string, index: ScoreEditIndex, anchor
     const measureDuration = new Fraction(active.numerator * 4, active.denominator);
     const nextMeter = meters.find(m => m.span.start > active.span.end);
     const rangeEnd = nextMeter ? nextMeter.span.start : source.length;
-    const items = index.streamTargets.filter((t): t is NoteEditTarget | DashEditTarget | BarEditTarget | RestEditTarget =>
+    const inRange = index.streamTargets.filter((t): t is NoteEditTarget | DashEditTarget | BarEditTarget | RestEditTarget =>
         t.span.start >= active.unitSpan.end && t.unitSpan.end <= rangeEnd
         && (t.kind === "note" || t.kind === "dash" || t.kind === "bar" || t.kind === "rest")
         && !(t.kind === "note" && t.isGrace) && !t.isChordMember
-        && (t.kind === "bar" || t.trackIndex === 0)
     );
+    const track = inRange.find(t => t.kind !== "bar")?.trackIndex;
+    const items = inRange.filter(t => t.trackIndex === track);
     if (items.length === 0) return [];
 
     const edits: SourceEdit[] = [];
@@ -376,7 +380,8 @@ export function applyScoreEditAction(
 
         case "adjust-octave": {
             if (target?.kind !== "note") return { edits: [], nextMode: "select", nextSpan: target?.span ?? null };
-            const nextOct = Math.max(-4, Math.min(4, target.octave + action.delta));
+            const nextOct = stepOctave(target.octave, action.delta);
+            if (nextOct === target.octave) return { edits: [], nextMode: "select", nextSpan: target.span };
             const edits = rewriteNotePitchInPlace(source, maskedSource, target, target.pitch, target.acc, nextOct);
             return { edits, nextMode: "select", nextSpan: mapSpanThroughEdits(target.span, edits) };
         }
@@ -461,9 +466,8 @@ export function applyScoreEditAction(
         case "insert-line-break": {
             const insertPos = target ? target.postGroupInsertEnd : (action.slot ?? index.defaultInsertSlot).insertAt;
             if (isTopLevelLineBreakAllowed(maskedSource, insertPos)) {
-                let start = insertPos, end = insertPos;
-                while (start > 0 && (source[start - 1] === " " || source[start - 1] === "\t")) start--;
-                while (end < source.length && (source[end] === " " || source[end] === "\t")) end++;
+                const start = skipSpacesBack(source, insertPos - 1) + 1;
+                const end = skipSpaces(source, insertPos, source.length);
                 return {
                     edits: [{ span: { start, end }, text: "\n\n" }],
                     nextMode: "insert",
@@ -562,9 +566,10 @@ export function applyScoreEditAction(
                 const labelPos = source.indexOf(`@${target.label}`, target.stemSpan.start);
                 const group = labelPos >= 0 ? labelSymbolAt(source, syntax, labelPos) : null;
                 if (group) {
-                    for (const call of syntax.calls) {
-                        const rawName = call.name.toLowerCase();
-                        if (!isRelationKind(rawName) || !group.references.some(r => r.start >= call.span.start && r.end <= call.span.end)) continue;
+                    // 引用只归属最内层调用：外层 `@tuplet` 等只是容器，不随之解包
+                    for (const call of new Set(group.references.map(r => callAt(syntax.calls, r.start)))) {
+                        const rawName = call?.name.toLowerCase() ?? "";
+                        if (!call || !isRelationKind(rawName)) continue;
                         for (const relEdit of deleteRelationCallAndOrphanLabels(source, maskedSource, call.span, rawName, syntax)) {
                             if (relEdit.span.end < delSpan.start || relEdit.span.start > delSpan.end) edits.push(relEdit);
                             else {

@@ -6,6 +6,8 @@
  */
 import {
     analyzeScoreSyntax,
+    skipSpaces,
+    skipSpacesBack,
     type Rect,
     type SourceEdit,
     type SourceSpan,
@@ -23,20 +25,21 @@ export function applySourceEditsToText(source: string, edits: readonly SourceEdi
     return result;
 }
 
-/** 将一个原有的 SourceSpan 映射为应用补丁数组后的新源码区间 */
+/** 将一个原有的 SourceSpan 映射为应用补丁数组后的新源码区间；与区间相交的补丁，其替换文本并入新区间 */
 export function mapSpanThroughEdits(span: SourceSpan, edits: readonly SourceEdit[]): SourceSpan {
     const sorted = [...edits].sort((a, b) => a.span.start - b.span.start || a.span.end - b.span.end);
     let start = span.start, end = span.end, delta = 0;
-    for (const edit of sorted) {
-        const change = edit.text.length - (edit.span.end - edit.span.start);
-        if (edit.span.end <= span.start) {
+    for (const { span: e, text } of sorted) {
+        const change = text.length - (e.end - e.start);
+        if (e.end <= span.start) {
             start += change;
             end += change;
-        } else if (edit.span.start <= span.start && edit.span.end >= span.end) {
-            start = edit.span.start + delta;
-            end = start + edit.text.length;
-        } else if (edit.span.start < span.end) {
-            end += change;
+        } else if (e.start <= span.start && e.end >= span.end) {
+            start = e.start + delta;
+            end = start + text.length;
+        } else if (e.start < span.end) {
+            if (e.start < span.start) start = e.start + delta;
+            end = e.end > span.end ? e.start + delta + text.length : end + change;
         }
         delta += change;
     }
@@ -73,12 +76,8 @@ export function wrapInsertionText(source: string, pos: number, text: string): { 
 
 /** 删除指定区间时一并吞掉紧邻的一侧水平空白，防止多次删除后残留连续空格 */
 export function deleteRangeCleanly(source: string, span: SourceSpan): SourceSpan {
-    let { start, end } = span;
-    while (end < source.length && (source[end] === " " || source[end] === "\t")) end++;
-    if (end === span.end) {
-        while (start > 0 && (source[start - 1] === " " || source[start - 1] === "\t")) start--;
-    }
-    return { start, end };
+    const end = skipSpaces(source, span.end, source.length);
+    return { start: end === span.end ? skipSpacesBack(source, span.start - 1) + 1 : span.start, end };
 }
 
 /** 将音高、升降号与八度格式化为简谱语法糖词元（如 `#1'`、`5,`） */

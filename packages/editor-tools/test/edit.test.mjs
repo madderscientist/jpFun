@@ -10,6 +10,8 @@ import {
     editHitAt,
     editTargetAt,
     insertSlotAfter,
+    mapSpanThroughEdits,
+    stepOctave,
 } from "@jpfun/editor-tools/edit";
 import { createPreviewNavigationMap } from "@jpfun/editor-tools/navigation";
 
@@ -69,6 +71,26 @@ test("melody insertion with rhythm preset and auto-barline on full measure", () 
     assert.equal(slot.measureUsed.toNumber(), 0);
 });
 
+test("insertion slot meter progress only counts the preceding element's voice", () => {
+    const source = "H.signature: 1=C 4/4\n@voices(@voice({1 2 3}, A), @voice({4}, B))";
+    const compiled = compileScore(source);
+    const index = createScoreEditIndex(source, compiled);
+    const [a3, b4] = index.streamTargets.slice(-2);
+    assert.equal(insertSlotAfter(source, compiled, index, a3.span).measureUsed.toNumber(), 3);
+    assert.equal(insertSlotAfter(source, compiled, index, b4.span).measureUsed.toNumber(), 1);
+    assert.equal(index.defaultInsertSlot.measureUsed.toNumber(), 1);
+});
+
+test("insertion slot after a line break follows the next line onto the next page", () => {
+    const source = "@page(height=230px) 1 @br() 2 @br() 3 @br() 4 @br() 5";
+    const compiled = compileScore(source);
+    const index = createScoreEditIndex(source, compiled);
+    const four = index.streamTargets.at(-2), five = index.streamTargets.at(-1);
+    assert.ok(five.region.y > 230, "the last line should be laid out on the second page");
+    const { region } = insertSlotAfter(source, compiled, index, four.span);
+    assert.equal(region.y + region.h / 2, five.region.y + five.region.h / 2);
+});
+
 test("selecting existing note modifies pitch with advance, octave, accidental, rhythm, and shared div splitting", () => {
     // 1. 修改音高（或改为增时线 `-`）并自动步进到下一音符，末音自动切入 insert 模式
     const step1 = runEdit("1/ 2/ 3/", 0, { type: "set-pitch", pitch: "5" });
@@ -91,6 +113,9 @@ test("selecting existing note modifies pitch with advance, octave, accidental, r
     assert.equal(octUp.nextSource, "5'/ 2/");
     const octDown = runEdit("5/ 2/", 0, { type: "adjust-octave", delta: -2 });
     assert.equal(octDown.nextSource, "5,,/ 2/");
+    // 八度编辑上限与面板一致为 ±3，已超出的源码八度只允许向内收
+    assert.deepEqual(runEdit("5'''", 0, { type: "adjust-octave", delta: 1 }).result.edits, []);
+    assert.deepEqual([stepOctave(3, 1), stepOctave(5, 1), stepOctave(5, -1), stepOctave(-4, -1)], [3, 5, 4, -4]);
 
     // 函数实参内含双引号 `{` 时，后续裸音符降八度仍正确加 `{...}` 保护逗号
     const octDownAfterQuotedBrace = runEdit('@div("{" 1)', 0, { type: "adjust-octave", delta: -1 });
@@ -193,11 +218,16 @@ test("multi-note relation commands (@tie, @gliss, @tuplet) and orphan label clea
     const delThirdNote = runEdit("H.signature: 1=C 4/4\n1 2 3", 4, { type: "delete" });
     assert.equal(delThirdNote.nextSource.trim(), "H.signature: 1=C 4/4\n1 2");
     assert.equal(delThirdNote.nextSource.slice(delThirdNote.result.nextSpan.start, delThirdNote.result.nextSpan.end), "2");
+    // 全角空格与普通空格同样是分隔空白，删除时一并吞掉
+    assert.equal(runEdit("1\u30002\u30003", 1, { type: "delete" }).nextSource, "1\u30003");
 
     // 删除被多个关系引用的带标签音符时，一并清理所有关联关系与孤立标签
     const multiRelDel = runEdit("1@a 2@b 3@c @tie(a, b) @gliss(b, c)", 1, { type: "delete" });
     assert.equal(multiRelDel.nextSource.trim(), "1 3");
     assert.equal(multiRelDel.nextSource.slice(multiRelDel.result.nextSpan.start, multiRelDel.result.nextSpan.end), "1");
+    // 关系调用嵌在 @tuplet 内时，只删除该关系，外层连音保持不动
+    const nestedRelDel = runEdit("@tuplet({1@a 2@b @tie(a,b) 3 4}, 2) 5", 0, { type: "delete" });
+    assert.equal(nestedRelDel.nextSource, "@tuplet({2 3 4}, 2) 5");
 
     // 拾取前 3 个音符创建三连音 @tuplet，再点击删除解包还原
     const tupletRes = applyRelationCommand(source, {
@@ -299,6 +329,34 @@ test("mid-score meter change, barline type change, and barline reflow", () => {
         { type: "insert-note", slot: topBr.nextIndex.defaultInsertSlot, pitch: "5", rhythm: { div: 0, dot: 0 } },
     );
     assert.equal(applySourceEditsToText(topBr.nextSource, nextNoteOnNewLine.edits), "1 2 3 4 |\n\n5");
+    assert.equal(runEdit("1 2\u3000\u30003", 1, { type: "insert-line-break" }).nextSource, "1 2\n\n3");
+});
+
+test("barline reflow only rewrites the track of the first note after the meter", () => {
+    for (const [source, expected] of [
+        ["H.signature: 1=C 2/4\nN: 1 2 3 4 | 5 6 |\nN: 1 2 | 3 4 5 6 |", "H.signature: 1=C 2/4\nN: 1 2 | 3 4 | 5 6 |\nN: 1 2 | 3 4 5 6 |"],
+        ["H.signature: 1=C 2/4\n1 2 @stack({3 4 | 5}, {1 | 2 3 4}) 6 |", "H.signature: 1=C 2/4\n1 2 | @stack({3 4 | 5}, {1 | 2 3 4}) 6 |"],
+    ]) {
+        const compiled = compileScore(source);
+        const index = createScoreEditIndex(source, compiled);
+        const meter = index.streamTargets.find(t => t.kind === "meter");
+        const result = applyScoreEditAction(source, compiled, index, meter, { type: "reflow-bars" });
+        assert.equal(applySourceEditsToText(source, result.edits), expected);
+    }
+});
+
+test("span mapping absorbs the replacement text of partially overlapping edits", () => {
+    const span = { start: 5, end: 10 };
+    assert.deepEqual(mapSpanThroughEdits(span, [{ span: { start: 3, end: 7 }, text: "" }]), { start: 3, end: 6 });
+    assert.deepEqual(mapSpanThroughEdits(span, [{ span: { start: 3, end: 7 }, text: "xy" }]), { start: 3, end: 8 });
+    assert.deepEqual(mapSpanThroughEdits(span, [{ span: { start: 8, end: 12 }, text: "" }]), { start: 5, end: 8 });
+    assert.deepEqual(mapSpanThroughEdits(span, [{ span: { start: 8, end: 12 }, text: "xyz" }]), { start: 5, end: 11 });
+    assert.deepEqual(mapSpanThroughEdits(span, [{ span: { start: 4, end: 11 }, text: "ab" }]), { start: 4, end: 6 });
+    assert.deepEqual(mapSpanThroughEdits(span, [
+        { span: { start: 0, end: 1 }, text: "" },
+        { span: { start: 3, end: 7 }, text: "" },
+        { span: { start: 9, end: 12 }, text: "q" },
+    ]), { start: 2, end: 5 });
 });
 
 test("preview hit detection resolves both existing targets and the insertion slot", () => {

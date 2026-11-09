@@ -3,7 +3,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory, r
 import { bracketMatching } from "@codemirror/language";
 import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
-import { Compartment, EditorState, Prec, RangeSetBuilder, StateField } from "@codemirror/state";
+import { type ChangeSet, Compartment, EditorState, Prec, RangeSetBuilder, StateField } from "@codemirror/state";
 import {
     crosshairCursor,
     Decoration,
@@ -51,7 +51,7 @@ interface SourceEditorOptions {
     doc: string;
     isAutoFormatEnabled: () => boolean;
     onCompile: () => void;
-    onDocChanged: () => void;
+    onDocChanged: (changes: ChangeSet) => void;
     onCursorClick: (position: number) => void;
 }
 
@@ -262,7 +262,7 @@ export function createSourceEditor(options: SourceEditorOptions): EditorView {
                 ]),
                 editorTheme,
                 EditorView.updateListener.of(update => {
-                    if (update.docChanged) options.onDocChanged();
+                    if (update.docChanged) options.onDocChanged(update.changes);
                     for (const transaction of update.transactions) {
                         // 标签跳转不走 click，所以自己发通知让谱面同步强调
                         for (const effect of transaction.effects) {

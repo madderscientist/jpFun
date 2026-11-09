@@ -8,6 +8,7 @@ import {
     transformNotes,
     type CompileScoreResult,
     type NoteTransform,
+    type SourceEdit,
 } from "jpfun";
 import { createDiagnosticsController } from "./diagnostics.js";
 import {
@@ -80,7 +81,7 @@ const editor = createSourceEditor({
     doc: loadDraftSource(PLAYGROUND_EXAMPLE),
     isAutoFormatEnabled: () => autoFormat.checked,
     onCompile: compileAndRender,
-    onDocChanged() {
+    onDocChanged(changes) {
         documents.sourceChanged();
         preview.invalidateNavigation();
         latestCompiled = null;
@@ -89,7 +90,7 @@ const editor = createSourceEditor({
         scoreDiagnostics = [];
         playbackDiagnostics = [];
         playback?.invalidate();
-        visualEdit?.onInvalidated();
+        visualEdit?.onInvalidated(changes);
         diagnostics.render([]);
         updateSourceSize();
         scheduleRender();
@@ -216,8 +217,8 @@ preview = createPreviewController({
     isVisualEditActive() {
         return workspace.getSourceTab() === "visual";
     },
-    onVisualClick(x, y, tolerance) {
-        visualEdit?.handlePreviewClick(x, y, tolerance);
+    onVisualClick(navigation, x, y, tolerance) {
+        visualEdit?.handlePreviewClick(navigation, x, y, tolerance);
     },
 });
 const diagnostics = createDiagnosticsController({
@@ -240,16 +241,7 @@ visualEdit = createVisualEditController({
     getSource: source,
     getCompiled: () => latestCompiled,
     ensureCompiled,
-    applyEdits(original, edits) {
-        const candidate = applySourceEditsToText(original, edits);
-        const checked = compileScore(candidate, compileOptions);
-        const error = checked.diagnostics.find(item => item instanceof ErrorDiagnostic);
-        if (error) throw error;
-        if (!applySourceEdits(editor, original, edits)) return false;
-        window.clearTimeout(renderTimer);
-        compileAndRender();
-        return true;
-    },
+    applyEdits: commitCheckedEdits,
     onUndo() {
         if (!undoSourceEdit(editor)) return false;
         window.clearTimeout(renderTimer);
@@ -357,11 +349,23 @@ function ensureCompiled(): boolean {
     return (latestCompiled !== null && latestCompiledSource === source()) || compileAndRender();
 }
 
-function compileAndRender(): boolean {
+/** 先编译候选源码拦截错误，再写入编辑器，并直接复用这次编译结果渲染 */
+function commitCheckedEdits(original: string, edits: readonly SourceEdit[]): boolean {
+    const candidate = applySourceEditsToText(original, edits);
+    const compiled = compileScore(candidate, compileOptions);
+    const error = compiled.diagnostics.find(item => item instanceof ErrorDiagnostic);
+    if (error) throw error;
+    if (!applySourceEdits(editor, original, edits)) return false;
+    window.clearTimeout(renderTimer);
+    compileAndRender({ source: candidate, compiled });
+    return true;
+}
+
+function compileAndRender(checked?: { source: string; compiled: CompileScoreResult }): boolean {
     const startedAt = performance.now();
     const sourceText = source();
     try {
-        const compiled = compileScore(sourceText, compileOptions);
+        const compiled = checked?.source === sourceText ? checked.compiled : compileScore(sourceText, compileOptions);
         latestCompiled = compiled;
         latestCompiledSource = sourceText;
         scoreDiagnostics = [...compiled.diagnostics];
@@ -434,12 +438,7 @@ function runNoteTransform(operation: NoteTransform) {
             statusMessage.textContent = "音高无需修改";
             return;
         }
-        const candidate = edits.reduceRight((text, edit) =>
-            text.slice(0, edit.span.start) + edit.text + text.slice(edit.span.end), original);
-        const checked = compileScore(candidate, compileOptions);
-        const error = checked.diagnostics.find(item => item instanceof ErrorDiagnostic);
-        if (error) throw error;
-        applySourceEdits(editor, original, edits);
+        commitCheckedEdits(original, edits);
         editor.focus();
     } catch (error) {
         statusMessage.dataset.state = "error";
@@ -505,7 +504,7 @@ window.addEventListener("pagehide", event => {
     else playback?.destroy();
 });
 
-requiredElement<HTMLButtonElement>("#runLayout").addEventListener("click", compileAndRender);
+requiredElement<HTMLButtonElement>("#runLayout").addEventListener("click", () => compileAndRender());
 window.addEventListener("beforeprint", () => {
     if (ensureCompiled()) preview.preparePrint();
     else preview.clearPrint();
