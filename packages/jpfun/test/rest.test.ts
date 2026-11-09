@@ -114,7 +114,8 @@ test("rest has fixed minimum graphical width, size-based anchor, thick bar and r
         const rest = layout.objects.find(node => named(node, "rest"))!;
         strictEqual(rest.box.anchor, size * 0.4);
         const commands = recordCommands(layout);
-        const rects = commands.filter(command => command.kind === "rect" && command.x >= rest.box.x - 1e-6 && command.x + command.w <= rest.box.x + rest.box.w);
+        const rects = commands.filter(command => command.kind === "rect")
+            .filter(command => command.x >= rest.box.x - 1e-6 && command.x + command.w <= rest.box.x + rest.box.w);
         strictEqual(rects.length, 3);
         const [bar, left, right] = rects;
         assert(nearly(bar.h, size * 0.24)

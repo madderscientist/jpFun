@@ -22,8 +22,8 @@ import type {
 } from "../../playback/types.js";
 import type { Track } from "../../lowering/track.js";
 
-/** 仅索引被 @tie 引用过的端点，避免为全谱无关音符分配数组与 Map 节点 */
-const tieEndpoints = new WeakSet<VisualTemporalNode>();
+/** 被 @tie 引用过的端点 → 其上各连音线的最大弧高；播放也只索引这些端点，避免为全谱无关音符分配数组与 Map 节点 */
+const tieEndpoints = new WeakMap<VisualTemporalNode, number>();
 const notesByOriginNode = new WeakMap<
     readonly Readonly<PlaybackNote>[],
     Map<VisualTemporalNode, Readonly<PlaybackNote>[]>
@@ -152,9 +152,12 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
 
     constructor(endPoints: VisualTemporalNode[], height: number, sourceSpan: SourceSpan) {
         this.endPoints = endPoints;
+        // 跨轨弧线必然穿过两轨之间，加高端点留空只会撑开轨距，因此只有同轨连音线按显式弧高留空
+        const fixed = endPoints.every(endpoint => endpoint.track === endPoints[0].track) ? height : 0;
         for (const endpoint of endPoints) {
-            if (tieEndpoints.has(endpoint)) continue;
-            tieEndpoints.add(endpoint);
+            const peak = tieEndpoints.get(endpoint);
+            tieEndpoints.set(endpoint, Math.max(peak ?? 0, fixed || endpoint.ast.size * AUTO_HEIGHT_RATIO));
+            if (peak !== undefined) continue;
             const prepareLayout = endpoint.prepareLayout;
             endpoint.prepareLayout = context => {
                 prepareLayout.call(endpoint, context);
@@ -167,8 +170,9 @@ class TieLayoutAttachment implements LayoutAttachment, PlaybackRelation {
                 t = u / (0.75 * (1 + 2 * t * (1 - t)));
                 t = Math.min(0.5, u / (0.75 * (1 + 2 * t * (1 - t))));
                 // 上方留空使用没有 paint 的纯留白 decoration，以实现 tie 的避让效果，且 box 会忽略纯留白
+                // 横排前跨度未知，按参考跨度估算弧线经过主体边缘时的高度，弧高取该端点上各连音线的最大值
                 endpoint.decorations.push({
-                    above: { order: 200, height: size * (0.1 + 4 * t * (1 - t) * AUTO_HEIGHT_RATIO) },
+                    above: { order: 200, height: size * 0.1 + 4 * t * (1 - t) * tieEndpoints.get(endpoint)! },
                 });
             };
         }

@@ -249,7 +249,7 @@ export function layoutDocument(
     const views = horizontal.map(line => line.view);
     for (const attachment of documentAttachments) attachment.prepareHorizontal?.(views, context);
     const regions = horizontal.map(line => line.layout(contentWidth, page.fillRatio));
-    alignHorizontalBars(views, regions, contentWidth);
+    alignHorizontalBars(views, regions, contentWidth, pageBreaks);
     for (const line of horizontal) {
         for (const column of line.view.columns) {
             for (const node of column) node.box.x += originX;
@@ -551,6 +551,7 @@ function alignHorizontalBars(
     views: readonly HorizontalLineView[],
     regions: readonly { extra: number; groupOf?: Uint32Array }[],
     contentWidth: number,
+    pageBreaks: readonly (boolean | undefined)[],
 ) {
     // 1. 提取每行的内部小节线，并扣除单行撑满时平摊的 extra，还原各小节的自然宽度底线 minW
     const states = views.map(({ columns }, i) => {
@@ -582,23 +583,25 @@ function alignHorizontalBars(
         return { columns, extra, groupAt, totalGaps, ends, gaps, minW };
     });
 
-    const ok = (a?: typeof states[0], b?: typeof states[0]) =>
-        !!a && !!b && (a.minW.length % b.minW.length === 0 || b.minW.length % a.minW.length === 0);
+    const divides = (a: number, b: number) => a % b === 0 || b % a === 0;
+    const gcd = (a: number, b: number): number => b ? gcd(b, a % b) : a;
 
     for (let l = 0; l < states.length; l++) {
         const s = states[l];
         if (!s || s.extra <= 0 || !s.totalGaps) continue;
         const M = s.minW.length;
-        // 2. 向两侧扩展收集小节数相同或成整数倍的连续行段；遇到 extra = 0 的挤压行即作为刚性边界停下
-        let start = l, end = l;
-        while (states[start]!.extra > 0 && ok(states[start - 1], s) && ok(states[start - 1], states[end])) start--;
-        while (states[end]!.extra > 0 && ok(states[end + 1], s) && ok(states[end + 1], states[start])) end++;
+        // 2. 向两侧扩展收集连续行段：新行小节数须与本行及段内最大小节数都成整数倍，从而段内各行都整除最大小节数
+        //    （如 2、6 小节行成段后不再并入 4 小节行）；遇到 extra = 0 的挤压行或强制换页即作为刚性边界停下
+        let start = l, end = l, maxM = M;
+        const joins = (n?: typeof s) => !!n && divides(n.minW.length, M) && divides(n.minW.length, maxM);
+        while (states[start]!.extra > 0 && pageBreaks[start] === undefined && joins(states[start - 1])) maxM = Math.max(maxM, states[--start]!.minW.length);
+        while (states[end]!.extra > 0 && pageBreaks[end + 1] === undefined && joins(states[end + 1])) maxM = Math.max(maxM, states[++end]!.minW.length);
         if (start === end) continue;
 
-        // 在段内最大小节数 L 的细网格上求公共台阶，并通过水位填充（涨水填谷）补足剩余空白
+        // 在各行小节数最小公倍数 L 的细网格上求公共台阶（整段时 L 即最大小节数，回退子窗口时也保证整除），并通过水位填充（涨水填谷）补足剩余空白
         const env = (lo: number, hi: number) => {
             const group = states.slice(lo, hi + 1) as NonNullable<typeof s>[];
-            const L = Math.max(...group.map(n => n.minW.length)), r = L / M;
+            const L = group.reduce((acc, n) => acc / gcd(acc, n.minW.length) * n.minW.length, 1), r = L / M;
             const grid = new Array<number>(L).fill(0);
             // 先填细网格行，再把粗网格行（如 2 小节行）超出对应细格之和的差额平摊进去
             for (const n of [...group].sort((a, b) => b.minW.length - a.minW.length)) {
@@ -633,9 +636,14 @@ function alignHorizontalBars(
             return { group, target };
         };
         let { group, target } = env(start, end);
-        // 若整段公共台阶总和超出行宽，退回只与上下紧邻行对齐
+        // 若整段公共台阶总和超出行宽，退回只与上下紧邻行对齐；与本行台阶相同的相邻行视为一体共用窗口，避免相同行逐行错开
         if (target.reduce((a, b) => a + b, 0) > contentWidth + 1e-6) {
-            ({ group, target } = env(Math.max(start, l - 1), Math.min(end, l + 1)));
+            const same = (n?: typeof s) => n?.minW.length === M
+                && n.minW.every((w, m) => Math.abs(w - s.minW[m]) <= 1e-6 && !n.gaps[m] === !s.gaps[m]);
+            let lo = l, hi = l;
+            while (lo > start && same(states[lo - 1])) lo--;
+            while (hi < end && same(states[hi + 1])) hi++;
+            ({ group, target } = env(Math.max(start, lo - 1), Math.min(end, hi + 1)));
         }
 
         // 3. 退水触底：若目标总宽仍超出行宽（空白不够追平邻行），同步回缩并在碰到本行底线 minW 时锁死

@@ -83,6 +83,39 @@ test("ties leave a small font-relative gap above upper octave dots", () => {
         "heightening a tied lower chord member must push the upper member's lower octave dot clear of the tie arc");
 });
 
+test("同轨连音线上方留空按显式弧高估算，同一端点取各连音线的最大值", () => {
+    const measure = (source: string) => {
+        const layout = layoutOf(source, 20);
+        const upper = (layout.objects[0] as typeof layout.objects[number] & {
+            members: readonly (typeof layout.objects[number])[];
+        }).members[1];
+        const path = attachmentCommands(layout.attachments[0]).find(command => command.kind === "path");
+        assert(path?.kind === "path", "expected tie path");
+        return { upper: { right: upper.box.x + upper.box.w, bottom: upper.box.y + upper.box.h }, commands: path.commands };
+    };
+    const gap = (source: string) => {
+        const { upper, commands: [start] } = measure(source);
+        assert(start.op === "M", "expected tie start");
+        return start.y - upper.bottom;
+    };
+    const auto = gap("2@x ^3, 2@y ^3, @tie(x,y)");
+    const tall = gap("2@x ^3, 2@y ^3, @tie(x,y,height=1em)");
+    assert(tall > auto + 4, `显式 1em 弧高应比自动弧高预留更多空间: ${tall} vs ${auto}`);
+    assert(nearly(gap("2@x ^3, 2@y ^3, @tie(x,y) @tie(x,y,height=1em)"), tall)
+        && nearly(gap("2@x ^3, 2@y ^3, @tie(x,y,height=1em) @tie(x,y)"), tall),
+    "同一端点上的多条连音线应按最大弧高留空，与书写顺序无关");
+
+    // 跨度不小于参考跨度 2.5em 时，弧线外缘经过上方成员的水平范围内不得穿入该成员
+    const { upper, commands: [start, outer] } = measure("2@x ^3, 4 2@y ^3, @tie(x,y,height=1em)");
+    assert(start.op === "M" && outer.op === "C", "unexpected tie path shape");
+    for (let i = 0; i <= 100; i++) {
+        const t = i / 100, s = 1 - t;
+        const x = s ** 3 * start.x + 3 * s * s * t * outer.cx1 + 3 * s * t * t * outer.cx2 + t ** 3 * outer.x;
+        const y = s ** 3 * start.y + 3 * s * s * t * outer.cy1 + 3 * s * t * t * outer.cy2 + t ** 3 * outer.y;
+        if (x <= upper.right) assert(y >= upper.bottom - 1e-6, `弧线在 x=${x} 处穿入上方成员: ${y} < ${upper.bottom}`);
+    }
+});
+
 test("up 成员标签连接该成员，整体标签连接整个 up", () => {
     const tieStartY = (source: string) => {
         const result = layoutOf(source);

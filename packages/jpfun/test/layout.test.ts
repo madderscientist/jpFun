@@ -11,6 +11,12 @@ import { assert, layoutContext, layoutOf, lower, nearly, recordCommands } from "
 /** 综合样例：数字、升降号、减时线、小节线、延音与文本 */
 const result = compileScore(`1 #2'./ | - @text("进入")`, { rowGap: 12 }).layout;
 
+/** 指定行内各小节线锚点的横坐标 */
+const barAnchors = (layout: ReturnType<typeof layoutOf>, line: number) => layout.objects
+    .filter(node => node.layoutLine === line && node.mergeKey === ANCHOR_KEY)
+    .map(node => node.box.x + node.box.anchor);
+const sameXs = (a: number[], b: number[]) => a.length === b.length && a.every((x, i) => nearly(x, b[i]));
+
 test("horizontalOnly 保留横向约束与子域尺寸，跳过文档放置、附件测量与分页", () => {
     const run = (horizontalOnly: boolean) => {
         const lowered = lower("@grace(1/@a,{@box({2/ 3/},padding=8px)}) 1/@b | @tie(a,b) @br() @stack({2/ 3/},{4})");
@@ -227,10 +233,6 @@ test("重复调用 layoutDocument 重置 springConfig，不累乘连梁、小节
 });
 
 test("相邻同小节数的无挤压撑满行通过注水投影对齐内部小节线，并兼容行首尾记号与定宽休止", () => {
-    const barAnchors = (layout: ReturnType<typeof layoutOf>, line: number) => layout.objects
-        .filter(node => node.layoutLine === line && node.mergeKey === ANCHOR_KEY)
-        .map(node => node.box.x + node.box.anchor);
-
     // 余量充足且含行首调号/拍号/反复线与行尾终止线差异时，内部 3 根小节线完全对齐
     const aligned = layoutOf(`
 @page(width=900px)
@@ -306,5 +308,44 @@ test("相邻同小节数的无挤压撑满行通过注水投影对齐内部小�
         assert(nearly(restLineBars[i], noteLineBars[i]),
             `含 @rest 的邻行内部小节线应与普通行对齐: ${restLineBars[i]} vs ${noteLineBars[i]}`);
     }
+});
+
+test("段内各行须整除最大小节数：2、6、4 小节相邻时 2 小节行的段不并入 4 小节行", () => {
+    const page = "@page(width=1000px, fillRatio=0)";
+    const two = "1 2 3 4 | 5 6 7 1' |";
+    const six = "1 2 3 4 | 5 6 7 1' | 2 3 4 5 | 6 5 4 3 | 2 3 4 5 | 1 - - - |";
+    // 首小节加密，使 4 小节行一旦误入段就会可观测地拉动 2 小节行的小节线
+    const four = "1// 2// 3// 4// 5// 6// 7// 1'// 1// 2// 3// 4// 5// 6// 7// 1'// | 5 6 7 1' | 2 3 4 5 | 1 - - - |";
+    // 末行 5 小节与其余行都不成倍数，只用来让被比较的行都不是末行
+    const five = "1 2 3 4 | 5 6 7 1' | 2 3 4 5 | 6 5 4 3 | 1 - - - |";
+    const lines = (...rows: string[]) => layoutOf(`${page} ${rows.join(" @br() ")}`);
+    const mixed = lines(two, six, four, five);
+    const pair = lines(two, six, five);
+    const tail = lines(six, four, five);
+    for (const [line, reference, refLine] of [[0, pair, 0], [1, pair, 1], [2, tail, 1]] as const) {
+        const actual = barAnchors(mixed, line), expected = barAnchors(reference, refLine);
+        assert(sameXs(actual, expected),
+            `第 ${line} 行小节线不应受不成倍数的邻行影响: ${actual} vs ${expected}`);
+    }
+});
+
+test("整段超宽退回邻行对齐时，相邻的相同行共用对齐窗口", () => {
+    const bar = (n: number) => Array.from({ length: n }, (_, i) => i % 7 + 1).join(" ");
+    const row = (a: number, b: number) => `${bar(a)} | ${bar(b)} |`;
+    const layout = layoutOf(`@page(width=640px, fillRatio=0) ${[row(18, 3), row(7, 7), row(7, 7), row(3, 18)].join(" @br() ")}`);
+    const [first, second] = [1, 2].map(line => barAnchors(layout, line));
+    assert(sameXs(first, second),
+        `内容相同的中间两行小节线应对齐: ${first} vs ${second}`);
+});
+
+test("强制换页两侧的行不参与彼此的小节线对齐", () => {
+    const page = "@page(width=900px, fillRatio=0)";
+    const a = "1/ 2/ 3/ 4/ 5/ 6/ 7/ 1'/ | 1 2 3 4 | 5 6 7 1' | 2 - - - |";
+    const b = "1 2 3 4 | 5 6 7 1' | 2'/ 3'/ 4'/ 5'/ 6'/ 5'/ 4'/ 3'/ | 1 - - - |";
+    const joined = layoutOf(`${page} ${a} @br() ${b}`);
+    assert(sameXs(barAnchors(joined, 0), barAnchors(joined, 1)), "同页相邻行应对齐，否则本用例无法区分");
+    const split = layoutOf(`${page} ${a} @pagebreak() ${b}`);
+    assert(sameXs(barAnchors(split, 0), barAnchors(layoutOf(`${page} ${a}`), 0)), "换页前的行应保持单行排版");
+    assert(sameXs(barAnchors(split, 1), barAnchors(layoutOf(`${page} ${b}`), 0)), "换页后的行应保持单行排版");
 });
 

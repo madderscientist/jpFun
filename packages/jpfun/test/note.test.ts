@@ -237,7 +237,8 @@ test("numberweight controls note, meter and rest with default 700 and lexical sc
 
     const annotations = `@set(numberweight=400) @key(C) @tuplet({1@a 2@b 3}, 2) @volta(a, b, 1) @ottava(a, b, 1)`;
     const annotationWeights = recordCommands(layoutOf(annotations))
-        .filter(command => command.kind === "text" && !["1", "2", "3"].includes(command.text))
+        .filter(command => command.kind === "text")
+        .filter(command => !["1", "2", "3"].includes(command.text))
         .map(command => [command.text, command.style.fontWeight]);
     strictAssert.deepEqual(annotationWeights, [
         ["1=", undefined],
