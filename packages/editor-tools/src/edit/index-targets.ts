@@ -376,6 +376,7 @@ export function createScoreEditIndex(source: string, compiled: CompileScoreResul
                 streamTargets.push({
                     ...common,
                     kind: "note",
+                    noteAst: resolved.noteAst,
                     noteSpan: { ...resolved.noteAst.sourceSpan },
                     foldSpan: resolved.foldAst ? { ...resolved.foldAst.sourceSpan } : undefined,
                     graceBranchParent: anc.graceBranchParent,

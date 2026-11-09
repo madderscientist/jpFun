@@ -56,18 +56,23 @@ function targetPitch(note: NoteSource, operation: NoteTransform) {
     return { name, acc, octave: octave - note.ast.jeOctaveOffset, absolute };
 }
 
-/** 仅在函数参数的顶层保护低八度逗号；已有大括号内的简写无需再包装 */
-function needsBraces(masked: string, ast: ASTNodeBase) {
+/**
+ * 仅在函数参数的顶层保护低八度逗号；已有大括号内的简写无需再包装。
+ * 沿 AST 父链定位最近一层显式函数调用 `@call(...)` 及目标音符所属实参，
+ * 统计实参起点到音符前的 `{}` 深度（跳过双引号字符串字面量）。
+ */
+export function needsBraces(masked: string, ast: ASTNodeBase): boolean {
     for (let parent = ast.parent; parent; parent = parent.parent) {
         const call = readCall(masked, parent.sourceSpan.start, parent.sourceSpan.end);
-        if (!call) continue;
-        const arg = call.args.find(item => item.valueSpan.start <= ast.sourceSpan.start
+        const arg = call?.args.find(item => item.valueSpan.start <= ast.sourceSpan.start
             && item.valueSpan.end >= ast.sourceSpan.end);
         if (!arg) continue;
         let depth = 0;
         for (let position = arg.valueSpan.start; position < ast.sourceSpan.start; position++) {
-            if (masked[position] === '"') position = findClosingQuote(masked, position, arg.valueSpan.end);
-            else if (masked[position] === "{") depth++;
+            if (masked[position] === '"') {
+                const close = findClosingQuote(masked, position, arg.valueSpan.end);
+                if (close >= 0) position = close;
+            } else if (masked[position] === "{") depth++;
             else if (masked[position] === "}") depth--;
         }
         return depth === 0;

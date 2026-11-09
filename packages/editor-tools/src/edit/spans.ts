@@ -126,25 +126,6 @@ export function isTopLevelLineBreakAllowed(masked: string, pos: number): boolean
     return !/^\s*[NL](?:\([^)]*\))?:/.test(masked.slice(lineStart, pos));
 }
 
-/**
- * 检测某区间是否直接裸露在函数调用的圆括号实参内（未被 `{...}` 包裹）：
- * 若直接裸露，则低八度音符 `1,` 中的逗号会被解析器误判为参数分隔符，必须外包 `{1,}`。
- */
-export function needsCommaProtection(masked: string, span: SourceSpan): boolean {
-    for (const call of analyzeScoreSyntax(masked).syntax.calls) {
-        if (call.span.start > span.start || call.span.end < span.end) continue;
-        const arg = call.args.find(a => a.valueSpan.start <= span.start && a.valueSpan.end >= span.end);
-        if (!arg) continue;
-        let depth = 0;
-        for (let i = arg.valueSpan.start; i < span.start; i++) {
-            if (masked[i] === "{") depth++;
-            else if (masked[i] === "}") depth--;
-        }
-        if (depth === 0) return true;
-    }
-    return false;
-}
-
 /** 扫描源码中已存在的 `@label`，按前缀（如 `t1`, `t2`）分配不冲突的新标签名 */
 export function allocateLabels(source: string, prefix: string, count: number): string[] {
     const existing = new Set<string>();

@@ -45,6 +45,8 @@ export interface BaseEditTarget {
 /** 音符目标（含语法糖 `1/.` 与显式函数 `@note(...)`） */
 export interface NoteEditTarget extends BaseEditTarget {
     readonly kind: "note";
+    /** 音符对应的底层 AST 节点 */
+    readonly noteAst: ASTFunctionNode;
     /** 仅包裹音高/八度/变音本体的区间（不含外层 `/`、`.` 与符号） */
     readonly noteSpan: SourceSpan;
     /** 包裹音符本体及其独占 `/`、`.` 时值后缀的区间（后倚音 `<` 需包裹此区间以保留宿主时值） */

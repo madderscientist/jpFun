@@ -11,6 +11,7 @@ import {
     ErrorDiagnostic,
     Fraction,
     analyzeScoreSyntax,
+    needsBraces,
     parseNoteName,
     preprocessSource,
     quoteSourceString,
@@ -32,7 +33,6 @@ import {
     formatStemSlice,
     isTopLevelLineBreakAllowed,
     mapSpanThroughEdits,
-    needsCommaProtection,
     wrapInsertionText,
 } from "./spans.js";
 import {
@@ -76,7 +76,7 @@ function rewriteNotePitchInPlace(
     const pitchToken = formatPitchToken(nextPitch, cleanAcc, cleanOctave);
 
     if (!isExplicit) {
-        let replacement = pitchToken.includes(",") && needsCommaProtection(masked, span) ? `{${pitchToken}}` : pitchToken;
+        let replacement = pitchToken.includes(",") && needsBraces(masked, target.noteAst) ? `{${pitchToken}}` : pitchToken;
         const afterChar = source[span.end] ?? "";
         if (afterChar && /[0-9A-Za-z#b',]/.test(afterChar)) {
             const parsed = parseNoteName(replacement + afterChar, 0, replacement.length + 1, false);

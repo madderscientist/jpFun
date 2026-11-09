@@ -92,6 +92,11 @@ test("selecting existing note modifies pitch with advance, octave, accidental, r
     const octDown = runEdit("5/ 2/", 0, { type: "adjust-octave", delta: -2 });
     assert.equal(octDown.nextSource, "5,,/ 2/");
 
+    // 函数实参内含双引号 `{` 时，后续裸音符降八度仍正确加 `{...}` 保护逗号
+    const octDownAfterQuotedBrace = runEdit('@div("{" 1)', 0, { type: "adjust-octave", delta: -1 });
+    assert.equal(octDownAfterQuotedBrace.nextSource, '@div("{" {1,})');
+    assert.deepEqual(octDownAfterQuotedBrace.nextCompiled.diagnostics, []);
+
     // 3. 减时线与附点作为两个独立状态修改（八分 `5/` -> 八分附点 `5/.` -> 四分附点 `5.`）
     const addDot = runEdit("5/ 2/", 0, { type: "set-rhythm", rhythm: { dot: 1 } });
     assert.equal(addDot.nextSource, "5/. 2/");
