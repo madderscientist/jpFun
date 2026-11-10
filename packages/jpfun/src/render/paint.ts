@@ -118,15 +118,11 @@ class PagePainter implements Painter {
 
     drawPath(commands: readonly PathCommand[], style?: PaintStyle, transform?: PathTransform) {
         if (commands.length === 0) return;
-        const y = transform
-            ? (value: number) => transform.y + value * transform.scaleY
-            : (value: number) => value;
         let top = Infinity;
         let bottom = -Infinity;
         const include = (value: number) => {
-            const transformed = y(value);
-            top = Math.min(top, transformed);
-            bottom = Math.max(bottom, transformed);
+            top = Math.min(top, value);
+            bottom = Math.max(bottom, value);
         };
         for (const command of commands) {
             if (command.op === "Z") continue;
@@ -136,6 +132,13 @@ class PagePainter implements Painter {
                 include(command.cy2);
             }
             include(command.y);
+        }
+        if (transform) {
+            // 仿射变换单调，变换端点即可；scaleY 为负时上下互换
+            const a = transform.y + top * transform.scaleY;
+            const b = transform.y + bottom * transform.scaleY;
+            top = Math.min(a, b);
+            bottom = Math.max(a, b);
         }
         if (!Number.isFinite(top)) return;
         const halfStroke = style?.stroke ? (style.strokeWidth ?? 1) / 2 : 0;

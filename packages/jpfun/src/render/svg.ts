@@ -42,30 +42,27 @@ function pathCommandsToSvg(
         : number;
 
     for (const command of commands) {
-        if (command.op === "Z") {
-            parts.push("Z");
-            continue;
+        switch (command.op) {
+            case "M":
+            case "L":
+                parts.push(`${command.op}${x(command.x)} ${y(command.y)}`);
+                break;
+            case "Q":
+                parts.push(`Q${x(command.cx)} ${y(command.cy)} ${x(command.x)} ${y(command.y)}`);
+                break;
+            case "C":
+                parts.push(
+                    `C${x(command.cx1)} ${y(command.cy1)} `
+                    + `${x(command.cx2)} ${y(command.cy2)} `
+                    + `${x(command.x)} ${y(command.y)}`,
+                );
+                break;
+            case "Z":
+                parts.push("Z");
+                break;
+            default:
+                command satisfies never;
         }
-
-        if (command.op === "M" || command.op === "L") {
-            parts.push(`${command.op}${x(command.x)} ${y(command.y)}`);
-            continue;
-        }
-
-        if (command.op === "Q") {
-            parts.push(
-                `Q${x(command.cx)} ${y(command.cy)} `
-                + `${x(command.x)} ${y(command.y)}`,
-            );
-            continue;
-        }
-
-        if (!("cx1" in command)) continue;
-        parts.push(
-            `C${x(command.cx1)} ${y(command.cy1)} `
-            + `${x(command.cx2)} ${y(command.cy2)} `
-            + `${x(command.x)} ${y(command.y)}`,
-        );
     }
 
     return parts.join(" ");

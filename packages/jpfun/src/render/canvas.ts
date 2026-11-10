@@ -14,41 +14,38 @@ function tracePath(
     context.beginPath();
 
     for (const command of commands) {
-        if (command.op === "Z") {
-            context.closePath();
-            continue;
+        switch (command.op) {
+            case "M":
+                context.moveTo(x + command.x * scaleX, y + command.y * scaleY);
+                break;
+            case "L":
+                context.lineTo(x + command.x * scaleX, y + command.y * scaleY);
+                break;
+            case "Q":
+                context.quadraticCurveTo(
+                    x + command.cx * scaleX, y + command.cy * scaleY,
+                    x + command.x * scaleX, y + command.y * scaleY,
+                );
+                break;
+            case "C":
+                context.bezierCurveTo(
+                    x + command.cx1 * scaleX, y + command.cy1 * scaleY,
+                    x + command.cx2 * scaleX, y + command.cy2 * scaleY,
+                    x + command.x * scaleX, y + command.y * scaleY,
+                );
+                break;
+            case "Z":
+                context.closePath();
+                break;
+            default:
+                command satisfies never;
         }
-
-        if (command.op === "M") {
-            context.moveTo(x + command.x * scaleX, y + command.y * scaleY);
-            continue;
-        }
-
-        if (command.op === "L") {
-            context.lineTo(x + command.x * scaleX, y + command.y * scaleY);
-            continue;
-        }
-
-        if (command.op === "Q") {
-            context.quadraticCurveTo(
-                x + command.cx * scaleX,
-                y + command.cy * scaleY,
-                x + command.x * scaleX,
-                y + command.y * scaleY,
-            );
-            continue;
-        }
-
-        if (!("cx1" in command)) continue;
-        context.bezierCurveTo(
-            x + command.cx1 * scaleX,
-            y + command.cy1 * scaleY,
-            x + command.cx2 * scaleX,
-            y + command.cy2 * scaleY,
-            x + command.x * scaleX,
-            y + command.y * scaleY,
-        );
     }
+}
+
+/** Canvas 会忽略 "none" 这类非法颜色并沿用上一次的样式，因此按“不绘制”处理 */
+function paint(color: string | undefined): string | undefined {
+    return color === "none" ? undefined : color;
 }
 
 /**
@@ -81,14 +78,16 @@ export class CanvasPainter implements Painter {
     drawRect(x: number, y: number, w: number, h: number, style?: PaintStyle) {
         if (w < 0 || h < 0) return;
 
-        if (style?.fill) {
-            this.context.fillStyle = style.fill;
+        const fill = paint(style?.fill);
+        if (fill) {
+            this.context.fillStyle = fill;
             this.context.fillRect(x, y, w, h);
         }
 
-        if (style?.stroke) {
-            this.context.strokeStyle = style.stroke;
-            this.context.lineWidth = style.strokeWidth ?? 1;
+        const stroke = paint(style?.stroke);
+        if (stroke) {
+            this.context.strokeStyle = stroke;
+            this.context.lineWidth = style?.strokeWidth ?? 1;
             this.context.lineJoin = "miter";
             this.context.strokeRect(x, y, w, h);
         }
@@ -100,15 +99,16 @@ export class CanvasPainter implements Painter {
         this.context.beginPath();
         this.context.arc(cx, cy, r, 0, Math.PI * 2);
 
-        const fill = style?.fill ?? "#000";
-        if (fill && fill !== "none") {
+        const fill = paint(style?.fill ?? "#000");
+        if (fill) {
             this.context.fillStyle = fill;
             this.context.fill();
         }
 
-        if (style?.stroke) {
-            this.context.strokeStyle = style.stroke;
-            this.context.lineWidth = style.strokeWidth ?? 1;
+        const stroke = paint(style?.stroke);
+        if (stroke) {
+            this.context.strokeStyle = stroke;
+            this.context.lineWidth = style?.strokeWidth ?? 1;
             this.context.stroke();
         }
     }
@@ -125,14 +125,16 @@ export class CanvasPainter implements Painter {
             transform?.scaleY,
         );
 
-        if (style?.fill) {
-            this.context.fillStyle = style.fill;
+        const fill = paint(style?.fill);
+        if (fill) {
+            this.context.fillStyle = fill;
             this.context.fill();
         }
 
-        if (style?.stroke) {
-            this.context.strokeStyle = style.stroke;
-            this.context.lineWidth = style.strokeWidth ?? 1;
+        const stroke = paint(style?.stroke);
+        if (stroke) {
+            this.context.strokeStyle = stroke;
+            this.context.lineWidth = style?.strokeWidth ?? 1;
             this.context.lineCap = "round";
             this.context.lineJoin = "round";
             this.context.stroke();

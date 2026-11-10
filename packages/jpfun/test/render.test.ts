@@ -1,5 +1,5 @@
 import { test } from "node:test";
-import { strictEqual } from "node:assert";
+import { deepStrictEqual, strictEqual } from "node:assert";
 
 import type { DocumentLayoutResult } from "../src/layout/engine.js";
 import { CanvasPainter, renderLayoutPagesToCanvas } from "../src/render/canvas.js";
@@ -127,6 +127,16 @@ test("Canvas 圆形支持 fill=none，默认圆形仍填充黑色", () => {
         strictEqual(calls.filter(call => call === "stroke").length, 1);
         if (fill !== "none") strictEqual(context.fillStyle, fill ?? "#000");
     }
+});
+
+test("Canvas 路径和矩形把 none 当作不绘制，而不是沿用上一次的颜色", () => {
+    const calls: string[] = [];
+    const painter = new CanvasPainter(recordingCanvasContext(calls));
+    const path: PathCommand[] = [{ op: "M", x: 0, y: 0 }, { op: "L", x: 5, y: 5 }];
+    painter.drawPath(path, { fill: "none", stroke: "#000" });
+    painter.drawPath(path, { fill: "#000", stroke: "none" });
+    painter.drawRect(0, 0, 10, 10, { fill: "none", stroke: "none" });
+    deepStrictEqual(calls.filter(call => /^(fill|stroke)(Rect)?$/.test(call)), ["stroke", "fill"]);
 });
 
 test("内置新增符号在 SVG 和 Canvas 中使用相同的有限矢量图元，不依赖字体", () => {
