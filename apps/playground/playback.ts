@@ -1,6 +1,6 @@
 import { scoreTimeToSeconds, secondsToScoreTime, type PlaybackPlan } from "jpfun";
 import { createMidiBlob } from "./midi-export.js";
-import { constrain, downloadBlob, requiredElement } from "./platform.js";
+import { constrain, downloadBlob, fileBaseName, requiredElement } from "./platform.js";
 import {
     loadTinySynth,
     TinySynthPlayer,
@@ -39,11 +39,6 @@ function formatTime(value: number) {
 function messageOf(error: unknown) {
     if (error instanceof Error) return error.message;
     return String(error);
-}
-
-function midiName(fileName: string) {
-    const base = fileName.replace(/\.[^.]*$/, "") || "score";
-    return `${base}.mid`;
 }
 
 export function createPlaybackController(options: PlaybackControllerOptions): PlaybackController {
@@ -308,7 +303,7 @@ export function createPlaybackController(options: PlaybackControllerOptions): Pl
         }
         if (!plan) throw new Error("当前没有可导出的演奏计划");
         try {
-            const fileName = midiName(options.getFileName());
+            const fileName = `${fileBaseName(options.getFileName())}.mid`;
             const blob = await createMidiBlob(plan, settings);
             downloadBlob(blob, fileName);
             if (audioAvailable !== false) showPlanStatus("MIDI 已生成");

@@ -258,9 +258,7 @@ L: la la la
 
     /** 仅在导航定位读取时按需计算词元源码区间，正常编译渲染零开销 */
     lyricTokenSpan(row: number, index: number): SourceSpan | undefined {
-        this.cachedLyricSpans ??= this.lyricSources.map(item => {
-            if (!item) return [];
-            const { source, lyric, span } = item;
+        this.cachedLyricSpans ??= this.lyricSources.map(({ source, lyric, span }) => {
             const { start, end } = trimRange(source, span.start, span.end);
             const quoted = end - start >= 2 && source[start] === '"' && source[end - 1] === '"';
             const base = start + (quoted ? 1 : 0), raw = source.slice(base, end - (quoted ? 1 : 0));

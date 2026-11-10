@@ -1,13 +1,10 @@
 import { DEFAULT_BPM, DEFAULT_PROGRAM, type PlaybackPlan } from "jpfun";
 import { loadMidiApi, type MidiEventLike } from "./midi-api.js";
+import { constrain } from "./platform.js";
 import type { PlaybackTrackSettings } from "./tiny-synth.js";
 
 const PPQ = 480;
 const DEFAULT_TIME_SIGNATURE = [4, 4] as const;
-
-function constrain(value: number, min: number, max: number) {
-    return Math.min(max, Math.max(min, value));
-}
 
 function tickOf(value: { toNumber(): number }) {
     return value.toNumber() * PPQ;

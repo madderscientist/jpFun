@@ -174,7 +174,7 @@ export class PageFunction extends ASTFunctionNode {
     }
 
     override loweringEnter(ctx: LoweringContext) {
-        if (!ctx || !this.config) return [];
+        if (!this.config) return [];
         ctx.setPageConfig(this.config);
         if (this.numbering) {
             ctx.addAttachment(

@@ -57,9 +57,7 @@ export abstract class Diagnostic {
 
     static offsetToLineCol(offset: number, lineStarts: ArrayLike<number>): { line: number; column: number } {
         const count = lineStarts.length;
-        if (count === 0) {
-            return { line: 1, column: Math.max(0, offset) + 1 };
-        }
+        if (count === 0) return { line: 1, column: Math.max(0, offset) + 1 };
         let target = offset;
         if (target < 0) target = 0;
 
@@ -78,8 +76,8 @@ export abstract class Diagnostic {
         };
     }
 
-    static error: any;
-    static warning: any;
+    static error: typeof errors;
+    static warning: typeof warnings;
 }
 
 const formatArg = (arg: string | number) => typeof arg === "number" ? `[${arg}]` : `"${arg}"`;
@@ -88,7 +86,7 @@ const formatArg = (arg: string | number) => typeof arg === "number" ? `[${arg}]`
 export class ErrorDiagnostic extends Diagnostic {}
 export class WarningDiagnostic extends Diagnostic {}
 
-Diagnostic.error = {
+const errors = {
     Bug: (message: string, span: SourceSpan) =>
         new ErrorDiagnostic(
             "E_BUG",
@@ -144,7 +142,7 @@ Diagnostic.error = {
         ),
 };
 
-Diagnostic.warning = {
+const warnings = {
     InvalidUnicodeEscape: (span: SourceSpan) =>
         new WarningDiagnostic(
             "W_STRING_INVALID_UNICODE_ESCAPE",
@@ -221,3 +219,6 @@ Diagnostic.warning = {
             { track: trackOrder }
         ),
 };
+
+Diagnostic.error = errors;
+Diagnostic.warning = warnings;

@@ -70,7 +70,6 @@ class KeyFunction extends ASTFunctionNode {
         super(sourceSpan, parent);
         const [tonality, size] = this.getArgValue(args, ctx) as [string, LengthValue];
         this.font = ctx.variables.numberfont;
-        this.tonality = tonality;
         this.size = ctx.length2px(size);
 
         const normalized = normalizeTonality(tonality);

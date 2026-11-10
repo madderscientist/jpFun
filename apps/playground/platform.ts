@@ -2,6 +2,11 @@ export function constrain(value: number, min: number, max: number) {
     return Math.min(max, Math.max(min, value));
 }
 
+/** 去掉扩展名的文件名，为空时回退为 `score` */
+export function fileBaseName(fileName: string) {
+    return fileName.replace(/\.[^.]*$/, "") || "score";
+}
+
 export function requiredElement<T extends Element>(selector: string): T {
     const element = document.querySelector<T>(selector);
     if (element) return element;
@@ -27,7 +32,7 @@ export function storeValue(key: string, value: string) {
 
 const classicScripts = new Map<string, Promise<void>>();
 
-/** 按需加载不提供 ESM 入口的远程脚本；失败后允许下一次操作重试。 */
+/** 按需加载不提供 ESM 入口的远程脚本；失败后允许下一次操作重试 */
 export function loadClassicScript(source: string): Promise<void> {
     const pending = classicScripts.get(source);
     if (pending) return pending;

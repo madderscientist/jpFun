@@ -1,11 +1,8 @@
 import { loadMidiApi } from "./midi-api.js";
-
-function scoreTitle(fileName: string) {
-    return fileName.replace(/\.[^.]*$/, "") || "score";
-}
+import { fileBaseName } from "./platform.js";
 
 function jpFunName(fileName: string) {
-    return `${scoreTitle(fileName)}.jpfun`;
+    return `${fileBaseName(fileName)}.jpfun`;
 }
 
 function parseMusicXml(source: string) {
@@ -38,7 +35,7 @@ export async function importScoreFile(file: File) {
         const parsed = midi.import(new Uint8Array(await file.arrayBuffer()));
         if (!parsed) throw new TypeError("无法识别 MIDI 文件");
         return {
-            source: midiJsonToJpFun(parsed.JSON(), { title: scoreTitle(file.name) }),
+            source: midiJsonToJpFun(parsed.JSON(), { title: fileBaseName(file.name) }),
             fileName: jpFunName(file.name),
             linked: false,
         };

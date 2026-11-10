@@ -42,10 +42,6 @@ export interface DocumentLayoutOptions extends SolverOptions {
     horizontalOnly?: boolean;   // 跳过文档级纵向放置、分页与附件测量；子域仍完成尺寸所需的布局
 }
 
-// 兼容旧导入路径；布局入口会把正常页面溢出转换为 ErrorDiagnostic
-export { PageLayoutError } from "./page.js";
-export type { DocumentLayoutPage } from "./page.js";
-
 export interface DocumentLayoutResult {
     diagnostics: Diagnostic[];       // parser 与 lowering 传入的诊断信息
     objects: VisualTemporalNode[];   // 已准备尺寸并获得最终坐标的可见事件

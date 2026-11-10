@@ -184,7 +184,7 @@ class NoteFunction extends ASTFunctionNode {
 
 export const NoteNode: ASTFunctionClass = NoteFunction;
 
-import { DEFAULT_KEY, DEFAULT_VELOCITY, TemporalNodeBase, type TimeState } from "../temporal.js";
+import { DEFAULT_KEY, DEFAULT_TONALITY, DEFAULT_VELOCITY, TemporalNodeBase, type TimeState } from "../temporal.js";
 import type { PlaybackEmitter } from "../../playback/types.js";
 import {
     createDiatonicTranspose,
@@ -201,7 +201,7 @@ class NoteTemporalNode extends TemporalNodeBase {
 
     // 时间固化后的参数
     resolvedMidi: number | null = null; // 按调性解析的记谱音高，不含播放偏移
-    keySignature = "C4";    // 用于转调时记录大环境
+    keySignature = DEFAULT_TONALITY;    // 用于转调时记录大环境
     transposeDiatonic: ((steps: number) => number) | undefined;
     name: string;     // 数字
     acc: string;      // 升降号
