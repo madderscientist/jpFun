@@ -79,7 +79,6 @@ export const setScopeExample = `@set(text.size=10px)
 系统变量与函数预设不同：`fontsize` 改变基准字号，`text.size` 只改变 text 的默认参数。
 
 ## 基准字号
-`fontsize` 接受长度。除了前面见过的 `px`，还可以使用 `em`：`px` 表示固定大小，`em` 表示基准字号的多少倍。在这里，`em` 按修改前的基准字号换算：
 ```jpfun
 @set(fontsize=20px)
 1 2
@@ -169,11 +168,8 @@ text、page 接受 `font` 参数，也支持 `@set(函数名.font="...")`；函�
 不过并不是所有有文字的函数都支持设置字体，比如 note、key、meter、tuplet、voice、volta 都没有字体参数，请用内容块中的系统设置实现局部变化；强行使用 `@set(note.font=...)` 会报错，因为查无此项。之所以这么设计，主要是没必要：这些函数的文字通常与音符、拍号等紧密排版，统一使用系统字体可以保证布局一致性；此外还有函数定义的限制：比如 `voice` 支持传入的额外命名参数，因此 `font=...` 只是名为 font 的歌词行。
 
 ## 严格模式
-有些设置只有“开启”和“关闭”两种状态，用 `true` 表示开启，`false` 表示关闭。这种值叫作**布尔值**，直接写这两个英文单词，不需要引号。比如开启严格模式：
-
 ```jpfun
-@set(strict=true)
-1 2 3 4
+@set(strict=true) % 开启严格模式
 ```
 
 `strict=false` 时，一些问题会记录为诊断并继续处理，例如未知函数；`strict=true` 会让支持严格检查的这些问题抛出错误。

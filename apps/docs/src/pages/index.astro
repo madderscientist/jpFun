@@ -56,7 +56,7 @@ N: { {Bb2/ ^ $accent} 0/ 0 0 0 | {Eb2/ ^ $accent} 0/ 0 0 0/ {Eb2/ ^ $accent} | {
     <div class="wrap intro-layout">
       <div class="intro-copy">
         <p class="eyebrow">函数式简谱语言</p>
-        <h1 id="brand-title">jp<span>Fun</span><span class="brand-dot" aria-hidden="true">.</span></h1>
+        <div id="brand-title">jp<span>Fun</span><span class="brand-dot" aria-hidden="true">.</span></div>
         <p class="tagline">“写代码”来编写简谱</p>
         <p class="lead">统一而简洁的记谱方式，可组合的函数；<br />解析、排版、播放、格式转换 全流程覆盖。</p>
         <div class="actions">
@@ -97,9 +97,9 @@ N: { {Bb2/ ^ $accent} 0/ 0 0 0 | {Eb2/ ^ $accent} 0/ 0 0 0/ {Eb2/ ^ $accent} | {
   .intro .button { font-size: 1.125rem; text-shadow: none; }
   .intro .button:not(.primary) { background: var(--sl-color-bg); }
   :global([data-theme="dark"]) .intro-score { filter: grayscale(1) invert(1); opacity: .75; }
-  h1 { margin: 0; font: 1000 7rem/1 var(--site-brand-font); }
-  h1 > span:first-child { color: var(--sl-color-accent-high); }
-  h1 .brand-dot { color: var(--site-coral); }
+  #brand-title { margin: 0; color: var(--sl-color-white); font: 1000 7rem/1.25 var(--site-brand-font); }
+  #brand-title > span:first-child { color: var(--sl-color-accent-high); }
+  #brand-title .brand-dot { color: var(--site-coral); }
   .tagline { font: 600 1.9rem/1.5 "Noto Serif SC", "Songti SC", Georgia, serif; margin: 1.4rem 0 .5rem; }
   .lead { color: var(--sl-color-gray-2); font-size: 1.05rem; margin: 0 0 1.8rem; }
   .advantages { padding-block: 3rem 4rem; }
@@ -119,13 +119,13 @@ N: { {Bb2/ ^ $accent} 0/ 0 0 0 | {Eb2/ ^ $accent} 0/ 0 0 0/ {Eb2/ ^ $accent} | {
   .guide h3 { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
   .guide-label { font: .7rem var(--sl-font-mono); color: var(--sl-color-gray-2); }
   .guide:hover h3 { color: var(--sl-color-accent-high); }
-  @media (max-width: 60rem) { h1 { font-size: 5.5rem; } .tagline { font-size: 1.6rem; } }
+  @media (max-width: 60rem) { #brand-title { font-size: 5.5rem; } .tagline { font-size: 1.6rem; } }
   @media (max-width: 50rem) {
     .intro { padding-block: 2.5rem; }
     .intro .intro-layout { width: calc(100% - 2rem); }
     .intro-score { right: -7rem; opacity: .3; }
     :global([data-theme="dark"]) .intro-score { opacity: .3; }
-    h1 { font-size: 4rem; white-space: nowrap; }
+    #brand-title { font-size: 4rem; white-space: nowrap; }
     .tagline { font-size: 1.4rem; }
     .lead { font-size: .925rem; }
     .intro .button { padding-inline: .65rem; font-size: 1rem; }
