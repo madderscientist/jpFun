@@ -11,11 +11,12 @@ import {
     ErrorDiagnostic,
     Fraction,
     analyzeScoreSyntax,
+    callArgName,
     needsBraces,
     parseNoteName,
     preprocessSource,
-    quoteSourceString,
     readCall,
+    rewriteNoteCall,
     skipSpaces,
     skipSpacesBack,
     type CompileScoreResult,
@@ -71,47 +72,21 @@ function rewriteNotePitchInPlace(
 ): SourceEdit[] {
     const span = target.noteSpan;
     if (nextPitch === "-") return [{ span, text: "-" }];
-    const call = readCall(masked, span.start, span.end);
-    const isExplicit = Boolean(call && call.span.end === span.end && call.closeParenSpan);
     const unpitched = nextPitch === "0" || nextPitch === "8" || nextPitch === "9";
-    const cleanAcc = unpitched ? "" : nextAcc;
-    const cleanOctave = unpitched ? 0 : nextOctave;
-    const pitchToken = formatPitchToken(nextPitch, cleanAcc, cleanOctave);
-
-    if (!isExplicit) {
-        let replacement = pitchToken.includes(",") && needsBraces(masked, target.noteAst) ? `{${pitchToken}}` : pitchToken;
-        const afterChar = source[span.end] ?? "";
-        if (afterChar && /[0-9A-Za-z#b',]/.test(afterChar)) {
-            const parsed = parseNoteName(replacement + afterChar, 0, replacement.length + 1, false);
-            if (!parsed || parsed.next !== replacement.length) replacement += " ";
-        }
-        return [{ span, text: replacement }];
+    const acc = unpitched ? "" : nextAcc;
+    const octave = unpitched ? 0 : nextOctave;
+    const call = readCall(masked, span.start, span.end);
+    if (call?.span.end === span.end && call.closeParenSpan) {
+        return rewriteNoteCall(source, masked, call, { name: nextPitch, acc, octave, absolute: false }, target.hasDefaultAcc);
     }
-
-    const slots = new Map<string | number, SourceSpan>();
-    call!.args.forEach((arg, idx) => {
-        if (arg.valueSpan.start < arg.valueSpan.end) {
-            slots.set(arg.nameSpan ? masked.slice(arg.nameSpan.start, arg.nameSpan.end).toLowerCase() : idx, arg.valueSpan);
-        }
-    });
-    const nameSlot = slots.get("name") ?? slots.get(0);
-    const accSlot = slots.get("acc") ?? slots.get(1);
-    const octSlot = slots.get("octave") ?? slots.get(2);
-    const edits: SourceEdit[] = [];
-    const writeVal = (slot: SourceSpan, val: string) => {
-        edits.push({ span: slot, text: !val || val.includes(",") || source[slot.start] === '"' ? quoteSourceString(val) : val });
-    };
-    const inlineAcc = accSlot || target.hasDefaultAcc ? "" : cleanAcc;
-    const inlineOct = octSlot ? "" : (cleanOctave < 0 ? ",".repeat(-cleanOctave) : "'".repeat(cleanOctave));
-    if (nameSlot) writeVal(nameSlot, `${inlineAcc}${nextPitch}${inlineOct}`);
-    if (accSlot) writeVal(accSlot, cleanAcc);
-    else if (target.hasDefaultAcc) {
-        const at = call!.closeParenSpan!.start;
-        const prefix = masked.slice(call!.openParenSpan.end, at).trimEnd();
-        edits.push({ span: { start: at, end: at }, text: `${prefix ? (prefix.endsWith(",") ? " " : ", ") : ""}acc=${quoteSourceString(cleanAcc)}` });
+    const pitchToken = formatPitchToken(nextPitch, acc, octave);
+    let replacement = pitchToken.includes(",") && needsBraces(masked, target.noteAst) ? `{${pitchToken}}` : pitchToken;
+    const afterChar = source[span.end] ?? "";
+    if (afterChar && /[0-9A-Za-z#b',]/.test(afterChar)) {
+        const parsed = parseNoteName(replacement + afterChar, 0, replacement.length + 1, false);
+        if (!parsed || parsed.next !== replacement.length) replacement += " ";
     }
-    if (octSlot) edits.push({ span: octSlot, text: String(cleanOctave) });
-    return edits;
+    return [{ span, text: replacement }];
 }
 
 /** 收集最外层共享 `@div` 块及其内部嵌套的所有多音共享 `@div` 节点，以便在改写单音时值时一次性展开 */
@@ -325,6 +300,21 @@ function advanceAfterPitchEdit(index: ScoreEditIndex, targetSpan: SourceSpan, ed
         : { edits, nextMode: "insert", nextSpan: mappedCurrent };
 }
 
+/** 在 `pos` 处插入 `text`（按需补空白），并选中插入的正文 */
+function insertTextResult(
+    source: string,
+    pos: number,
+    text: string,
+    nextMode: ScoreEditResult["nextMode"] = "insert",
+): ScoreEditResult {
+    const { fullText, innerStart, innerEnd } = wrapInsertionText(source, pos, text);
+    return {
+        edits: [{ span: { start: pos, end: pos }, text: fullText }],
+        nextMode,
+        nextSpan: { start: innerStart, end: innerEnd },
+    };
+}
+
 function applySettingEdit(
     source: string,
     index: ScoreEditIndex,
@@ -341,12 +331,7 @@ function applySettingEdit(
         };
     }
     const insertPos = target?.kind === "bar" ? target.unitSpan.end : target ? target.unitSpan.start : (slot ?? index.defaultInsertSlot).insertAt;
-    const { fullText, innerStart, innerEnd } = wrapInsertionText(source, insertPos, callText);
-    return {
-        edits: [{ span: { start: insertPos, end: insertPos }, text: fullText }],
-        nextMode: target ? "select" : "insert",
-        nextSpan: { start: innerStart, end: innerEnd },
-    };
+    return insertTextResult(source, insertPos, callText, target ? "select" : "insert");
 }
 
 export function applyScoreEditAction(
@@ -429,12 +414,7 @@ export function applyScoreEditAction(
                 const tail = maskedSource.slice(slot.insertAt).trimStart();
                 if (!/^(\||:\||@bar|@\|)/.test(tail)) withBar = `${noteText} |`;
             }
-            const { fullText, innerStart, innerEnd } = wrapInsertionText(source, slot.insertAt, withBar);
-            return {
-                edits: [{ span: { start: slot.insertAt, end: slot.insertAt }, text: fullText }],
-                nextMode: "insert",
-                nextSpan: { start: innerStart, end: innerEnd },
-            };
+            return insertTextResult(source, slot.insertAt, withBar);
         }
 
         case "set-bar": {
@@ -442,8 +422,7 @@ export function applyScoreEditAction(
             if (target?.kind === "bar") {
                 const call = readCall(maskedSource, target.span.start, target.span.end);
                 const typeArg = call?.closeParenSpan && call.args.find((a, idx) =>
-                    a.nameSpan ? maskedSource.slice(a.nameSpan.start, a.nameSpan.end).toLowerCase() === "type" : idx === 0
-                );
+                    a.nameSpan ? callArgName(maskedSource, a) === "type" : idx === 0);
                 if (typeArg) {
                     const edits: SourceEdit[] = [{ span: typeArg.valueSpan, text: String(action.barType) }];
                     return { edits, nextMode: "select", nextSpan: mapSpanThroughEdits(target.span, edits) };
@@ -455,12 +434,7 @@ export function applyScoreEditAction(
                 };
             }
             const insertPos = target ? target.postGroupInsertEnd : (action.slot ?? index.defaultInsertSlot).insertAt;
-            const { fullText, innerStart, innerEnd } = wrapInsertionText(source, insertPos, barToken);
-            return {
-                edits: [{ span: { start: insertPos, end: insertPos }, text: fullText }],
-                nextMode: "insert",
-                nextSpan: { start: innerStart, end: innerEnd },
-            };
+            return insertTextResult(source, insertPos, barToken);
         }
 
         case "insert-line-break": {
@@ -474,12 +448,7 @@ export function applyScoreEditAction(
                     nextSpan: { start: start + 1, end: start + 2 },
                 };
             }
-            const { fullText, innerStart, innerEnd } = wrapInsertionText(source, insertPos, "@br()");
-            return {
-                edits: [{ span: { start: insertPos, end: insertPos }, text: fullText }],
-                nextMode: "insert",
-                nextSpan: { start: innerStart, end: innerEnd },
-            };
+            return insertTextResult(source, insertPos, "@br()");
         }
 
         case "set-meter": {

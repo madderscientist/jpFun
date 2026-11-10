@@ -1,5 +1,6 @@
 import { SourceSpan } from "../types.js";
 import type { CallArgumentInfo, CallInfo } from "../grammarType.js";
+import { findClosingQuote } from "./string-utils.js";
 
 // 函数名：允许字母/下划线，以及符号别名（@/ @. @-）
 const CALL_NAME_CHAR_RE = /[A-Za-z0-9_./-]/;
@@ -33,8 +34,6 @@ export function readCall(source: string, atPos: number, end: number): CallInfo |
     const openPos = i;
     let parenDepth = 1;
     let braceDepth = 0;
-    let quote: '"' | null = null;
-    let escaped = false;
 
     // 参数相关
     const argInfo: CallArgumentInfo[] = [];
@@ -68,20 +67,11 @@ export function readCall(source: string, atPos: number, end: number): CallInfo |
 
     for (i++; i < end; i++) {
         const ch = source[i];
-        // 同 `splitArgsWithRanges` 跳过引号
-        if (quote) {
-            if (escaped) escaped = false;
-            else if (ch === "\\") escaped = true;
-            else if (ch === quote) quote = null;
-            continue;
-        }
+        // 跳过字符串；忽略大括号内的小括号 防止大括号内小括号的不闭合影响外部
         if (ch === '"') {
-            quote = ch;
-            continue;
-        }
-
-        // 忽略大括号内的小括号 防止大括号内小括号的不闭合影响外部
-        if (ch === "{") braceDepth++;
+            i = findClosingQuote(source, i, end);
+            if (i < 0) break;
+        } else if (ch === "{") braceDepth++;
         else if (ch === "}") braceDepth = Math.max(0, braceDepth - 1);
         else if (ch === "(" && braceDepth === 0) parenDepth++;
         else if (ch === ")" && braceDepth === 0) {
@@ -105,6 +95,12 @@ export function readCall(source: string, atPos: number, end: number): CallInfo |
     return callInfo(end);
 }
 
+/** 实参的小写参数名；位置参数返回 undefined */
+export function callArgName(source: string, arg?: CallArgumentInfo): string | undefined {
+    const span = arg?.nameSpan;
+    return span && source.slice(span.start, span.end).toLowerCase();
+}
+
 const SPACE_RE = /\s/;
 export function trimRange(source: string, start: number, end: number): SourceSpan {
     let s = start;
@@ -117,20 +113,12 @@ export function trimRange(source: string, start: number, end: number): SourceSpa
 // 不管大括号 适用于小括号里传递字符串但没加引号的情况
 export function findRightParen(source: string, start: number, end: number): number {
     let parenDepth = 1;
-    let quote: '"' | null = null;
-    let escaped = false;
     for (let i = start; i < end; i++) {
         const ch = source[i];
-        if (quote) {
-            if (escaped) escaped = false;
-            else if (ch === "\\") escaped = true;
-            else if (ch === quote) quote = null;
-            continue;
-        }
-        if (ch === '"') quote = ch;
-        else if (ch === "(") parenDepth++;
-        else if (ch === ")") {
-            if (--parenDepth === 0) return i;
-        }
+        if (ch === '"') {
+            i = findClosingQuote(source, i, end);
+            if (i < 0) break;
+        } else if (ch === "(") parenDepth++;
+        else if (ch === ")" && --parenDepth === 0) return i;
     } return -1;
 }

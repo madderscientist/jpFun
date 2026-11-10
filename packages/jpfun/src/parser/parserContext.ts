@@ -3,7 +3,7 @@ import { Diagnostic } from "../diagnostic.js";
 import { DEFAULT_TEXT_FONT, JIANPU_NUMBER_FONT } from "../render/text.js";
 import { GrammarBraceNode, GrammarCallNode, GrammarCallNodeRaw, GrammarLabelNode, GrammarNode, type CallArgumentInfo, type SyntaxAnalysis, type SyntaxTokenKind } from "./grammarType.js";
 import { isNonLineWhitespace } from "./preprocess.js";
-import { readCall, trimRange } from "./parse-utils/call-utils.js";
+import { callArgName, readCall, trimRange } from "./parse-utils/call-utils.js";
 import { parseString } from "./parse-utils/string-utils.js";
 import { readBrace } from "./parse-utils/brace-utils.js";
 import { readLabel } from "./parse-utils/label-utils.js";
@@ -252,10 +252,7 @@ export class ParserContext {
             const arg = call.args[index];
             this.addSyntax("property", arg.nameSpan);
             this.addSyntax("punctuation", arg.equalsSpan);
-            const name = arg.nameSpan
-                ? this.source.slice(arg.nameSpan.start, arg.nameSpan.end).toLowerCase()
-                : void 0;
-            const type = def && resolveArgType(def, name, index);
+            const type = def && resolveArgType(def, callArgName(this.source, arg), index);
             if (type === "content") {
                 new ParserContext(this).parseSyntax(arg.valueSpan.start, arg.valueSpan.end);
             } else {
@@ -330,11 +327,7 @@ export class ParserContext {
         outer: for (; i < end; i++) {
             const node = nodes[i];
             if (typeof node === "number") {
-                // 合并多个连续文本为一个
-                const prev = this.nodes.at(-1);
-                if (prev instanceof ASTTextNode && prev.sourceSpan.end === node) {
-                    prev.sourceSpan.end = node + 1;
-                } else this.nodes.push(new ASTTextNode({ start: node, end: node + 1 }, null));
+                this.pushText(node, node + 1);
                 continue;
             }
             switch (node.kind) {
@@ -366,14 +359,17 @@ export class ParserContext {
                             continue outer;
                         }
                     }
-                    // 匹配失败，保留为文本
-                    const prev = this.nodes.at(-1);
-                    if (prev instanceof ASTTextNode && prev.sourceSpan.end === node.span.start) {
-                        prev.sourceSpan.end = node.span.end;
-                    } else this.nodes.push(new ASTTextNode(node.span, null));
+                    this.pushText(node.span.start, node.span.end);  // 匹配失败，保留为文本
                     break;
             }
         } return i;
+    }
+
+    /** 追加文本，与紧邻的上一个文本节点合并；新建区间对象，避免改写语法节点的 span */
+    private pushText(start: number, end: number) {
+        const prev = this.nodes.at(-1);
+        if (prev instanceof ASTTextNode && prev.sourceSpan.end === start) prev.sourceSpan.end = end;
+        else this.nodes.push(new ASTTextNode({ start, end }, null));
     }
 
     /**
@@ -437,12 +433,9 @@ export class ParserContext {
                 // 找到结尾
                 let braceEnd = readBrace(this.source, p, end);
                 // 大括号不匹配 报警 但继续解析 相当于补了一个右大括号
-                if (braceEnd < 0 || braceEnd >= end || braceEnd <= p) {
+                if (braceEnd < 0) {
                     this.diagnostics.push(
-                        Diagnostic.warning.UnmatchedBrace({
-                            start: p,
-                            end: end
-                        })
+                        Diagnostic.warning.UnmatchedBrace({ start: p, end })
                     );
                     braceEnd = end;
                 }
@@ -463,12 +456,11 @@ export class ParserContext {
                         continue outer;
                     }
                 } catch (e) {
-                    // 原子级去糖一般不出错。出错肯定是原则性问题
-                    if (e instanceof Diagnostic) {
-                        this.diagnostics.push(e);
-                    } else this.diagnostics.push(Diagnostic.error.Bug(
-                        (e as Error).toString(), { start: p, end }
-                    )); throw e;
+                    // 原子级去糖一般不出错。Diagnostic 交给捕获方记录，避免内容参数恢复时重复
+                    if (!(e instanceof Diagnostic)) this.diagnostics.push(
+                        Diagnostic.error.Bug((e as Error).toString(), { start: p, end })
+                    );
+                    throw e;
                 }
             } nodes.push(p++);   // 单字符的位置
         } return nodes;
@@ -494,9 +486,7 @@ export class ParserContext {
             const args: FunctionArgs = new Map();
             for (let i = 0; i < callNode.args.length; i++) {
                 const arg: CallArgumentInfo = callNode.args[i];
-                const name = arg.nameSpan
-                    ? this.source.slice(arg.nameSpan.start, arg.nameSpan.end).toLowerCase()
-                    : void 0;
+                const name = callArgName(this.source, arg);
                 const type = resolveArgType(def, name, i);
                 const key = name ?? i;
                 if (type === void 0) {

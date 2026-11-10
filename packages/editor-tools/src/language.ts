@@ -2,6 +2,7 @@ import {
     ASTFunctionNode,
     ASTLabelNode,
     ParserContext,
+    callArgName,
     defaultFunctions,
     primaryName,
     resolveArgDef,
@@ -140,7 +141,7 @@ export function parameterDocAt(
     if (!call || !def) return null;
     const suppliedIndex = argumentIndexAt(call, pos);
     const supplied = call.args[suppliedIndex];
-    const name = supplied?.nameSpan && source.slice(supplied.nameSpan.start, supplied.nameSpan.end).toLowerCase();
+    const name = callArgName(source, supplied);
     const position = suppliedIndex < 0 ? call.args.length : suppliedIndex;
     if (primaryName(def) === "set") {
         // `@set` 无位置参数；未写出 `key=` 前由补全弹窗服务，不回退到“额外位置参数”提示
@@ -198,7 +199,6 @@ export function completionsAt(
     if (!call || !def) return null;
     const argIndex = argumentIndexAt(call, pos);
     const arg = call.args[argIndex];
-    const named = (span?: SourceSpan) => span && source.slice(span.start, span.end).toLowerCase();
     const inValue = arg?.equalsSpan !== undefined && pos > arg.equalsSpan.start;
     const position = argIndex < 0 ? call.args.length : argIndex;
     const parameterStart = (position > 0 ? call.args[position - 1].commaSpan?.end : undefined) ?? call.openParenSpan.end;
@@ -206,7 +206,7 @@ export function completionsAt(
         if (inValue || !/^\s*$/.test(source.slice(parameterStart, range.start))) return null;
         // 已用参数统一归一到 `主名.参数名`，使 `n.color` 与 `note.color` 互相排斥
         const used = new Set(call.args.flatMap(item => {
-            const key = item !== arg ? named(item.nameSpan) : undefined;
+            const key = item !== arg ? callArgName(source, item) : undefined;
             return key ? [resolveSetTarget(definitions, def, key)?.key ?? key] : [];
         }));
         const available = (targetDef: FunctionDef) => {
@@ -234,7 +234,7 @@ export function completionsAt(
         ]);
         return candidates.length ? { range, candidates, validFor: /^[\w-]*$/ } : null;
     }
-    const type = resolveArgType(def, inValue ? named(arg?.nameSpan) : undefined, position);
+    const type = resolveArgType(def, inValue ? callArgName(source, arg) : undefined, position);
     if (type === "content") {
         const atParameterName = !inValue
             && /^\s*$/.test(source.slice(parameterStart, range.start))
@@ -242,7 +242,7 @@ export function completionsAt(
             && !tokens.some(token => token.kind === "atom" && token.span.start === range.start && token.span.end === pos);
         if (!atParameterName) return null;
     }
-    const used = new Set(call.args.filter(item => item !== arg).map(item => named(item.nameSpan)));
+    const used = new Set(call.args.filter(item => item !== arg).map(item => callArgName(source, item)));
     const candidates: ScoreCompletion[] = inValue ? [] : parameterCandidates(
         def.args.filter((argument): argument is FunctionArgDef & { name: string } =>
             Boolean(argument.name) && !used.has(argument.name!.toLowerCase())

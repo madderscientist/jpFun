@@ -2,7 +2,8 @@ import { ErrorDiagnostic } from "../../diagnostic.js";
 import type { ASTNodeBase } from "../ASTtypes.js";
 import type { SourceSpan } from "../../parser/types.js";
 import { preprocessSource } from "../../parser/preprocess.js";
-import { readCall } from "../../parser/parse-utils/call-utils.js";
+import { callArgName, readCall } from "../../parser/parse-utils/call-utils.js";
+import type { CallInfo } from "../../parser/grammarType.js";
 import { findClosingQuote, quote } from "../../parser/parse-utils/string-utils.js";
 import { NoteNameMap, SHARP_NOTE_NAMES, FLAT_NOTE_NAMES, resolveLetterNameToJianpu, tonality2Midi } from "../../parser/parse-utils/note-utils.js";
 import { parseNoteName } from "./noteName.js";
@@ -80,16 +81,54 @@ export function needsBraces(masked: string, ast: ASTNodeBase): boolean {
     return false;
 }
 
+export interface NotePitch { name: string; acc: string; octave: number; absolute: boolean }
+
+/** 音高简写文本；省略的部分由显式实参提供 */
+function pitchToken({ name, acc, octave, absolute }: NotePitch, withAcc = true, withOctave = true): string {
+    const accText = withAcc ? acc : "";
+    const octaveText = !withOctave ? "" : absolute ? String(octave) : octave < 0 ? ",".repeat(-octave) : "'".repeat(octave);
+    return absolute ? name + accText + octaveText : accText + name + octaveText;
+}
+
+/** 只记录与原文不同的改写；被掩码的片段（如注释）无法安全改写 */
+function pushEdit(edits: SourceEdit[], source: string, masked: string, span: SourceSpan, text: string) {
+    const original = source.slice(span.start, span.end);
+    if (original === text) return;
+    if (original !== masked.slice(span.start, span.end)) fail(span);
+    edits.push({ span, text });
+}
+
+/** 改写显式 `@note(...)` 的音高：已有实参只改值，缺失的追加为命名参数；存在默认 acc 时显式写出 acc 以覆盖它 */
+export function rewriteNoteCall(source: string, masked: string, call: CallInfo, pitch: NotePitch, hasDefaultAcc: boolean, edits: SourceEdit[] = []): SourceEdit[] {
+    const slots = new Map<string | number, SourceSpan>();
+    call.args.forEach((arg, index) => {
+        if (arg.valueSpan.start < arg.valueSpan.end) slots.set(callArgName(masked, arg) ?? index, arg.valueSpan);
+    });
+    const nameSlot = slots.get("name") ?? slots.get(0);
+    const accSlot = slots.get("acc") ?? slots.get(1);
+    const octaveSlot = slots.get("octave") ?? slots.get(2);
+    const additions: string[] = [];
+    const valueText = (value: string, slot?: SourceSpan) =>
+        !value || value.includes(",") || slot && source[slot.start] === '"' ? quote(value) : value;
+    const name = pitchToken(pitch, !accSlot && !hasDefaultAcc, !octaveSlot);
+    if (nameSlot) pushEdit(edits, source, masked, nameSlot, valueText(name, nameSlot));
+    else additions.push(`name=${valueText(name)}`);
+    if (accSlot) pushEdit(edits, source, masked, accSlot, valueText(pitch.acc, accSlot));
+    else if (hasDefaultAcc) additions.push(`acc=${quote(pitch.acc)}`);
+    if (octaveSlot) pushEdit(edits, source, masked, octaveSlot, String(pitch.octave));
+    if (additions.length) {
+        const at = call.closeParenSpan!.start;
+        const prefix = masked.slice(call.openParenSpan.end, at).trimEnd();
+        pushEdit(edits, source, masked, { start: at, end: at }, (prefix ? prefix.endsWith(",") ? " " : ", " : "") + additions.join(", "));
+    }
+    return edits;
+}
+
 /** edits 始终引用原文；参数只改值，默认参数只在当前调用覆盖，避免影响其他音符 */
 export function rewriteNotes(source: string, notes: readonly NoteSource[], operation: NoteTransform, ranges?: readonly SourceSpan[]): SourceEdit[] {
     const { maskedSource: masked } = preprocessSource(source);
     const edits: SourceEdit[] = [];
     const tokens: SourceEdit[] = [];
-    function replace(span: SourceSpan, text: string) {
-        if (source.slice(span.start, span.end) === text) return;
-        if (source.slice(span.start, span.end) !== masked.slice(span.start, span.end)) fail(span);
-        edits.push({ span, text });
-    }
     for (const note of notes) {
         const { ast } = note;
         const span = ast.sourceSpan;
@@ -101,40 +140,13 @@ export function rewriteNotes(source: string, notes: readonly NoteSource[], opera
         if (ranges && !ranges.some(range => range.start <= span.start && range.end >= span.end)) continue;
         if (note.resolvedMidi === null || already) continue;
         const pitch = targetPitch(note, operation);
-        const octaveText = pitch.absolute ? String(pitch.octave)
-            : pitch.octave < 0 ? ",".repeat(-pitch.octave) : "'".repeat(pitch.octave);
-        const nameText = (acc: string, octave: string) => pitch.absolute
-            ? pitch.name + acc + octave : acc + pitch.name + octave;
-        if (!explicit) {
-            let text = nameText(pitch.acc, octaveText);
-            if (text.includes(",") && needsBraces(masked, ast)) text = `{${text}}`;
-            tokens[tokens.length - 1].text = text;
+        if (explicit) {
+            rewriteNoteCall(source, masked, call, pitch, ast.hasDefaultAcc, edits);
             continue;
         }
-        const slots = new Map<string | number, SourceSpan>();
-        call.args.forEach((arg, index) => {
-            if (arg.valueSpan.start === arg.valueSpan.end) return;
-            slots.set(arg.nameSpan ? masked.slice(arg.nameSpan.start, arg.nameSpan.end).toLowerCase() : index, arg.valueSpan);
-        });
-        const nameSlot = slots.get("name") ?? slots.get(0);
-        const accSlot = slots.get("acc") ?? slots.get(1);
-        const octaveSlot = slots.get("octave") ?? slots.get(2);
-        const additions: string[] = [];
-        function write(slot: SourceSpan | undefined, name: string, value: string) {
-            const text = !value || value.includes(",")
-                || slot && source[slot.start] === '"' ? quote(value) : value;
-            if (slot) replace(slot, text);
-            else additions.push(`${name}=${text}`);
-        }
-        write(nameSlot, "name", nameText(accSlot ? "" : pitch.acc, octaveSlot ? "" : octaveText));
-        if (accSlot) write(accSlot, "acc", pitch.acc);
-        else if (ast.hasDefaultAcc) additions.push('acc=""');
-        if (octaveSlot) replace(octaveSlot, String(pitch.octave));
-        if (additions.length) {
-            const at = call.closeParenSpan!.start;
-            const prefix = masked.slice(call.openParenSpan.end, at).trimEnd();
-            replace({ start: at, end: at }, (prefix ? prefix.endsWith(",") ? " " : ", " : "") + additions.join(", "));
-        }
+        let text = pitchToken(pitch);
+        if (text.includes(",") && needsBraces(masked, ast)) text = `{${text}}`;
+        tokens[tokens.length - 1].text = text;
     }
     // 相邻原子改写后仍须是两个音符，例如 C4D4 -> C4 2，不能合并成 C42。
     tokens.sort((left, right) => left.span.start - right.span.start);
@@ -148,7 +160,7 @@ export function rewriteNotes(source: string, notes: readonly NoteSource[], opera
             else right.text = " " + right.text;
         }
     }
-    for (const token of tokens) replace(token.span, token.text);
+    for (const token of tokens) pushEdit(edits, source, masked, token.span, token.text);
     edits.sort((left, right) => left.span.start - right.span.start);
     for (let index = 1; index < edits.length; index++) {
         if (edits[index - 1].span.end > edits[index].span.start) fail(edits[index].span);

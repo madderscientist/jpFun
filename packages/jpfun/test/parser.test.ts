@@ -2,9 +2,11 @@ import { deepStrictEqual, throws } from "node:assert/strict";
 import { test } from "node:test";
 
 import { Diagnostic } from "../src/diagnostic.js";
-import { ASTLabelNode, ASTNodeBase, ASTTextNode } from "../src/functions/ASTtypes.js";
+import { ASTLabelNode, ASTNodeBase, ASTTextNode, type FunctionDef } from "../src/functions/ASTtypes.js";
 import { DashNode } from "../src/functions/dash/index.js";
+import { defaultFunctions } from "../src/functions/default.js";
 import { readCall } from "../src/parser/parse-utils/call-utils.js";
+import { ParserContext } from "../src/parser/parserContext.js";
 import { preprocessSource } from "../src/parser/preprocess.js";
 import { analyzeScoreSyntax, compileScore } from "../src/pipeline.js";
 import { assert, createParser, expectDiagnostic, parse } from "./helpers.js";
@@ -263,6 +265,21 @@ test("content recovery discards failed inner labels while preserving valid outer
         deepStrictEqual(result.diagnostics, []);
         assert(result.lowering.attachments.length === 1, "successful labels must remain valid tie endpoints");
     }
+});
+
+test("内容解析恢复时不重复记录内部错误", () => {
+    const failure = Diagnostic.error.Bug("atom", { start: 4, end: 5 });
+    class Fail extends DashNode {
+        static override def: FunctionDef = { name: "fail", description: "", details: "", allowExtraArgs: false, args: [] };
+        static override deSugarAtom(source: string, start: number) {
+            if (source[start] === "!") throw failure;
+            return null;
+        }
+    }
+    const parser = new ParserContext({ source: "@up(!) 1" });
+    parser.registerFunctions([...defaultFunctions, Fail]);
+    parser.parse();
+    deepStrictEqual(parser.diagnostics.filter(item => item === failure).length, 1);
 });
 
 test("增时线独立承载标签，时值包装透明，小节线保持透明", () => {

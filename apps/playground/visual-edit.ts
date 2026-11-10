@@ -22,6 +22,7 @@ import {
     createScoreEditIndex,
     editHitAt,
     editTargetAt,
+    formatNoteWithRhythm,
     insertSlotAfter,
     MAX_EDIT_OCTAVE,
     stepOctave,
@@ -242,10 +243,9 @@ export function createVisualEditController(options: VisualEditOptions): VisualEd
             const beatStr = formatBeatProgress(slot);
             beatPill.hidden = !beatStr;
             beatPill.textContent = beatStr;
-            const oct = pendingOctave < 0 ? ",".repeat(-pendingOctave) : "'".repeat(pendingOctave);
             snippetEl.textContent = target
                 ? currentSource.slice(target.unitSpan.start, target.unitSpan.end)
-                : `${pendingAcc}X${oct}${"/".repeat(rhythmPreset.div)}${".".repeat(rhythmPreset.dot)}`;
+                : formatNoteWithRhythm("X", pendingAcc, pendingOctave, rhythmPreset);
             snippetEl.dataset.mode = mode;
             requiredElement<HTMLButtonElement>("#padInsertMode").setAttribute("aria-pressed", String(mode === "insert"));
             autoBarBtn.setAttribute("aria-pressed", String(autoBar));
@@ -310,11 +310,14 @@ export function createVisualEditController(options: VisualEditOptions): VisualEd
         const prevSession = relationSession;
         try {
             const result = compute();
-            if (result.edits.length === 0) return false;
             relationSession = null;
             mode = result.nextMode;
             selectedSpan = result.nextMode === "select" ? result.nextSpan : null;
             insertAfterSpan = result.nextSpan;
+            if (result.edits.length === 0) {
+                syncUI(true);
+                return true;
+            }
             const after: SelectionSnapshot = { mode, selectedSpan, insertAfterSpan };
             if (!own(() => options.applyEdits(source, result.edits))) {
                 ({ mode, selectedSpan, insertAfterSpan } = before);

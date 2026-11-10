@@ -6,6 +6,7 @@
  */
 import {
     analyzeScoreSyntax,
+    findClosingQuote,
     skipSpaces,
     skipSpacesBack,
     type Rect,
@@ -110,14 +111,13 @@ export function formatStemSlice(source: string, member: NoteEditTarget | DashEdi
  * `BrFunction.deSugarAtom` 仅在括号深度为 0 且不处于 `N:` / `L:` 声部行内时才将 `\n\n` 解析为换行。
  */
 export function isTopLevelLineBreakAllowed(masked: string, pos: number): boolean {
-    let depth = 0, inQuote = false;
+    let depth = 0;
     for (let i = 0; i < pos; i++) {
         const ch = masked[i];
-        if (inQuote) {
-            if (ch === "\\") i++;
-            else if (ch === '"') inQuote = false;
-        } else if (ch === '"') inQuote = true;
-        else if (ch === "{" || ch === "(") depth++;
+        if (ch === '"') {
+            i = findClosingQuote(masked, i, pos);
+            if (i < 0) break;
+        } else if (ch === "{" || ch === "(") depth++;
         else if (ch === "}" || ch === ")") depth = Math.max(0, depth - 1);
     }
     if (depth > 0) return false;
