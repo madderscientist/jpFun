@@ -1,5 +1,6 @@
 export const SHARP_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
 export const FLAT_NOTE_NAMES = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"] as const;
+export const NOTE_LETTERS = "CDEFGAB";
 
 /** 同一音高的两种拼写升在前、降在后，反查拼写时依赖这个顺序 */
 export const NoteNameMap: Record<string, number> = {
@@ -25,7 +26,6 @@ export const NoteNameMap: Record<string, number> = {
     "7": 11
 } as const;
 
-const LETTER_ORDER = ["C", "D", "E", "F", "G", "A", "B"] as const;
 const MAJOR_SCALE_OFFSETS = [0, 2, 4, 5, 7, 9, 11] as const;
 
 export interface RelativeJianpuPitch {
@@ -100,31 +100,29 @@ export function createDiatonicTranspose(
     };
 }
 
-function wrapPitchClass(value: number): number {
+export function wrapPitchClass(value: number): number {
     return ((value % 12) + 12) % 12;
 }
 
-function normalizeAccidentalOffset(value: number): number {
+export function normalizeAccidentalOffset(value: number): number {
     const wrapped = wrapPitchClass(value);
     return wrapped > 6 ? wrapped - 12 : wrapped;
 }
 
-function offsetToAccidental(offset: number): string {
-    if (offset === 0) return "";
-    if (offset > 0) return "#".repeat(offset);
-    return "b".repeat(-offset);
+export function offsetToAccidental(offset: number): string {
+    return offset < 0 ? "b".repeat(-offset) : "#".repeat(offset);
 }
 
 // 把绝对字母音高转换成“相对当前调性的简谱显示信息”。
 // 这里保留字母拼写带来的调内级数信息，因此像 key=D 时的 C 会被解释成 b7，而不是 #6。
 export function resolveLetterNameToJianpu(name: string, acc: string, octave: number, keySignature: string): RelativeJianpuPitch | null {
-    const tonicIndex = LETTER_ORDER.indexOf(keySignature[0] as typeof LETTER_ORDER[number]);
-    const noteIndex = LETTER_ORDER.indexOf(name as typeof LETTER_ORDER[number]);
+    const tonicIndex = NOTE_LETTERS.indexOf(keySignature[0]);
+    const noteIndex = NOTE_LETTERS.indexOf(name);
     const actualMidi = resolveNoteMidi(name, acc, octave, keySignature);
     if (tonicIndex < 0 || noteIndex < 0 || actualMidi === null) return null;
 
     const tonicMidi = tonality2Midi(keySignature)!;
-    const degreeIndex = (noteIndex - tonicIndex + LETTER_ORDER.length) % LETTER_ORDER.length;
+    const degreeIndex = (noteIndex - tonicIndex + NOTE_LETTERS.length) % NOTE_LETTERS.length;
     const expectedPitchClass = wrapPitchClass(tonicMidi + MAJOR_SCALE_OFFSETS[degreeIndex]);
     const accidentalOffset = normalizeAccidentalOffset(wrapPitchClass(actualMidi) - expectedPitchClass);
 

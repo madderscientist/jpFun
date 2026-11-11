@@ -2,7 +2,7 @@ import { DEFAULT_TONALITY, TemporalNodeBase, type TimeState } from "../temporal.
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, LengthValue, ParserContext, SourceSpan } from "../ASTtypes.js";
 import { ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { parseNoteName } from "../note/noteName.js";
-import { acc2Offset, NoteNameMap } from "../../parser/parse-utils/note-utils.js";
+import { acc2Offset, FLAT_NOTE_NAMES, NoteNameMap, SHARP_NOTE_NAMES, wrapPitchClass } from "../../parser/parse-utils/note-utils.js";
 import { paintAccidental, placeAccidentals, type PlacedAccidental } from "../note/accidentals.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
@@ -24,10 +24,8 @@ function normalizeTonality(tonality: string): string | null {
     const octave = parsed.absOctave ? parsed.octave ?? 4 : 4 + (parsed.octave ?? 0);
     const midi = (octave + 1) * 12 + pitchClass + offset;
     if (!Number.isSafeInteger(midi)) return null;
-    // NoteNameMap 里同一音高的升号拼写在前、降号在后，正好用来挑方向；数字音名不参与拼写
-    const spellings = Object.keys(NoteNameMap).filter(name =>
-        NoteNameMap[name] === ((midi % 12) + 12) % 12 && /^[A-G]/.test(name));
-    return (offset < 0 ? spellings.at(-1)! : spellings[0]) + (Math.floor(midi / 12) - 1);
+    const spelling = (offset < 0 ? FLAT_NOTE_NAMES : SHARP_NOTE_NAMES)[wrapPitchClass(midi)];
+    return spelling + (Math.floor(midi / 12) - 1);
 }
 
 class KeyFunction extends ASTFunctionNode {

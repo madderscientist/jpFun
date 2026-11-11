@@ -5,7 +5,17 @@ import { preprocessSource } from "../../parser/preprocess.js";
 import { callArgName, readCall } from "../../parser/parse-utils/call-utils.js";
 import type { CallInfo } from "../../parser/grammarType.js";
 import { findClosingQuote, quote } from "../../parser/parse-utils/string-utils.js";
-import { NoteNameMap, SHARP_NOTE_NAMES, FLAT_NOTE_NAMES, resolveLetterNameToJianpu, tonality2Midi } from "../../parser/parse-utils/note-utils.js";
+import {
+    FLAT_NOTE_NAMES,
+    NOTE_LETTERS,
+    NoteNameMap,
+    SHARP_NOTE_NAMES,
+    normalizeAccidentalOffset,
+    offsetToAccidental,
+    resolveLetterNameToJianpu,
+    tonality2Midi,
+    wrapPitchClass,
+} from "../../parser/parse-utils/note-utils.js";
 import { parseNoteName } from "./noteName.js";
 
 export type NoteTransform = "to-absolute" | "to-relative" | "semitone-up" | "semitone-down";
@@ -17,10 +27,6 @@ interface NoteSource {
     keySignature: string;
 }
 
-const LETTERS = "CDEFGAB";
-const mod = (value: number, base: number) => ((value % base) + base) % base;
-const accidental = (offset: number) => offset < 0 ? "b".repeat(-offset) : "#".repeat(offset);
-
 function fail(span: SourceSpan): never {
     throw new ErrorDiagnostic("E_NOTE_TRANSFORM", "无法安全改写此音符的音高", span);
 }
@@ -28,20 +34,20 @@ function fail(span: SourceSpan): never {
 /** 音高计算只读固化事实；互转保留调内级数，半音操作采用最少升降号的拼写 */
 function targetPitch(note: NoteSource, operation: NoteTransform) {
     const absolute = operation === "to-absolute"
-        || operation !== "to-relative" && LETTERS.includes(note.ast.name);
+        || operation !== "to-relative" && NOTE_LETTERS.includes(note.ast.name);
     const midi = note.resolvedMidi! + (operation === "semitone-up" ? 1 : operation === "semitone-down" ? -1 : 0);
     const tonic = tonality2Midi(note.keySignature)!;
     if (![midi, tonic, note.ast.octave, note.ast.jeOctaveOffset].every(Number.isSafeInteger)) fail(note.ast.sourceSpan);
     const spelling = operation === "semitone-down" ? FLAT_NOTE_NAMES : SHARP_NOTE_NAMES;
     let name: string, acc: string, octave: number;
     if (operation === "to-absolute") {
-        const base = LETTERS.indexOf(note.keySignature[0]);
+        const base = NOTE_LETTERS.indexOf(note.keySignature[0]);
         const degree = Number(note.ast.name) - 1;
-        name = LETTERS[(base + degree) % 7];
-        const tonicAcc = mod(tonic - NoteNameMap[LETTERS[base]] + 6, 12) - 6;
+        name = NOTE_LETTERS[(base + degree) % 7];
+        const tonicAcc = normalizeAccidentalOffset(tonic - NoteNameMap[NOTE_LETTERS[base]]);
         octave = Math.floor((tonic - tonicAcc) / 12) - 1 + Math.floor((base + degree) / 7)
             + note.ast.octave + note.ast.jeOctaveOffset;
-        acc = accidental(midi - ((octave + 1) * 12 + NoteNameMap[name]));
+        acc = offsetToAccidental(midi - ((octave + 1) * 12 + NoteNameMap[name]));
     } else if (operation === "to-relative") {
         const ast = note.ast;
         const relative = resolveLetterNameToJianpu(ast.name, ast.acc, ast.octave + ast.jeOctaveOffset, note.keySignature);
@@ -49,8 +55,8 @@ function targetPitch(note: NoteSource, operation: NoteTransform) {
         ({ renderName: name, renderAcc: acc, renderOctave: octave } = relative);
     } else {
         const value = absolute ? midi : midi - tonic;
-        const pitch = spelling[mod(value, 12)];
-        name = absolute ? pitch[0] : String(LETTERS.indexOf(pitch[0]) + 1);
+        const pitch = spelling[wrapPitchClass(value)];
+        name = absolute ? pitch[0] : String(NOTE_LETTERS.indexOf(pitch[0]) + 1);
         acc = pitch.slice(1);
         octave = Math.floor(value / 12) - (absolute ? 1 : 0);
     }
@@ -134,7 +140,7 @@ export function rewriteNotes(source: string, notes: readonly NoteSource[], opera
         const span = ast.sourceSpan;
         const call = readCall(masked, span.start, span.end);
         const explicit = call?.span.end === span.end && call.closeParenSpan;
-        const already = operation === "to-absolute" && LETTERS.includes(ast.name)
+        const already = operation === "to-absolute" && NOTE_LETTERS.includes(ast.name)
             || operation === "to-relative" && /^[1-7]$/.test(ast.name);
         if (!explicit) tokens.push({ span, text: source.slice(span.start, span.end) });
         if (ranges && !ranges.some(range => range.start <= span.start && range.end >= span.end)) continue;
