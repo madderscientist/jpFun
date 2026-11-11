@@ -1,4 +1,4 @@
-import { ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
+import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { pathBounds } from "../../layout/path.js";
 import { lineEntryX, lineRightX } from "../../layout/range.js";
 import type { AttachmentLayoutContext, HorizontalLineView, LayoutAttachment } from "../../layout/types.js";
@@ -56,11 +56,8 @@ class GlissFunction extends ASTFunctionNode {
         const from = ctx.getTemporalNodes(this.from).at(-1);
         const to = ctx.getTemporalNodes(this.to).at(-1);
         if (!from || !to || !isVisualTemporalNode(from) || !isVisualTemporalNode(to)) {
-            throw new ErrorDiagnostic(
-                "E_GLISS_ENDPOINT",
-                "@gliss 的标签必须指向已生成且具有排版盒子的对象",
-                this.sourceSpan
-            );
+            ctx.diagnostics.push(Diagnostic.warning.UnresolvedEndpoint("gliss", this.sourceSpan));
+            return [];
         }
         const attachment = new GlissAttachment(from, to, this.sourceSpan);
         ctx.addAttachment(attachment);

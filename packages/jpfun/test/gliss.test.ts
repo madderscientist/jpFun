@@ -2,8 +2,9 @@ import { deepStrictEqual, strictEqual } from "node:assert/strict";
 import { test } from "node:test";
 
 import { WarningDiagnostic } from "../src/diagnostic.js";
-import { ASTFunctionNode } from "../src/functions/ASTtypes.js";
+import { ASTBraceNode, ASTFunctionNode } from "../src/functions/ASTtypes.js";
 import { layoutDocument } from "../src/layout/engine.js";
+import { LoweringContext } from "../src/lowering/loweringContext.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import { compileScore } from "../src/pipeline.js";
 import { renderLayoutPagesToSvg } from "../src/render/svg.js";
@@ -253,9 +254,16 @@ test("gliss splits across lines into two segments with matching slope and final 
     deepStrictEqual(played, [60, 61, 62, 63, 64]);
 });
 
-test("gliss rejects simultaneous time and overlapping endpoints", () => {
+test("gliss rejects simultaneous time and overlapping endpoints and warns on unresolved endpoints", () => {
     expectCompileError("1@a 5@b @gliss(a,a)", "E_GLISS_ORDER");
     expectCompileError("@stack(1@a,5@b) @gliss(a,b)", "E_GLISS_ORDER");
     expectCompileError("@grace(5,{1@a 3@b @gliss(a,b)})", "E_GLISS_ORDER");
     expectCompileError("@adjust({1@a},dx=1000px) 5@b @gliss(a,b)", "E_GLISS_SPACE");
+
+    // 端点 AST 在本轮 lowering 未产生可见 Temporal 时，与其余关系函数一致：记录 W_UNRESOLVED_ENDPOINT 并忽略
+    const glissOnly = compileScore("1@a 5@b @gliss(a,b)").ast.children!.slice(-1);
+    const lowered = new LoweringContext().lowerDocument(new ASTBraceNode({ start: 0, end: 0 }, glissOnly));
+    strictEqual(lowered.attachments.length, 0);
+    deepStrictEqual(lowered.diagnostics.map(item => item.code), ["W_UNRESOLVED_ENDPOINT"]);
+    assert(lowered.diagnostics[0] instanceof WarningDiagnostic, "unresolved endpoint must emit a warning");
 });
