@@ -2,7 +2,7 @@
   "name": "jpfun-workspace",
   "private": true,
   "version": "1.0.0",
-  "packageManager": "pnpm@12.15.0",
+  "packageManager": "pnpm@12.18.0",
   "scripts": {
     "clean": "node scripts/clean.mjs",
     "build": "pnpm run clean && pnpm run build:packages && pnpm run build:playground && pnpm run build:docs && node scripts/assemble-site.mjs",
