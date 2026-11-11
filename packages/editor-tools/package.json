@@ -22,9 +22,10 @@
   },
   "publishConfig": { "access": "public" },
   "scripts": {
+    "clean": "node -e \"for (const path of ['dist', 'tsconfig.tsbuildinfo']) require('node:fs').rmSync(path, { recursive: true, force: true })\"",
     "build": "tsc -b",
-    "prepack": "pnpm run build",
-    "typecheck": "tsc -p test/tsconfig.json",
+    "prepack": "pnpm run clean && pnpm run build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node --import tsx --test \"test/*.test.mjs\""
   },
   "peerDependencies": { "jpfun": "workspace:^" },

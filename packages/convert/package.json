@@ -21,8 +21,9 @@
   },
   "publishConfig": { "access": "public" },
   "scripts": {
+    "clean": "node -e \"for (const path of ['dist', 'tsconfig.tsbuildinfo']) require('node:fs').rmSync(path, { recursive: true, force: true })\"",
     "build": "tsc -b && node ../../scripts/build-convert-bundles.mjs && node --test ../../scripts/test-convert-bundles.mjs",
-    "prepack": "pnpm run build",
+    "prepack": "pnpm run clean && pnpm run build",
     "typecheck": "tsc -p test/tsconfig.json",
     "test": "node --import tsx --test \"test/*.test.ts\""
   },

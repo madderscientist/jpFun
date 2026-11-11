@@ -10,7 +10,7 @@
     "build:packages": "pnpm --filter \"./packages/*\" -r build",
     "build:playground": "pnpm --filter @jpfun/playground build",
     "build:docs": "pnpm --filter @jpfun/docs build",
-    "test": "pnpm run build:packages && pnpm --filter \"./packages/*\" -r test && pnpm --filter jpfun exec node --import tsx --test \"../../apps/playground/test/*.test.mjs\"",
+    "test": "pnpm run build:packages && pnpm --filter \"./packages/*\" -r test && pnpm --filter @jpfun/playground test",
     "typecheck": "pnpm run build:packages && pnpm --filter \"./packages/*\" -r typecheck && pnpm --filter @jpfun/playground exec tsc --noEmit",
     "predev": "pnpm run build:packages",
     "dev": "node scripts/dev-server.mjs",

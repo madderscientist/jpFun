@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vite build",
-    "dev": "vite --host 127.0.0.1 --port 4173"
+    "dev": "vite --host 127.0.0.1 --port 4173",
+    "test": "node --import tsx --test \"test/*.test.mjs\""
   },
   "dependencies": {
     "@jpfun/convert": "workspace:*",
@@ -22,6 +23,7 @@
     "@codemirror/state": "^6.7.4",
     "@codemirror/view": "^6.43.15",
     "@types/markdown-it": "^14.2.0",
+    "tsx": "^4.23.13",
     "typescript": "^7.0.2",
     "vite": "^8.3.5"
   }
