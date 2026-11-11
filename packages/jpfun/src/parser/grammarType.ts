@@ -58,7 +58,7 @@ export interface CallInfo {
     name: string;
     /** 整个调用表达式在源码中的范围 */
     span: SourceSpan;
-    /** 调用名在源码中的范围，不包含 `@` 前缀 */
+    /** 调用名在源码中的范围，包含 `@` 前缀 */
     nameSpan: SourceSpan;
     /** 左括号 `(` 在源码中的范围 */
     openParenSpan: SourceSpan;

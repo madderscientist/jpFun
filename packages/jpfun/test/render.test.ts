@@ -129,14 +129,18 @@ test("Canvas 圆形支持 fill=none，默认圆形仍填充黑色", () => {
     }
 });
 
-test("Canvas 路径和矩形把 none 当作不绘制，而不是沿用上一次的颜色", () => {
+test("Canvas 文本、直线、路径和矩形把 none 当作不绘制，而不是沿用上一次的颜色", () => {
     const calls: string[] = [];
     const painter = new CanvasPainter(recordingCanvasContext(calls));
     const path: PathCommand[] = [{ op: "M", x: 0, y: 0 }, { op: "L", x: 5, y: 5 }];
+    painter.drawText("visible", 0, 0, { fontSize: 16, fill: "#000" });
+    painter.drawText("hidden", 0, 0, { fontSize: 16, fill: "none" });
+    painter.drawLine(0, 0, 5, 5, { stroke: "none", fill: "#0f0" });
+    painter.drawLine(0, 0, 5, 5, { fill: "none" });
     painter.drawPath(path, { fill: "none", stroke: "#000" });
     painter.drawPath(path, { fill: "#000", stroke: "none" });
     painter.drawRect(0, 0, 10, 10, { fill: "none", stroke: "none" });
-    deepStrictEqual(calls.filter(call => /^(fill|stroke)(Rect)?$/.test(call)), ["stroke", "fill"]);
+    deepStrictEqual(calls.filter(call => /^(fill(Text|Rect)?|stroke(Rect)?)$/.test(call)), ["fillText", "stroke", "fill"]);
 });
 
 test("内置新增符号在 SVG 和 Canvas 中使用相同的有限矢量图元，不依赖字体", () => {

@@ -1,6 +1,5 @@
 import {
     CanvasTextMeasurer,
-    DEFAULT_FONT_SIZE,
     Diagnostic,
     ErrorDiagnostic,
     compilePlayback,
@@ -74,7 +73,7 @@ let scoreDiagnostics: Diagnostic[] = [];
 let playbackDiagnostics: Diagnostic[] = [];
 // 排版必须按最终绘制的字体测量，否则字形宽度会与盒子对不上
 const textMeasurer = new CanvasTextMeasurer(document.createElement("canvas").getContext("2d")!);
-const compileOptions = { variables: { fontsize: DEFAULT_FONT_SIZE }, rowGap: 18, textMeasurer };
+const compileOptions = { textMeasurer };
 initializeTheme();
 const editor = createSourceEditor({
     parent: editorHost,

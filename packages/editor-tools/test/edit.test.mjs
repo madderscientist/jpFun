@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { compileScore } from "jpfun";
+import { DEFAULT_PAGE_CONFIG, compileScore } from "jpfun";
 import {
     adjacentEditTarget,
     applyRelationCommand,
@@ -89,6 +89,12 @@ test("insertion slot after a line break follows the next line onto the next page
     assert.ok(five.region.y > 230, "the last line should be laid out on the second page");
     const { region } = insertSlotAfter(source, compiled, index, four.span);
     assert.equal(region.y + region.h / 2, five.region.y + five.region.h / 2);
+
+    const trailing = compileScore("1 @br()");
+    const trailingIndex = createScoreEditIndex("1 @br()", trailing);
+    const first = trailingIndex.streamTargets[0];
+    assert.equal(trailingIndex.defaultInsertSlot.region.x, DEFAULT_PAGE_CONFIG.marginLeft);
+    assert.equal(trailingIndex.defaultInsertSlot.region.y, first.region.y + first.region.h + DEFAULT_PAGE_CONFIG.lineGap);
 });
 
 test("selecting existing note modifies pitch with advance, octave, accidental, rhythm, and shared div splitting", () => {

@@ -177,6 +177,21 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         for (const el of host.querySelectorAll(".preview-edit-box")) el.remove();
     }
 
+    function pageIndexOf(region: Rect, fallbackFirst = false) {
+        const centerY = region.y + region.h / 2;
+        const pageIndex = pageBounds.findIndex(page => centerY >= page.y && centerY <= page.y + page.h);
+        return pageIndex < 0 && fallbackFirst ? 0 : pageIndex;
+    }
+
+    function resolvePageOverlay(pageIndex: number) {
+        const pageRect = pageBounds[pageIndex];
+        const page = host.children[pageIndex];
+        if (!pageRect || !(page instanceof HTMLElement)) return null;
+        const surface = virtualPages.ensure(pageIndex);
+        const overlay = page.querySelector<HTMLElement>(":scope > .preview-overlay");
+        return surface && overlay ? { pageRect, surface, overlay } : null;
+    }
+
     function renderVisualHighlights(reveal: boolean) {
         clearVisualHighlights();
         if (!result || visualHighlights.length === 0) return;
@@ -184,15 +199,9 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
 
         for (const item of visualHighlights) {
             const { region, kind, badge } = item;
-            const centerY = region.y + region.h / 2;
-            let pageIndex = pageBounds.findIndex(page => centerY >= page.y && centerY <= page.y + page.h);
-            if (pageIndex < 0) pageIndex = 0;
-            const pageRect = pageBounds[pageIndex];
-            const page = host.children[pageIndex];
-            if (!pageRect || !(page instanceof HTMLElement)) continue;
-            const surface = virtualPages.ensure(pageIndex);
-            const overlay = page.querySelector<HTMLElement>(":scope > .preview-overlay");
-            if (!surface || !overlay) continue;
+            const resolved = resolvePageOverlay(pageIndexOf(region, true));
+            if (!resolved) continue;
+            const { pageRect, overlay } = resolved;
 
             const rawX = (region.x - pageRect.x) * zoom;
             const rawY = (region.y - pageRect.y) * zoom;
@@ -249,16 +258,12 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         if (!currentNavigation) return clearPlaybackCursor();
         const region = playbackRegionAt(currentNavigation, playbackScoreTime);
         if (!region) return clearPlaybackCursor();
-        const centerY = region.y + region.h / 2;
-        const pageIndex = pageBounds.findIndex(page => centerY >= page.y && centerY <= page.y + page.h);
+        const pageIndex = pageIndexOf(region);
         const key = `${pageIndex}:${region.x}:${region.y}:${region.w}:${region.h}`;
         if (key === playbackRegionKey && host.querySelector(".preview-playback-cursor")) return;
-        const pageRect = pageBounds[pageIndex];
-        const page = host.children[pageIndex];
-        if (!pageRect || !(page instanceof HTMLElement)) return clearPlaybackCursor();
-        const surface = virtualPages.ensure(pageIndex);
-        const overlay = page.querySelector<HTMLElement>(":scope > .preview-overlay");
-        if (!surface || !overlay) return clearPlaybackCursor();
+        const resolved = resolvePageOverlay(pageIndex);
+        if (!resolved) return clearPlaybackCursor();
+        const { pageRect, surface, overlay } = resolved;
 
         const surfaceBounds = surfaceContentBounds(surface);
         const overlayBounds = overlay.getBoundingClientRect();
@@ -326,19 +331,15 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
 
     function focusRegion(region: Rect, reveal: boolean) {
         if (!result) return;
-        const centerY = region.y + region.h / 2;
-        const pageIndex = pageBounds.findIndex(page => centerY >= page.y && centerY <= page.y + page.h);
-        const pageRect = pageBounds[pageIndex];
-        const page = host.children[pageIndex];
-        if (!pageRect || !(page instanceof HTMLElement)) return;
-        const surface = virtualPages.ensure(pageIndex);
-        const overlay = page.querySelector<HTMLElement>(":scope > .preview-overlay");
-        if (!surface || !overlay) return;
+        const resolved = resolvePageOverlay(pageIndexOf(region));
+        if (!resolved) return;
+        const { pageRect, surface, overlay } = resolved;
 
         clearFocus();
         const surfaceBounds = surfaceContentBounds(surface);
         const overlayBounds = overlay.getBoundingClientRect();
         const centerX = region.x + region.w / 2;
+        const centerY = region.y + region.h / 2;
         const x = surfaceBounds.left - overlayBounds.left
             + (centerX - pageRect.x) / pageRect.w * surfaceBounds.width;
         const y = surfaceBounds.top - overlayBounds.top

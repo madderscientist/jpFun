@@ -58,7 +58,9 @@ export class CanvasPainter implements Painter {
     constructor(private readonly context: CanvasRenderingContext2D) {}
 
     drawText(text: string, x: number, y: number, style: TextStyle) {
-        this.context.fillStyle = style.fill ?? "#000";
+        const fill = paint(style.fill ?? "#000");
+        if (!fill) return;
+        this.context.fillStyle = fill;
         this.context.font = canvasFont(style);
         this.context.textAlign = style.textAlign ?? "left";
         this.context.textBaseline = "alphabetic";
@@ -66,10 +68,12 @@ export class CanvasPainter implements Painter {
     }
 
     drawLine(x1: number, y1: number, x2: number, y2: number, style?: PaintStyle) {
+        const stroke = paint(style?.stroke ?? style?.fill ?? "#000");
+        if (!stroke) return;
         this.context.beginPath();
         this.context.moveTo(x1, y1);
         this.context.lineTo(x2, y2);
-        this.context.strokeStyle = style?.stroke ?? style?.fill ?? "#000";
+        this.context.strokeStyle = stroke;
         this.context.lineWidth = style?.strokeWidth ?? 1;
         this.context.lineCap = "round";
         this.context.stroke();

@@ -14,6 +14,7 @@ import {
     Fraction,
     getLayoutBounds,
     layoutPageBounds,
+    normalizePageConfig,
     readCall,
     type CompileScoreResult,
     type Rect,
@@ -223,11 +224,10 @@ function computeInsertSlotGeometry(compiled: CompileScoreResult, afterRegion: Re
     const pages = layoutPageBounds(compiled.layout);
     const nextLine = lineBreaks > 0 ? lineRegion : undefined;
     const anchor = nextLine ?? afterRegion;
+    const pageConfig = normalizePageConfig(compiled.lowering.page);
     const page = (anchor && pages.find(p => anchor.y >= p.y && anchor.y <= p.y + p.h))
-        ?? pages[0] ?? { x: 0, y: 0, w: 794, h: 200 };
-    const left = compiled.lowering.page?.marginLeft ?? 40;
-    const top = compiled.lowering.page?.marginTop ?? 45;
-    const lineGap = compiled.lowering.page?.lineGap ?? 22;
+        ?? pages[0] ?? { x: 0, y: 0, w: pageConfig.width, h: 200 };
+    const { marginLeft: left, marginTop: top, lineGap } = pageConfig;
 
     if (nextLine) return { x: page.x + left, y: nextLine.y + (nextLine.h - boxH) / 2, w: boxW, h: boxH };
     if (afterRegion) {
