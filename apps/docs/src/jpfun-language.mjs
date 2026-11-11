@@ -6,25 +6,28 @@ export const jpfunLanguage = {
   patterns: [],
 };
 
+export function syntaxSegments(source) {
+  const segments = [];
+  let offset = 0;
+  for (const token of analyzeScoreSyntax(source).syntax.tokens) {
+    if (token.span.start > offset) segments.push({ text: source.slice(offset, token.span.start) });
+    segments.push({ text: source.slice(token.span.start, token.span.end), kind: token.kind });
+    offset = token.span.end;
+  }
+  if (offset < source.length) segments.push({ text: source.slice(offset) });
+  return segments;
+}
+
 export function rehypeJpfunSyntax() {
   return function visit(node) {
     if (node.tagName === "code" && node.properties?.className?.includes("language-jpfun")) {
       const source = node.children.map(child => child.value ?? "").join("");
-      const tokens = analyzeScoreSyntax(source).syntax.tokens;
-      const children = [];
-      let offset = 0;
-      for (const token of tokens) {
-        if (token.span.start > offset) children.push({ type: "text", value: source.slice(offset, token.span.start) });
-        children.push({
-          type: "element",
-          tagName: "span",
-          properties: { className: [`token-${token.kind}`] },
-          children: [{ type: "text", value: source.slice(token.span.start, token.span.end) }],
-        });
-        offset = token.span.end;
-      }
-      if (offset < source.length) children.push({ type: "text", value: source.slice(offset) });
-      node.children = children;
+      node.children = syntaxSegments(source).map(segment => segment.kind ? {
+        type: "element",
+        tagName: "span",
+        properties: { className: [`token-${segment.kind}`] },
+        children: [{ type: "text", value: segment.text }],
+      } : { type: "text", value: segment.text });
       return;
     }
     node.children?.forEach(visit);

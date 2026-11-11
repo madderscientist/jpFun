@@ -1,6 +1,7 @@
 ---
-import { analyzeScoreSyntax, type SyntaxTokenKind } from "jpfun";
+import type { SyntaxTokenKind } from "jpfun";
 import { Icon } from "@astrojs/starlight/components";
+import { syntaxSegments } from "../jpfun-language.mjs";
 import OpenScoreButton from "./OpenScoreButton.astro";
 import ScoreSvg from "./ScoreSvg.astro";
 
@@ -11,15 +12,7 @@ interface Props {
 }
 
 const { source, title = "jpFun 谱例", fit = "fill" } = Astro.props;
-const tokens = analyzeScoreSyntax(source).syntax.tokens;
-const segments: { text: string; kind?: SyntaxTokenKind }[] = [];
-let offset = 0;
-for (const token of tokens) {
-  if (token.span.start > offset) segments.push({ text: source.slice(offset, token.span.start) });
-  segments.push({ text: source.slice(token.span.start, token.span.end), kind: token.kind });
-  offset = token.span.end;
-}
-if (offset < source.length) segments.push({ text: source.slice(offset) });
+const segments: { text: string; kind?: SyntaxTokenKind }[] = syntaxSegments(source);
 ---
 
 <figure class="score-example not-content">
