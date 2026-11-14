@@ -22,7 +22,7 @@ const { syntax } = analyzeScoreSyntax(source);
 const info = parameterDocAt(source, syntax, 4);
 ```
 
-`/language` 提供函数定义索引、Markdown 文档、参数查询、AST 函数定位、`completionsAt` 补全候选项、`parameterCompletionEdit` 参数替换、`labelJumpAt` 标签跳转和 `labelSymbolAt` 标签分组；`/navigation` 提供 `createPreviewNavigationMap`、`sourceTargetAt`、`previewHitAt`、`playbackTimeAt` 和 `playbackRegionAt`；`/edit` 提供可视化直接编辑索引 `createScoreEditIndex`、目标与插入槽定位（`editTargetAt`、`editHitAt`、`adjacentEditTarget`、`insertSlotAfter`）、单目标与步进编辑 `applyScoreEditAction` 以及多目标关系命令 `applyRelationCommand`。核心编译、诊断、语法分析和音高变换继续从 `jpfun` 导入。
+`/language` 提供函数定义索引、Markdown 文档、参数查询、AST 函数定位、`completionsAt` 补全候选项、`parameterCompletionEdit` 参数替换、`labelJumpAt` 标签跳转和 `labelSymbolAt` 标签分组；`/navigation` 提供 `createPreviewNavigationMap`、`sourceTargetAt`、`previewHitAt`、`playbackTimeAt` 和 `playbackRegionAt`；`/edit` 提供可视化直接编辑索引 `createScoreEditIndex`、目标与插入槽定位（`editTargetAt`、`editHitAt`、`adjacentEditTarget`、`insertSlotAfter`）、单目标与步进编辑 `applyScoreEditAction`、多目标关系命令 `applyRelationCommand` 以及自动断行重排 `reflowLineBreaks`。核心编译、诊断、语法分析和音高变换继续从 `jpfun` 导入。
 
 Node.js / VS Code 项目需在 TypeScript 的 `compilerOptions.lib` 中包含 `"DOM"`，例如 `["ES2022", "DOM"]`，以解析核心公开的 Canvas 类型；这只提供类型声明，不引入浏览器运行时，也不要求 `skipLibCheck`。补全候选项包含按需生成文档所需的核心元数据，过滤、snippet 和接受补全时的编辑事务由宿主适配；标签分组明确区分重复声明，不能按同名字符串全局替换。
 
@@ -72,6 +72,7 @@ Webview 通信只传 SVG、源码范围或其他普通数据，不直接传包�
 | 去糖写法悬浮 | `compileScore().ast` | 同上 |
 | 去糖替换 | `node.toString(source)` | `CodeActionProvider`（见下） |
 | 音高变换 | `transformNotes(source, compiled.lowering, operation)` | `CodeActionProvider` + `WorkspaceEdit` |
+| 自动断行重排 | `reflowLineBreaks(source, compiled, options)` | `DocumentRangeFormattingEditProvider` / `CodeActionProvider` |
 | 标签跳转定义 | `syntax.tokens` + `ASTLabelNode.target` | `DefinitionProvider` |
 | 标签重命名 | `syntax.tokens` | `RenameProvider` |
 | 诊断 | `compiled.diagnostics` + 抛出的错误 | `DiagnosticCollection` |
@@ -95,6 +96,38 @@ playground 将源码与播放、谱面与诊断组织为两组视图。视图切
 `transformNotes` 由 note 模块提供，读取同一源码版本的 lowering，返回基于原始偏移的 `{ span, text }[]`。函数形式与简写形式保留，显式调用只修改音高参数值；低八度逗号需要保护时使用引号或大括号，例如 `@n(C3)` 转成 `@n("1,")`，`@div(C3, 1)` 转成 `@div({1,}, 1)`。默认参数只在当前音符局部覆盖，不修改 `@set`。
 
 playground 在执行前确认编译结果未过期，候选源码编译成功后用一次 CodeMirror 事务提交全部 edits，并隔离前后的撤销历史。光标和选区沿修改映射，文件关联不变；文档变化继续触发现有的脏状态、预览与播放失效流程。输入法组合期间不执行变换，失败时保留当前文档。
+
+## 自动断行重排
+
+源码工具栏的自动换行菜单（`↵`）与交互面板的 `⇄ ↵` 按钮提供谱面行的自动重排：支持**按页面宽度自适应断行**与**固定每行小节数**（如 2 / 4 / 8 小节）。源码页有选区时只重排与选区相交的系统，无选区时重排全文；交互页走同一套游标快照与单步撤销机制。
+
+核心算法由 `@jpfun/editor-tools/edit` 的 `reflowLineBreaks(source, compiled, options)` 提供，返回基于原始偏移的最小差异 `SourceEdit[]`（首尾未变字符自动裁去）。
+
+### 规则说明
+
+1. **合法候选切点**：
+   - 仅在**所有并行声部时间严格对齐的小节线**处断行。普通线 `|`、双线 `||`、终止线 `|||`、后反复 `:|` 和双向反复 `:|:` 留在上一行末尾；前反复 `|:` 归入下一行行首。
+   - 切点两侧均须存在正时值的音乐事件（音符、休止符、增时线或 `@rest`），避免把曲首 `@1` / `@meter` 或曲末 `$fine` 单独切成无音符行。
+   - 禁止切断任何跨过该时刻的持续事件（如跨小节长音、多小节 `@rest`）与显式 `@beam(...)` 连梁区间；`@tuplet`、`@box`、`@grace`、双音 `@tremolo` 和多音共享 `@div({...})` 作为原子 AST 节点保持完整。
+2. **断行选择准则**：
+   - **按页宽自适应（动态规划）**：先在超宽无边距版心（`fillRatio = 1`）上执行一次 `horizontalOnly: true` 自然排版，直接读取计入真实字体、变音记号、倚音、长歌词与一字多音撑开后的各段像素边界；首行计入左侧分组名 `V{名}:`、声部名 `N(名):` 与词行名 `L(名):`，续行计入左侧连谱号或重复名称预留宽度。以当前 `@page` 版心宽度 `contentWidth` 为基准，单行最多向前枚举 16 段，最小化累计失衡代价：
+     - 目标宽度 `target = 1.03 × contentWidth`（利用弹簧模型适度横向压缩使行内紧凑饱满）；
+     - 多段行硬上限 `limit = 1.25 × contentWidth`（超出则淘汰，单小节本身超宽时保底独占一行）；
+     - 欠满惩罚：宽度不足 `contentWidth` 时平方误差乘以 `4` 倍权重，避免行尾残留孤立短小节。
+   - **固定小节数**：指定 `barsPerLine > 0` 时，每隔固定数量的合法小节切点断行。
+3. **跨行合并与分段屏障**：
+   - 相邻系统无需歌词行数同构即可直接拉平重切；缺省或无词段落按音符槽自动补 `@` 对齐。
+   - 遇到 `@page`、`@head`、`@pagebreak`、`@br(2+)`、顶层 `@set`、注释 `%`、无小节线的独立说明行、终止线 `|||`、声部数或连谱号拓扑变化、前段声部时长未对齐，或后段出现新的不同组名/声部名/词行名时自动停止合并，分段独立重排。
+   - 显式传入 `gap` / `minGap` 的 `@voices(...)` 及含局部 `@set(...)` 的声部块原样保留，不强转语法糖以免丢失局部参数。
+
+### 简要实现方案
+
+实现采用单遍 AST 流水线（见 [reflow-lines.ts](https://github.com/madderscientist/jpFun/blob/HEAD/packages/editor-tools/src/edit/reflow-lines.ts)），不做二次全量重编译：
+
+1. **关系标签显式化与去重**：直接读取已编译 AST 中关系节点的端点引用（`endPoints` / `from` / `to`），为隐式无标签的 `@tie` / `@beam` 自动分配不冲突标签并补全为标准调用，同时重命名重排域内的同名覆盖标签；输出时将每条关系挂载到其最晚端点所在系统末尾，杜绝跨行错绑。
+2. **统一拉平为 `V:` / `N:` / `L:` 语法糖**：将显式 `@voices` / `@voice` 与语法糖声部收敛到统一时间流（纯顶层无词单旋律保持原貌）。音符流直接对原文 `SourceSpan` 做无损切片；当 `N:` 子作用域内存在跨小节或未闭合的 JE 八度括号 `(` / `[` 时，根据解析出的累积偏移自动在行尾补 `)` / `]` 归零并在下一行行首重开。
+3. **歌词槽位还原与跨行样式闭合**：按各声部带 `lyric` 端口的时间点切分 `LyricSlot[]`——单汉字紧凑连写、ASCII 词空格分词、多字词与一字多音自动包裹 `{...}`，并按位掩码自动闭合/重开跨行或跨 `@` 空槽的 `*` / `**` / `_` / `^` 样式；静默小节若有行名或下方仍有活跃词行则输出 `L: @` 占位防错位。
+4. **按谱面时间映射测宽**：单次超宽 `horizontalOnly` 试排后，直接用二分查找将布局对象的精确谱面时间 `obj.t` 归入切点区间（同刻普通小节线归左段，`|: ` 与起音归右段），无需维护试排文本的字符偏移映射表。
 
 ## 语法着色
 

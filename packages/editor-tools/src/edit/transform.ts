@@ -12,6 +12,7 @@ import {
     Fraction,
     analyzeScoreSyntax,
     callArgName,
+    compileScore,
     needsBraces,
     parseNoteName,
     preprocessSource,
@@ -26,7 +27,8 @@ import {
     type TemporalNodeBase,
 } from "jpfun";
 import { callAt, labelSymbolAt } from "../language.js";
-import { adjacentEditTarget, countTemporalsInSubtree, editTargetAt } from "./index-targets.js";
+import { adjacentEditTarget, countTemporalsInSubtree, createScoreEditIndex, editTargetAt } from "./index-targets.js";
+import { reflowLineBreaks } from "./reflow-lines.js";
 import {
     allocateLabels,
     applySourceEditsToText,
@@ -485,6 +487,28 @@ export function applyScoreEditAction(
                 nextMode: target ? "select" : "insert",
                 nextSpan: target ? mapSpanThroughEdits(target.span, edits) : null,
             };
+        }
+
+        case "reflow-lines": {
+            const edits = reflowLineBreaks(source, compiled, {
+                barsPerLine: action.barsPerLine,
+                textMeasurer: action.textMeasurer,
+            });
+            let nextSpan: SourceSpan | null = target ? target.span : null;
+            if (target && edits.length > 0) {
+                const nextSource = applySourceEditsToText(source, edits);
+                const nextIndex = createScoreEditIndex(nextSource, compileScore(nextSource, { textMeasurer: action.textMeasurer }));
+                const findNth = <T>(oldList: readonly T[], newList: readonly T[], pred: (item: T) => boolean) => {
+                    const ord = oldList.filter(pred).indexOf(target as unknown as T);
+                    return ord >= 0 ? newList.filter(pred)[ord] : undefined;
+                };
+                const relocated = target.kind === "relation"
+                    ? findNth(index.targets, nextIndex.targets, t => t.kind === "relation" && t.relationKind === target.relationKind)
+                    : findNth(index.streamTargets, nextIndex.streamTargets, t => t.trackIndex === target.trackIndex && t.kind === target.kind)
+                        ?? findNth(index.streamTargets, nextIndex.streamTargets, t => t.kind === target.kind);
+                nextSpan = relocated?.span ?? null;
+            }
+            return { edits, nextMode: target && nextSpan ? "select" : "insert", nextSpan };
         }
 
         case "delete": {

@@ -227,7 +227,7 @@ N(女低): 1 2 3
             (MIN_CONNECTOR_STEM * (BRACKET_HOOK_REACH + 0.5) + 0.5) / (1 - CONNECTOR_LABEL_GAP_RATIO));
     }
     // 收集阶段只冻结配置，避免提前校验随后会被 V 声明覆盖的默认值。
-    private get connectionSpecs(): ConnectionSpec[] {
+    get connectionSpecs(): ConnectionSpec[] {
         return parseConnections(this.connect, this.sourceSpan);
     }
     override get children() { return this.voices; }

@@ -79,7 +79,8 @@ const nextSource = applySourceEditsToText(source, inserted.edits);
 
 - `createScoreEditIndex`: indexes editable stream targets (`note`, `dash`, `bar`, `meter`, `key`, `tempo`, `rest`), relation targets (`tie`, `gliss`, `tuplet`, `dyn`, `ottava`, `volta`, `beam`), and the default insertion slot with active meter/measure progress.
 - `editTargetAt` / `editHitAt` / `adjacentEditTarget` / `insertSlotAfter`: resolve targets or insertion slots from source spans or layout coordinates.
-- `applyScoreEditAction`: computes `SourceEdit[]` and the next selection/insertion anchor for note pitch/accidental/octave/rhythm/symbol/grace changes, step note insertion (with optional full-measure auto-barline), barline/meter/key/tempo edits, barline reflow, and deletion (with orphan `@label` cleanup).
+- `applyScoreEditAction`: computes `SourceEdit[]` and the next selection/insertion anchor for note pitch/accidental/octave/rhythm/symbol/grace changes, step note insertion (with optional full-measure auto-barline), barline/meter/key/tempo edits, barline reflow, line-break reflow (`reflow-lines`), and deletion (with orphan `@label` cleanup).
+- `reflowLineBreaks`: pulls compatible systems onto a unified timeline, normalizes unlabeled `@tie` / `@beam` calls with conflict-free explicit `@label`s, converts `@voices` / `@voice` into `V:` / `N:` / `L:` sugar, and re-breaks lines by natural page width (dynamic programming) or a fixed `barsPerLine`, optionally scoped to selection `ranges`.
 - `applyRelationCommand`: builds multi-endpoint `@tie`, `@gliss`, `@beam`, `@tuplet`, `@dyn`, `@ottava`, and `@volta` edits from picked targets, reusing existing labels or allocating conflict-free labels automatically.
 
 All utilities are also exported from the package root.

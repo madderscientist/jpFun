@@ -28,9 +28,9 @@ const WHITESPACE_RE = /\s/;
 export const LYRIC_SIZE_RATIO = 0.88;
 
 // 分词跟后面的标点
-const LYRIC_OPENING_PUNCTUATION = new Set("（([［｛〈《「『【〔〖〘〚‘“");
+export const LYRIC_OPENING_PUNCTUATION = new Set("（([［｛〈《「『【〔〖〘〚‘“");
 // 不发声的标点；位于歌词槽首尾时只渲染，不占位，也不参与对齐中心计算
-const LYRIC_SILENT_PUNCTUATION = new Set([
+export const LYRIC_SILENT_PUNCTUATION = new Set([
     ...LYRIC_OPENING_PUNCTUATION,
     ..."，。！？；：、,.!?;:）)]］｝〉》」』】〕〗〙〛’”\"'…—–",
 ]);

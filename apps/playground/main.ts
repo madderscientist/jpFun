@@ -28,7 +28,7 @@ import { createWorkspaceController } from "./workspace.js";
 import { createPlaybackController, type PlaybackController } from "./playback.js";
 import { createVisualEditController, type VisualEditController } from "./visual-edit.js";
 import { importScoreFile, isSupportedScoreFile } from "./score-import.js";
-import { applySourceEditsToText } from "@jpfun/editor-tools/edit";
+import { applySourceEditsToText, reflowLineBreaks } from "@jpfun/editor-tools/edit";
 
 const POSSIBLE_SCORE_MIME_TYPES = new Set([
     "",
@@ -240,6 +240,7 @@ visualEdit = createVisualEditController({
     getSource: source,
     getCompiled: () => latestCompiled,
     ensureCompiled,
+    textMeasurer,
     applyEdits: commitCheckedEdits,
     onUndo() {
         if (!undoSourceEdit(editor)) return false;
@@ -452,6 +453,50 @@ for (const button of pitchMenu.querySelectorAll<HTMLButtonElement>("[data-note-t
     button.addEventListener("click", () => {
         closePitchMenu();
         runNoteTransform(button.dataset.noteTransform as NoteTransform);
+    });
+}
+
+function runLineBreakReflow(barsPerLine?: number) {
+    if (editor.composing) return;
+    const activeTab = workspace.getSourceTab();
+    if (activeTab === "visual") {
+        if (!visualEdit?.reflowLines(barsPerLine)) {
+            if (statusMessage.dataset.state !== "error") statusMessage.textContent = "换行无需修改";
+        }
+        return;
+    }
+    const ranges = activeTab === "source"
+        ? editor.state.selection.ranges.filter(range => !range.empty).map(range => ({ start: range.from, end: range.to }))
+        : [];
+    const original = source();
+    if (!ensureCompiled()) return;
+    if (!latestCompiled) return;
+    try {
+        const edits = reflowLineBreaks(original, latestCompiled, {
+            barsPerLine,
+            textMeasurer,
+            ranges: ranges.length ? ranges : undefined,
+        });
+        if (!edits.length) {
+            statusMessage.textContent = "换行无需修改";
+            return;
+        }
+        commitCheckedEdits(original, edits);
+        if (activeTab === "source") editor.focus();
+    } catch (error) {
+        statusMessage.dataset.state = "error";
+        statusMessage.textContent = "自动换行失败";
+        statusMessage.title = formatError(error);
+    }
+}
+
+const lineBreakMenu = requiredElement<HTMLElement>("#lineBreakMenu");
+const closeLineBreakMenu = createDropdown(requiredElement<HTMLButtonElement>("#lineBreakButton"), lineBreakMenu);
+for (const button of lineBreakMenu.querySelectorAll<HTMLButtonElement>("[data-reflow-lines]")) {
+    button.addEventListener("click", () => {
+        closeLineBreakMenu();
+        const raw = button.dataset.reflowLines;
+        runLineBreakReflow(raw === "auto" ? undefined : Number(raw));
     });
 }
 

@@ -50,6 +50,16 @@
                                 <button type="button" role="menuitem" data-note-transform="semitone-down">降半音</button>
                             </div>
                         </div>
+                        <div class="zoom-control">
+                            <button class="tool-button linebreak-button" id="lineBreakButton" type="button" aria-label="自动换行" title="自动换行" aria-haspopup="menu" aria-expanded="false" aria-controls="lineBreakMenu">↵</button>
+                            <div class="zoom-menu" id="lineBreakMenu" role="menu" aria-label="自动换行" hidden>
+                                <button type="button" role="menuitem" data-reflow-lines="auto">自动断行（按页宽）</button>
+                                <div class="zoom-menu-separator" role="separator"></div>
+                                <button type="button" role="menuitem" data-reflow-lines="2">每行 2 小节</button>
+                                <button type="button" role="menuitem" data-reflow-lines="4">每行 4 小节</button>
+                                <button type="button" role="menuitem" data-reflow-lines="8">每行 8 小节</button>
+                            </div>
+                        </div>
                         <label class="auto-format"><input id="autoFormat" type="checkbox" checked /><span>自动格式化</span></label>
                         <span class="source-size" id="sourceSize">0 字符</span>
                         <a class="docs-link" href="../docs/" target="_blank" rel="noopener noreferrer" aria-label="打开帮助文档" title="帮助文档">?</a>

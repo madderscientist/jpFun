@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { history, undo, redo } from "@codemirror/commands";
 import { EditorSelection, EditorState, StateField } from "@codemirror/state";
+import { compilePlayback, compileScore } from "jpfun";
+import { reflowLineBreaks } from "@jpfun/editor-tools/edit";
+import { PLAYGROUND_EXAMPLE } from "../example.ts";
 import { insertFormattedNewline, jpFunLanguage } from "../jpfun-language.ts";
 import { applySourceEdits } from "../editor.ts";
 
@@ -136,4 +139,28 @@ test("Enter reuses the original transaction when no spacing is needed", () => {
         },
     });
     assert.equal(updates, 1);
+});
+
+test("line-break reflow on PLAYGROUND_EXAMPLE preserves playback and forms one undo step", () => {
+    const editor = editorFor(PLAYGROUND_EXAMPLE);
+    const original = editor.state.doc.toString();
+    const before = compileScore(original);
+    const edits = reflowLineBreaks(original, before);
+    assert.ok(edits.length > 0);
+    assert.equal(applySourceEdits(editor, original, edits), true);
+
+    const reflowed = editor.state.doc.toString();
+    const after = compileScore(reflowed);
+    assert.equal(after.diagnostics.filter(d => d.severity === "error").length, 0);
+    const stripSpans = e => ({ ...e, sourceSpans: undefined });
+    assert.deepEqual(
+        compilePlayback(after.lowering).events.map(stripSpans),
+        compilePlayback(before.lowering).events.map(stripSpans),
+    );
+    assert.deepEqual(reflowLineBreaks(reflowed, after), []);
+
+    assert.equal(undo(editor), true);
+    assert.equal(editor.state.doc.toString(), original);
+    assert.equal(redo(editor), true);
+    assert.equal(editor.state.doc.toString(), reflowed);
 });

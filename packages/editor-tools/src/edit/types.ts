@@ -11,6 +11,7 @@ import {
     type Rect,
     type SourceEdit,
     type SourceSpan,
+    type TextMeasurer,
 } from "jpfun";
 
 /** 简谱时值描述：`div` 为减时线数量（0~3），`dot` 为附点数量（0~2） */
@@ -174,6 +175,7 @@ export type ScoreEditAction =
     | { readonly type: "insert-line-break"; readonly slot?: ScoreInsertSlot }
     | { readonly type: "set-meter"; readonly numerator: number; readonly denominator: number; readonly slot?: ScoreInsertSlot }
     | { readonly type: "reflow-bars" }
+    | { readonly type: "reflow-lines"; readonly barsPerLine?: number; readonly textMeasurer?: TextMeasurer }
     | { readonly type: "set-key"; readonly tonality: string; readonly slot?: ScoreInsertSlot }
     | { readonly type: "set-tempo"; readonly bpm: number; readonly slot?: ScoreInsertSlot }
     | { readonly type: "delete"; readonly slot?: ScoreInsertSlot };

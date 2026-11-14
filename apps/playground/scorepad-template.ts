@@ -177,6 +177,7 @@ export function renderScorePadMarkup(): string {
                             <button type="button" class="pad-btn chip-btn" id="padLineBreakBtn" title="换行 (Enter / @br)" aria-label="换行">↵</button>
                             <button type="button" class="pad-btn chip-btn" id="padAutoBarBtn" aria-pressed="true" title="满拍自动补小节线">| 自动</button>
                             <button type="button" class="pad-btn chip-btn" id="padReflowBars" title="按当前拍号重排后续小节线">⇄ |</button>
+                            <button type="button" class="pad-btn chip-btn" id="padReflowLines" title="按页面宽度自动换行重排">⇄ ↵</button>
                         </div>
                         <div class="scorepad-chip-row" id="padMeters">
                             ${COMMON_METERS.map(([n, d]) => `<button type="button" class="pad-btn chip-btn" data-meter="${n}/${d}">${n}/${d}</button>`).join("")}

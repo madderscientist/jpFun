@@ -14,6 +14,7 @@ import {
     type Rect,
     type SourceEdit,
     type SourceSpan,
+    type TextMeasurer,
 } from "jpfun";
 import {
     adjacentEditTarget,
@@ -61,6 +62,7 @@ export interface PositionMapping {
 export interface VisualEditController {
     setActive(active: boolean): void;
     readonly active: boolean;
+    reflowLines(barsPerLine?: number): boolean;
     onCompiled(source: string, compiled: CompileScoreResult): void;
     /** 源码已变更；非本控制器发起的变更会按 `changes` 映射游标并清空选区快照栈 */
     onInvalidated(changes: PositionMapping): void;
@@ -72,6 +74,7 @@ interface VisualEditOptions {
     getSource(): string;
     getCompiled(): CompileScoreResult | null;
     ensureCompiled(): boolean;
+    textMeasurer?: TextMeasurer;
     /** 干跑校验通过后将 SourceEdit[] 写入编辑器并同步重编译；失败返回 false */
     applyEdits(source: string, edits: readonly SourceEdit[]): boolean;
     onUndo?(): boolean;
@@ -530,6 +533,7 @@ export function createVisualEditController(options: VisualEditOptions): VisualEd
             case "commandCancel": relationSession = null; syncUI(false); return;
             case "padLineBreakBtn": executeAction({ type: "insert-line-break", slot: getActiveInsertSlot() ?? undefined }); return;
             case "padReflowBars": executeAction({ type: "reflow-bars" }); return;
+            case "padReflowLines": executeAction({ type: "reflow-lines", textMeasurer: options.textMeasurer }); return;
             case "padAutoBarBtn": autoBar = !autoBar; syncUI(false); return;
             case "padOctaveState": {
                 const target = getActiveTarget();
@@ -613,7 +617,8 @@ export function createVisualEditController(options: VisualEditOptions): VisualEd
         if (!isActive || event.defaultPrevented) return;
         const activeEl = document.activeElement;
         if (activeEl instanceof HTMLInputElement || activeEl instanceof HTMLTextAreaElement || activeEl instanceof HTMLSelectElement
-            || (activeEl instanceof HTMLElement && activeEl.isContentEditable) || activeEl?.closest(".cm-editor")) return;
+            || (activeEl instanceof HTMLElement && activeEl.isContentEditable)
+            || activeEl?.closest(".cm-editor, [role='menu']")) return;
 
         const mod = event.ctrlKey || event.metaKey;
         if (mod && !event.altKey) {
@@ -658,6 +663,9 @@ export function createVisualEditController(options: VisualEditOptions): VisualEd
 
     return {
         get active() { return isActive; },
+        reflowLines(barsPerLine?: number) {
+            return executeAction({ type: "reflow-lines", barsPerLine, textMeasurer: options.textMeasurer });
+        },
         setActive(active: boolean) {
             isActive = active;
             if (!active) {
