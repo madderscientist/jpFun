@@ -8,7 +8,7 @@
  *
  * XML 文本解析和 .mxl 解压都属于应用边界，core 不依赖具体 XML parser
  */
-import { Fraction, NoteNameMap } from "jpfun";
+import { Fraction, NoteNameMap, quoteSourceString } from "jpfun";
 import {
     child, children, nameOf, number, text,
     type MusicXmlElement,
@@ -32,7 +32,7 @@ import type {
     MusicXmlRepeatPoint as RepeatPoint,
     MusicXmlWedgePoint as WedgePoint,
 } from "./model.js";
-import { attachAbove, quote, renderAbsolutePitch, renderHead, renderRelativePitch, renderSystems, type PitchMode } from "../source.js";
+import { attachAbove, renderAbsolutePitch, renderHead, renderRelativePitch, renderSystems, type PitchMode } from "../source.js";
 import { matchingLanes, resolveRelations, resolveVoices } from "./resolve.js";
 
 export type { MusicXmlElement, MusicXmlNode } from "./dom.js";
@@ -669,7 +669,7 @@ function eventSource(
         source = `{${source} ${modifier.placement === "below" ? "_" : "^"} $${modifier.name}}`;
     }
     for (const annotation of event.annotations) {
-        const text = quote(annotation.text);
+        const text = quoteSourceString(annotation.text);
         source = `{${source} ${annotation.placement === "below" ? "_" : "^"} ${annotation.boxed ? `@box(${text})` : text}}`;
     }
     const label = metadata.labels.get(event);
@@ -1260,9 +1260,9 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagno
             ? lane.partName
             : "";
         return outputs.map((output, lineIndex) => {
-            const lyrics = orderedVerses.map(verse => quote(lyricTokens[lineIndex].get(verse)!.join(" ")));
+            const lyrics = orderedVerses.map(verse => quoteSourceString(lyricTokens[lineIndex].get(verse)!.join(" ")));
             const lyricLines = lyrics.map(lyric => `L: ${lyric}`).join("\n");
-            const name = lineIndex === 0 && partName ? `(${quote(partName)})` : "";
+            const name = lineIndex === 0 && partName ? `(${quoteSourceString(partName)})` : "";
             return `N${name}: { ${output.join(" ")} }${lyricLines ? `\n${lyricLines}` : ""}`;
         });
     });

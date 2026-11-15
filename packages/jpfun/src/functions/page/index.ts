@@ -11,7 +11,7 @@ import type {
 } from "../../layout/types.js";
 import type { TextStyle } from "../../render/types.js";
 import { ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
-import { quote } from "../../parser/parse-utils/string-utils.js";
+import { quoteSourceString } from "../../parser/parse-utils/string-utils.js";
 import { registerBarNumbering } from "../bar/index.js";
 import {
     ASTFunctionNode,
@@ -26,7 +26,7 @@ import {
 const px = (value: number): LengthValue => ({ value, unit: "px" });
 
 /** 页码字号，同时也是放得下页码所需的最小下边距 */
-export const PAGE_NUMBER_FONT_SIZE = 16;
+const PAGE_NUMBER_FONT_SIZE = 16;
 const PAGE_NUMBER_STYLE: TextStyle = { fontSize: PAGE_NUMBER_FONT_SIZE, textAlign: "center", fill: "#606060" };
 
 /** 单个 1 取当前页；多个 1 中最后一个取总页数，其余取当前页 */
@@ -65,7 +65,7 @@ class PageNumberAttachment implements LayoutAttachment {
     }
 }
 
-export class PageFunction extends ASTFunctionNode {
+class PageFunction extends ASTFunctionNode {
     static override def = {
         name: ["page"],
         description: "设置文档页面",
@@ -191,7 +191,7 @@ export class PageFunction extends ASTFunctionNode {
     override toString() {
         if (!this.config) return "@page()";
         const { width, height, marginTop, marginBottom, marginLeft, marginRight, lineGap, minLineGap, fillRatio } = this.config;
-        return `@page(width=${width}px, height=${Number.isFinite(height) ? height : 0}px, top=${marginTop}px, bottom=${marginBottom}px, left=${marginLeft}px, right=${marginRight}px, gap=${lineGap}px, minGap=${minLineGap}px, numbering=${quote(this.numbering)}, barNumbering=${quote(this.barNumbering)}, font=${quote(this.font)}, fillRatio=${fillRatio})`;
+        return `@page(width=${width}px, height=${Number.isFinite(height) ? height : 0}px, top=${marginTop}px, bottom=${marginBottom}px, left=${marginLeft}px, right=${marginRight}px, gap=${lineGap}px, minGap=${minLineGap}px, numbering=${quoteSourceString(this.numbering)}, barNumbering=${quoteSourceString(this.barNumbering)}, font=${quoteSourceString(this.font)}, fillRatio=${fillRatio})`;
     }
 }
 

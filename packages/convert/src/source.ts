@@ -1,6 +1,5 @@
 /** MIDI 与 MusicXML 共享的 jpFun 源码片段生成工具 */
-import { quoteSourceString as quote } from "jpfun";
-export { quoteSourceString as quote } from "jpfun";
+import { quoteSourceString } from "jpfun";
 
 type HeadTextField = "title" | "subtitle" | "author";
 export type PitchMode = "relative" | "absolute";
@@ -48,7 +47,7 @@ function renderHeadText(field: HeadTextField, value: string) {
     const needsExplicitText = value.trim() !== value
         || /[\r\n%]/.test(value) || /^\s*[@{]/.test(value) || value.endsWith("\\");
     return needsExplicitText
-        ? `H.${field}: @text(${quote(value)}, ${HEAD_TEXT_PRESET[field]})`
+        ? `H.${field}: @text(${quoteSourceString(value)}, ${HEAD_TEXT_PRESET[field]})`
         : `H.${field}: ${value}`;
 }
 

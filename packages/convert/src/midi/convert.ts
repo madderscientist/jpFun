@@ -8,10 +8,10 @@
  *
  * MIDI 字节解析不属于 core；这里接收的是 midi.js 已解析好的 JSON。
  */
-import { DEFAULT_BPM, SHARP_NOTE_NAMES as ABSOLUTE_NAMES } from "jpfun";
+import { DEFAULT_BPM, SHARP_NOTE_NAMES as ABSOLUTE_NAMES, quoteSourceString } from "jpfun";
 import type { MidiJson, MidiJsonInstrument, MidiJsonNote, MidiJsonTrack } from "./json.js";
 import { identifyTriplets, type TripletMark } from "./triplet.js";
-import { attachAbove, quote, renderAbsolutePitch, renderHead, renderRelativePitch, renderSystems, type PitchMode } from "../source.js";
+import { attachAbove, renderAbsolutePitch, renderHead, renderRelativePitch, renderSystems, type PitchMode } from "../source.js";
 
 export type * from "./json.js";
 
@@ -553,7 +553,7 @@ function renderTrack(
     }
     if (bars.has(scoreEnd)) outputs[lineCount - 1].push("|");
     return outputs.map((output, lineIndex) => {
-        const name = showName && lineIndex === 0 && track.source.name ? `(${quote(track.source.name)})` : "";
+        const name = showName && lineIndex === 0 && track.source.name ? `(${quoteSourceString(track.source.name)})` : "";
         return `N${name}: { ${output.join(" ")} }`;
     });
 }

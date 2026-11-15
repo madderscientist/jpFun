@@ -123,7 +123,7 @@ AST 解析、语法着色和编辑器提示都使用这份类型信息。`conten
 
 ### 有界消费：`N: 1 2 3`
 
-有明确终止条件的简写可以先划定区间，再解析内容。[VoiceFunction](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/functions/voice/index.ts) 的第一轮记录 `N:` 起点和名称；第二轮扫描到当前层的换行、下一条声部声明或序列末尾，截取这段中间节点，交给子上下文的 `makeNodes`，最后构造 voice。
+有明确终止条件的简写可以先划定区间，再解析内容。[VoiceFunction](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/functions/voice/voice.ts) 的第一轮记录 `N:` 起点和名称；第二轮扫描到当前层的换行、下一条声部声明或序列末尾，截取这段中间节点，交给子上下文的 `makeNodes`，最后构造 voice。
 
 这几种方式分别适合：参数由文本直接确定、修饰前方节点、组合后方节点，以及收集有边界的内容。
 

@@ -7,7 +7,7 @@ import type {
     LayoutRegion,
 } from "../../layout/types.js";
 import type { Track } from "../../lowering/track.js";
-import { quote } from "../../parser/parse-utils/string-utils.js";
+import { quoteSourceString } from "../../parser/parse-utils/string-utils.js";
 import type { SourceSpan } from "../../parser/types.js";
 import {
     appendRun,
@@ -192,7 +192,7 @@ export function parseLyric(value: string, offsets?: readonly number[], tokenSpan
 }
 
 export function serializeLyric(tokens: readonly (readonly RichTextRun[] | null)[]): string {
-    return quote(tokens.flatMap((runs, i) => {
+    return quoteSourceString(tokens.flatMap((runs, i) => {
         if (runs === null) return [];
         if (runs.length === 0) return "@";
         let span = 0, mask = 0, inner = "";

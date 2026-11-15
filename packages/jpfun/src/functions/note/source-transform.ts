@@ -4,7 +4,7 @@ import type { SourceSpan } from "../../parser/types.js";
 import { preprocessSource } from "../../parser/preprocess.js";
 import { callArgName, readCall } from "../../parser/parse-utils/call-utils.js";
 import type { CallInfo } from "../../parser/grammarType.js";
-import { findClosingQuote, quote } from "../../parser/parse-utils/string-utils.js";
+import { findClosingQuote, quoteSourceString } from "../../parser/parse-utils/string-utils.js";
 import {
     FLAT_NOTE_NAMES,
     NOTE_LETTERS,
@@ -115,12 +115,12 @@ export function rewriteNoteCall(source: string, masked: string, call: CallInfo, 
     const octaveSlot = slots.get("octave") ?? slots.get(2);
     const additions: string[] = [];
     const valueText = (value: string, slot?: SourceSpan) =>
-        !value || value.includes(",") || slot && source[slot.start] === '"' ? quote(value) : value;
+        !value || value.includes(",") || slot && source[slot.start] === '"' ? quoteSourceString(value) : value;
     const name = pitchToken(pitch, !accSlot && !hasDefaultAcc, !octaveSlot);
     if (nameSlot) pushEdit(edits, source, masked, nameSlot, valueText(name, nameSlot));
     else additions.push(`name=${valueText(name)}`);
     if (accSlot) pushEdit(edits, source, masked, accSlot, valueText(pitch.acc, accSlot));
-    else if (hasDefaultAcc) additions.push(`acc=${quote(pitch.acc)}`);
+    else if (hasDefaultAcc) additions.push(`acc=${quoteSourceString(pitch.acc)}`);
     if (octaveSlot) pushEdit(edits, source, masked, octaveSlot, String(pitch.octave));
     if (additions.length) {
         const at = call.closeParenSpan!.start;

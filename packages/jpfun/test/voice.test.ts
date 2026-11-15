@@ -5,7 +5,7 @@ import { compileScore } from "../src/pipeline.js";
 import { pathBounds } from "../src/layout/path.js";
 import { ASTFunctionNode, ASTNodeBase } from "../src/functions/ASTtypes.js";
 import { parseConnections } from "../src/functions/voice/connections.js";
-import { parseString, quote } from "../src/parser/parse-utils/string-utils.js";
+import { parseString, quoteSourceString } from "../src/parser/parse-utils/string-utils.js";
 import { assert, attachmentCommands, commandsOfKind, compileValid, expectCompileError, expectDiagnostic, layoutContext, layoutOf, nearly, parse, recordCommands } from "./helpers.js";
 
 const axisOf = (object: { box: { y: number; visualAxis: number } }) => object.box.y + object.box.visualAxis;
@@ -26,7 +26,7 @@ test("nested voices collect only their direct name hosts", () => {
 
 test("lyrics preserve supplementary Unicode characters as single slots", () => {
     const word = "\u{20bb7}\u91ce";
-    const result = layoutOf(`@voice({1 2}, , ${quote(word)})`);
+    const result = layoutOf(`@voice({1 2}, , ${quoteSourceString(word)})`);
     const lyrics = attachmentCommands(result.attachments[0]).filter(command => command.kind === "text");
     deepStrictEqual(lyrics.map(command => command.text), [...word]);
 });
@@ -50,19 +50,19 @@ test("voice serialization roundtrips names, lyric slots and nested LF/tab", () =
     const cases: [string, string, { name: string; tokens: { text: string; mask: number }[][] }[]][] = [
         ["", "", []],
         ['Lead "quoted", \\', "", []],
-        ['Lead "quoted", {name} \\ @ -', `, ${quote(lyric)}, "", row="{named row}", other="@"`, [
+        ['Lead "quoted", {name} \\ @ -', `, ${quoteSourceString(lyric)}, "", row="{named row}", other="@"`, [
             { name: "", tokens: plainTokens(["你好", "hello world", "", "@", "你}好", "{brace}", "back\\slash", "hel-lo", '"quoted",word', ""]) },
             { name: "", tokens: [] },
             { name: "row", tokens: plainTokens(["named row"]) },
             { name: "other", tokens: plainTokens([""]) },
         ]],
-        ['Lead\\name\n\t"quoted"\n', `, ${quote(multiline)}, row=${quote(multiline)}`, [
+        ['Lead\\name\n\t"quoted"\n', `, ${quoteSourceString(multiline)}, row=${quoteSourceString(multiline)}`, [
             { name: "", tokens }, { name: "row", tokens },
         ]],
     ];
     for (const [name, args, lyrics] of cases) {
-        strictEqual(parseString(quote(name)), name);
-        const voice = `@voice({1 2}, ${quote(name)}${args})`;
+        strictEqual(parseString(quoteSourceString(name)), name);
+        const voice = `@voice({1 2}, ${quoteSourceString(name)}${args})`;
         const check = (node: ASTNodeBase): number => {
             if ("name" in node && node.name === name && "lyrics" in node) {
                 deepStrictEqual(node.lyrics, lyrics);
@@ -431,13 +431,13 @@ test("voice connections parse, validate, serialize and render partial braces", (
         ["{1-2}[3]", "{1-2}[3-3]"],
     ]) {
         deepStrictEqual(connectionSpecsOf(connect), connectionSpecsOf(expanded));
-        const result = compileValid(`@voices(${fourVoices}, connect=${quote(connect)})`);
+        const result = compileValid(`@voices(${fourVoices}, connect=${quoteSourceString(connect)})`);
         deepStrictEqual(recordCommands(result.layout),
-            recordCommands(compileValid(`@voices(${fourVoices}, connect=${quote(expanded)})`).layout));
+            recordCommands(compileValid(`@voices(${fourVoices}, connect=${quoteSourceString(expanded)})`).layout));
     }
 
     for (const connect of ["[]", "{}", "[0-2]", "[2-1]", "[1-5]", "{1.5-2}", "[1-2}", "[1-2]oops", "[1 2-3]"]) {
-        expectDiagnostic(() => compileScore(`@voices(${fourVoices}, connect=${quote(connect)})`, {
+        expectDiagnostic(() => compileScore(`@voices(${fourVoices}, connect=${quoteSourceString(connect)})`, {
             variables: { strict: true },
         }), "E_VOICES_CONNECT");
     }
@@ -496,17 +496,17 @@ test("connect group names parse, validate and roundtrip with V sugar", () => {
         "{钢琴}", "{:钢琴}", "[合唱]", "[:合唱]", "{1-2:}", "{1-2:   }", '{1-2:""}',
         "{1-2:钢琴", "[1-2:钢琴}", "{1-2:a:b}", '{1-2:"unclosed}', '{1-2:"\\u12"}', "{1-2}钢琴",
     ]) {
-        expectDiagnostic(() => compileScore(`@voices(${fourVoices}, connect=${quote(invalid)})`, {
+        expectDiagnostic(() => compileScore(`@voices(${fourVoices}, connect=${quoteSourceString(invalid)})`, {
             variables: { strict: true },
         }), "E_VOICES_CONNECT");
     }
 
     const sugarSource = 'V{钢琴}:\nN(右手): 1 2\nN(左手): 3 4\nV["Mixed: [I]"]:\nN(女高): 5 6\nN(女低): 7 1';
-    const explicitSource = `@voices(@voice({1 2}, 右手), @voice({3 4}, 左手), @voice({5 6}, 女高), @voice({7 1}, 女低), connect=${quote('{1-2:钢琴}[3-4:"Mixed: [I]"]')})`;
+    const explicitSource = `@voices(@voice({1 2}, 右手), @voice({3 4}, 左手), @voice({5 6}, 女高), @voice({7 1}, 女低), connect=${quoteSourceString('{1-2:钢琴}[3-4:"Mixed: [I]"]')})`;
     const sugarResult = compileValid(sugarSource, { variables: { strict: true } });
     const explicitResult = compileValid(explicitSource, { variables: { strict: true } });
     const serialized = sugarResult.ast.toString(sugarSource);
-    assert(serialized.includes(`connect=${quote('{1-2:钢琴}[3-4:"Mixed: [I]"]')}`), serialized);
+    assert(serialized.includes(`connect=${quoteSourceString('{1-2:钢琴}[3-4:"Mixed: [I]"]')}`), serialized);
     deepStrictEqual(recordCommands(sugarResult.layout), recordCommands(explicitResult.layout));
     deepStrictEqual(recordCommands(compileValid(serialized).layout), recordCommands(sugarResult.layout));
 });

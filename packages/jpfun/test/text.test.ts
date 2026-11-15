@@ -4,7 +4,7 @@ import { deepStrictEqual, strictEqual } from "node:assert/strict";
 import { ASTFunctionNode } from "../src/functions/ASTtypes.js";
 import { WarningDiagnostic } from "../src/diagnostic.js";
 import { analyzeScoreSyntax, compileScore } from "../src/pipeline.js";
-import { parseString, quote } from "../src/parser/parse-utils/string-utils.js";
+import { parseString, quoteSourceString } from "../src/parser/parse-utils/string-utils.js";
 import { assert, commandsOfKind, compileValid, expectCompileError, layoutOf, nearly, parse, recordCommands } from "./helpers.js";
 
 /** 只写一个 @text 时它就是唯一的可见对象 */
@@ -150,18 +150,18 @@ test("文本源码往返保留换行、制表符和字体字符串", () => {
         "上行\n下行", "a\tb", '"Font Name", sans-serif', 'a\\b/"c"',
         "\uE050\uD834\uDD1E \\uE050",
     ]) {
-        const source = `@text(${quote(value)}, font=${quote(value)})`;
+        const source = `@text(${quoteSourceString(value)}, font=${quoteSourceString(value)})`;
         const restored = parse(source).content[0].toString(source);
         const commands = commandsOfKind(restored, "text");
         assert(commands.map(command => command.text).join("\n") === value, "text must survive serialization");
         assert(commands.every(command => command.style.fontFamily === value), "font must survive serialization");
-        const page = `@page(numbering=${quote(value)}, font=${quote(value)})`;
+        const page = `@page(numbering=${quoteSourceString(value)}, font=${quoteSourceString(value)})`;
         const serializedPage = parse(page).content[0].toString(page);
         const node = parse(serializedPage).content[0];
         assert("font" in node && node.font === value, "page must preserve the font string");
         assert("numbering" in node && node.numbering === value, "page must preserve its numbering string");
 
-        const set = `@set(font=${quote(value)})`;
+        const set = `@set(font=${quoteSourceString(value)})`;
         const serializedSet = parse(set).content[0].toString(set);
         assert(commandsOfKind(`${serializedSet} @text(Label)`, "text")[0].style.fontFamily === value,
             "set must preserve the font string");

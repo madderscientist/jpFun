@@ -1,6 +1,6 @@
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import { pathBounds } from "../../layout/path.js";
-import { findClosingQuote, parseString, quote } from "../../parser/parse-utils/string-utils.js";
+import { findClosingQuote, parseString, quoteSourceString } from "../../parser/parse-utils/string-utils.js";
 import type { SourceSpan } from "../ASTtypes.js";
 import type { PathCommand } from "../../render/types.js";
 
@@ -139,7 +139,7 @@ export function resolveConnections(specs: readonly ConnectionSpec[], count: numb
 
 export function serializeConnections(specs: readonly ConnectionSpec[]): string {
     return specs.map(({ kind, from, to, name }) => {
-        const label = !name ? "" : `:${FORBIDDEN_RAW_NAME_RE.test(name) || name.trim() !== name ? quote(name) : name}`;
+        const label = !name ? "" : `:${FORBIDDEN_RAW_NAME_RE.test(name) || name.trim() !== name ? quoteSourceString(name) : name}`;
         const range = `${from ?? ""}-${to ?? ""}${label}`;
         return kind === "brace" ? `{${range}}` : `[${range}]`;
     }).join("");

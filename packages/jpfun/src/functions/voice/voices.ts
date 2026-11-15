@@ -4,7 +4,7 @@ import type { Extent, LayoutAttachment, LayoutPrepareContext, LayoutRegion } fro
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { MeasureFn, Track } from "../../lowering/track.js";
 import type { GrammarNode } from "../../parser/grammarType.js";
-import { findClosingQuote, quote } from "../../parser/parse-utils/string-utils.js";
+import { findClosingQuote, quoteSourceString } from "../../parser/parse-utils/string-utils.js";
 import { ParserContext } from "../../parser/parserContext.js";
 import { paintRichLine, prepareRichLine, type PreparedRichLine } from "../../render/text.js";
 import type { Painter, PathCommand, PathTransform } from "../../render/types.js";
@@ -314,7 +314,7 @@ N(女低): 1 2 3
     toString(source: string) {
         const parameters = this.voices.map(voice => `\t${voice.toString(source)}`);
         parameters.push(
-            `\tconnect=${quote(serializeConnections(this.connectionSpecs))}`,
+            `\tconnect=${quoteSourceString(serializeConnections(this.connectionSpecs))}`,
             `\tgap=${this.gap}px`,
             `\tminGap=${this.minGap}px`,
         );

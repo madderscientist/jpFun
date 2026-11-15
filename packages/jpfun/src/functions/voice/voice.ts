@@ -5,7 +5,7 @@ import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { LoweringGroup } from "../../lowering/types.js";
 import { type CallArgumentInfo, GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { findRightParen, trimRange } from "../../parser/parse-utils/call-utils.js";
-import { findClosingQuote, quote } from "../../parser/parse-utils/string-utils.js";
+import { findClosingQuote, quoteSourceString } from "../../parser/parse-utils/string-utils.js";
 import { ParserContext, skipSpaces } from "../../parser/parserContext.js";
 import { paintRichLine, prepareRichLine, type PreparedRichLine } from "../../render/text.js";
 import type { Painter, TextStyle } from "../../render/types.js";
@@ -370,7 +370,7 @@ L: la la la
     }
 
     override toString(source: string) {
-        const parameters = [`${this.content.toString(source)},${quote(this.name)}`];
+        const parameters = [`${this.content.toString(source)},${quoteSourceString(this.name)}`];
         for (const lyric of this.lyrics) {
             const text = serializeLyric(lyric.tokens);
             parameters.push(lyric.name ? `${lyric.name}=${text}` : text);

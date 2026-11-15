@@ -1,6 +1,6 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, paramType, primaryName, resolveArgType } from "../ASTtypes.js";
 import { WarningDiagnostic } from "../../diagnostic.js";
-import { quote } from "../../parser/parse-utils/string-utils.js";
+import { quoteSourceString } from "../../parser/parse-utils/string-utils.js";
 import { ParserContext } from "../../parser/parserContext.js";
 import type { CallArgumentInfo } from "../../parser/grammarType.js";
 
@@ -84,7 +84,7 @@ class SetFunction extends ASTFunctionNode {
 
     override toString() {
         return `@set(${Array.from(this.args, ([key, value]) => {
-            const text = typeof value === "string" ? quote(value)
+            const text = typeof value === "string" ? quoteSourceString(value)
                 : value && typeof value === "object" && "unit" in value ? `${value.value}${value.unit}` : value;
             return `${key}=${text}`;
         }).join(", ")})`;

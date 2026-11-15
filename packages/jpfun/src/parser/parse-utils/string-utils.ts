@@ -32,6 +32,6 @@ export function parseString(source: string): string | Diagnostic {
 }
 
 /** 生成双引号包裹的 jpFun 源码，仅转义反斜杠和双引号；与 JSON.stringify 不同，保留真实换行和制表符 */
-export function quote(value: string) {
+export function quoteSourceString(value: string) {
     return `"${value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
 }

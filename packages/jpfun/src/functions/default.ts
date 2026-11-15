@@ -31,7 +31,8 @@ import { TremoloNode } from "./tremolo/index.js";
 import { VoltaNode } from "./volta/index.js";
 import { TieNode } from "./tie/index.js";
 import { TupletNode } from "./tuplet/index.js";
-import { VoiceNode, VoicesNode } from "./voice/index.js";
+import { VoiceNode } from "./voice/voice.js";
+import { VoicesNode } from "./voice/voices.js";
 
 export const defaultFunctions: ASTFunctionClass[] = [
     NoteNode, DashNode, RestNode, BarNode,

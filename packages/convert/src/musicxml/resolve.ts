@@ -1,4 +1,4 @@
-import { quote } from "../source.js";
+import { quoteSourceString } from "jpfun";
 import { reportDiagnostic } from "./features.js";
 import type {
     MusicXmlDiagnostic, MusicXmlDirectionPoint as DirectionPoint,
@@ -123,7 +123,7 @@ function attachDirections(lanes: Lane[], directions: readonly DirectionPoint[], 
         for (const annotation of direction.texts) {
             if (target) target.annotations.push({ ...annotation, placement: direction.placement });
             else reportDiagnostic(diagnostics, "textHost",
-                { ...direction.location, element: annotation.boxed ? "rehearsal" : "words" }, quote(annotation.text));
+                { ...direction.location, element: annotation.boxed ? "rehearsal" : "words" }, quoteSourceString(annotation.text));
         }
     }
 }

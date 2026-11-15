@@ -5,25 +5,20 @@ export * from "./functions/temporal.js";
 export * from "./functions/default.js";
 export * from "./functions/adjust/index.js";
 export * from "./functions/arpeggio/index.js";
-export * from "./functions/arpeggio/shape.js";
-export * from "./functions/bar/index.js";
+export { BarNode } from "./functions/bar/index.js";
 export * from "./functions/beam/index.js";
-export * from "./functions/beam/auto.js";
-export * from "./functions/beam/layout.js";
 export * from "./functions/box/index.js";
 export * from "./functions/br/index.js";
 export * from "./functions/dash/index.js";
-export * from "./functions/div/index.js";
+export { DivNode } from "./functions/div/index.js";
 export * from "./functions/dot/index.js";
 export * from "./functions/dyn/index.js";
 export * from "./functions/gliss/index.js";
 export * from "./functions/grace/index.js";
 export * from "./functions/head/index.js";
 export * from "./functions/key/index.js";
-export * from "./functions/meter/index.js";
-export * from "./functions/meter/shape.js";
+export { MeterNode } from "./functions/meter/index.js";
 export * from "./functions/note/index.js";
-export * from "./functions/note/accidentals.js";
 export * from "./functions/note/noteName.js";
 export * from "./functions/note/source-transform.js";
 export * from "./functions/ottava/index.js";
@@ -35,28 +30,7 @@ export * from "./functions/set/index.js";
 export * from "./functions/slide/index.js";
 export * from "./functions/stack/index.js";
 export * from "./functions/symbol/index.js";
-export * from "./functions/symbol/ornament.js";
-export * from "./functions/symbol/shape.js";
-export * from "./functions/symbol/symbols/accent.js";
-export * from "./functions/symbol/symbols/coda.js";
-export * from "./functions/symbol/symbols/dc.js";
-export * from "./functions/symbol/symbols/ds.js";
-export * from "./functions/symbol/symbols/dynamics.js";
-export * from "./functions/symbol/symbols/fermata.js";
-export * from "./functions/symbol/symbols/fine.js";
-export * from "./functions/symbol/symbols/harmonic.js";
-export * from "./functions/symbol/symbols/marcato.js";
-export * from "./functions/symbol/symbols/mordent.js";
-export * from "./functions/symbol/symbols/prall.js";
-export * from "./functions/symbol/symbols/segno.js";
-export * from "./functions/symbol/symbols/staccato.js";
-export * from "./functions/symbol/symbols/tenuto.js";
-export * from "./functions/symbol/symbols/tocoda.js";
-export * from "./functions/symbol/symbols/tr.js";
-export * from "./functions/symbol/symbols/turn.js";
-export * from "./functions/symbol/symbols/wheel.js";
 export * from "./functions/tempo/index.js";
-export * from "./functions/tempo/glyph.js";
 export * from "./functions/text/index.js";
 export * from "./functions/tie/index.js";
 export * from "./functions/tremolo/index.js";
@@ -64,7 +38,13 @@ export * from "./functions/tuplet/index.js";
 export * from "./functions/up/index.js";
 export * from "./functions/voice/voice.js";
 export * from "./functions/voice/voices.js";
-export * from "./functions/voice/connections.js";
+export {
+    parseConnections,
+    resolveConnections,
+    serializeConnections,
+    type ConnectionSpec,
+    type VoiceConnection,
+} from "./functions/voice/connections.js";
 export * from "./functions/voice/lyrics.js";
 export * from "./functions/volta/index.js";
 
@@ -80,24 +60,26 @@ export * from "./parser/parse-utils/label-utils.js";
 export * from "./parser/parse-utils/length-utils.js";
 export * from "./parser/parse-utils/note-utils.js";
 export * from "./parser/parse-utils/string-utils.js";
-export { quote as quoteSourceString } from "./parser/parse-utils/string-utils.js";
 
 export * from "./lowering/types.js";
 export * from "./lowering/loweringContext.js";
 export * from "./lowering/track.js";
 
 export * from "./playback/types.js";
-export * from "./playback/event.js";
 export * from "./playback/time.js";
 export * from "./playback/compile.js";
 
 export * from "./layout/types.js";
 export * from "./layout/model.js";
 export * from "./layout/default.js";
-export * from "./layout/page.js";
+export {
+    DEFAULT_PAGE_CONFIG,
+    normalizePageConfig,
+    paginateLayoutLines,
+    type DocumentLayoutPage,
+} from "./layout/page.js";
 export * from "./layout/engine.js";
 export * from "./layout/path.js";
 export * from "./layout/range.js";
 
 export * from "./render/index.js";
-export * from "./render/translate.js";

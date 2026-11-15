@@ -1,6 +1,6 @@
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, ParserContext, SourceSpan, LengthValue } from "../ASTtypes.js";
 import { ErrorDiagnostic } from "../../diagnostic.js";
-import { findClosingQuote, quote } from "../../parser/parse-utils/string-utils.js";
+import { findClosingQuote, quoteSourceString } from "../../parser/parse-utils/string-utils.js";
 import type { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { DEFAULT_KEY, TemporalNodeBase } from "../temporal.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
@@ -104,7 +104,7 @@ class TextFunction extends ASTFunctionNode {
     override loweringEnter() { return [new TextTemporalNode(this)]; }
 
     override toString() {
-        return `@text(${quote(this.text)}, size=${this.size}px, lineheight=${this.lineHeight}, align=${this.align}, font=${quote(this.font)})`;
+        return `@text(${quoteSourceString(this.text)}, size=${this.size}px, lineheight=${this.lineHeight}, align=${this.align}, font=${quoteSourceString(this.font)})`;
     }
 }
 
