@@ -60,8 +60,7 @@ interface PreviewHit {
 }
 
 function playbackScoreTime(node: VisualTemporalNode): number | undefined {
-    let host: TemporalNodeBase = node;
-    while (host.foldedInto) host = host.foldedInto;
+    const host = node.rootHost;
     return host.T.isZero() ? void 0 : host.t.toNumber();
 }
 

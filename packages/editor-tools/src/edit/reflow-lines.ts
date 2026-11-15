@@ -43,6 +43,7 @@ import {
     type VisualTemporalNode,
     type VoiceConnection,
 } from "jpfun";
+import { callNameOf, climbSingleWrappers } from "./index-targets.js";
 import { allocateLabels, applySourceEditsToText } from "./spans.js";
 import { isRelationKind } from "./types.js";
 
@@ -108,7 +109,6 @@ interface MergedBlock {
     cuts: { time: Fraction; indices: number[] }[];
 }
 
-const callNameOf = (n: ASTNodeBase) => (n instanceof ASTFunctionNode ? n.callName : "");
 const jeOpen = (n: number) => (n > 0 ? "[".repeat(n) : n < 0 ? "(".repeat(-n) : "");
 const jeClose = (n: number) => (n > 0 ? "]".repeat(n) : n < 0 ? ")".repeat(-n) : "");
 const isPureJe = (s: string) => /^[()[\]\s]+$/.test(s);
@@ -288,18 +288,8 @@ function buildRelationPlan(src: string, compiled: CompileScoreResult, reflowSpan
         if (ln) patches.push({ start: ln.sourceSpan.start, end: ln.sourceSpan.end, order: 1, text: `@${f}` });
     }
     for (const ep of unlbl) {
-        const f = fresh[fi++];
+        const f = fresh[fi++], wrap = climbSingleWrappers(ep);
         epLabels.set(ep, f);
-        let wrap: ASTNodeBase = ep;
-        for (let p = wrap.parent; p; p = p.parent) {
-            const nonTrivial = (b: ASTBraceNode) => b.content.filter(c => !(c instanceof ASTLabelNode) && !(c instanceof ASTTextNode));
-            if (p instanceof ASTBraceNode && nonTrivial(p).length === 1 && nonTrivial(p)[0] === wrap) { wrap = p; continue; }
-            if (p instanceof ASTFunctionNode && (p.callName === "div" || p.callName === "dot")) {
-                const inner = (p as ASTFunctionNode & { content?: ASTNodeBase }).content;
-                if (!(inner instanceof ASTBraceNode && nonTrivial(inner).length > 1)) { wrap = p; continue; }
-            }
-            break;
-        }
         const needBrace = (ep.callName === "up" || ep.callName === "down") && src[ep.sourceSpan.end - 1] !== ")"
             && !(wrap instanceof ASTBraceNode && src[wrap.sourceSpan.start] === "{")
             && !(ep.parent instanceof ASTBraceNode && src[ep.parent.sourceSpan.start] === "{");

@@ -95,16 +95,14 @@ function analyzeAncestors(node: ASTNodeBase, astToTemporal: ReadonlyMap<ASTNodeB
     return { inHeader, isChordMember, enclosingTupletSpan, graceBranchParent, graceHostParent, outerSharedDiv };
 }
 
-/** 沿父链向上攀爬所有仅包裹当前单个音符的 `{...}`、`@div`、`@dot` 节点，定位该音符独占的 `stemAst` 或 `outerAst` */
-function climbSingleWrappers(start: ASTNodeBase, astToTemporal: ReadonlyMap<ASTNodeBase, TemporalNodeBase[]>): ASTNodeBase {
+/** 沿父链向上攀爬所有仅包裹当前单个节点的 `{...}`、`@div`、`@dot` 节点 */
+export function climbSingleWrappers(start: ASTNodeBase): ASTNodeBase {
     let cur = start;
     for (let p = cur.parent; p; p = cur.parent) {
         if (p instanceof ASTBraceNode) {
             const items = p.content.filter(c => !(c instanceof ASTLabelNode) && !(c instanceof ASTTextNode));
             if (items.length === 1 && items[0] === cur) { cur = p; continue; }
-            break;
-        }
-        if (p instanceof ASTFunctionNode && (p.callName === "div" || p.callName === "dot") && countTemporalsInSubtree(p, astToTemporal) <= 1) {
+        } else if (p instanceof ASTFunctionNode && (p.callName === "div" || p.callName === "dot")) {
             cur = p;
             continue;
         }
@@ -136,12 +134,11 @@ function findLabelNodeFor(root: ASTNodeBase, targets: ReadonlySet<ASTNodeBase>):
  */
 function resolveNoteAst(
     temporal: VisualTemporalNode,
-    astToTemporal: ReadonlyMap<ASTNodeBase, TemporalNodeBase[]>,
     isGrace: boolean,
 ) {
     const noteAst = temporal.ast as unknown as ASTFunctionNode;
     const labelTargets = new Set<ASTNodeBase>([noteAst]);
-    const stemAst = climbSingleWrappers(noteAst, astToTemporal);
+    const stemAst = climbSingleWrappers(noteAst);
     let outerAst = stemAst;
     let foldAst: ASTFunctionNode | undefined;
     let div = Number(temporal.addon?.["@div"]) || 0;
@@ -155,7 +152,7 @@ function resolveNoteAst(
         const rootHost = temporal.rootHost;
         div = Math.max(div, Number(rootHost.addon?.["@div"]) || 0);
         dot = Math.max(dot, Number(rootHost.addon?.["@dot"]) || 0);
-        outerAst = climbSingleWrappers(foldAst, astToTemporal);
+        outerAst = climbSingleWrappers(foldAst);
     }
 
     // 倚音在 lowering 时默认多加了一层 @div(1)，还原回源码书写的减时线数
@@ -360,7 +357,7 @@ export function createScoreEditIndex(source: string, compiled: CompileScoreResul
 
         if (callName === "note" || callName === "dash") {
             const isGrace = Boolean(anc.graceBranchParent);
-            const resolved = resolveNoteAst(temporal, astToTemporal, isGrace);
+            const resolved = resolveNoteAst(temporal, isGrace);
             const postGroupInsertEnd = isGrace
                 ? resolved.unitSpan.end
                 : resolvePostGroupInsertOffset(ast, resolved.unitSpan.end, rawNonHeaderSpans);

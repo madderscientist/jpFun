@@ -12,6 +12,7 @@ import {
 import { createDiagnosticsController } from "./diagnostics.js";
 import {
     createDocumentController,
+    isSupportedScoreFile,
     loadDraftSource,
 } from "./document.js";
 import { PLAYGROUND_EXAMPLE } from "./example.js";
@@ -27,7 +28,6 @@ import { initializeTheme } from "./theme.js";
 import { createWorkspaceController } from "./workspace.js";
 import { createPlaybackController, type PlaybackController } from "./playback.js";
 import { createVisualEditController, type VisualEditController } from "./visual-edit.js";
-import { importScoreFile, isSupportedScoreFile } from "./score-import.js";
 import { applySourceEditsToText, reflowLineBreaks } from "@jpfun/editor-tools/edit";
 
 const POSSIBLE_SCORE_MIME_TYPES = new Set([
@@ -103,7 +103,7 @@ const editor = createSourceEditor({
 });
 documents = createDocumentController({
     getSource: source,
-    importFile: importScoreFile,
+    importFile: async file => (await import("./score-import.js")).importScoreFile(file),
     replaceSource(nextSource) {
         editor.dispatch({
             changes: { from: 0, to: editor.state.doc.length, insert: nextSource },

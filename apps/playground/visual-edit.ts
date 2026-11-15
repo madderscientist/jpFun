@@ -533,7 +533,6 @@ export function createVisualEditController(options: VisualEditOptions): VisualEd
             case "commandCancel": relationSession = null; syncUI(false); return;
             case "padLineBreakBtn": executeAction({ type: "insert-line-break", slot: getActiveInsertSlot() ?? undefined }); return;
             case "padReflowBars": executeAction({ type: "reflow-bars" }); return;
-            case "padReflowLines": executeAction({ type: "reflow-lines", textMeasurer: options.textMeasurer }); return;
             case "padAutoBarBtn": autoBar = !autoBar; syncUI(false); return;
             case "padOctaveState": {
                 const target = getActiveTarget();

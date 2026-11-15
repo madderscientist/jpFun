@@ -34,6 +34,10 @@ const savePickerOptions = {
 };
 const DRAFT_WRITE_DELAY = 400;
 
+export function isSupportedScoreFile(file: { readonly name: string }) {
+    return /\.(?:jpfun|mid|midi|musicxml|mxl|xml)$/i.test(file.name);
+}
+
 export function loadDraftSource(fallback: string): string {
     const source = readStoredValue(DRAFT_STORAGE_KEY) || fallback;
     storeValue(DRAFT_STORAGE_KEY, source);
