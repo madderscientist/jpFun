@@ -22,6 +22,8 @@ const openPickerOptions = {
             "text/plain": [".jpfun"],
             "audio/midi": [".mid", ".midi"],
             "application/vnd.recordare.musicxml+xml": [".musicxml"],
+            "application/vnd.recordare.musicxml": [".mxl"],
+            "application/xml": [".xml"],
         },
     }],
     excludeAcceptAllOption: true,
@@ -47,7 +49,7 @@ function chooseUploadedFile(): Promise<File | null> {
         const input = document.createElement("input");
         const controller = new AbortController();
         input.type = "file";
-        input.accept = ".jpfun,.mid,.midi,.musicxml";
+        input.accept = ".jpfun,.mid,.midi,.musicxml,.mxl,.xml";
         function finish(file: File | null) {
             controller.abort();
             resolve(file);

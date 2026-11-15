@@ -33,8 +33,11 @@ import { applySourceEditsToText, reflowLineBreaks } from "@jpfun/editor-tools/ed
 const POSSIBLE_SCORE_MIME_TYPES = new Set([
     "",
     "application/octet-stream",
+    "application/vnd.recordare.musicxml",
     "application/vnd.recordare.musicxml+xml",
     "application/xml",
+    "application/x-zip-compressed",
+    "application/zip",
     "application/x-midi",
     "audio/mid",
     "audio/midi",
@@ -153,7 +156,7 @@ function updateDropOverlay(dataTransfer: DataTransfer | null) {
         ? "一次只能导入一个曲谱"
         : accepted
         ? name
-        : "支持 .jpfun、.mid、.midi 和 .musicxml";
+        : "支持 .jpfun、.mid、.midi、.musicxml、.mxl 和 .xml";
     if (dataTransfer) dataTransfer.dropEffect = rejected ? "none" : "copy";
     return hasFile;
 }
