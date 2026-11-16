@@ -44,15 +44,15 @@ const systemVariables: ReadonlyMap<string, FunctionArgDef & { name: string }> = 
 const isSettable = (arg: FunctionArgDef): arg is FunctionArgDef & { name: string } =>
     Boolean(arg.name) && arg.type !== "content" && arg.type !== "label";
 
-/** 解析 `@set` 的键名：无点号查系统变量，`函数名.参数名` 查目标函数声明，并将函数别名归一到 `主名.参数名` */
+/** 解析 `@set` 的键名：无点号查系统变量，`函数名.参数名` 按末个 `.` 查目标函数声明，并将函数别名归一到 `主名.参数名` */
 function resolveSetTarget(definitions: ReadonlyMap<string, FunctionDef>, setDef: FunctionDef, rawKey: string) {
     const key = rawKey.toLowerCase();
-    const dot = key.indexOf(".");
+    const dot = key.lastIndexOf(".");
     if (dot < 0) {
         const arg = systemVariables.get(key);
         return arg ? { def: setDef, arg, key } : null;
     }
-    const def = dot === key.lastIndexOf(".") ? definitions.get(key.slice(0, dot)) : undefined;
+    const def = definitions.get(key.slice(0, dot));
     const arg = def && resolveArgDef(def, key.slice(dot + 1), -1);
     return def && arg && isSettable(arg)
         ? { def, arg, key: `${primaryName(def)}.${arg.name}`.toLowerCase() }
@@ -214,10 +214,10 @@ export function completionsAt(
             return targetDef.args.filter((a): a is FunctionArgDef & { name: string } =>
                 isSettable(a) && !used.has(`${fn}.${a.name.toLowerCase()}`));
         };
-        const dot = word.indexOf(".");
-        // 第二阶段（点号后）：支持主名或别名，替换起点挪到点号后以保留已写的函数前缀
+        const dot = word.lastIndexOf(".");
+        // 第二阶段（点号后）：按末个 `.` 支持主名、别名或带点扩展函数名，替换起点挪到点号后以保留已写的函数前缀
         if (dot >= 0) {
-            const targetDef = dot === word.lastIndexOf(".") ? definitions.get(word.slice(0, dot).toLowerCase()) : undefined;
+            const targetDef = definitions.get(word.slice(0, dot).toLowerCase());
             const candidates = targetDef ? parameterCandidates(
                 available(targetDef).map(argument => ({ label: argument.name, definition: targetDef, argument })),
             ) : [];
