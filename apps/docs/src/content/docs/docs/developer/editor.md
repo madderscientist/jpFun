@@ -2,7 +2,7 @@
 title: 编辑器集成
 description: 应用层的数据依赖、结果有效期、源码映射与设备适配。
 sidebar:
-  order: 8
+  order: 9
 ---
 
 [playground](https://github.com/madderscientist/jpFun/tree/HEAD/apps/playground/) 是核心库的应用层集成。编辑器负责维护文档状态、协调不同有效期的编译结果，并将几何与播放计划接到浏览器界面和设备；它不定义另一套记谱语义。

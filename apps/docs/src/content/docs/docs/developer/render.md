@@ -2,7 +2,7 @@
 title: 渲染后端
 description: 最终几何的只读绘制、Painter 协议与字体测量边界。
 sidebar:
-    order: 6
+    order: 7
 ---
 渲染将最终布局转换为后端绘制命令，此时输入中的尺寸、坐标和分页均已确定。
 

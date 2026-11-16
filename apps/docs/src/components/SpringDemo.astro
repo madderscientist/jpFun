@@ -1,0 +1,407 @@
+<figure class="spring-demo not-content">
+  <figcaption>
+    <span>横向弹簧求解器交互演示</span>
+    <div class="demo-meta">
+      <output class="solver-stat" data-role="stat" aria-live="polite"></output>
+      <button type="button" class="btn-sm" data-action="reset">重置示例</button>
+    </div>
+  </figcaption>
+
+  <div class="render-area">
+    <canvas data-role="canvas" aria-label="多轨弹簧横向排布画布"></canvas>
+  </div>
+
+  <div class="settings-area">
+    <div class="params-row">
+      <label class="param-group"><span>α</span><input type="number" data-param="alpha" step="0.2" min="0.1" value="3" /></label>
+      <label class="param-group"><span>β</span><input type="number" data-param="beta" step="0.1" min="0.1" value="1" /></label>
+      <label class="param-group"><span>μ</span><input type="number" data-param="mu" step="1" min="1" value="10" /></label>
+      <div class="param-group" role="group" aria-label="轨道行数">
+        <span>轨道</span>
+        <button type="button" class="btn-icon" data-action="row-dec" aria-label="减少轨道">−</button>
+        <span class="row-count" data-role="row-count">3</span>
+        <button type="button" class="btn-icon" data-action="row-inc" aria-label="增加轨道">+</button>
+      </div>
+      <label class="param-group limit-group">
+        <span>limit</span>
+        <input type="range" data-param="limit" min="140" max="760" value="540" step="5" />
+        <span class="range-value" data-role="limit-val">540</span>
+      </label>
+      <label class="param-group check-group">
+        <input type="checkbox" data-role="margin" checked />
+        <span>显示弹簧边距</span>
+      </label>
+    </div>
+    <div class="rows-container" data-role="rows"></div>
+  </div>
+</figure>
+
+<script>
+  import { Fraction, Track, layoutHorizontal, type LayoutElement } from "jpfun";
+
+  interface ItemSpec { W: number; T: number; X: number }
+  interface DemoState { rows: ItemSpec[][]; limit: number; alpha: number; beta: number; mu: number }
+
+  /** 默认三轨示例：前两轨对齐在整数时刻，第 3 轨落在 0.5 / 1.5 错位时刻以演示自动补占位列 */
+  const initialState = (): DemoState => ({
+    rows: [
+      [{ W: 150, T: 10, X: 0 }, { W: 220, T: 20, X: 1 }, { W: 180, T: 15, X: 2 }],
+      [{ W: 120, T: 10, X: 0 }, { W: 250, T: 20, X: 1 }, { W: 160, T: 15, X: 2 }],
+      [{ W: 100, T: 10, X: 0.5 }, { W: 100, T: 18, X: 1.5 }, { W: 140, T: 12, X: 2 }],
+    ],
+    limit: 540,
+    alpha: 3,
+    beta: 1,
+    mu: 10,
+  });
+
+  /** 将面板浮点输入转为精确有理数（保留千分位精度），满足 core 的 TimeLineEvent 契约 */
+  const toFraction = (v: number) => new Fraction(Math.round(v * 1000), 1000);
+
+  /**
+   * 由求解后的列锚点坐标反推相邻两元素各自剩余的右/左弹簧长度（仅用于可视化标注）：
+   * - 未压缩（gap >= m0）：两根弹簧均保持各自原长；
+   * - 弹性压缩（0 < gap < m0）：串联弹簧内力相等 f = (k1*k2)/(k1+k2) * (m0 - gap)，各自按 f/k 缩减；
+   * - 发生重叠（gap <= 0）：负间隙按重叠惩罚系数 μ 的反比分配到两侧。
+   */
+  function pairMargins(left: LayoutElement, right: LayoutElement, xl: number, xr: number): [number, number] {
+    const gap = xr - xl - left.WR - right.WL;
+    const m0 = left.margin_R + right.margin_L;
+    if (gap >= m0) return [left.margin_R, right.margin_L];
+    if (gap <= 0) {
+      const r = right.config.mu_L / (left.config.mu_R + right.config.mu_L);
+      return [gap * r, gap * (1 - r)];
+    }
+    const k1 = left.config.beta_R / left.duration_R;
+    const k2 = right.config.beta_L / right.duration_L;
+    const force = ((k1 * k2) / (k1 + k2)) * (m0 - gap);
+    return [left.margin_R - force / k1, right.margin_L - force / k2];
+  }
+
+  /**
+   * 将各轨输入按时刻归并为列矩阵：
+   * 直接构造 LayoutElement（令 duration = T、margin = αT），绕开音符专用的 √T 幂次变换，
+   * 使画布上的数值与正文公式 L = αT、k = β/T 完全一一对应。
+   */
+  function buildColumns(state: DemoState, tracks: readonly Track[]): LayoutElement[][] {
+    const byTime = new Map<number, LayoutElement[]>();
+    const cfg = {
+      alpha_L: state.alpha, alpha_R: state.alpha,
+      beta_L: state.beta, beta_R: state.beta,
+      mu_L: state.mu, mu_R: state.mu,
+    };
+    state.rows.forEach((row, ri) => {
+      for (const it of row) {
+        const key = Math.round(it.X * 1000) / 1000;
+        const half = it.W / 2, margin = it.T * state.alpha;
+        const el: LayoutElement = {
+          config: { ...cfg },
+          box: { x: 0, w: it.W, anchor: half },
+          time: { t: toFraction(key), T: toFraction(it.T), track: tracks[ri] },
+          duration_L: it.T, duration_R: it.T,
+          WL: half, WR: half,
+          margin_L: margin, margin_R: margin,
+        };
+        const col = byTime.get(key);
+        if (col) col.push(el); else byTime.set(key, [el]);
+      }
+    });
+    return [...byTime.entries()].sort((a, b) => a[0] - b[0]).map(([, col]) => col);
+  }
+
+  for (const root of document.querySelectorAll<HTMLElement>(".spring-demo")) {
+    const canvas = root.querySelector<HTMLCanvasElement>('[data-role="canvas"]')!;
+    const ctx = canvas.getContext("2d")!;
+    const statEl = root.querySelector<HTMLOutputElement>('[data-role="stat"]')!;
+    const limitValue = root.querySelector<HTMLElement>('[data-role="limit-val"]')!;
+    const marginCheck = root.querySelector<HTMLInputElement>('[data-role="margin"]')!;
+    const rowCountEl = root.querySelector<HTMLElement>('[data-role="row-count"]')!;
+    const rowsContainer = root.querySelector<HTMLElement>('[data-role="rows"]')!;
+    const paramInputs = root.querySelectorAll<HTMLInputElement>("[data-param]");
+
+    let state = initialState();
+
+    function renderCanvas() {
+      const { width: W, height: H } = canvas.parentElement!.getBoundingClientRect();
+      if (W <= 0 || H <= 0) return;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.round(W * dpr);
+      canvas.height = Math.round(H * dpr);
+
+      const tracks = state.rows.map(() => new Track());
+      const trackToRow = new Map(tracks.map((t, i) => [t, i]));
+      // globalC = αβ 即弹簧压至 0 时的临界力常数，供 fillPlaceholders 为缺损轨占位元素推导匹配的 β
+      const solverOpts = { globalC: state.alpha * state.beta };
+      const columns = buildColumns(state, tracks);
+
+      // 1. 先在无限宽下求一次免迭代预排列以获取自然总宽；若未超限，坐标已就位无需二次求解
+      let solvedMat = layoutHorizontal(columns, Infinity, solverOpts);
+      const naturalWidth = (solvedMat.at(-1) ?? []).reduce(
+        (m, el) => Math.max(m, el.box.x + el.box.anchor + el.WR + el.margin_R), 0,
+      );
+      if (naturalWidth > state.limit) {
+        solvedMat = layoutHorizontal(columns, state.limit, solverOpts);
+      }
+      statEl.textContent = naturalWidth <= state.limit
+        ? `自然宽 ${naturalWidth.toFixed(0)} ≤ limit（免迭代）`
+        : `自然宽 ${naturalWidth.toFixed(0)} → 压缩至 ${state.limit}`;
+
+      // 2. fillPlaceholders 将各轨主代表元素排在每列前 R 项，自动补入的占位元素宽度恒为 0
+      const byRow: { el: LayoutElement; x: number }[][] = state.rows.map(() => []);
+      for (const col of solvedMat) {
+        for (let k = 0; k < tracks.length && k < col.length; k++) {
+          const el = col[k], ri = trackToRow.get(el.time.track);
+          if (ri !== undefined) byRow[ri].push({ el, x: el.box.x + el.box.anchor });
+        }
+      }
+
+      // 3. 适应 Starlight 亮/暗双主题色板；桌面端 1:1 绘制，窄屏按 780 基准宽度等比缩小防裁切
+      const pick = (dark: string, light: string) =>
+        document.documentElement.dataset.theme === "light" ? light : dark;
+      const colors = {
+        boxStroke: pick("#7f948a", "#6d7f76"),
+        boxFill: pick("rgba(107, 173, 135, 0.08)", "rgba(45, 112, 80, 0.06)"),
+        textPrimary: pick("#e6efea", "#1b2621"),
+        textSecondary: pick("rgba(195, 214, 204, 0.72)", "rgba(35, 55, 46, 0.72)"),
+        leftMargin: pick("rgba(120, 174, 240, 0.78)", "rgba(34, 95, 162, 0.72)"),
+        rightMargin: pick("rgba(107, 198, 145, 0.78)", "rgba(36, 128, 76, 0.72)"),
+        overflow: pick("rgba(255, 132, 112, 0.9)", "rgba(189, 62, 48, 0.85)"),
+        wallLine: pick("rgba(255, 132, 112, 0.45)", "rgba(189, 62, 48, 0.42)"),
+        wallText: pick("rgba(255, 164, 148, 0.88)", "rgba(166, 41, 25, 0.85)"),
+      };
+
+      const padX = 12;
+      const scale = Math.min(1, (W - padX * 2) / 780);
+      const tx = (x: number) => padX + x * scale;
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+
+      // 绘制 x = 0 左墙与 x = limit 右墙参考线
+      ctx.strokeStyle = colors.wallLine;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(tx(0), 6); ctx.lineTo(tx(0), H - 6);
+      ctx.moveTo(tx(state.limit), 6); ctx.lineTo(tx(state.limit), H - 6);
+      ctx.stroke();
+      ctx.fillStyle = colors.wallText;
+      ctx.font = "11px sans-serif";
+      ctx.textBaseline = "top";
+      const labelX = tx(state.limit), nearRight = labelX + 72 >= W;
+      ctx.textAlign = nearRight ? "right" : "left";
+      ctx.fillText(`limit = ${state.limit}`, labelX + (nearRight ? -5 : 5), 6);
+
+      const rowCount = byRow.length;
+      if (!rowCount) return;
+      const h = Math.max(22, Math.min(44, (H - 20) / rowCount - 6));
+      const rowGap = Math.min(8, Math.max(4, (H - rowCount * h) / (rowCount + 1)));
+      const topPad = Math.max(10, (H - rowCount * h - (rowCount - 1) * rowGap) / 2);
+
+      // 4. 逐轨绘制弹簧边距虚线框（或重叠红线）与元素主体盒
+      for (let ri = 0; ri < rowCount; ri++) {
+        const items = byRow[ri];
+        if (!items.length) continue;
+        const y = topPad + ri * (h + rowGap);
+
+        if (marginCheck.checked) {
+          const margins = items.map(() => [0, 0]);
+          margins[0][0] = Math.min(items[0].el.margin_L, items[0].x - items[0].el.WL);
+          const last = items[items.length - 1];
+          margins[items.length - 1][1] = Math.min(last.el.margin_R, state.limit - (last.x + last.el.WR));
+          for (let i = 0; i < items.length - 1; i++) {
+            const [mr, ml] = pairMargins(items[i].el, items[i + 1].el, items[i].x, items[i + 1].x);
+            margins[i][1] = mr;
+            margins[i + 1][0] = ml;
+          }
+
+          items.forEach(({ el, x }, i) => {
+            for (const [side, edge, m, color] of [
+              ["L", x - el.WL, margins[i][0], colors.leftMargin],
+              ["R", x + el.WR, margins[i][1], colors.rightMargin],
+            ] as const) {
+              if (Math.abs(m) <= 0.5) continue;
+              ctx.save();
+              if (m > 0) {
+                const x1 = tx(side === "L" ? edge - m : edge);
+                const x2 = tx(side === "L" ? edge : edge + m);
+                ctx.strokeStyle = ctx.fillStyle = color;
+                ctx.setLineDash([3, 3]);
+                ctx.strokeRect(x1, y + 3, x2 - x1, h - 6);
+                if (x2 - x1 >= 26) {
+                  ctx.font = "9px sans-serif";
+                  ctx.textAlign = "center";
+                  ctx.textBaseline = "bottom";
+                  ctx.fillText(`${side}m ${m.toFixed(0)}`, (x1 + x2) / 2, y + h - 4);
+                }
+              } else {
+                const ex = tx(edge);
+                ctx.strokeStyle = ctx.fillStyle = colors.overflow;
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([2, 2]);
+                ctx.beginPath(); ctx.moveTo(ex, y + 3); ctx.lineTo(ex, y + h - 3); ctx.stroke();
+                ctx.font = "9px sans-serif";
+                ctx.textAlign = side === "L" ? "left" : "right";
+                ctx.textBaseline = "bottom";
+                ctx.fillText(`重叠 ${(-m).toFixed(0)}`, ex + (side === "L" ? 3 : -3), y + h - 4);
+              }
+              ctx.restore();
+            }
+          });
+        }
+
+        for (const { el } of items) {
+          const fake = el.box.w === 0;
+          const x1 = tx(el.box.x), wPx = el.box.w * scale;
+          ctx.save();
+          if (!fake) { ctx.fillStyle = colors.boxFill; ctx.fillRect(x1, y + 1, wPx, h - 2); }
+          ctx.strokeStyle = colors.boxStroke;
+          ctx.setLineDash(fake ? [4, 5] : []);
+          ctx.strokeRect(x1, y + 1, wPx, h - 2);
+          if (!fake && wPx >= 28) {
+            ctx.fillStyle = colors.textPrimary;
+            ctx.font = "600 11px sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(`W=${el.box.w}`, x1 + wPx / 2, y + h / 2 - 4);
+            ctx.fillStyle = colors.textSecondary;
+            ctx.font = "10px sans-serif";
+            ctx.fillText(`T=${el.duration_L}`, x1 + wPx / 2, y + h / 2 + 8);
+          }
+          ctx.restore();
+        }
+      }
+    }
+
+    function refreshAll() {
+      for (const inp of paramInputs) {
+        const key = inp.dataset.param as "alpha" | "beta" | "mu" | "limit";
+        inp.value = String(state[key]);
+      }
+      limitValue.textContent = String(state.limit);
+      rowCountEl.textContent = String(state.rows.length);
+
+      rowsContainer.innerHTML = state.rows.map((row, ri) => `
+        <div class="row-item" data-row="${ri}">
+          <span class="row-label">轨 ${ri + 1}</span>
+          <div class="row-elements">${row.map((el, ei) => `
+            <div class="elem-card" data-row="${ri}" data-idx="${ei}">
+              <span class="sub">W</span><input type="number" step="10" min="1" value="${el.W}" data-attr="W" aria-label="轨 ${ri + 1} 元素 ${ei + 1} 宽度 W" />
+              <span class="sub">T</span><input type="number" step="1" min="0.1" value="${el.T}" data-attr="T" aria-label="轨 ${ri + 1} 元素 ${ei + 1} 时长 T" />
+              <span class="sub">t</span><input type="number" step="0.5" min="0" value="${el.X}" data-attr="X" aria-label="轨 ${ri + 1} 元素 ${ei + 1} 时刻 t" />
+              <button type="button" class="elem-del" data-action="del-elem" aria-label="删除元素">×</button>
+            </div>`).join("")}
+          </div>
+          <div class="row-actions">
+            <button type="button" class="btn-sm" data-action="add-elem">+ 元素</button>
+            <button type="button" class="btn-sm" data-action="del-row" ${state.rows.length <= 1 ? "disabled" : ""}>删轨</button>
+          </div>
+        </div>`).join("");
+      renderCanvas();
+    }
+
+    // 统一委托面板内的数值输入与按钮点击
+    root.addEventListener("input", (e) => {
+      const inp = e.target as HTMLInputElement;
+      if (inp === marginCheck) { renderCanvas(); return; }
+      const val = Number.parseFloat(inp.value);
+      if (!Number.isFinite(val)) return;
+      const param = inp.dataset.param as "alpha" | "beta" | "mu" | "limit" | undefined;
+      if (param && val > 0) {
+        state[param] = val;
+        if (param === "limit") limitValue.textContent = String(val);
+        renderCanvas();
+        return;
+      }
+      const card = inp.closest<HTMLElement>(".elem-card");
+      const el = card && state.rows[Number(card.dataset.row)]?.[Number(card.dataset.idx)];
+      if (!el || !inp.dataset.attr) return;
+      if (inp.dataset.attr === "W") el.W = Math.max(1, val);
+      else if (inp.dataset.attr === "T") el.T = Math.max(0.1, val);
+      else if (inp.dataset.attr === "X") el.X = Math.max(0, val);
+      renderCanvas();
+    });
+
+    root.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-action]");
+      if (!btn) return;
+      const ri = Number(btn.closest<HTMLElement>("[data-row]")?.dataset.row);
+      switch (btn.dataset.action) {
+        case "reset":
+          state = initialState();
+          marginCheck.checked = true;
+          break;
+        case "row-inc":
+          state.rows.push([{ W: 110, T: 10, X: 0 }, { W: 160, T: 15, X: 1 }, { W: 130, T: 12, X: 2 }]);
+          break;
+        case "row-dec":
+          if (state.rows.length > 1) state.rows.pop();
+          break;
+        case "add-elem": {
+          const row = state.rows[ri];
+          row.push({ W: 120, T: 10, X: row.reduce((m, it) => Math.max(m, it.X), -1) + 1 });
+          break;
+        }
+        case "del-row":
+          if (state.rows.length > 1) state.rows.splice(ri, 1);
+          break;
+        case "del-elem": {
+          const ei = Number(btn.closest<HTMLElement>(".elem-card")!.dataset.idx);
+          if (state.rows[ri].length > 1) state.rows[ri].splice(ei, 1);
+          else if (state.rows.length > 1) state.rows.splice(ri, 1);
+          break;
+        }
+      }
+      refreshAll();
+    });
+
+    let frame = 0;
+    const schedulePaint = () => {
+      if (!frame) frame = requestAnimationFrame(() => { frame = 0; renderCanvas(); });
+    };
+    new ResizeObserver(schedulePaint).observe(canvas.parentElement!);
+    new MutationObserver(schedulePaint).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+
+    refreshAll();
+  }
+</script>
+
+<style>
+  .spring-demo { margin: 1.75rem 0; border: 1px solid var(--sl-color-gray-5); border-radius: 6px; overflow: hidden; background: var(--sl-color-bg); color: var(--sl-color-text); font-size: .8125rem; }
+  figcaption { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem 1rem; padding: .55rem 1rem; border-bottom: 1px solid var(--sl-color-gray-5); background: var(--site-surface); }
+  figcaption > span { font-size: .875rem; font-weight: 600; }
+  .demo-meta, .param-group, .spring-demo :global(.row-actions), .spring-demo :global(.elem-card) { display: inline-flex; align-items: center; }
+  .demo-meta { gap: .65rem; flex-wrap: wrap; }
+  .solver-stat { font: .75rem/1.4 var(--sl-font-mono); color: var(--sl-color-gray-2); }
+  .render-area { height: 11.5rem; border-bottom: 1px solid var(--sl-color-gray-5); }
+  .render-area canvas { display: block; width: 100%; height: 100%; }
+  .settings-area { padding: .7rem .9rem .85rem; display: flex; flex-direction: column; gap: .6rem; background: var(--site-surface); }
+  .params-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; padding-bottom: .55rem; border-bottom: 1px solid var(--sl-color-gray-5); }
+  .param-group { gap: .3rem; font-size: .8rem; }
+  .param-group > span:first-child { font-weight: 600; }
+  .param-group input[type="number"] { width: 3.1rem; padding: .15rem .25rem; border: 1px solid var(--sl-color-gray-5); border-radius: 4px; background: var(--sl-color-bg); color: var(--sl-color-text); font: .78rem/1.3 var(--sl-font-mono); text-align: center; }
+  .limit-group { flex: 1 1 11rem; }
+  .limit-group input[type="range"] { flex: 1; min-width: 5.5rem; cursor: pointer; accent-color: var(--sl-color-accent); }
+  .range-value { min-width: 2.1rem; font: 600 .78rem/1 var(--sl-font-mono); text-align: right; }
+  .check-group { cursor: pointer; user-select: none; }
+  .check-group input { accent-color: var(--sl-color-accent); }
+  .row-count { min-width: 1.25rem; text-align: center; font: 700 .8rem/1 var(--sl-font-mono); }
+  .btn-icon, .spring-demo :global(.btn-sm) { display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--sl-color-gray-5); border-radius: 4px; background: var(--sl-color-bg); color: var(--sl-color-text); cursor: pointer; font-size: .75rem; line-height: 1; white-space: nowrap; }
+  .btn-icon { width: 1.35rem; height: 1.35rem; font-weight: 700; }
+  .spring-demo :global(.btn-sm) { height: 1.4rem; padding: 0 .5rem; }
+  .btn-icon:hover:not(:disabled), .spring-demo :global(.btn-sm:hover:not(:disabled)) { color: var(--sl-color-accent-high); background: var(--sl-color-accent-low); border-color: var(--sl-color-accent); }
+  .spring-demo :global(.btn-sm:disabled) { opacity: .4; cursor: not-allowed; }
+  .rows-container { display: flex; flex-direction: column; gap: .35rem; }
+  .rows-container :global(.row-item) { display: flex; align-items: center; flex-wrap: wrap; gap: .3rem .5rem; padding: .3rem .5rem; border-inline-start: 3px solid var(--sl-color-accent); border-radius: 0 4px 4px 0; background: var(--sl-color-bg); }
+  .rows-container :global(.row-label) { font-weight: 600; font-size: .75rem; min-width: 2.1rem; white-space: nowrap; }
+  .rows-container :global(.row-elements) { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; flex: 1; }
+  .rows-container :global(.elem-card) { gap: .15rem; padding: .12rem .3rem; border: 1px solid var(--sl-color-gray-5); border-radius: 4px; background: var(--site-surface); font-size: .72rem; }
+  .rows-container :global(.elem-card .sub) { color: var(--sl-color-gray-2); font: 600 .68rem/1 var(--sl-font-mono); margin-inline-start: .15rem; }
+  .rows-container :global(.elem-card input[type="number"]) { width: 2.55rem; padding: .08rem .15rem; border: 1px solid transparent; border-radius: 2px; background: var(--sl-color-bg); color: var(--sl-color-text); font: .72rem/1.2 var(--sl-font-mono); }
+  .rows-container :global(.elem-card input[type="number"]:focus) { border-color: var(--sl-color-accent); outline: none; }
+  .rows-container :global(.elem-del) { display: inline-flex; align-items: center; justify-content: center; width: 1.1rem; height: 1.1rem; border: none; background: transparent; color: var(--sl-color-gray-2); font-size: .85rem; font-weight: 700; cursor: pointer; }
+  .rows-container :global(.elem-del:hover) { color: var(--site-error); }
+  .rows-container :global(.row-actions) { gap: .25rem; }
+</style>

@@ -2,7 +2,7 @@
 title: 播放
 description: 演奏区间、音段连接与最终状态，以及声音展开和设备适配的边界。
 sidebar:
-    order: 7
+    order: 8
 ---
 
 Playback 从 `LoweringResult` 编译播放计划。它与 Layout 使用相同的输入：Layout 计算页面几何，Playback 生成与设备无关、可转换为 MIDI 的定时事件。
