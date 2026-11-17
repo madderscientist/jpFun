@@ -1,7 +1,7 @@
 import { Diagnostic, ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import { pathBounds } from "../../layout/path.js";
 import { lineEntryX, lineRightX } from "../../layout/range.js";
-import type { AttachmentLayoutContext, HorizontalLineView, LayoutAttachment } from "../../layout/types.js";
+import type { AttachmentLayoutContext, HorizontalLineView, LayoutAttachment, LayoutHost } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { LoweringResult } from "../../lowering/types.js";
 import type { Painter, PathCommand } from "../../render/types.js";
@@ -79,6 +79,72 @@ function layoutHost(node: VisualTemporalNode, line?: HorizontalLineView): Visual
         node = node.foldedInto;
     }
     return node;
+}
+
+/** 将刚性半宽提升至 min，并从同侧弹簧 margin 中等量扣减 */
+function reserveSide(
+    el: { WL: number; WR: number; margin_L: number; margin_R: number },
+    side: "L" | "R",
+    min: number,
+) {
+    const w = side === "L" ? "WL" : "WR";
+    const m = side === "L" ? "margin_L" : "margin_R";
+    if (min > el[w]) {
+        el[m] = Math.max(0, el[w] + el[m] - min);
+        el[w] = min;
+    }
+}
+
+/** 在指定音轨行上按各列实际跨度比例预留 start..end 的最小锚点间距 */
+function reserveSpan(
+    line: HorizontalLineView,
+    track: TemporalNodeBase["track"],
+    from: LayoutHost,
+    to: LayoutHost,
+    minSpan: number,
+) {
+    if (minSpan <= 0) return;
+    line.registerHorizontalLayoutHook(from, to, ({ columns, rows, start, end, X, fixed }) => {
+        let row = 0;
+        while (row < rows && columns[start][row].time.track !== track) row++;
+        if (row >= rows) return;
+        let needed = minSpan;
+        let total = 0;
+        const gaps = new Float64Array(end - start);
+        for (let c = start; c < end; c++) {
+            if (fixed[c]) {
+                needed -= X[c + 1] - X[c];
+                continue;
+            }
+            let gap = 0;
+            for (let r = 0; r < rows; r++) {
+                const a = columns[c][r], b = columns[c + 1][r];
+                gap = Math.max(gap, a.WR + a.margin_R + b.WL + b.margin_L);
+            }
+            gaps[c - start] = gap;
+            total += gap;
+        }
+        if (needed <= 0) return;
+        if (total <= 0) {
+            for (let c = start; c < end; c++) {
+                if (!fixed[c]) {
+                    reserveSide(columns[c][row], "R", needed);
+                    break;
+                }
+            } return;
+        }
+        const scale = needed / total;
+        for (let c = start; c < end; c++) {
+            if (fixed[c]) continue;
+            const a = columns[c][row], b = columns[c + 1][row];
+            const target = gaps[c - start] * scale;
+            const wA = a.WR + a.margin_R;
+            const pair = wA + b.WL + b.margin_L;
+            const rightTarget = pair > 0 ? target * (wA / pair) : target / 2;
+            reserveSide(a, "R", rightTarget);
+            reserveSide(b, "L", target - rightTarget);
+        }
+    });
 }
 
 class GlissAttachment implements LayoutAttachment {
@@ -171,12 +237,24 @@ class GlissAttachment implements LayoutAttachment {
         const span = Math.max(endpoint.ast.size, target.ast.size) * 1.4;
         const right = from.box.w - from.box.anchor + span;
         // 只扩张求解器占位，不改变端点图形、附点位置或下一轮的 box
-        fromLine.registerHorizontalLayoutHook(from, from, ({ columns }) => {
-            // 留白作用于起点整列；取最大值，避免多条关系重复累加占位。
-            for (const element of columns[start]) element.WR = Math.max(element.WR, right);
-        });
-        if (fromLine !== toLine) {
-            const left = to.box.anchor + span;
+        if (fromLine === toLine) {
+            reserveSpan(fromLine, from.track, from, to, right + to.box.anchor);
+            return;
+        }
+        const lastCol = fromLine.columns.length - 1;
+        if (start < lastCol) {
+            const lastRight = Math.max(...fromLine.columns[lastCol].map(h => h.box.w - h.box.anchor));
+            reserveSpan(fromLine, from.track, from, fromLine.columns[lastCol][0], right - lastRight);
+        } else {
+            fromLine.registerHorizontalLayoutHook(from, from, ({ columns }) => {
+                for (const element of columns[start]) element.WR = Math.max(element.WR, right);
+            });
+        }
+        const left = to.box.anchor + span;
+        const entry = toLine.trackRuns.get(target.track)?.find(item => !item.T.isZero());
+        if (entry && toLine.columnOf(entry) < end) {
+            reserveSpan(toLine, to.track, entry, to, left - entry.box.anchor);
+        } else {
             toLine.registerHorizontalLayoutHook(to, to, ({ columns }) => {
                 for (const element of columns[end]) element.WL = Math.max(element.WL, left);
             });

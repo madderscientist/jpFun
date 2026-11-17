@@ -21,7 +21,7 @@ function gliss(source: string, noPitch = false) {
         assert(warning instanceof WarningDiagnostic, "missing pitch must produce a warning");
         assert(source.slice(warning.span.start, warning.span.end).startsWith("@gliss("), "warning must point at gliss");
     }
-    const attachment = compiled.layout.attachments.at(-1)!;
+    const attachment = compiled.layout.attachments.filter(item => item.kind === "gliss").at(-1)!;
     const path = attachmentCommands(attachment).find(command => command.kind === "path");
     assert(path?.kind === "path", "gliss must paint a path");
     const [start, end] = path.commands;
@@ -228,6 +228,37 @@ test("gliss leaves readable space on compact pages without stacking duplicate re
         deepStrictEqual(repeated.start, single.start);
         deepStrictEqual(repeated.end, single.end);
     }
+});
+
+test("gliss distributes reservation across staggered multi-voice columns", () => {
+    for (const [plainSrc, glissSrc] of [
+        ["N: 1 2 3/\nN: 4/ 5 6", "N: 1 2 3/\nN: 4/ 5@a 6@b @gliss(a,b)"],
+        ["N: 1/ @slide(2/, side=pre) 3//\nN: 4// 5/ 6/", "N: 1/ @slide(2/, side=pre) 3//\nN: 4// 5/@a 6/@b @gliss(a,b)"],
+        [
+            "N: 1 2 3/\nN: 4/ 5\n@br()\nN: 1/ 2/ 3/\nN: 4 6",
+            "N: 1 2 3/\nN: 4/ 5@a\n@br()\nN: 1/ 2/ 3/\nN: 4 6@b\n@gliss(a,b)",
+        ],
+    ] as const) {
+        const plain = compileValid(plainSrc).layout.objects;
+        const withGliss = gliss(glissSrc);
+        assert(withGliss.layout.objects.every((obj, i) => nearly(obj.box.x, plain[i].box.x)),
+            `sufficient natural multi-voice span must not shift notes in other voices: ${glissSrc}`);
+    }
+
+    const plainTight = compileValid("N: 1/ 2/ 3//\nN: 4// 5/ 6/").layout.objects;
+    const tight = gliss("N: 1/ 2/ 3//\nN: 4// 5/@a 6/@b @gliss(a,b)").layout.objects;
+    const anchorOf = (objs: typeof tight, time: string) => {
+        const obj = objs.find(item => item.box.w > 0 && item.t.toString() === time)!;
+        return obj.box.x + obj.box.anchor;
+    };
+    const ratioOf = (objs: typeof tight) =>
+        (anchorOf(objs, "1/2") - anchorOf(objs, "1/4")) / (anchorOf(objs, "3/4") - anchorOf(objs, "1/2"));
+    assert(nearly(ratioOf(tight), ratioOf(plainTight)),
+        "when stretching across intermediate columns, both sides must preserve the multi-voice gap ratio");
+
+    const compressed = gliss("@page(width=130px,left=5px,right=5px,fillRatio=2)\nN: 1 2 3/\nN: 4/ 5@a 6@b @gliss(a,b)");
+    assert(compressed.end.x - compressed.start.x >= compressed.layout.objects[0].ast.size * 0.6,
+        "multi-voice gliss keeps a readable rigid lower bound under compression");
 });
 
 test("gliss splits across lines into two segments with matching slope and final arrowhead", () => {
