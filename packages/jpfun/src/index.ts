@@ -64,6 +64,7 @@ export * from "./parser/parse-utils/string-utils.js";
 export * from "./lowering/types.js";
 export * from "./lowering/loweringContext.js";
 export * from "./lowering/track.js";
+export * from "./lowering/accidentalMemory.js";
 
 export * from "./playback/types.js";
 export * from "./playback/time.js";

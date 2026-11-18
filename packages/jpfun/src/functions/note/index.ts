@@ -7,12 +7,25 @@ import { getLayoutBounds } from "../../layout/engine.js";
 import type { Painter, TextStyle } from "../../render/types.js";
 import { paintAccidental, placeAccidentals, type PlacedAccidental } from "./accidentals.js";
 import type { LoweringResult } from "../../lowering/types.js";
-import { rewriteNotes, type NoteTransform, type SourceEdit } from "./source-transform.js";
+import type { AccidentalMemory, AccidentalReading } from "../../lowering/accidentalMemory.js";
+import { rewriteNotes, selects, type NoteTransform, type SourceEdit } from "./source-transform.js";
 
 export type { NoteTransform, SourceEdit } from "./source-transform.js";
 
-/** 根据同一源码的 lowering 生成局部修改；传入 ranges 时只处理完整落入任一选区的音符 */
-export function transformNotes(source: string, lowering: LoweringResult, operation: NoteTransform, ranges?: readonly SourceSpan[]): SourceEdit[] {
+/**
+ * 根据同一源码的 lowering 生成局部修改；传入 ranges 时只处理完整落入任一选区的音符。
+ * 乐谱中有开启 carry 的数字音名时，升降半音需要 relower 重新降级比对并补记
+ */
+export function transformNotes(source: string, lowering: LoweringResult, operation: NoteTransform,
+    ranges?: readonly SourceSpan[], relower?: (source: string) => LoweringResult): SourceEdit[] {
+    const notes = transformableNotes(lowering);
+    const carried = notes.find(note => note.ast.carry && /^[1-7]$/.test(note.ast.name));
+    if (!operation.startsWith("semitone") || !carried) return rewriteNotes(source, notes, operation, ranges);
+    if (!relower) throw new ErrorDiagnostic("E_NOTE_TRANSFORM", "乐谱开启了 carry，升降半音需要重新降级", carried.ast.sourceSpan);
+    return pinnedSemitone(source, notes, operation, ranges, relower);
+}
+
+function transformableNotes(lowering: LoweringResult) {
     const error = lowering.diagnostics.find(item => item instanceof ErrorDiagnostic);
     if (error) throw error;
     const notes = [...lowering.astToTemporal.values()].flat()
@@ -20,7 +33,68 @@ export function transformNotes(source: string, lowering: LoweringResult, operati
     const invalid = lowering.diagnostics.find(item => notes.some(note =>
         item.span.start < note.ast.sourceSpan.end && item.span.end > note.ast.sourceSpan.start));
     if (invalid) throw invalid;
-    return rewriteNotes(source, notes, operation, ranges);
+    return notes;
+}
+
+/** 按 AST 分组并按源码位置排序；同一 AST 的多个实例保持降级顺序 */
+function byAst(notes: readonly NoteTemporalNode[]) {
+    const groups = new Map<ASTNodeBase, NoteTemporalNode[]>();
+    for (const note of notes) groups.set(note.ast, [...groups.get(note.ast) ?? [], note]);
+    return [...groups.values()].sort((a, b) => a[0].ast.sourceSpan.start - b[0].ast.sourceSpan.start);
+}
+
+/**
+ * 升降半音后重新降级，给读法变了的音补写显式记号，直到除选中音 ±1 之外所有音高不变。
+ * 每轮只补每个 (小节, 键) 中读谱顺序第一个不一致的音，后面的音可能因此恢复，所以补记最少。
+ * 补记的音只读自己的记号，每轮至少新增一个固定点，最多 音符数 + 1 轮。
+ */
+function pinnedSemitone(source: string, notes: readonly NoteTemporalNode[], operation: NoteTransform,
+    ranges: readonly SourceSpan[] | undefined, relower: (source: string) => LoweringResult): SourceEdit[] {
+    const delta = operation === "semitone-up" ? 1 : -1;
+    const old = byAst(notes);
+    const want = old.map(group => group.map(note =>
+        note.resolvedMidi === null ? null : note.resolvedMidi + (selects(ranges, note.ast.sourceSpan) ? delta : 0)));
+    function fail(span = old[0][0].ast.sourceSpan): never {
+        throw new ErrorDiagnostic("E_NOTE_TRANSFORM", "无法在保持其他音高不变的前提下升降半音", span);
+    }
+    const pins = new Map<ASTNodeBase, string>();
+    for (let round = 0; round <= old.length; round++) {
+        const edits = rewriteNotes(source, notes, operation, ranges, pins);
+        let fresh: NoteTemporalNode[][];
+        try { fresh = byAst(transformableNotes(relower(applyEdits(source, edits)))); } catch { return fail(); }
+        if (fresh.length !== old.length) fail();
+        const misses: [ASTNodeBase, NoteTemporalNode, number, AccidentalReading][] = [];
+        for (const [index, group] of fresh.entries()) {
+            const ast = old[index][0].ast;
+            if (group.length !== want[index].length) fail(ast.sourceSpan);
+            for (const [instance, node] of group.entries()) {
+                const target = want[index][instance];
+                if (node.resolvedMidi === target) continue;
+                // 已补记的音只读自己的记号，仍不一致就无解
+                if (target === null || !node.carrySlot || !/^[1-7]$/.test(node.ast.name) || pins.has(ast)) fail(ast.sourceSpan);
+                misses.push([ast, node, target, node.carrySlot]);
+            }
+        }
+        if (!misses.length) return edits;
+        // 按读谱顺序：显式 @grace(1, {1 1}, side=pre) 的宿主写在前、读在后
+        const firsts = new Map<object, Set<string>>();
+        for (const [ast, node, target, { bar, key }] of misses.sort((a, b) => a[3].seq - b[3].seq)) {
+            const keys = firsts.get(bar) ?? new Set<string>();
+            if (keys.has(key)) continue;
+            firsts.set(bar, keys.add(key));
+            const offset = target - resolveNoteMidi(node.name, "", node.octave, node.keySignature)!;
+            const acc = offsetToAccidental(offset) || "n";
+            // 同一 AST 的多个实例要求不同记号时无解
+            if (Math.abs(offset) > 2 || (pins.get(ast) ?? acc) !== acc) fail(ast.sourceSpan);
+            pins.set(ast, acc);
+        }
+    }
+    return fail();
+}
+
+function applyEdits(source: string, edits: readonly SourceEdit[]) {
+    for (const edit of [...edits].reverse()) source = source.slice(0, edit.span.start) + edit.text + source.slice(edit.span.end);
+    return source;
 }
 
 const JE_OCTAVE_OFFSET = "note.jeOctaveOffset";
@@ -64,7 +138,14 @@ class NoteFunction extends ASTFunctionNode {
                 description: "音符颜色，使用 CSS 颜色值",
                 type: "string" as const,
                 default: "#000",
-            }
+            },
+            {
+                name: "carry",
+                namedOnly: true,
+                description: "小节内变音延续：数字音名按本小节前文读谱，字母音名自动省略或补记变音号",
+                type: "boolean" as const,
+                default: false,
+            },
         ]
     };
 
@@ -128,6 +209,7 @@ class NoteFunction extends ASTFunctionNode {
     octave: number;
     acc: string;
     color: string;
+    carry: boolean;
     size: number;
     readonly font: string;
     readonly weight: number;
@@ -136,11 +218,15 @@ class NoteFunction extends ASTFunctionNode {
     jeOctaveOffset: number;
     // 源码改写时判断是否需要覆盖默认升降号
     readonly hasDefaultAcc: boolean;
+    // 去糖时判断是否需要写明 carry
+    readonly hasDefaultCarry: boolean;
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
         this.hasDefaultAcc = Boolean(ctx.variables["note.acc"]);
-        [this.name, this.acc, this.octave, this.color] = this.getArgValue(args, ctx) as [string, string, number, string];
+        this.hasDefaultCarry = Boolean(ctx.variables["note.carry"]);
+        [this.name, this.acc, this.octave, this.color, this.carry] =
+            this.getArgValue(args, ctx) as [string, string, number, string, boolean];
         this.font = ctx.variables.numberfont;
         this.weight = ctx.variables.numberweight;
         this.size = ctx.variables.fontsize;
@@ -178,7 +264,9 @@ class NoteFunction extends ASTFunctionNode {
     }
 
     override toString() {
-        return `@n(${this.name}, ${this.acc || '""'}, ${this.octave}, ${this.color})`;
+        // 外层开启过时写明，避免 carry=false 去糖后继承外层的 true
+        const carry = this.carry || this.hasDefaultCarry ? `, carry=${this.carry}` : "";
+        return `@n(${this.name}, ${this.acc || '""'}, ${this.octave}, ${this.color}${carry})`;
     }
 }
 
@@ -187,7 +275,9 @@ export const NoteNode: ASTFunctionClass = NoteFunction;
 import { DEFAULT_KEY, DEFAULT_TONALITY, DEFAULT_VELOCITY, TemporalNodeBase, type TimeState } from "../temporal.js";
 import type { PlaybackEmitter } from "../../playback/types.js";
 import {
+    acc2Offset,
     createDiatonicTranspose,
+    offsetToAccidental,
     resolveLetterNameToJianpu,
     resolveNoteMidi,
 } from "../../parser/parse-utils/note-utils.js";
@@ -206,6 +296,8 @@ class NoteTemporalNode extends TemporalNodeBase {
     name: string;     // 数字
     acc: string;      // 升降号
     octave: number;   // 绝对值为点的个数
+    displayAcc?: string;            // carry 开启的字母音名推导出的显示记号；undefined 表示按 acc 显示
+    carrySlot?: AccidentalReading;  // 本音在变音记忆中的位置
 
     /** prepareLayout 生成的局部升降号位置 */
     private accidentals: PlacedAccidental[] = [];
@@ -240,7 +332,7 @@ class NoteTemporalNode extends TemporalNodeBase {
         this.numberY = mainMetrics.baseline;
 
         // 升降号盒直接紧挨数字盒左缘，按同一 baseline 排在数字左侧
-        const { placed, right: mainX } = placeAccidentals(this.acc, size, 0, this.numberY);
+        const { placed, right: mainX } = placeAccidentals(this.displayAcc ?? this.acc, size, 0, this.numberY);
         this.accidentals = placed;
 
         this.box.w = mainX + mainMetrics.w;
@@ -339,6 +431,20 @@ class NoteTemporalNode extends TemporalNodeBase {
             }
         }
         this.transposeDiatonic = createDiatonicTranspose(this.name, this.octave, keySignature);
+        this.applyAccidentals(state.accidentals);
+    }
+
+    /** 以显示出来的记号写入记忆；carry 下数字音名没写记号时沿用前文，字母音名按前文省略或补记 */
+    private applyAccidentals(memory: AccidentalMemory) {
+        if (this.resolvedMidi === null || !/^[1-7]$/.test(this.name)) return;
+        const key = `${this.name}:${this.octave}`;
+        this.carrySlot = memory.read(this.track, key);
+        const prior = this.carrySlot.bar.get(key) ?? 0;
+        const offset = acc2Offset(this.acc);
+        const digit = /^[1-7]$/.test(this.ast.name);
+        if (this.ast.carry && digit && !this.acc) this.resolvedMidi += prior;
+        if (this.ast.carry && !digit) this.displayAcc = offset === prior ? "" : this.acc || "n";
+        if (this.displayAcc ?? this.acc) memory.stage(this.track, key, offset);
     }
 
     /** 发布完整音段或无声区间，实际 NoteOn/NoteOff 留到声音展开完成后生成 */

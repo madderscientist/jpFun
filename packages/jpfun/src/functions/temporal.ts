@@ -15,6 +15,7 @@ import type {
     TimeLineEvent,
 } from "../layout/types.js";
 import type { Track } from "../lowering/track.js";
+import type { AccidentalMemory } from "../lowering/accidentalMemory.js";
 import type { PlaybackEmitter, PlaybackState } from "../playback/types.js";
 import type { Painter } from "../render/types.js";
 
@@ -31,6 +32,8 @@ export interface TimeState {
     velocity: number;
     keySignature: string;
     program: number;
+    /** 小节内变音记忆。系统字段，由 solidifyColumns 创建，任何时刻都能直接读写 */
+    accidentals: AccidentalMemory;
     /** 当前小节时长（QN）；尚无显式拍号或散板时为 undefined */
     meter?: Fraction;
     [key: string]: any;

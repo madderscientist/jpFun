@@ -128,6 +128,7 @@ class KeyTemporalNode extends TemporalNodeBase {
 
     override onTimeState(state: TimeState) {
         state.keySignature = this.ast.tonality;
+        state.accidentals.clear();
     }
 
     override prepareLayout(context: LayoutPrepareContext) {

@@ -386,3 +386,12 @@ test("普通连音线与八度点借用行间留白不拉大行距，超高外�
         && nearly(line1Axis(lyricTied), line1Axis(lyricPlain)),
         "lyrics must preserve full lineGap below them while allowing next-line ties to borrow it");
 });
+
+test("carry：延音线不跨小节顺延变音，小节内被连接音沿用记忆并合并播放", () => {
+    const C = "@set(note.carry=true) ";
+    const played = (source: string) => playedNotes(compilePlayback(lower(C + source)))
+        .map(note => [note.midi, note.duration.toString()]);
+    deepStrictEqual(played("#1 | 1@tie() 1"), [[61, "1"], [60, "1"], [60, "1"]]);
+    deepStrictEqual(played("1 2 3 #4 | #4@tie() n4 4"), [[60, "1"], [62, "1"], [64, "1"], [66, "2"], [65, "1"], [65, "1"]]);
+    deepStrictEqual(played("#1 1@tie() 1"), [[61, "2"], [61, "1"]]);
+});

@@ -436,7 +436,8 @@ function runNoteTransform(operation: NoteTransform) {
     if (!ensureCompiled()) return;
     if (!latestCompiled) return;
     try {
-        const edits = transformNotes(original, latestCompiled.lowering, operation, ranges.length ? ranges : undefined);
+        const edits = transformNotes(original, latestCompiled.lowering, operation, ranges.length ? ranges : undefined,
+            candidate => compileScore(candidate, compileOptions).lowering);
         if (!edits.length) {
             statusMessage.textContent = "音高无需修改";
             return;

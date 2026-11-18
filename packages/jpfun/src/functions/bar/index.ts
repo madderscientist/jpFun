@@ -1,7 +1,7 @@
 import { LengthValue, ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { Fraction } from "../../fraction.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
-import { ANCHOR_KEY, isVisualTemporalNode, TemporalNodeBase } from "../temporal.js";
+import { ANCHOR_KEY, isVisualTemporalNode, TemporalNodeBase, type TimeState } from "../temporal.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { PlaybackColumnOf, PlaybackCursor, PlaybackFlow, PlaybackFlowHook } from "../../playback/types.js";
 import type {
@@ -207,6 +207,10 @@ class BarTemporalNode extends TemporalNodeBase {
         this.ast = ast;
         this.mergeKey = ANCHOR_KEY;
         this.initLayoutBox();
+    }
+
+    override onTimeState(state: TimeState) {
+        state.accidentals.clear(this.track);
     }
 
     /**

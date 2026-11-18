@@ -77,7 +77,7 @@ The registry is shared across compilations. Names are case-insensitive, and late
 
 ### Note Transformations & Editor Analysis
 
-- `transformNotes(source, lowering, operation, ranges?)`: Returns `{ span, text }[]` edits for `"to-absolute"`, `"to-relative"`, `"semitone-up"`, or `"semitone-down"`. Use lowering from the exact same source; apply edits in one editor transaction or from right to left.
+- `transformNotes(source, lowering, operation, ranges?, relower?)`: Returns `{ span, text }[]` edits for `"to-absolute"`, `"to-relative"`, `"semitone-up"`, or `"semitone-down"`. Use lowering from the exact same source; apply edits in one editor transaction or from right to left. Semitone shifts on numbered notes with `note.carry` enabled need `relower(source) => LoweringResult` to re-lower candidates and pin accidentals so other pitches stay unchanged.
 - `analyzeScoreSyntax(source, functions?)`: Fault-tolerant lexical/call analysis for real-time editor highlighting and completion.
 - `Diagnostic.format(code, message, params)`: Override to localize diagnostic messages.
 

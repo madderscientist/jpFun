@@ -11,7 +11,7 @@ import { assert, expectCompileError, layoutContext, layoutOf, lower, nearly, par
 
 function transformed(source: string, operation: NoteTransform, ranges?: { start: number; end: number }[]) {
     let result = source;
-    for (const { span, text } of transformNotes(source, lower(source), operation, ranges).reverse()) {
+    for (const { span, text } of transformNotes(source, lower(source), operation, ranges, lower).reverse()) {
         result = result.slice(0, span.start) + text + result.slice(span.end);
     }
     return result;
@@ -446,4 +446,70 @@ test("数字音名只在无歧义时兼容后置升降号", () => {
     })[];
     assert(compatible.map(note => note.resolvedMidi).join() === "46,70",
         "6#,, 必须兼容为 #6,,，而 #6# 不能合并成 ##6");
+});
+
+const C = "@set(note.carry=true) ";
+const midis = (source: string) => noteFacts(source).map(note => note.midi);
+
+test("carry：数字音名按本小节前文读谱，同列互不影响，八度、小节线、转调与声部各自独立", () => {
+    strictAssert.deepEqual(midis(`${C}#1 1 1' 1 | 1`), [61, 61, 72, 61, 60]);
+    strictAssert.deepEqual(midis(`${C}#1 1 n1 1`), [61, 61, 60, 60]);
+    strictAssert.deepEqual(midis(`${C}1 ^ #1 1`), [60, 61, 61]);
+    strictAssert.deepEqual(midis(`${C}#4 4 @key(F4) 4`), [66, 66, 70]);
+    strictAssert.deepEqual(midis(`${C}\nN: #1 1 |\nN: 1 1 |`), [61, 61, 60, 60]);
+    strictAssert.deepEqual(midis("#1 1"), [61, 60], "默认关闭，与现状一致");
+});
+
+test("carry：倚音主线与宿主共享记忆，额外声部隔离，倚音不提交同列和弦音", () => {
+    strictAssert.deepEqual(midis(`${C}{#1 1}>2 1`), [61, 61, 62, 61]);
+    strictAssert.deepEqual(midis(`${C}#1 1>2`), [61, 61, 62]);
+    strictAssert.deepEqual(midis(`${C}2<{#1} 1`), [62, 61, 61]);
+    strictAssert.deepEqual(midis(`${C}#1<{1}`), [61, 61]);
+    strictAssert.deepEqual(midis(`${C}{1 & #1}>2 1`), [60, 61, 62, 60]);
+    strictAssert.deepEqual(midis(`${C}#1>1>2 1`), [61, 61, 62, 61]);
+    strictAssert.deepEqual(midis(`${C}{2>1} ^ #1`), [62, 60, 61]);
+});
+
+test("carry：字母音名按记忆省略或补记显示记号，转相对后音高不变", () => {
+    strictAssert.equal(transformed(`${C}C#4 C#4 C4 C#4`, "to-relative"), `${C}#1 1 n1 #1`);
+    strictAssert.equal(transformed(`${C}C#4 | C#4@tie() C4`, "to-relative"), `${C}#1 | #1@tie() n1`);
+    const absolute = transformed(`${C}#1 1 n1 1`, "to-absolute");
+    strictAssert.deepEqual(midis(absolute), [61, 61, 60, 60]);
+    strictAssert.equal(transformed(absolute, "to-relative"), `${C}#1 1 n1 1`);
+    strictAssert.equal(transformed("C#4 C#4", "to-relative"), "#1 #1", "默认关闭，与现状一致");
+});
+
+test("carry：升降半音为保持其他音高不变做最少补记", () => {
+    const at = (start: number, end = start + 1) => [{ start: C.length + start, end: C.length + end }];
+    for (const [source, operation, ranges, expected] of [
+        ["1 1", "semitone-up", at(0), "#1 n1"],
+        ["#1 1", "semitone-down", at(3), "#1 n1"],
+        ["#1 1 1", "semitone-down", at(0, 2), "1 #1 1"],
+        ["2 #1 1", "semitone-up", undefined, "#2 n2 2"],
+        ["#1 {1 ^ #1} 1", "semitone-down", at(4), "#1 {n1 ^ #1} #1"],
+        ["{n1 ^ 1} 1", "semitone-up", at(6), "{n1 ^ #1} 1"],
+        ["@grace(1, {1 1}, side=pre)", "semitone-up", at(11), "@grace(1, {#1 n1}, side=pre)"],
+    ] as const) {
+        const before = midis(C + source);
+        const result = transformed(C + source, operation, ranges && [...ranges]);
+        strictAssert.equal(result, C + expected, source);
+        const changed = before.filter((_, index) => midis(result)[index] !== before[index]);
+        strictAssert.equal(changed.length, ranges ? 1 : before.length, `${source} 只改变选中音`);
+    }
+    strictAssert.throws(() => transformNotes(`${C}1 1`, lower(`${C}1 1`), "semitone-up"),
+        (error: { code?: string }) => error.code === "E_NOTE_TRANSFORM");
+    const apply = (source: string, ranges?: { start: number; end: number }[]) => transformNotes(source, lower(source), "semitone-up", ranges)
+        .reverse().reduce((text, { span, text: edit }) => text.slice(0, span.start) + edit + text.slice(span.end), source);
+    strictAssert.equal(apply(`${C}C4 C4`, at(0, 2)), `${C}C#4 C4`, "只有字母音名时不需要 relower");
+    strictAssert.equal(apply("1 1"), "#1 #1", "默认关闭时不需要 relower");
+});
+
+test("carry=false 去糖后显式保留，避免继承外层的 carry", () => {
+    const note = (source: string) => compileScore(source).ast.content
+        .find(node => "carry" in node) as ASTFunctionNode & { carry: boolean };
+    const source = `${C}@n(1, carry=false)`;
+    const text = note(source).toString(source);
+    strictAssert.match(text, /carry=false/);
+    strictAssert.equal(note(C + text).carry, false);
+    strictAssert.doesNotMatch(note("@n(1)").toString("@n(1)"), /carry/);
 });

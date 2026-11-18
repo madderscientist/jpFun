@@ -18,6 +18,7 @@ import type {
     PageConfig,
 } from "./types.js";
 import { Track } from "./track.js";
+import { AccidentalMemory } from "./accidentalMemory.js";
 
 /**
  * 把 AST 展开并固化为时间列、attachment 和页面配置
@@ -123,6 +124,7 @@ export class LoweringContext {
             velocity: DEFAULT_VELOCITY,
             keySignature: DEFAULT_TONALITY,
             program: DEFAULT_PROGRAM,
+            accidentals: new AccidentalMemory(),
         };
         // 力度和音色按音轨各自流动，新分叉的声部继承分叉处父轨的值
         const velocities = new Map<Track, number>();
@@ -145,6 +147,8 @@ export class LoweringContext {
                 velocities.set(node.track, state.velocity);
                 programs.set(node.track, state.program);
             }
+            // 同列的音同时发生，整列读完再提交变音
+            state.accidentals.commit();
             // 同列声部一起开始，只在整列固化后累加一次偏移
             if (insertion) timeOffset.add(insertion);
         }

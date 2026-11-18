@@ -71,7 +71,7 @@ Webview 通信只传 SVG、源码范围或其他普通数据，不直接传包�
 | 函数文档悬浮 | `syntax.calls` + `def` | `HoverProvider` |
 | 去糖写法悬浮 | `compileScore().ast` | 同上 |
 | 去糖替换 | `node.toString(source)` | `CodeActionProvider`（见下） |
-| 音高变换 | `transformNotes(source, compiled.lowering, operation)` | `CodeActionProvider` + `WorkspaceEdit` |
+| 音高变换 | `transformNotes(source, compiled.lowering, operation, ranges, relower)` | `CodeActionProvider` + `WorkspaceEdit` |
 | 自动断行重排 | `reflowLineBreaks(source, compiled, options)` | `DocumentRangeFormattingEditProvider` / `CodeActionProvider` |
 | 标签跳转定义 | `syntax.tokens` + `ASTLabelNode.target` | `DefinitionProvider` |
 | 标签重命名 | `syntax.tokens` | `RenameProvider` |
@@ -94,6 +94,8 @@ playground 将源码与播放、谱面与诊断组织为两组视图。视图切
 源码工具栏的音高菜单提供转绝对音高、转相对音高、升半音和降半音。有选区时只处理被选区完整覆盖的音符，支持多个选区；没有选区时处理整篇。互转保持实际音高；升降半音保持原来的绝对或相对表示，全部调号不变。休止符、占位符和打击音不参与变换，颤音等派生音继续按原调号生成。
 
 `transformNotes` 由 note 模块提供，读取同一源码版本的 lowering，返回基于原始偏移的 `{ span, text }[]`。函数形式与简写形式保留，显式调用只修改音高参数值；低八度逗号需要保护时使用引号或大括号，例如 `@n(C3)` 转成 `@n("1,")`，`@div(C3, 1)` 转成 `@div({1,}, 1)`。默认参数只在当前音符局部覆盖，不修改 `@set`。
+
+开启 `note.carry` 后，转相对音高使用字母音名推导出的显示记号，转绝对音高使用按记忆读出的音高；同一小节内 carry 一致时互转保持音高，小节内混用时不保证。升降半音遇到开启 carry 的数字音名时，需要第 5 个参数 `relower(source) => LoweringResult`：先改写选中的音，再反复重新降级比对，每轮只给每个（小节, 键）中第一个音高变化的数字音名补写显式记号，直到其余音高全部不变，例如 `1 1` 升高第一个音得到 `#1 n1`。未传 `relower`、补记超过 ±2 或同一音符的多个实例冲突时报 `E_NOTE_TRANSFORM`。ScorePad 点按变音号是单音原位改写，不走补记，效果与手写一个记号相同。
 
 playground 在执行前确认编译结果未过期，候选源码编译成功后用一次 CodeMirror 事务提交全部 edits，并隔离前后的撤销历史。光标和选区沿修改映射，文件关联不变；文档变化继续触发现有的脏状态、预览与播放失效流程。输入法组合期间不执行变换，失败时保留当前文档。
 

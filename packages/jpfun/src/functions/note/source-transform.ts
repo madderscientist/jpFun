@@ -25,10 +25,16 @@ interface NoteSource {
     ast: ASTNodeBase & { name: string; acc: string; octave: number; hasDefaultAcc: boolean; jeOctaveOffset: number };
     resolvedMidi: number | null;
     keySignature: string;
+    displayAcc?: string;
 }
 
 function fail(span: SourceSpan): never {
     throw new ErrorDiagnostic("E_NOTE_TRANSFORM", "无法安全改写此音符的音高", span);
+}
+
+/** 未传 ranges 视为全选；否则音符须完整落入任一选区 */
+export function selects(ranges: readonly SourceSpan[] | undefined, span: SourceSpan) {
+    return !ranges || ranges.some(range => range.start <= span.start && range.end >= span.end);
 }
 
 /** 音高计算只读固化事实；互转保留调内级数，半音操作采用最少升降号的拼写 */
@@ -53,6 +59,8 @@ function targetPitch(note: NoteSource, operation: NoteTransform) {
         const relative = resolveLetterNameToJianpu(ast.name, ast.acc, ast.octave + ast.jeOctaveOffset, note.keySignature);
         if (!relative) fail(ast.sourceSpan);
         ({ renderName: name, renderAcc: acc, renderOctave: octave } = relative);
+        // carry 下按显示的记号写出，数字音名读回来音高不变
+        acc = note.displayAcc ?? acc;
     } else {
         const value = absolute ? midi : midi - tonic;
         const pitch = spelling[wrapPitchClass(value)];
@@ -130,8 +138,12 @@ export function rewriteNoteCall(source: string, masked: string, call: CallInfo, 
     return edits;
 }
 
-/** edits 始终引用原文；参数只改值，默认参数只在当前调用覆盖，避免影响其他音符 */
-export function rewriteNotes(source: string, notes: readonly NoteSource[], operation: NoteTransform, ranges?: readonly SourceSpan[]): SourceEdit[] {
+/**
+ * edits 始终引用原文；参数只改值，默认参数只在当前调用覆盖，避免影响其他音符。
+ * pins 给指定音符强制写出升降号（升降半音后为保持 carry 下其他音高不变而补记）
+ */
+export function rewriteNotes(source: string, notes: readonly NoteSource[], operation: NoteTransform,
+    ranges?: readonly SourceSpan[], pins?: ReadonlyMap<ASTNodeBase, string>): SourceEdit[] {
     const { maskedSource: masked } = preprocessSource(source);
     const edits: SourceEdit[] = [];
     const tokens: SourceEdit[] = [];
@@ -143,9 +155,11 @@ export function rewriteNotes(source: string, notes: readonly NoteSource[], opera
         const already = operation === "to-absolute" && NOTE_LETTERS.includes(ast.name)
             || operation === "to-relative" && /^[1-7]$/.test(ast.name);
         if (!explicit) tokens.push({ span, text: source.slice(span.start, span.end) });
-        if (ranges && !ranges.some(range => range.start <= span.start && range.end >= span.end)) continue;
-        if (note.resolvedMidi === null || already) continue;
-        const pitch = targetPitch(note, operation);
+        const pin = pins?.get(ast);
+        const selected = selects(ranges, span) && note.resolvedMidi !== null && !already;
+        if (!selected && pin === undefined) continue;
+        const pitch = selected ? targetPitch(note, operation) : { name: ast.name, acc: ast.acc, octave: ast.octave, absolute: false };
+        if (pin !== undefined) pitch.acc = pin;
         if (explicit) {
             rewriteNoteCall(source, masked, call, pitch, ast.hasDefaultAcc, edits);
             continue;

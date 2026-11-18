@@ -374,7 +374,7 @@ export function createScoreEditIndex(source: string, compiled: CompileScoreResul
                 sharedDiv: Boolean(anc.outerSharedDiv),
             };
             if (callName === "note") {
-                const nt = temporal as VisualTemporalNode & { name: string; acc: string; octave: number };
+                const nt = temporal as VisualTemporalNode & { name: string; acc: string; displayAcc?: string; octave: number };
                 streamTargets.push({
                     ...common,
                     kind: "note",
@@ -386,7 +386,7 @@ export function createScoreEditIndex(source: string, compiled: CompileScoreResul
                     hasOuterWrapper: Boolean(resolved.foldAst && resolved.outerAst !== resolved.foldAst),
                     hasDefaultAcc: Boolean((resolved.noteAst as ASTFunctionNode & { hasDefaultAcc?: boolean }).hasDefaultAcc),
                     pitch: nt.name,
-                    acc: nt.acc,
+                    acc: nt.displayAcc ?? nt.acc,
                     octave: nt.octave,
                     symbols: resolved.symbols,
                     isGrace,
