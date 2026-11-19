@@ -128,14 +128,14 @@ class GraceFunction extends ASTFunctionNode {
         if (!leftNode) {
             throw new ErrorDiagnostic("E_GRACE_NO_TARGET", "@grace语法糖错误: 左边没有找到目标", n.span);
         }
-        const next = ctx.consumeRightOperand(nodes, at, right =>
+        ctx.deferRightOperand(right => {
+            if (!right) throw new ErrorDiagnostic("E_GRACE_NO_TARGET", "@grace语法糖错误: 右边没有找到目标", n.span);
             // '<' 的倚音在右侧，右结合的解析结果本来就是嵌套语义，不必像 '>' 那样重排
-            side === "pre"
+            return side === "pre"
                 ? GraceFunction.attachPre(leftNode, right, n.span, ctx)
-                : GraceFunction.create(ctx, n.span, "post", leftNode, right),
-        );
-        if (next !== null) return next;
-        throw new ErrorDiagnostic("E_GRACE_NO_TARGET", "@grace语法糖错误: 右边没有找到目标", n.span);
+                : GraceFunction.create(ctx, n.span, "post", leftNode, right);
+        });
+        return at;
     }
 
     host: ASTNodeBase;

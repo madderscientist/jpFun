@@ -112,14 +112,14 @@ AST 解析、语法着色和编辑器提示都使用这份类型信息。`conten
 
 ### 后向解析：`1 ^ 3/`
 
-`^` 同时需要左右两侧的 AST。[UpFunction](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/functions/up/index.ts) 先通过 `ctx.takeLeftOperand()` 摘出左侧节点，再通过 `ctx.consumeRightOperand()` 递归解析标记后方的中间节点：
+`^` 同时需要左右两侧的 AST。[UpFunction](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/functions/up/index.ts) 的处理顺序是：
 
 1. 第一轮识别 `^`，生成关系标记。
-2. 第二轮从 `ctx.nodes` 摘出左操作数（若带标签则一并打包）。
-3. 调用 `ctx.consumeRightOperand(nodes, at, ...)` 解析当前层的剩余序列，取首个非文本节点作为右操作数（此例中 `3/` 已经组合成完整的 div 节点）。
-4. 将合并后的节点连同余下的 AST 写回 `ctx.nodes`，并返回 `nodes.length`，表示后续序列已处理完毕。
+2. 第二轮用 `ctx.takeLeftOperand()` 摘出左操作数（若带标签则一并打包）。
+3. 调用 `ctx.deferRightOperand(combine)` 登记合成函数，然后钩子返回标记之后的下标，让 `makeNodes` 继续扫描。
+4. 当前层解析完后，`makeNodes` 由内向外处理挂起的合成：取剩余序列的首个非文本节点作为右操作数（此例中 `3/` 已经组合成完整的 div 节点），交给 `combine`，再把结果连同余下的 AST 接回左侧节点之后。没有右操作数时 `combine` 收到 `undefined`，由函数自己报错。
 
-`&` 与 `>` / `<` 使用相同的 `takeLeftOperand` / `consumeRightOperand` 提取左右操作数。这里直接复用当前上下文，以共享变量和标签状态。
+例如 `1 ^ 3 ^ 5` 先合成 `3 ^ 5`。`_`、`&`、`>` 和 `<` 也按这个顺序取得右操作数，再由各函数决定如何组合。这样，同层平放的中缀标记不会让扫描递归解析整个后缀。
 
 ### 有界消费：`N: 1 2 3`
 

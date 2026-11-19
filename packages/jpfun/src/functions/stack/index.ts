@@ -80,9 +80,11 @@ class StackFunction extends ASTFunctionNode {
         const host = leftNode instanceof StackFunction
             ? leftNode
             : new StackFunction(n.span, new Map(), ctx).addContent(leftNode);
-        const next = ctx.consumeRightOperand(nodes, at, right => host.addContent(right));
-        if (next !== null) return next;
-        throw new ErrorDiagnostic("E_STACK_NO_TARGET", "@stack语法糖错误: 右边没有找到可叠加的目标", n.span);
+        ctx.deferRightOperand(right => {
+            if (!right) throw new ErrorDiagnostic("E_STACK_NO_TARGET", "@stack语法糖错误: 右边没有找到可叠加的目标", n.span);
+            return host.addContent(right);
+        });
+        return at;
     }
 
     contents: ASTNodeBase[] = [];

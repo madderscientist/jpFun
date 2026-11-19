@@ -86,6 +86,8 @@ export class ParserContext {
     /** 当前正在实例化的显式函数调用节点，供构造函数按需读取原始参数区间 */
     callNode?: GrammarCallNodeRaw;
     nodes: ASTNodeBase[]; // 解析结果
+    /** 等待右操作数的中缀语法糖，见 deferRightOperand */
+    private readonly pendingRight: { left: ASTNodeBase[]; combine: (right?: ASTNodeBase) => ASTNodeBase }[] = [];
 
     constructor(ctx: ParserContext | {
         source: string;
@@ -297,34 +299,22 @@ export class ParserContext {
         return node;
     }
 
-    /** 解析右侧剩余序列，将首个非文本节点交给 combine 合成后连同后续节点写回 this.nodes */
-    consumeRightOperand(
-        nodes: (GrammarNode | number)[],
-        at: number,
-        combine: (right: ASTNodeBase) => ASTNodeBase,
-    ): number | null {
-        const storage = this.nodes;
+    /**
+     * 中缀语法糖的右操作数是本层剩余部分的首个非文本节点，要等本层解析完才能确定。
+     * 这里只挂起：已有节点留作左侧，后续节点解析到新数组，由 makeNodes 收尾时交给 combine；没有右操作数时 combine 收到 undefined
+     */
+    deferRightOperand(combine: (right?: ASTNodeBase) => ASTNodeBase) {
+        this.pendingRight.push({ left: this.nodes, combine });
         this.nodes = [];
-        try {
-            this.makeNodes(nodes, at);
-            for (let i = 0; i < this.nodes.length; i++) {
-                const right = this.nodes[i];
-                if (right instanceof ASTTextNode) continue;
-                storage.push(combine(right));
-                while (++i < this.nodes.length) storage.push(this.nodes[i]);
-                return nodes.length;
-            } return null;
-        } finally {
-            this.nodes = storage;
-        }
     }
 
     /**
      * 第二轮去糖 & 函数节点创建
      * 有副作用 会修改 nodes 和 labelableNodes 等上下文属性
      */
-    makeNodes(nodes: (GrammarNode | number)[], i: number = 0, end: number = nodes.length): number {
-        outer: for (; i < end; i++) {
+    makeNodes(nodes: (GrammarNode | number)[]) {
+        const base = this.pendingRight.length;  // 只收尾本次登记的合成，同一上下文可重入
+        outer: for (let i = 0; i < nodes.length; i++) {
             const node = nodes[i];
             if (typeof node === "number") {
                 this.pushText(node, node + 1);
@@ -362,7 +352,19 @@ export class ParserContext {
                     this.pushText(node.span.start, node.span.end);  // 匹配失败，保留为文本
                     break;
             }
-        } return i;
+        }
+        // 由内向外合成，最外层的左侧就是原输出数组；各层剩余节点倒序暂存、最后接回，整体线性
+        const tail: ASTNodeBase[] = [];
+        while (this.pendingRight.length > base) {
+            const { left, combine } = this.pendingRight.pop()!;
+            const right = this.nodes;
+            let i = 0;
+            while (right[i] instanceof ASTTextNode) i++;
+            left.push(combine(right[i]));
+            for (let k = right.length - 1; k > i; k--) tail.push(right[k]);
+            this.nodes = left;
+        }
+        while (tail.length) this.nodes.push(tail.pop()!);
     }
 
     /** 追加文本，与紧邻的上一个文本节点合并；新建区间对象，避免改写语法节点的 span */

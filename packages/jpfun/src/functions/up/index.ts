@@ -209,8 +209,13 @@ class FoldFunction extends ASTFunctionNode {
         const host = leftNode instanceof FoldFunction
             ? leftNode
             : wrapper.addContent(leftNode, "above", ctx);
-        const next = ctx.consumeRightOperand(nodes, at, right => {
-            // 右操作数可能已被 @tie() 等按引用取走（它就在刚才解析的剩余里），
+        ctx.deferRightOperand(right => {
+            if (!right) throw new ErrorDiagnostic(
+                "E_FOLD_NO_TARGET",
+                "{fn}语法糖错误: 右边没有找到可叠加的目标",
+                n.span, { fn: label }
+            );
+            // 右操作数可能已被 @tie() 等按引用取走（它就在本层剩余部分里，先于合成解析），
             // 而新建的左包装无人引用，所以合并时让右边存活；接收者就是存活的那一方
             const merged = right instanceof FoldFunction
                 ? right.flatten(host, this.side, ctx, wrapper.gap)
@@ -219,12 +224,7 @@ class FoldFunction extends ASTFunctionNode {
             ctx.labelableNodes.push(merged.labelable());
             return merged;
         });
-        if (next !== null) return next;
-        throw new ErrorDiagnostic(
-            "E_FOLD_NO_TARGET",
-            "{fn}语法糖错误: 右边没有找到可叠加的目标",
-            n.span, { fn: label }
-        );
+        return at;
     }
 }
 
