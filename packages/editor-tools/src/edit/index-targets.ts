@@ -41,14 +41,20 @@ export function callNameOf(node: ASTNodeBase): string {
     return node instanceof ASTFunctionNode ? node.callName : "";
 }
 
-/** 统计某 AST 子树下实际产出的音符与延长线数量，用于区分单音包装与多音共享 `@div({1 2})` */
-export function countTemporalsInSubtree(node: ASTNodeBase, astToTemporal: ReadonlyMap<ASTNodeBase, TemporalNodeBase[]>): number {
+/**
+ * 统计某 AST 子树下实际产出的音符与延长线数量，用于区分单音包装与多音共享 `@div({1 2})`
+ * @param limit 计数达到该值即停止遍历；只需判断"是否多音"时传 2
+ */
+export function countTemporalsInSubtree(node: ASTNodeBase, astToTemporal: ReadonlyMap<ASTNodeBase, TemporalNodeBase[]>, limit = Infinity): number {
     let count = 0;
     for (const t of astToTemporal.get(node) ?? []) {
         const name = callNameOf(t.ast);
-        if (name === "note" || name === "dash") count++;
+        if ((name === "note" || name === "dash") && ++count >= limit) return count;
     }
-    for (const child of node.children ?? []) count += countTemporalsInSubtree(child, astToTemporal);
+    for (const child of node.children ?? []) {
+        if (count >= limit) break;
+        count += countTemporalsInSubtree(child, astToTemporal, limit - count);
+    }
     return count;
 }
 
@@ -88,20 +94,22 @@ function analyzeAncestors(node: ASTNodeBase, astToTemporal: ReadonlyMap<ASTNodeB
             const g = p as ASTFunctionNode & { host: ASTNodeBase; grace: ASTNodeBase };
             if (g.grace === cur) graceBranchParent = g;
             else if (g.host === cur) graceHostParent = g;
-        } else if (name === "div" && countTemporalsInSubtree(p, astToTemporal) > 1) {
+        } else if (name === "div" && countTemporalsInSubtree(p, astToTemporal, 2) > 1) {
             outerSharedDiv = p as ASTFunctionNode & { content: ASTNodeBase; n: number };
         }
     }
     return { inHeader, isChordMember, enclosingTupletSpan, graceBranchParent, graceHostParent, outerSharedDiv };
 }
 
+const isBraceItem = (c: ASTNodeBase) => !(c instanceof ASTLabelNode) && !(c instanceof ASTTextNode);
+
 /** 沿父链向上攀爬所有仅包裹当前单个节点的 `{...}`、`@div`、`@dot` 节点 */
 export function climbSingleWrappers(start: ASTNodeBase): ASTNodeBase {
     let cur = start;
     for (let p = cur.parent; p; p = cur.parent) {
         if (p instanceof ASTBraceNode) {
-            const items = p.content.filter(c => !(c instanceof ASTLabelNode) && !(c instanceof ASTTextNode));
-            if (items.length === 1 && items[0] === cur) { cur = p; continue; }
+            // find/every 在第二个有效元素处即停，避免对整段谱面所在的大括号全量过滤
+            if (p.content.find(isBraceItem) === cur && p.content.every(c => c === cur || !isBraceItem(c))) { cur = p; continue; }
         } else if (p instanceof ASTFunctionNode && (p.callName === "div" || p.callName === "dot")) {
             cur = p;
             continue;
@@ -182,14 +190,24 @@ function resolveNoteAst(
     };
 }
 
-/** 若当前流元素是外层分组（如 `@tuplet`、`@div`、`@grace`）中的最后一个元素，将后续插入点推进到分组右括号之外 */
-function resolvePostGroupInsertOffset(ast: ASTNodeBase, fallbackEnd: number, allStreamSpans: readonly SourceSpan[]): number {
-    let end = fallbackEnd;
+/**
+ * 若当前流元素是外层分组（如 `@tuplet`、`@div`、`@grace`）中的最后一个元素，将后续插入点推进到分组右括号之外
+ * @param spans 按 `start` 升序排列的流元素区间
+ */
+function resolvePostGroupInsertOffset(ast: ASTNodeBase, fallbackEnd: number, spans: readonly SourceSpan[]): number {
+    let end = fallbackEnd, from = 0;
+    for (let hi = spans.length; from < hi;) {
+        const mid = (from + hi) >>> 1;
+        if (spans[mid].start < fallbackEnd) from = mid + 1; else hi = mid;
+    }
     for (let cur: ASTNodeBase | null = ast.parent; cur; cur = cur.parent) {
         if (cur instanceof ASTFunctionNode && (cur.callName === "voice" || cur.callName === "voices")) break;
         if (cur instanceof ASTFunctionNode && GROUP_WRAPPERS.has(cur.callName)) {
-            const hasLaterSibling = allStreamSpans.some(s => s.start >= fallbackEnd && s.end <= cur!.sourceSpan.end);
-            if (!hasLaterSibling) end = Math.max(end, cur.sourceSpan.end);
+            // 起点超过分组右界的区间不可能落在分组内
+            const groupEnd = cur.sourceSpan.end;
+            let hasLaterSibling = false;
+            for (let i = from; !hasLaterSibling && i < spans.length && spans[i].start <= groupEnd; i++) hasLaterSibling = spans[i].end <= groupEnd;
+            if (!hasLaterSibling) end = Math.max(end, groupEnd);
         }
     }
     return end;
