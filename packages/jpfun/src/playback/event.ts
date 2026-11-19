@@ -60,7 +60,6 @@ export interface PlaybackOrigin {
 
 interface PlaybackDraftEventBase {
     at: Fraction;
-    order: number;
 }
 
 /** 声音展开后生成的点事件；最终输出前压实轨道编号并剥离编译期字段 */
@@ -120,10 +119,9 @@ const EVENT_PRIORITY = {
     "note-on": 4,
 } satisfies Record<PlaybackDraftEvent["kind"], number>;
 
-/** 同刻先处理系统状态，再关音和开音；相同类别保持原发布次序 */
+/** 同刻先处理系统状态，再关音和开音；相同类别依赖稳定排序保持原发布次序 */
 export function comparePlaybackDraftEvents(left: PlaybackDraftEvent, right: PlaybackDraftEvent) {
-    const byTime = left.at.compare(right.at);
-    return byTime || EVENT_PRIORITY[left.kind] - EVENT_PRIORITY[right.kind] || left.order - right.order;
+    return left.at.compare(right.at) || EVENT_PRIORITY[left.kind] - EVENT_PRIORITY[right.kind];
 }
 
 /**

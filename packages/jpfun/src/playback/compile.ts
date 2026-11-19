@@ -209,7 +209,6 @@ export function compilePlayback(
     const notes: PlaybackNote[] = [];
     const transforms = new Map<PlaybackNote, readonly PlaybackTransform[]>();
     const activePrograms = new Map<TemporalNodeBase["track"], number>();
-    let nextEventOrder = 0;
     let nextNoteId = 0;
 
     interface BpmScale {
@@ -289,7 +288,7 @@ export function compilePlayback(
         const program = node.playbackState?.program;
         if (program !== undefined && activePrograms.get(track) !== program) {
             activePrograms.set(track, program);
-            events.push({ kind: "program-change", at: start.clone(), order: nextEventOrder++, track, program });
+            events.push({ kind: "program-change", at: start.clone(), track, program });
         }
         const bpm = node.playbackState?.bpm;
         if (bpm !== undefined) scheduleControl(start, lineage, state => { state.bpm = bpm; });
@@ -327,7 +326,7 @@ export function compilePlayback(
                 if (scales.length) spanScales.set(span, scales);
                 span.end.add(duration);
             },
-            emit: event => events.push({ ...event, at: event.at.clone(), order: nextEventOrder++ }),
+            emit: event => events.push({ ...event, at: event.at.clone() }),
             control: (at, apply) => scheduleControl(at, lineage, apply),
             /** 只登记效果身份和比例，范围等结构与连接确定后再计算 */
             scaleFollowingBpm(key, numerator, denominator = 1, options) {
@@ -504,7 +503,6 @@ export function compilePlayback(
                 kind: "tempo",
                 at: at.clone(),
                 bpm: snapshot.effectiveBpm,
-                order: nextEventOrder++,
             });
         }
     }
@@ -589,12 +587,12 @@ export function compilePlayback(
             const { start, end, track, midi, velocity, percussion, sourceSpans } = sound;
             const noteId = nextNoteId++;
             const on: PlaybackDraftNoteOnEvent = {
-                kind: "note-on", at: start.clone(), noteId, order: nextEventOrder++,
+                kind: "note-on", at: start.clone(), noteId,
                 track, midi, velocity, percussion,
                 sourceSpans: [...sourceSpans],
             };
             const off: PlaybackDraftNoteOffEvent = {
-                kind: "note-off", at: end.clone(), noteId, order: nextEventOrder++,
+                kind: "note-off", at: end.clone(), noteId,
                 track, midi,
             };
             audible.add(track);
