@@ -124,7 +124,9 @@ export function rewriteNoteCall(source: string, masked: string, call: CallInfo, 
     const additions: string[] = [];
     const valueText = (value: string, slot?: SourceSpan) =>
         !value || value.includes(",") || slot && source[slot.start] === '"' ? quoteSourceString(value) : value;
-    const name = pitchToken(pitch, !accSlot && !hasDefaultAcc, !octaveSlot);
+    // name 末尾的 `!`（force）不属于音高，原样保留
+    const bang = nameSlot && /!"?$/.test(source.slice(nameSlot.start, nameSlot.end)) ? "!" : "";
+    const name = pitchToken(pitch, !accSlot && !hasDefaultAcc, !octaveSlot) + bang;
     if (nameSlot) pushEdit(edits, source, masked, nameSlot, valueText(name, nameSlot));
     else additions.push(`name=${valueText(name)}`);
     if (accSlot) pushEdit(edits, source, masked, accSlot, valueText(pitch.acc, accSlot));
@@ -164,7 +166,8 @@ export function rewriteNotes(source: string, notes: readonly NoteSource[], opera
             rewriteNoteCall(source, masked, call, pitch, ast.hasDefaultAcc, edits);
             continue;
         }
-        let text = pitchToken(pitch);
+        // 简写末尾的 `!`（force）不属于音高，原样保留
+        let text = pitchToken(pitch) + (source[span.end - 1] === "!" ? "!" : "");
         if (text.includes(",") && needsBraces(masked, ast)) text = `{${text}}`;
         tokens[tokens.length - 1].text = text;
     }

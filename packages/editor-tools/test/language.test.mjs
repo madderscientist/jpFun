@@ -62,7 +62,7 @@ test("shared completion candidates preserve function, symbol, parameter and labe
     assert.deepEqual(labels.map(item => item.label), ["a", "b"]);
     const setStage1 = query("@set(tie.height=1em, ").candidates.map(item => item.label);
     assert.ok(setStage1.includes("fontsize") && setStage1.includes("note") && !setStage1.includes("tie") && !setStage1.includes("n"));
-    assert.deepEqual(query("@set(n.color=#f00, note.").candidates.map(item => item.label), ["name", "acc", "octave"]);
+    assert.deepEqual(query("@set(n.color=#f00, note.").candidates.map(item => item.label), ["name", "acc", "octave", "carry", "force"]);
     assert.deepEqual(query("@set(tie.").candidates.map(item => item.label), ["height"]);
     for (const source of ["@up(1", "@page(width=100", "@unknown(", "@set(fontsize=20", "@set(unknown."]) {
         assert.equal(query(source), null, source);

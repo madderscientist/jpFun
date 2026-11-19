@@ -504,12 +504,40 @@ test("carry：升降半音为保持其他音高不变做最少补记", () => {
     strictAssert.equal(apply("1 1"), "#1 #1", "默认关闭时不需要 relower");
 });
 
-test("carry=false 去糖后显式保留，避免继承外层的 carry", () => {
+test("carry、force 为 false 时去糖后显式保留，避免继承外层的 true", () => {
     const note = (source: string) => compileScore(source).ast.content
-        .find(node => "carry" in node) as ASTFunctionNode & { carry: boolean };
-    const source = `${C}@n(1, carry=false)`;
-    const text = note(source).toString(source);
-    strictAssert.match(text, /carry=false/);
-    strictAssert.equal(note(C + text).carry, false);
-    strictAssert.doesNotMatch(note("@n(1)").toString("@n(1)"), /carry/);
+        .find(node => "carry" in node) as ASTFunctionNode & { carry: boolean; force: boolean };
+    for (const flag of ["carry", "force"] as const) {
+        const set = `@set(note.${flag}=true) `;
+        const source = `${set}@n(1, ${flag}=false)`;
+        const text = note(source).toString(source);
+        strictAssert.match(text, new RegExp(`${flag}=false`));
+        strictAssert.equal(note(set + text)[flag], false);
+    }
+    strictAssert.doesNotMatch(note("@n(1)").toString("@n(1)"), /carry|force/);
+    strictAssert.equal(note(note("C4!").toString("C4!")).force, true, "! 去糖为 force=true");
+});
+
+test("force / !：强制显示实际生效的变音号，不改变音高", () => {
+    const shown = (source: string) => [...lower(source).astToTemporal.values()].flat()
+        .filter(node => "resolvedMidi" in node)
+        .sort((left, right) => left.ast.sourceSpan.start - right.ast.sourceSpan.start)
+        .map(node => {
+            const note = node as typeof node & { name: string; acc: string; displayAcc?: string; resolvedMidi: number | null };
+            return `${note.displayAcc ?? note.acc}${note.name}:${note.resolvedMidi}`;
+        });
+    strictAssert.deepEqual(shown("C4! C#4! #1! 1! 0! 8! 9!"), ["n1:60", "#1:61", "#1:61", "n1:60", "0:null", "8:null", "9:null"]);
+    strictAssert.deepEqual(shown(`${C}C#4 C#4! C4! C4`), ["#1:61", "#1:61", "n1:60", "1:60"]);
+    strictAssert.deepEqual(shown(`${C}#1 1! 1 | 1!`), ["#1:61", "#1:61", "1:61", "n1:60"]);
+    strictAssert.deepEqual(shown("1#,! 6#!3 C!4"), ["#1:49", "#6:70", "3:64", "n1:60", "4:65"], "! 只能写在音名末尾");
+    strictAssert.deepEqual(shown('@n("C#4!") @n(C!, #, 4) @n(1, #, 0, #000, true) {@set(note.force=true) C4 @n(1, force=false)} C4'),
+        ["#1:61", "#1:61", "#1:61", "n1:60", "1:60", "1:60"]);
+    expectCompileError("@n(C!, force=false)", "E_NOTE_FORCE_CONFLICT");
+    expectCompileError('@n(C!, "", 4, #000, false)', "E_NOTE_FORCE_CONFLICT");
+
+    strictAssert.equal(transformed("C#4 C4! D4!", "to-relative"), "#1 n1! n2!");
+    strictAssert.equal(transformed(`${C}1 1!`, "semitone-up", [{ start: C.length, end: C.length + 1 }]), `${C}#1 n1!`);
+    strictAssert.equal(transformed('@n("1!") @n(1!, #)', "semitone-up"), '@n("#1!") @n(2!, "")');
+    strictAssert.equal(transformed("@n(C, force=true) {@set(note.force=true) C4}", "to-relative"),
+        "@n(n1, force=true) {@set(note.force=true) n1}", "force 实参和 @set 不改写");
 });

@@ -81,7 +81,8 @@ function rewriteNotePitchInPlace(
     if (call?.span.end === span.end && call.closeParenSpan) {
         return rewriteNoteCall(source, masked, call, { name: nextPitch, acc, octave, absolute: false }, target.hasDefaultAcc);
     }
-    const pitchToken = formatPitchToken(nextPitch, acc, octave);
+    // 音名末尾的 `!`（force）不属于音高，原样保留
+    const pitchToken = formatPitchToken(nextPitch, acc, octave) + (source[span.end - 1] === "!" ? "!" : "");
     let replacement = pitchToken.includes(",") && needsBraces(masked, target.noteAst) ? `{${pitchToken}}` : pitchToken;
     const afterChar = source[span.end] ?? "";
     if (afterChar && /[0-9A-Za-z#b',]/.test(afterChar)) {

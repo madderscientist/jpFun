@@ -112,12 +112,13 @@ class NoteFunction extends ASTFunctionNode {
 - \`A#3\` 等价于 \`@note(A, #, 3)\`，默认 \`acc\` 为空时也等价于 \`@note(A#3)\`
 - \`#1'\` 等价于 \`@note(1, #, 1)\`，默认 \`acc\` 为空时也等价于 \`@note("#1'")\`
 - 支持组合升降号，如 \`A##bn99\`；无歧义时也接受后置写法，如 \`A3#\`、\`6#,,\`
-- 升降号后紧跟数字时归入下一音符：\`6#3\` 解析为 \`6\` 和 \`#3\``,
+- 升降号后紧跟数字时归入下一音符：\`6#3\` 解析为 \`6\` 和 \`#3\`
+- 末尾加 \`!\` 等价于 \`force=true\`：\`C4!\` 等价于 \`@note(C, "", 4, force=true)\``,
         allowExtraArgs: false,
         args: [
             {
                 name: "name",
-                description: "数字音名或大写字母音名，可自带升降号与八度；`0` / `Z` 为休止符，`8` 为隐形占位，`9` / `X` 为节拍记号，后三类不显示升降号和八度点",
+                description: "数字音名或大写字母音名，可自带升降号与八度，末尾的 `!` 等价于 `force=true`；`0` / `Z` 为休止符，`8` 为隐形占位，`9` / `X` 为节拍记号，后三类不显示升降号和八度点",
                 type: "string" as const,
                 default: null,
             },
@@ -143,6 +144,12 @@ class NoteFunction extends ASTFunctionNode {
                 name: "carry",
                 namedOnly: true,
                 description: "小节内变音延续：数字音名按本小节前文读谱，字母音名自动省略或补记变音号",
+                type: "boolean" as const,
+                default: false,
+            },
+            {
+                name: "force",
+                description: "强制显示实际生效的变音号，不改变音高，没有变音时显示还原号；简写为音名末尾的 `!`",
                 type: "boolean" as const,
                 default: false,
             },
@@ -174,19 +181,23 @@ class NoteFunction extends ASTFunctionNode {
         // 解析音符名
         const parseResult = parseNoteName(source, start, end, false);
         if (!parseResult) return null;
+        // 末尾的 `!` 是 force=true 的简写；没写时继承 @set(note.force=...)
+        const force = parseResult.next < end && source[parseResult.next] === "!";
+        const next = parseResult.next + (force ? 1 : 0);
         const argMap: FunctionArgs = new Map();
         argMap.set("name", parseResult.name);
         if (parseResult.octave !== null) argMap.set("octave", parseResult.octave);
         argMap.set("acc", parseResult.acc ?? "");   // 必须覆盖不然会用到 set 的默认值
+        if (force) argMap.set("force", true);
         const node: GrammarCallNodeTyped = {
             kind: "call",
             typed: true,
             name: "note",
             args: argMap,
-            span: { start, end: parseResult.next },
+            span: { start, end: next },
             syntaxKind: "atom",
         };
-        return { next: parseResult.next, node };
+        return { next, node };
     }
 
     static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
@@ -210,6 +221,7 @@ class NoteFunction extends ASTFunctionNode {
     acc: string;
     color: string;
     carry: boolean;
+    force: boolean;
     size: number;
     readonly font: string;
     readonly weight: number;
@@ -218,19 +230,31 @@ class NoteFunction extends ASTFunctionNode {
     jeOctaveOffset: number;
     // 源码改写时判断是否需要覆盖默认升降号
     readonly hasDefaultAcc: boolean;
-    // 去糖时判断是否需要写明 carry
+    // 去糖时判断是否需要写明 carry、force
     readonly hasDefaultCarry: boolean;
+    readonly hasDefaultForce: boolean;
 
     constructor(sourceSpan: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(sourceSpan, parent);
         this.hasDefaultAcc = Boolean(ctx.variables["note.acc"]);
         this.hasDefaultCarry = Boolean(ctx.variables["note.carry"]);
-        [this.name, this.acc, this.octave, this.color, this.carry] =
-            this.getArgValue(args, ctx) as [string, string, number, string, boolean];
+        this.hasDefaultForce = Boolean(ctx.variables["note.force"]);
+        [this.name, this.acc, this.octave, this.color, this.carry, this.force] =
+            this.getArgValue(args, ctx) as [string, string, number, string, boolean, boolean];
         this.font = ctx.variables.numberfont;
         this.weight = ctx.variables.numberweight;
         this.size = ctx.variables.fontsize;
         // 创建时就固化参数值
+        // name 末尾的 `!` 同简写，等价于 force=true；carry 仅命名，所以 force 的位置下标是 4
+        if (this.name.endsWith("!")) {
+            if ((args.get("force") ?? args.get(4)) === false) throw new ErrorDiagnostic(
+                "E_NOTE_FORCE_CONFLICT",
+                '函数 @note 的参数 "force=false" 与音符名称末尾的 "!" 冲突',
+                sourceSpan,
+            );
+            this.name = this.name.slice(0, -1);
+            this.force = true;
+        }
         // 校验 note name
         const parseResult = parseNoteName(this.name);
         if (parseResult instanceof Diagnostic) {
@@ -264,9 +288,10 @@ class NoteFunction extends ASTFunctionNode {
     }
 
     override toString() {
-        // 外层开启过时写明，避免 carry=false 去糖后继承外层的 true
+        // 外层开启过时写明，避免 false 去糖后继承外层的 true
         const carry = this.carry || this.hasDefaultCarry ? `, carry=${this.carry}` : "";
-        return `@n(${this.name}, ${this.acc || '""'}, ${this.octave}, ${this.color}${carry})`;
+        const force = this.force || this.hasDefaultForce ? `, force=${this.force}` : "";
+        return `@n(${this.name}, ${this.acc || '""'}, ${this.octave}, ${this.color}${carry}${force})`;
     }
 }
 
@@ -296,7 +321,7 @@ class NoteTemporalNode extends TemporalNodeBase {
     name: string;     // 数字
     acc: string;      // 升降号
     octave: number;   // 绝对值为点的个数
-    displayAcc?: string;            // carry 开启的字母音名推导出的显示记号；undefined 表示按 acc 显示
+    displayAcc?: string;            // carry 开启的字母音名或 force 推导出的显示记号；undefined 表示按 acc 显示
     carrySlot?: AccidentalReading;  // 本音在变音记忆中的位置
 
     /** prepareLayout 生成的局部升降号位置 */
@@ -434,16 +459,22 @@ class NoteTemporalNode extends TemporalNodeBase {
         this.applyAccidentals(state.accidentals);
     }
 
-    /** 以显示出来的记号写入记忆；carry 下数字音名没写记号时沿用前文，字母音名按前文省略或补记 */
+    /**
+     * 以显示出来的记号写入记忆；carry 下数字音名没写记号时沿用前文，字母音名按前文省略或补记。
+     * force 只改显示：写出实际生效的记号，没有变音时显示还原号
+     */
     private applyAccidentals(memory: AccidentalMemory) {
         if (this.resolvedMidi === null || !/^[1-7]$/.test(this.name)) return;
         const key = `${this.name}:${this.octave}`;
         this.carrySlot = memory.read(this.track, key);
         const prior = this.carrySlot.bar.get(key) ?? 0;
-        const offset = acc2Offset(this.acc);
         const digit = /^[1-7]$/.test(this.ast.name);
-        if (this.ast.carry && digit && !this.acc) this.resolvedMidi += prior;
-        if (this.ast.carry && !digit) this.displayAcc = offset === prior ? "" : this.acc || "n";
+        const carried = this.ast.carry && digit && !this.acc;
+        const offset = carried ? prior : acc2Offset(this.acc);
+        if (carried) this.resolvedMidi += prior;
+        const shown = offsetToAccidental(offset) || "n";
+        if (this.ast.force) this.displayAcc = shown;
+        else if (this.ast.carry && !digit) this.displayAcc = offset === prior ? "" : shown;
         if (this.displayAcc ?? this.acc) memory.stage(this.track, key, offset);
     }
 

@@ -164,6 +164,10 @@ test("selecting existing note modifies pitch with advance, octave, accidental, r
     const explicitClearAcc = runEdit("@set(note.acc=#) @note(1)", 0, { type: "set-accidental", acc: "#" });
     assert.equal(explicitClearAcc.nextSource, '@set(note.acc=#) @note(1, acc="")');
     assert.equal(explicitClearAcc.nextIndex.streamTargets[0].acc, "");
+
+    // 8. 音名末尾的 `!`（force）不属于音高，原位改写时保留
+    assert.equal(runEdit("#1! 2", 0, { type: "adjust-octave", delta: 1 }).nextSource, "#1'! 2");
+    assert.equal(runEdit("@n(1!) 2", 0, { type: "set-accidental", acc: "#" }).nextSource, "@n(#1!) 2");
 });
 
 test("toggling symbols and grace notes on a note", () => {
