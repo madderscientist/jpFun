@@ -85,7 +85,7 @@ function pinnedSemitone(source: string, notes: readonly NoteTemporalNode[], oper
             const offset = target - resolveNoteMidi(node.name, "", node.octave, node.keySignature)!;
             const acc = offsetToAccidental(offset) || "n";
             // 同一 AST 的多个实例要求不同记号时无解
-            if (Math.abs(offset) > 2 || (pins.get(ast) ?? acc) !== acc) fail(ast.sourceSpan);
+            if ((pins.get(ast) ?? acc) !== acc) fail(ast.sourceSpan);
             pins.set(ast, acc);
         }
     }

@@ -435,6 +435,7 @@ function runNoteTransform(operation: NoteTransform) {
     const original = source();
     if (!ensureCompiled()) return;
     if (!latestCompiled) return;
+    updateDocumentStatus();
     try {
         const edits = transformNotes(original, latestCompiled.lowering, operation, ranges.length ? ranges : undefined,
             candidate => compileScore(candidate, compileOptions).lowering);
@@ -445,9 +446,15 @@ function runNoteTransform(operation: NoteTransform) {
         commitCheckedEdits(original, edits);
         editor.focus();
     } catch (error) {
+        const detail = formatError(error);
+        const combined = [...scoreDiagnostics, ...playbackDiagnostics];
+        if (error instanceof Diagnostic) {
+            diagnostics.render(combined.includes(error) ? combined : [...combined, error]);
+        } else diagnostics.render(combined, detail, "音高变换失败");
         statusMessage.dataset.state = "error";
-        statusMessage.textContent = "音高变换失败";
-        statusMessage.title = formatError(error);
+        statusMessage.textContent = `音高变换失败：${detail}`;
+        statusMessage.title = detail;
+        workspace.showResult("problems");
     }
 }
 

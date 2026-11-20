@@ -9,8 +9,8 @@ interface DiagnosticsControllerOptions {
 }
 
 export interface DiagnosticsController {
-    /** fatal 是打断了排版、又没有 span 可跳转的错误 */
-    render(items: readonly Diagnostic[], fatal?: string): void;
+    /** fatal 是没有 span 可跳转的错误，缺省按排版中断显示 */
+    render(items: readonly Diagnostic[], fatal?: string, errorLabel?: string): void;
 }
 
 function appendText(parent: HTMLElement, className: string, text: string) {
@@ -46,7 +46,7 @@ export function createDiagnosticsController(options: DiagnosticsControllerOption
     }
 
     return {
-        render(items, fatal) {
+        render(items, fatal, errorLabel = "排版中断") {
             const ranges = setSourceDiagnostics(options.editor, items);
             const warningCount = items.filter(item => !(item instanceof ErrorDiagnostic)).length;
             const errorCount = items.length - warningCount + (fatal ? 1 : 0);
@@ -60,7 +60,7 @@ export function createDiagnosticsController(options: DiagnosticsControllerOption
                 : `${errorCount} 个错误 · ${warningCount} 个警告`;
             tab.dataset.severity = errorCount > 0 ? "error" : warningCount > 0 ? "warning" : "";
 
-            if (fatal) addRow("error", "排版中断", fatal);
+            if (fatal) addRow("error", errorLabel, fatal);
             for (const [index, item] of items.entries()) {
                 addRow(
                     item instanceof ErrorDiagnostic ? "error" : "warning",
