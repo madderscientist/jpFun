@@ -1,6 +1,6 @@
 {
   "name": "@jpfun/editor-tools",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Host-independent editor utilities for jpFun",
   "type": "module",
   "main": "./dist/index.js",
