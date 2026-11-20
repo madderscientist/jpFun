@@ -3,7 +3,7 @@ import type { Extent, Track } from "../lowering/track.js";
 import type { Fraction } from "../fraction.js";
 import type { TemporalNodeBase, VisualTemporalNode } from "../functions/temporal.js";
 import type { SourceSpan } from "../parser/types.js";
-import type { HorizontalLayoutHook } from "./model.js";
+import type { HorizontalLayoutHook, SolverOptions } from "./model.js";
 import type { LoweringAttachment, LoweringContent, PageConfig } from "../lowering/types.js";
 
 export type { Extent, PageConfig };
@@ -71,6 +71,7 @@ export interface LayoutPrepareContext {
         root: Track,
         attachments: readonly LoweringAttachment[],
     ): SubdomainLayout;
+    solverOptions?: SolverOptions;
 }
 
 /** 子域块的尺寸与成员位置，坐标以块的左上角为原点 */

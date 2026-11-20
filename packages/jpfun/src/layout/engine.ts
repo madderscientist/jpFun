@@ -205,6 +205,7 @@ export function layoutDocument(
     };
     context = {
         ...context,
+        solverOptions: options,
         layoutSubdomain(owner, columns, root, attachments) {
             // 横排时内层子域先排版并认领关系，这里只取剩下的
             const line = layoutLocalLine(columns, context);
@@ -685,7 +686,7 @@ function layoutLocalLine(
     for (const column of columns) {
         for (const node of column) prepareLayoutHost(node, context);
     }
-    const line = prepareHorizontalLine(columns, columns[0][0].layoutLine, {}, true);
+    const line = prepareHorizontalLine(columns, columns[0][0].layoutLine, context.solverOptions, true);
     let left = Infinity;
     let right = -Infinity;
     for (const column of line.layout(Infinity)) {
