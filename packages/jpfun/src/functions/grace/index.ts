@@ -47,7 +47,6 @@ type GraceSide = "pre" | "post";
  * 所以只能在此刻回头改。这发生在 parse 进行中，不违反「AST parse 后只读」。
  */
 function scaleFontSize(node: ASTNodeBase, factor: number) {
-    if (factor === 1) return;
     const sized = node as { size?: number; gap?: number; minGap?: number; aboveGaps?: number[]; belowGaps?: number[] };
     if (typeof sized.size === "number") sized.size *= factor;
     if (typeof sized.gap === "number") sized.gap *= factor;
@@ -124,17 +123,19 @@ class GraceFunction extends ASTFunctionNode {
         const n = nodes[at++] as GrammarSugarNode;
         if (n.kind !== "sugar" || n.data?.class !== GraceFunction) return null;
         const side: GraceSide = n.data.side;
-        const leftNode = ctx.takeLeftOperand();
+        // 箭头指向宿主：`1>2>3` 是 `{1>2}>3`，所以 `>` 登记 chain 左结合；`1<2<3` 是 `1<{2<3}`，`<` 保持右结合
+        const chain = side === "pre" ? GraceFunction : undefined;
+        const leftNode = ctx.takeLeftOperand(chain);
         if (!leftNode) {
             throw new ErrorDiagnostic("E_GRACE_NO_TARGET", "@grace语法糖错误: 左边没有找到目标", n.span);
         }
+        const size = ctx.variables.fontsize;    // 字号取算符所在处，不受右侧之后的 @set 影响
         ctx.deferRightOperand(right => {
             if (!right) throw new ErrorDiagnostic("E_GRACE_NO_TARGET", "@grace语法糖错误: 右边没有找到目标", n.span);
-            // '<' 的倚音在右侧，右结合的解析结果本来就是嵌套语义，不必像 '>' 那样重排
-            return side === "pre"
-                ? GraceFunction.attachPre(leftNode, right, n.span, ctx)
-                : GraceFunction.create(ctx, n.span, "post", leftNode, right);
-        });
+            const [host, grace] = side === "pre" ? [right, leftNode] : [leftNode, right];
+            const args: FunctionArgs = new Map<string | number, ASTNodeBase | GraceSide>([[0, host], [1, grace], ["side", side]]);
+            return Object.assign(new GraceFunction(n.span, args, ctx), { size });
+        }, chain);
         return at;
     }
 
@@ -143,54 +144,12 @@ class GraceFunction extends ASTFunctionNode {
     side: GraceSide = "pre";
     size: number;
 
-    /**
-     * `A > B`：前倚音必须左结合，而右操作数是把后续全部解析完才取的，
-     * 所以 `1>2>3` 到这里已经成了 `1>(2>3)`。把 A 插回链条最深处就能恢复为 `(1>2)>3`
-     */
-    private static attachPre(
-        left: ASTNodeBase,
-        right: ASTNodeBase,
-        span: SourceSpan,
-        ctx: ParserContext,
-    ): ASTNodeBase {
-        if (right instanceof GraceFunction && right.side === "pre") {
-            // 找到最深层的 pre
-            let deepest = right;
-            let depth = 1;
-            while (deepest.grace instanceof GraceFunction && deepest.grace.side === "pre") {
-                deepest = deepest.grace;
-                depth++;
-            }
-            const scale = GRACE_SCALE ** depth;
-            const inner = GraceFunction.create(ctx, span, "pre", deepest.grace, left, GRACE_SCALE * scale);
-            inner.size *= scale;
-            deepest.setGrace(inner, 1);  // inner 内部已按深度缩放，不能再缩
-            return right;
-        }
-        return GraceFunction.create(ctx, span, "pre", right, left);
-    }
-
-    private static create(
-        ctx: ParserContext,
-        span: SourceSpan,
-        side: GraceSide,
-        host: ASTNodeBase,
-        grace: ASTNodeBase,
-        scale: number = GRACE_SCALE,
-    ): GraceFunction {
-        const argMap: FunctionArgs = new Map();
-        argMap.set(0, host);
-        argMap.set(1, grace);
-        argMap.set("side", side);
-        return new GraceFunction(span, argMap, ctx, null, scale);
-    }
-
     override get children(): ASTNodeBase[] {
         return [this.host, this.grace];
     }
     override timeFlowModel() { return null; }
 
-    constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null, scale: number = GRACE_SCALE) {
+    constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
         this.size = ctx.variables.fontsize;
 
@@ -203,13 +162,8 @@ class GraceFunction extends ASTFunctionNode {
             );
         }
         this.adopt(this.host);
-        this.setGrace(this.grace, scale);
-    }
-
-    setGrace(node: ASTNodeBase, factor: number = GRACE_SCALE) {
-        scaleFontSize(node, factor);
-        this.grace = node;
-        this.adopt(node);
+        this.adopt(this.grace);
+        scaleFontSize(this.grace, GRACE_SCALE);
     }
 
     private adopt(node: ASTNodeBase) {

@@ -16,6 +16,7 @@ import {
     layoutOf,
     lower,
     nearly,
+    parse,
     playedNotes,
     recordCommands,
 } from "./helpers.js";
@@ -215,6 +216,31 @@ test("倚音嵌套时字号逐层缩小，修饰递归还给最里层宿主", ()
         "the innermost grace host must carry its own octave dots and div lines");
     assert(nestedDivLines.every(command => command.y + command.h / 2 < nestedDotTop),
         "div lines must stay between the digit and its octave dots");
+});
+
+test("> 连写左结合、< 连写右结合，显式调用是整体；字号取算符所在处", () => {
+    type Grace = { host: Grace; grace: Grace; side: string; size: number; sourceSpan: { start: number; end: number } };
+    const root = (source: string) => {
+        const node = parse(source).children[0] as unknown as Grace;
+        const text = (n: Grace) => source.slice(n.sourceSpan.start, n.sourceSpan.end);
+        return { node, text };
+    };
+
+    const pre = root(`1>2>3>4`);
+    deepStrictEqual([pre.text(pre.node), pre.text(pre.node.host), pre.text(pre.node.grace), pre.text(pre.node.grace.grace)],
+        ["1>2>3>4", "4", "1>2>3", "1>2"], "`>` chains must nest leftwards and the outer span must cover the whole chain");
+
+    const post = root(`1<2<3`);
+    deepStrictEqual([post.text(post.node.host), post.text(post.node.grace), post.text(post.node.grace.host)],
+        ["1", "2<3", "2"], "`<` chains must nest rightwards");
+
+    const explicit = root(`0 > @grace(2,1)`);
+    deepStrictEqual([explicit.text(explicit.node.host), explicit.text(explicit.node.grace)], ["@grace(2,1)", "0"],
+        "an explicit call is a closed operand, like a brace");
+
+    const chain = root(`1 > 2 > 3 @set(fontsize=30)`).node;
+    assert(root(`1 > 2 @set(fontsize=30) 3`).node.size === 18 && chain.size === 18 && nearly(chain.grace.size, 18 * 0.7),
+        "a later @set must not change the grace size");
 });
 
 test("和弦折叠进倚音时修饰递归交还给代表成员", () => {

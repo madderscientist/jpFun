@@ -169,7 +169,7 @@ class FoldFunction extends ASTFunctionNode {
      *
      * 被掏空的一方必须撤销候选登记：空壳已不在 AST 里，留在表中会让 @tie() 取到孤儿端点。
      */
-    private flatten(drop: FoldFunction, side: FoldSide, ctx: ParserContext, gap: number = this.gap): FoldFunction {
+    private flatten(drop: FoldFunction, side: FoldSide, ctx: ParserContext, gap: number = this.gap, registered = true): FoldFunction {
         // 成员顺序跟随源码；比较必须在 growSpan 之前
         const front: FoldFunction = drop.sourceSpan.start < this.sourceSpan.start ? drop : this;
         const back: FoldFunction = front === drop ? this : drop;
@@ -185,6 +185,7 @@ class FoldFunction extends ASTFunctionNode {
         for (const c of this.children) c.parent = this;
         this.growSpan(drop.sourceSpan);
         drop.contents.length = drop.belows.length = drop.aboveGaps.length = drop.belowGaps.length = 0;
+        if (!registered) return this;   // 语法糖新建的左包装从未入表；合成在本层末尾，整表扫描会让平放和弦变成平方级
         const stale = ctx.labelableNodes.lastIndexOf(drop);
         if (stale >= 0) ctx.labelableNodes.splice(stale, 1);
         return this;
@@ -218,7 +219,7 @@ class FoldFunction extends ASTFunctionNode {
             // 右操作数可能已被 @tie() 等按引用取走（它就在本层剩余部分里，先于合成解析），
             // 而新建的左包装无人引用，所以合并时让右边存活；接收者就是存活的那一方
             const merged = right instanceof FoldFunction
-                ? right.flatten(host, this.side, ctx, wrapper.gap)
+                ? right.flatten(host, this.side, ctx, wrapper.gap, host !== wrapper)
                 : host.addContent(right, this.side, ctx, wrapper.gap);
             // 语法糖不走 pushNode，这里补登记；null 同样入表，和显式调用一样成为边界
             ctx.labelableNodes.push(merged.labelable());

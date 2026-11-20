@@ -87,7 +87,7 @@ export class ParserContext {
     callNode?: GrammarCallNodeRaw;
     nodes: ASTNodeBase[]; // 解析结果
     /** 等待右操作数的中缀语法糖，见 deferRightOperand */
-    private readonly pendingRight: { left: ASTNodeBase[]; combine: (right?: ASTNodeBase) => ASTNodeBase }[] = [];
+    private readonly pendingRight: { left: ASTNodeBase[]; combine: (right?: ASTNodeBase) => ASTNodeBase; chain?: unknown }[] = [];
 
     constructor(ctx: ParserContext | {
         source: string;
@@ -290,21 +290,29 @@ export class ParserContext {
         } return left;
     }
 
-    /** 摘出末尾最后一个操作数（含其后置标签） */
-    takeLeftOperand(): ASTNodeBase | null {
+    /**
+     * 摘出末尾最后一个操作数（含其后置标签）
+     * 传入 chain 时，若该操作数恰是同一 chain 挂起合成的唯一右操作数，先合成再返回：同类中缀由此左结合
+     */
+    takeLeftOperand(chain?: unknown): ASTNodeBase | null {
         const index = this.findLastOperandIndex();
         if (index < 0) return null;
         const node = this.nodes[index];
         this.nodes.length = index;
-        return node;
+        const top = this.pendingRight.at(-1);
+        if (chain === undefined || top?.chain !== chain || this.nodes.some(n => !(n instanceof ASTTextNode))) return node;
+        this.pendingRight.pop();
+        this.nodes = top.left;
+        return top.combine(node);
     }
 
     /**
      * 中缀语法糖的右操作数是本层剩余部分的首个非文本节点，要等本层解析完才能确定。
      * 这里只挂起：已有节点留作左侧，后续节点解析到新数组，由 makeNodes 收尾时交给 combine；没有右操作数时 combine 收到 undefined
+     * 默认右结合；登记 chain 后，下一个同 chain 的中缀可经 takeLeftOperand 提前合成本帧。提前合成的结果不会进入 nodes，combine 不应有登记之类的副作用
      */
-    deferRightOperand(combine: (right?: ASTNodeBase) => ASTNodeBase) {
-        this.pendingRight.push({ left: this.nodes, combine });
+    deferRightOperand(combine: (right?: ASTNodeBase) => ASTNodeBase, chain?: unknown) {
+        this.pendingRight.push({ left: this.nodes, combine, chain });
         this.nodes = [];
     }
 
