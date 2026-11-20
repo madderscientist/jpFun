@@ -460,7 +460,7 @@ test("carry：数字音名按本小节前文读谱，同列互不影响，八度
     strictAssert.deepEqual(midis("#1 1"), [61, 60], "默认关闭，与现状一致");
 });
 
-test("carry：倚音主线与宿主共享记忆，额外声部隔离，倚音不提交同列和弦音", () => {
+test("carry：倚音主线与宿主共享记忆，额外声部隔离，按时间先后生效", () => {
     strictAssert.deepEqual(midis(`${C}{#1 1}>2 1`), [61, 61, 62, 61]);
     strictAssert.deepEqual(midis(`${C}#1 1>2`), [61, 61, 62]);
     strictAssert.deepEqual(midis(`${C}2<{#1} 1`), [62, 61, 61]);
@@ -468,6 +468,10 @@ test("carry：倚音主线与宿主共享记忆，额外声部隔离，倚音不
     strictAssert.deepEqual(midis(`${C}{1 & #1}>2 1`), [60, 61, 62, 60]);
     strictAssert.deepEqual(midis(`${C}#1>1>2 1`), [61, 61, 62, 61]);
     strictAssert.deepEqual(midis(`${C}{2>1} ^ #1`), [62, 60, 61]);
+    strictAssert.deepEqual(midis(`${C}1 ^ {#1>2} 1`), [61, 61, 62, 61], "前倚音早于同列的和弦音");
+    strictAssert.deepEqual(midis(`${C}1 ^ {2<#1} 1`), [60, 62, 61, 61], "后倚音晚于同列的和弦音");
+    strictAssert.deepEqual(midis(`${C}#1 ^ {2<1} 1`), [61, 62, 61, 61], "后倚音读得到同列和弦音的写入");
+    strictAssert.deepEqual(midis(`${C}{#1 @key(C) 1}>2 1`), [61, 60, 62, 60], "倚音内的转调只影响之后的成员");
 });
 
 test("carry：字母音名按记忆省略或补记显示记号，转相对后音高不变", () => {

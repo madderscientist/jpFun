@@ -331,16 +331,13 @@ export class GraceTemporal extends TemporalNodeBase {
         // 同步时间的修改。比如tuplet修改的是GraceTemporal.T，这里要把它传给成员
         this.host.T.copyFrom(this.T);
         let offset: Fraction | void = undefined;
-        // 倚音主线与宿主共用变音记忆；倚音里的额外声部是 root 的子轨道，仍然隔离
-        state.accidentals.share(this.root, this.host.track);
-        // 此前暂存的是同列和弦音，不随倚音提交
-        const mark = state.accidentals.pending;
-        for (const member of this.ast.side === "pre" ? [...this.events, this.host] : [this.host, ...this.events]) {
+        const members = this.ast.side === "pre" ? [...this.events, this.host] : [this.host, ...this.events];
+        const hostAt = members.indexOf(this.host);
+        for (const [index, member] of members.entries()) {
             member.t.copyFrom(this.t);
             member.layoutLine = this.layoutLine;
-            const result = member.onTimeState?.(state);
-            // 成员按书写先后逐个提交；前倚音的宿主留给列末，以免影响同列的和弦音
-            if (member !== this.host || this.ast.side === "post") state.accidentals.commit(mark);
+            // 宿主与同列其他音同时，前倚音依次在它之前，后倚音依次在它之后
+            const result = state.accidentals.at(index - hostAt, () => member.onTimeState?.(state));
             if (member === this.host) {
                 this.T.copyFrom(member.T);
                 offset = result;

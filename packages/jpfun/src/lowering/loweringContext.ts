@@ -147,7 +147,7 @@ export class LoweringContext {
                 velocities.set(node.track, state.velocity);
                 programs.set(node.track, state.program);
             }
-            // 同列的音同时发生，整列读完再提交变音
+            // 整列登记完再按时间先后结算变音，同一时刻的音互不影响
             state.accidentals.commit();
             // 同列声部一起开始，只在整列固化后累加一次偏移
             if (insertion) timeOffset.add(insertion);

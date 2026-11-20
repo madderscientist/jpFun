@@ -461,21 +461,22 @@ class NoteTemporalNode extends TemporalNodeBase {
 
     /**
      * 以显示出来的记号写入记忆；carry 下数字音名没写记号时沿用前文，字母音名按前文省略或补记。
-     * force 只改显示：写出实际生效的记号，没有变音时显示还原号
+     * force 只改显示：写出实际生效的记号，没有变音时显示还原号。前文要到列末按时间先后结算
      */
     private applyAccidentals(memory: AccidentalMemory) {
-        if (this.resolvedMidi === null || !/^[1-7]$/.test(this.name)) return;
-        const key = `${this.name}:${this.octave}`;
-        this.carrySlot = memory.read(this.track, key);
-        const prior = this.carrySlot.bar.get(key) ?? 0;
-        const digit = /^[1-7]$/.test(this.ast.name);
-        const carried = this.ast.carry && digit && !this.acc;
-        const offset = carried ? prior : acc2Offset(this.acc);
-        if (carried) this.resolvedMidi += prior;
-        const shown = offsetToAccidental(offset) || "n";
-        if (this.ast.force) this.displayAcc = shown;
-        else if (this.ast.carry && !digit) this.displayAcc = offset === prior ? "" : shown;
-        if (this.displayAcc ?? this.acc) memory.stage(this.track, key, offset);
+        const midi = this.resolvedMidi;
+        if (midi === null || !/^[1-7]$/.test(this.name)) return;
+        memory.read(this.track, `${this.name}:${this.octave}`, reading => {
+            const { prior } = this.carrySlot = reading;
+            const digit = /^[1-7]$/.test(this.ast.name);
+            const carried = this.ast.carry && digit && !this.acc;
+            const offset = carried ? prior : acc2Offset(this.acc);
+            if (carried) this.resolvedMidi = midi + prior;
+            const shown = offsetToAccidental(offset) || "n";
+            if (this.ast.force) this.displayAcc = shown;
+            else if (this.ast.carry && !digit) this.displayAcc = offset === prior ? "" : shown;
+            return this.displayAcc ?? this.acc ? offset : undefined;
+        });
     }
 
     /** 发布完整音段或无声区间，实际 NoteOn/NoteOff 留到声音展开完成后生成 */
