@@ -12,7 +12,11 @@ export type GrammarNode =
 export interface GrammarNodeBase {
     kind: "brace" | "label" | "call" | "sugar";
     span: SourceSpan;
-    /** 语法高亮类型；缺省为 operator，复合语法糖可直接给出多段 SyntaxToken */
+    /**
+     * 语法高亮类型；缺省为 operator，复合语法糖可直接给出多段 SyntaxToken
+     * 多段须按源码顺序、互不重叠，且落在 deSugarAtom 本次消费的 [start, next) 内（可超出 span，如 `H.title:` 后的正文）；
+     * 解析器既不排序也不校验，违反时编辑器高亮会出错
+     */
     syntaxKind?: SyntaxTokenKind | SyntaxToken[];
 }
 
@@ -104,6 +108,7 @@ export interface SyntaxToken {
 /**
  * 面向编辑器的源码视图
  * tokens 用于着色，calls 保留调用与参数边界供补全定位；两者都引用原始源码 offset
+ * tokens 按起点升序且互不重叠；calls 按起点严格递增，外层调用在内层之前
  */
 export interface SyntaxAnalysis {
     tokens: SyntaxToken[];

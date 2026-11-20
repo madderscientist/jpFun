@@ -177,21 +177,31 @@ test("嵌套的未闭合调用同时保留可见性和错误", () => {
     assert(boundedResult.diagnostics.some(item => item.code === "E_UNTERMINATED_CALL"), "an incomplete nested call must report its error");
 });
 
-test("语法 token 在跨越被掩码注释时保持有序、不重叠且不越界", () => {
+test("语法 token 在跨越被掩码注释时保持有序、不重叠且不越界，calls 严格递增", () => {
     const samples = [
         `1 @gliss(a, b)\n\n% 滑音连接非常自由\n1@a 2 3@b`,
         `N: 1 2\nL: 啦 啦 % 行尾注释\nN: 3 4`,
+        `N: 1 2\r\nL: 啦 啦 % CRLF 注释\r\nN: 3 4`,
         `@text(第一行 % 参数内注释\n第二行)`,
         `1 \\ % 续行注释\n2`,
+        `H.title: 标题 % 注释\nH.title: @box(@text(甲 % 乙\n丙))`,
+        `{1 % a\n 2 {3 % b\n 4} % c\n 5} % 文件末尾注释`,
+        `@voices(@voice({1/ 2} % x\n, A))`,
+        `@page(width=800px, height= % 未闭合`,
     ];
     for (const source of samples) {
-        const { tokens } = analyzeScoreSyntax(source).syntax;
+        const { tokens, calls } = analyzeScoreSyntax(source).syntax;
         let offset = 0;
         for (const token of tokens) {
             assert(token.span.start < token.span.end && token.span.end <= source.length,
                 "token span must be nonempty and inside the source");
             assert(token.span.start >= offset, `token [${token.span.start}, ${token.span.end}) overlapped previous end ${offset}`);
             offset = token.span.end;
+        }
+        deepStrictEqual(tokens.filter(token => token.kind === "comment").map(token => token.span),
+            preprocessSource(source).commentSpans, `every comment must be emitted intact: ${source}`);
+        for (let i = 1; i < calls.length; i++) {
+            assert(calls[i - 1].span.start < calls[i].span.start, `calls must be strictly increasing: ${source}`);
         }
     }
 });
@@ -220,10 +230,10 @@ test("歌词行前缀着色为运算符，歌词正文着色为字符串", () =>
     ]);
 });
 
-test("syntaxOnly 不改变被识别的语法节点", () => {
+test("词法层模式不改变被识别的语法节点", () => {
     const dual = `@set(fontsize=24)\n1 2/ 3. 5^1 @up(2,4) @div({1 2}) 6@x`;
     const grammarShape = (syntaxOnly: boolean) => createParser(dual)
-        .parseGrammar(0, dual.length, syntaxOnly)
+        .parseGrammar(0, dual.length, syntaxOnly ? () => true : undefined)
         .map(node => typeof node === "number"
             ? `text:${node}`
             : `${node.kind}:${node.span.start}-${node.span.end}`)
@@ -232,6 +242,12 @@ test("syntaxOnly 不改变被识别的语法节点", () => {
         grammarShape(false) === grammarShape(true),
         "syntaxOnly must not change which GrammarNodes are recognized",
     );
+});
+
+test("观察者不接管节点时语法错误照常抛出", () => {
+    const seen: string[] = [];
+    throws(() => createParser("@div(1").parseGrammar(0, 6, node => (seen.push(node.kind), false)));
+    deepStrictEqual(seen, ["call"], "the node must be observed before validation throws");
 });
 
 test("参数不足的调用在严格与宽容模式下各自处理", () => {

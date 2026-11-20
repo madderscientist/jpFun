@@ -129,7 +129,7 @@ AST 解析、语法着色和编辑器提示都使用这份类型信息。`conten
 
 ## 编辑器语法视图
 
-`analyzeScoreSyntax(source)` 通过 `parseSyntax()` 产出编辑器所需的结构：
+`analyzeScoreSyntax(source)` 通过 [syntax.ts](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/parser/syntax.ts) 的 `collectSyntax` 产出编辑器所需的结构：
 
 ```ts
 interface SyntaxAnalysis {
@@ -138,24 +138,25 @@ interface SyntaxAnalysis {
 }
 ```
 
-它与 `compileScore(source)` 共用 `parseGrammar`：前者在扫描时收集调用和着色区间，后者通过 `makeNodes` 构造 AST，再继续 Lowering 和布局。`syntaxOnly` 模式会记录输入中的语法诊断并继续扫描，例如 `@div(1, n=` 可以提供已有的函数名和参数边界。
+它与 `compileScore(source)` 共用 `parseGrammar`：前者作为观察者在扫描时收集调用和着色区间，不构造 AST；后者通过 `makeNodes` 构造 AST，再继续 Lowering 和布局。`ParserContext` 只负责识别与构造 AST，不持有语法视图。观察者在每个节点识别后、校验前收到该节点；返回 `true` 表示接管该节点，其语法错误只记录诊断并继续扫描，例如 `@div(1, n=` 可以提供已有的函数名和参数边界。不传观察者或返回 `false` 时照常抛出。
 
 ### token 与调用区间
 
-`recordSyntax` 将识别出的结构映射为编辑器 token，内容参数和大括号通过子上下文递归收集：
+观察者将识别出的结构映射为编辑器 token，内容参数和大括号通过子上下文递归收集：
 
 | 来源 | 产出 |
 | --- | --- |
-| `preprocessSource` 的 `commentSpans` | `comment` |
 | `readCall` 的 `CallInfo` | `function`、`punctuation`、`property` 和按类型分类的参数值 |
 | `readLabel` | `label` |
 | 大括号节点 | `punctuation` |
 | 语法糖节点与 typed 调用 | `operator`，或节点声明的 `syntaxKind` |
 
-参数值使用声明类型着色，动态参数通过 `Number()`、`parseLength()` 等判断字面量类型。语法糖可设置 `GrammarNodeBase.syntaxKind`，例如普通音符使用 `atom`，关系标记使用默认的 `operator`。
+参数值使用声明类型着色，动态参数通过 `Number()`、`parseLength()` 等判断字面量类型。语法糖可设置 `GrammarNodeBase.syntaxKind`，例如普通音符使用 `atom`，关系标记使用默认的 `operator`；给出多段 token 时须按源码顺序、互不重叠，且落在 `deSugarAtom` 本次消费的 `[start, next)` 内。
 
-`CallInfo` 保存调用名、括号和各参数的 `span`、`nameSpan`、`equalsSpan`、`commaSpan`、`valueSpan`。正在输入的调用允许 `closeParenSpan` 缺失。根上下文汇总各层结果，按起点排序，供高亮、补全和参数提示使用；具体接入见[编辑器](../editor/)。
+`CallInfo` 保存调用名、括号和各参数的 `span`、`nameSpan`、`equalsSpan`、`commaSpan`、`valueSpan`。正在输入的调用允许 `closeParenSpan` 缺失。
+
+节点按源码顺序发出、子区间就地递归，所有层级写入同一份结果，因此 tokens 天然按起点升序且互不重叠，calls 按起点严格递增，不需要排序。注释在预处理阶段已被掩码，`ParserContext` 看不到；`collectSyntax` 最后把 `preprocessSource` 的 `commentSpans` 线性归并为 `comment` token，跨越注释的 token（如未加引号的歌词行）在注释处切开。结果供高亮、补全和参数提示使用；具体接入见[编辑器](../editor/)。
 
 ### 解析结果的生命周期
 
-每次 AST 解析和语法分析各自创建上下文与中间节点。`recordSyntax` 引用识别阶段的 span，语法糖构建 AST 时则会调整节点范围；分别调用 `compileScore` 和 `analyzeScoreSyntax`，即可让两类结果各自持有对应的源码区间。
+每次 AST 解析和语法分析各自创建上下文与中间节点。`collectSyntax` 直接引用识别阶段的 span，语法糖构建 AST 时则会调整节点范围；分别调用 `compileScore` 和 `analyzeScoreSyntax`，即可让两类结果各自持有对应的源码区间。

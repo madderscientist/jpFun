@@ -11,6 +11,7 @@ import type { LoweringResult } from "./lowering/types.js";
 import type { Diagnostic } from "./diagnostic.js";
 import { ParserContext } from "./parser/parserContext.js";
 import { preprocessSource } from "./parser/preprocess.js";
+import { collectSyntax } from "./parser/syntax.js";
 import type { TextMeasurer } from "./render/types.js";
 
 export interface CompileScoreOptions extends DocumentLayoutOptions {
@@ -80,10 +81,10 @@ export function analyzeScoreSyntax(
     functions: ASTFunctionClass[] = defaultFunctions,
 ) {
     const { maskedSource, commentSpans } = preprocessSource(source);
-    const parser = new ParserContext({ source: maskedSource, commentSpans });
+    const parser = new ParserContext({ source: maskedSource });
     parser.registerFunctions(functions);
     return {
-        syntax: parser.parseSyntax(),
+        syntax: collectSyntax(parser, commentSpans),
         diagnostics: parser.diagnostics,
     };
 }
