@@ -770,30 +770,20 @@ function layoutSubdomainBlock(
 }
 
 /**
- * 关系附件按同时包含全部端点的复合体分组，由内到外逐层登记
+ * 关系附件按首端点所在的各层复合体建立候选索引，由内到外逐层登记
  *
- * 端点都在正文的附件不进分组；子域从这里认领端点全部落在自己成员上的关系，不论它写在哪里
+ * 端点都在正文的附件不进索引；子域从这里取候选，再认领端点全部落在自己成员上的关系，不论它写在哪里
  */
 function groupRelations(attachments: readonly LayoutAttachment[]) {
     const groups = new Map<TemporalNodeBase, LayoutAttachment[]>();
     for (const attachment of attachments) {
-        const [first, ...rest] = attachment.endPoints ?? [];
-        for (let owner = first?.foldedInto; owner; owner = owner.foldedInto) {
-            const candidate = owner;
-            if (!rest.every(point => encloses(candidate, point))) continue;
+        for (let owner = attachment.endPoints?.[0]?.foldedInto; owner; owner = owner.foldedInto) {
             const group = groups.get(owner);
             if (group) group.push(attachment);
             else groups.set(owner, [attachment]);
         }
     }
     return groups;
-}
-
-function encloses(owner: TemporalNodeBase, node: TemporalNodeBase) {
-    for (let host = node.foldedInto; host; host = host.foldedInto) {
-        if (host === owner) return true;
-    }
-    return false;
 }
 
 /** 子域是刚性块：按参照成员的位移平移块内测得的几何 */
@@ -941,10 +931,9 @@ function measureAttachmentPass(
                     if (host.box.x < left) left = host.box.x;
                     if (host.box.x + host.box.w > right) right = host.box.x + host.box.w;
                 }
-                const decoration = decorationExtents.get(host);
-                const top = decoration?.top ?? 0;
+                const { top, height } = hostSpan(host);
                 const hostTop = host.box.y + top - baseContext.getVisualAxis(line, host.track);
-                include(host.track, hostTop, hostTop + (host.box.h - top + (decoration?.bottom ?? 0)));
+                include(host.track, hostTop, hostTop + height);
             }
         }
 
@@ -1025,11 +1014,15 @@ function measureAttachmentPass(
     return { items, needsRelayout };
 }
 
-/** 固有占用只需轴局部边界，不必创建全局矩形 */
-function includeHostExtent(extents: Map<Track, Extent>, host: LayoutHost) {
+/** 主体完整占用相对盒顶的上沿与高度；调用方各自换算到轴局部或行坐标，不必创建全局矩形 */
+function hostSpan(host: LayoutHost) {
     const decoration = decorationExtents.get(host);
     const top = decoration?.top ?? 0;
-    const height = host.box.h - top + (decoration?.bottom ?? 0);
+    return { top, height: host.box.h - top + (decoration?.bottom ?? 0) };
+}
+
+function includeHostExtent(extents: Map<Track, Extent>, host: LayoutHost) {
+    const { top, height } = hostSpan(host);
     const axisTop = top - host.box.visualAxis;
     includeTrackExtent(extents, host.track, axisTop, axisTop + height);
 }
