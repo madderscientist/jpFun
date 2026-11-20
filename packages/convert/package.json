@@ -36,6 +36,15 @@
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   },
+  "keywords": [
+    "jpfun",
+    "jianpu",
+    "numbered-musical-notation",
+    "music-notation",
+    "midi",
+    "musicxml",
+    "converter"
+  ],
   "author": "madderscientist",
   "license": "Apache-2.0"
 }
