@@ -183,7 +183,7 @@ export class TemporalNodeBase implements TimeLineEvent {
     emitPlayback?(emitter: PlaybackEmitter): void;
     /** 给自己所在的时间列贴播放标记，供控制流游标查询 */
     playbackMarks?(): readonly string[];
-    /** 向播放系统告知自己这个记谱位置上的速度与力度 */
+    /** 向播放系统告知自己这个记谱位置上的力度、音色等状态 */
     playbackState?: PlaybackState;
 
     /**

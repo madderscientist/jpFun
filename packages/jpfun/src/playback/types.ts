@@ -57,7 +57,6 @@ export interface PlaybackFlow {
  * 不要用任意键索引，否则具体 MIDI 状态会失去类型约束
  */
 export interface PlaybackState {
-    readonly bpm?: number;
     readonly velocity?: number;
     readonly program?: number;
     /** 只改变发声的半音偏移，不改变记谱音高及其源码改写 */

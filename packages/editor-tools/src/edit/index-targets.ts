@@ -271,7 +271,7 @@ function computeMeterStateAtOffset(compiled: CompileScoreResult, offset: number,
                 measureUsed.set(0, 1);
             }
         }
-        if (column.some(n => n.mergeKey === ANCHOR_KEY && n.ast.sourceSpan.start < offset)) {
+        if (column.mergeKey === ANCHOR_KEY && column.some(n => n.ast.sourceSpan.start < offset)) {
             measureUsed.set(0, 1);
             continue;
         }

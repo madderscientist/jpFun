@@ -111,17 +111,16 @@ function createAdjacentBeams(
     };
 
     for (const column of result.columns) {
-        const line = column[0].layoutLine;
+        const line = column.layoutLine;
+        const isAnchor = column.mergeKey === ANCHOR_KEY;
         let meter: ReturnType<typeof meterChangeAt>;
-        let hasAnchor = false;
         for (const node of column) {
             meter = meterChangeAt(node) ?? meter;
-            if (node.mergeKey === ANCHOR_KEY) hasAnchor = true;
         }
-        if (line !== currentLine || meter || hasAnchor) {
+        if (line !== currentLine || meter || isAnchor) {
             currentLine = line;
             flushAll();
-            phaseStart.copyFrom(column[0].t);
+            phaseStart.copyFrom(column.t);
         }
         if (meter) {
             const { numerator, denominator } = meter;
@@ -132,10 +131,9 @@ function createAdjacentBeams(
             }
             candidateDuration = beatDuration.compare(1) < 0 ? beatDuration : 1;
         }
+        if (isAnchor) continue;
 
         for (const node of column) {
-            if (node.mergeKey === ANCHOR_KEY) continue;
-
             const owner = isVisualTemporalNode(node) ? getDivOwner(node) : undefined;
             const isCandidate = isVisualTemporalNode(node)
                 && owner !== undefined

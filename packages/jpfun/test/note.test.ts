@@ -382,8 +382,9 @@ test("tempo 与 key 自己上谱，set 纯词法，不可见事件不分配布�
         ast: ASTFunctionNode & { color: string };
     };
 
+    const noteColumn = loweredState.columns.find(column => column.includes(stateNote))!;
     assert(stateResult.objects.length === 3, "tempo and key draw themselves; set stays purely lexical");
-    assert(stateNote.playbackState?.bpm === 90, "tempo must be frozen into the notes at its score position");
+    assert(noteColumn.bpm === 90, "tempo must be frozen into the column at its score position");
     assert(stateNote.resolvedMidi === 62, "key D4 must resolve jianpu 1 to MIDI 62");
     assert(stateNote.ast.color === "#f00", "set must solidify the note color during parsing");
     assert(invisibleStateEvents.every(event => event.box === undefined), "invisible state events must not allocate LayoutBox");

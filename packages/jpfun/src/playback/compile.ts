@@ -58,7 +58,7 @@ function linearizeColumns(lowering: LoweringResult, diagnostics: Diagnostic[], m
             const finish = at.t.clone().add(at.T);
             let end = index;
             // 用顺序向后找而不是二分因为基本就在后一个(@rest除外)
-            while (end + 1 < columns.length && columns[end + 1][0].t.compare(finish) < 0) end++;
+            while (end + 1 < columns.length && columns[end + 1].t.compare(finish) < 0) end++;
             return end;
         } return void 0;
     };
@@ -284,14 +284,12 @@ export function compilePlayback(
             return span;
         }
 
-        // 每次访问都恢复记谱位置固化的基础状态，回跳不继承上一遍结束时的状态
+        // 每次访问都恢复记谱位置固化的音轨音色，回跳不继承上一遍结束时的状态
         const program = node.playbackState?.program;
         if (program !== undefined && activePrograms.get(track) !== program) {
             activePrograms.set(track, program);
             events.push({ kind: "program-change", at: start.clone(), track, program });
         }
-        const bpm = node.playbackState?.bpm;
-        if (bpm !== undefined) scheduleControl(start, lineage, state => { state.bpm = bpm; });
 
         node.emitPlayback?.({
             start,
@@ -363,7 +361,7 @@ export function compilePlayback(
 
     const order = linearizeColumns(lowering, diagnostics, maxFlowSteps);
 
-    const firstScore = lowering.columns[order[0]]?.[0]?.t.clone() ?? new Fraction();
+    const firstScore = lowering.columns[order[0]]?.t.clone() ?? new Fraction();
     const scoreMap: PlaybackScorePoint[] = [{
         performance: new Fraction(),    // 演奏时间0
         score: firstScore               // 记谱时间0
@@ -373,18 +371,21 @@ export function compilePlayback(
     const performanceEnd = new Fraction();
     for (let step = 0; step < order.length; step++) {
         const index = order[step];
+        const column = lowering.columns[index];
         // 同列各顶层访问共享演奏坐标，但分别建立自己的效果作用域
-        for (const node of lowering.columns[index]) {
+        for (const node of column) {
             if (!node.playbackState && !node.emitPlayback) continue;
-            play(node, [], [], node.t.clone().add(shift), node.T.clone());
+            play(node, [], [], column.t.clone().add(shift), node.T.clone());
         }
-        const boundary = lowering.columns[index + 1]?.[0]?.t ?? lowering.duration;  // 当前列的控制终点
+        const boundary = lowering.columns[index + 1]?.t ?? lowering.duration;  // 当前列的控制终点
         performanceEnd.copyFrom(boundary).add(shift);
         const next = order[step + 1];
         if (next === undefined || next === index + 1) continue;
-        // 离开记谱顺序时 performance 不跳，只改变接下来所对应的 score 坐标
-        const resume = lowering.columns[next][0]?.t.clone() ?? new Fraction();
+        // 离开记谱顺序时 performance 不跳，只改变接下来对应的 score 坐标并恢复目标列速度
+        const nextColumn = lowering.columns[next];
+        const resume = nextColumn.t.clone();
         shift.add(boundary).sub(resume);
+        scheduleControl(performanceEnd, [{ node: nextColumn[0] }], state => { state.bpm = nextColumn.bpm; });
         const point = { performance: performanceEnd.clone(), score: resume };
         const previous = scoreMap[scoreMap.length - 1];
         // 同一个演奏时刻指向后面最近的谱面时刻
@@ -455,7 +456,7 @@ export function compilePlayback(
     }
 
     const system: PlaybackSystemState = {
-        bpm: DEFAULT_BPM,
+        bpm: lowering.columns[order[0]]?.bpm ?? DEFAULT_BPM,
         bpmScale: new Fraction(1),
     };
     const activeCounts = new Map<object, number>();

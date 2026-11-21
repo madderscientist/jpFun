@@ -67,7 +67,7 @@ class BrFunction extends ASTFunctionNode {
         let latestNode: TemporalNodeBase | null = null;
 
         for (const column of result.columns) {
-            if (latestNode && latestEnd.compare(column[0].t) > 0 && column.some(node => (node.addon?.breakBefore ?? 0) > 0)) {
+            if (latestNode && latestEnd.compare(column.t) > 0 && column.some(node => (node.addon?.breakBefore ?? 0) > 0)) {
                 throw Diagnostic.error.BreakInsideEvent(latestNode.ast.sourceSpan);
             }
 

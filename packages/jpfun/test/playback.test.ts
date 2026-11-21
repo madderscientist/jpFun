@@ -393,6 +393,37 @@ test("速度由记谱位置决定，复合节点 origin 支持关系连接，展
     expectPlaybackError(() => compilePlayback(lower(`|: 1 2 :|`), { maxFlowSteps: 1 }), "E_PLAYBACK_FLOW_LIMIT");
 });
 
+test("推迟起奏的嵌套成员不把中途变更的速度切回旧记谱位置的值", () => {
+    const temposOf = (source: string) => compilePlayback(lower(source)).events
+        .filter(event => event.kind === "tempo")
+        .map(event => `${event.at}:${event.bpm}`)
+        .join(" ");
+
+    // 后倚音与前倚音宿主都晚于复合节点所在的记谱列起奏，不应重放列起点的旧 BPM
+    deepStrictEqual(temposOf(`@stack({1<2}, {1/ @tempo(60) 1/})`), "0:120 1/2:60");
+    deepStrictEqual(temposOf(`@stack({1<2}, {1/ @tempo(60) 1/}) 1`), "0:120 1/2:60");
+    deepStrictEqual(temposOf(`@stack({2>1}, {1//// @tempo(60) 1////})`), "0:120 1/16:60");
+
+    // 写在后倚音内部的 @tempo 应在该倚音自身的演奏起点生效，而不是提前影响同列其他声部
+    deepStrictEqual(temposOf(`@stack({1<{@tempo(60) 2}}, {3/ 4/})`), "0:120 7/8:60");
+
+    // 控制流跳到复合节点、增时线、整小节休止或仅含零时值标记的列时，均按目标列入口速度恢复
+    deepStrictEqual(temposOf(`@tempo(180) 1 |: 2>3 @tempo(60) 4 :|`), "0:180 2:60 3:180 4:60");
+    deepStrictEqual(temposOf(`@tempo(180) |: 1 ^ {2<{@tempo(60) 3}} 4 :|`), "0:180 7/8:60 2:180 23/8:60");
+    deepStrictEqual(temposOf(`|: @tempo(60) 1 @tempo(90) 2 :|`), "0:60 1:90 2:60 3:90");
+    deepStrictEqual(temposOf(`@tempo(180) 1 $segno - @tempo(60) 2 $ds`), "0:180 2:60 3:180 4:60");
+    const midSustainJump = compilePlayback(lower(`@tempo(180) @stack({1.}, {0 $segno}) 3 @tempo(60) 2 $ds`));
+    deepStrictEqual(
+        midSustainJump.events.filter(event => event.kind === "tempo").map(event => `${event.at}:${event.bpm}`).join(" "),
+        "0:180 5/2:60 7/2:180 5:60",
+    );
+    assert(nearly(midSustainJump.durationSeconds, 10 / 3), "跳回无音符的标记列时，剩余半拍仍须按该列入口 180 BPM 积分");
+    deepStrictEqual(
+        temposOf(`@tempo(180) @meter(4,4) |: @rest(2) | @tempo(60) 1 2 3 4 :|`),
+        "0:180 8:60 12:180 20:60",
+    );
+});
+
 test("演奏计划按演奏时间排序", () => {
     // 折叠成员倒序播放、倚音在宿主区间内后铺，生成顺序都不等于发声顺序
     const notes = playedNotes(compilePlayback(lower(`@stack({2>1 3}, {1 1})`)));

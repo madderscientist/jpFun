@@ -1,7 +1,7 @@
 import { ErrorDiagnostic } from "../../diagnostic.js";
 import { Fraction } from "../../fraction.js";
 import type { HorizontalLineView, LayoutBox, LayoutPrepareContext, TimeLineEvent } from "../../layout/types.js";
-import type { LoweringContext } from "../../lowering/loweringContext.js";
+import { TimeColumn, type LoweringContext } from "../../lowering/loweringContext.js";
 import type { LoweringResult } from "../../lowering/types.js";
 import type { Track } from "../../lowering/track.js";
 import type { PlaybackEmitter } from "../../playback/types.js";
@@ -81,7 +81,7 @@ class RestFunction extends ASTFunctionNode {
 
     private static loweringFinalize(result: LoweringResult) {
         // 没有全局休止列时，跳过索引扫描和边界补入
-        if (!result.columns.some(column => column.some(node => node.mergeKey === REST_KEY))) return;
+        if (!result.columns.some(column => column.mergeKey === REST_KEY)) return;
         let order = 0;
         const onsets = new Map<TemporalNodeBase, TemporalNodeBase>();
         // 扫描完整来源索引，纳入未直接出现在时间列中的折叠成员
@@ -99,7 +99,7 @@ class RestFunction extends ASTFunctionNode {
                 if (!onset || node.order < onset.order) onsets.set(host, node);
             }
         }
-        const columns: TemporalNodeBase[][] = [];
+        const columns: TimeColumn[] = [];
         const previous = new Map<Track, TemporalNodeBase>();
         // 保留原时间列，并在休止列后追加其内部小节边界
         for (const column of result.columns) {
@@ -120,7 +120,7 @@ class RestFunction extends ASTFunctionNode {
                 if (rest && (!longest || rest.T.compare(longest.T) > 0)) longest = rest;
             }
             if (!longest) continue;
-            const time = longest.t.clone();
+            const time = column.t.clone();
             // 按小节时长补入 n−1 个不可见边界；时间已固化，不再参与声部归并
             for (let index = 1; index < longest.ast.count; index++) {
                 time.add(longest.measureDuration);
@@ -128,11 +128,11 @@ class RestFunction extends ASTFunctionNode {
                 boundary.ast = new ASTNodeBase(longest.ast.sourceSpan, longest.ast);
                 boundary.t.copyFrom(time);
                 boundary.track = longest.track;
-                boundary.layoutLine = longest.layoutLine;
+                boundary.layoutLine = column.layoutLine;
                 boundary.order = order++;
                 boundary.mergeKey = ANCHOR_KEY;
                 result.astToTemporal.set(boundary.ast, [boundary]);
-                columns.push([boundary]);
+                columns.push(new TimeColumn(boundary, column.bpm));
             }
         }
         result.columns = columns;
@@ -176,7 +176,6 @@ class RestTemporal extends TemporalNodeBase {
             const rest = restsByHost.get(host);
             if (!rest || this.order < rest.order) restsByHost.set(host, this);
         }
-        this.playbackState = { bpm: state.bpm };
         return this.T;
     }
 

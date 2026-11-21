@@ -28,16 +28,15 @@ export function registerBarNumbering(ctx: LoweringContext, pattern: string, font
         let lastLine = -1;
 
         for (const column of result.columns) {
-            const time = column[0].t;
-            if (column.some(node => node.mergeKey === ANCHOR_KEY)) {
+            if (column.mergeKey === ANCHOR_KEY) {
                 // 只有当前小节已走过正时值才闭合进入下一小节
-                if (time.compare(measureStart) > 0) {
+                if (column.t.compare(measureStart) > 0) {
                     measureNumber++;
-                    measureStart.copyFrom(time);
+                    measureStart.copyFrom(column.t);
                     measureRecorded = false;
                 }
             } else if (column.some(node => !node.T.isZero() && isVisualTemporalNode(node))) {
-                const line = column[0].layoutLine;
+                const line = column.layoutLine;
                 if (line !== lastLine) {
                     // 首行（lastLine < 0）与单行谱不标号；跨行未闭合的小节不重复标号
                     if (lastLine >= 0 && !measureRecorded) items.push({ line, number: measureNumber });

@@ -77,7 +77,7 @@ interface TemporalAddon {
 
 | 字段 | 含义 |
 | --- | --- |
-| `columns` | 按时间和对齐规则组织的事件列 |
+| `columns` | 按时间和对齐规则组织的 `TimeColumn` 序列，每列承载自身的 `t`、`layoutLine` 与入口基础速度 `bpm` |
 | `attachments` | 按能力接口参与布局或播放的附属对象 |
 | `astToTemporal` | AST 到本轮事件的一对多索引 |
 | `duration` | 反复展开前的谱面音乐总时长 |
@@ -127,7 +127,7 @@ type TimeFlowModel =
 ### 3. 固化行号和时间状态
 递归完成后，`solidifyColumns` 先处理 `addon.breakBefore` 请求并写入最终 `layoutLine`：同列取最大偏移，同轨连续列累加。随后按列调用 `onTimeState(state)`。
 
-这一步需要等到锚点归并完成，因为归并可能调整事件时间。调性、速度等依赖时间顺序的值，在 `onTimeState` 中从共享状态读取，并保存到 Temporal；AST 不参与这次状态更新。
+这一步需要等到锚点归并完成，因为归并可能调整事件时间。`solidifyColumns` 在进入每列前将全局基础速度原地写入 `TimeColumn.bpm`，调性、力度、音色等节点与音轨状态则在 `onTimeState` 中从共享状态读取并保存到 Temporal；AST 不参与这次状态更新。
 
 `TimeState` 为速度、力度、调性和音色提供了明确的类型和初值。可选字段 `meter?: Fraction` 表示显式拍号的小节时长（QN），无默认值。系统字段 `accidentals: AccidentalMemory` 是按轨道的小节内变音记忆：由 `solidifyColumns` 创建，列内的读写与清空先登记，每列结束时按列内时刻先后结算，同一时刻按处理顺序执行，写入暂存到时刻推进时才提交；bar 清空本轨及子孙轨道，key 全部清空，倚音的私有根轨不在宿主轨的分组里，记忆按声部归属与宿主共用；grace 用 `at` 给成员标列内时刻，前倚音早于宿主和同列的音、后倚音晚于它们，note 按 `carry` 读写，开启 `force` 的音按强制显示的记号写入。函数只通过这个字段通信，不互相导入。其他自定义键由具体函数约定和处理。
 

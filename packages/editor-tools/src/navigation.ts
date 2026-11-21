@@ -124,7 +124,7 @@ export function createPreviewNavigationMap(compiled: CompileScoreResult): Previe
     const columns = compiled.lowering.columns;
     for (let first = 0; first < columns.length;) {
         let last = first + 1;
-        while (last < columns.length && columns[last][0].t.equals(columns[first][0].t)) last++;
+        while (last < columns.length && columns[last].t.equals(columns[first].t)) last++;
         let left = Infinity;
         let right = -Infinity;
         let layoutLine = -1;
@@ -139,7 +139,7 @@ export function createPreviewNavigationMap(compiled: CompileScoreResult): Previe
         if (left < Infinity) {
             const top = lineTops[layoutLine];
             playbackRegions.push({
-                scoreTime: columns[first][0].t.toNumber(),
+                scoreTime: columns[first].t.toNumber(),
                 region: { x: left, y: top, w: right - left, h: lineBottoms[layoutLine] - top },
             });
         }

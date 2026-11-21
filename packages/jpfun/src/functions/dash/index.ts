@@ -1,6 +1,6 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
-import { DEFAULT_KEY, TemporalNodeBase, type TimeState } from "../temporal.js";
+import { DEFAULT_KEY, TemporalNodeBase } from "../temporal.js";
 import type { LayoutBox } from "../../layout/types.js";
 import type { Painter } from "../../render/types.js";
 import { WarningDiagnostic } from "../../diagnostic.js";
@@ -62,11 +62,6 @@ class DashTemporalNode extends TemporalNodeBase {
         this.T.set(1);
         this.mergeKey = DEFAULT_KEY;
         this.initLayoutBox();
-    }
-
-    /** 固化记谱位置的速度，控制流直接跳到增时线时也能恢复正确状态 */
-    override onTimeState(state: TimeState) {
-        this.playbackState = { bpm: state.bpm };
     }
 
     override prepareLayout() {

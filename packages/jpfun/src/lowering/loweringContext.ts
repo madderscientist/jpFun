@@ -136,6 +136,7 @@ export class LoweringContext {
         const timeOffset = new Fraction();
         for (const column of columns) {
             if (!timeOffset.isZero()) column.shiftTime(timeOffset);
+            column.bpm = state.bpm;
             let insertion: Fraction | undefined;
             for (const node of column) {
                 state.velocity = velocityOf(node.track);
@@ -455,16 +456,21 @@ export class LoweringContext {
     }
 }
 
-class TimeColumn extends Array<TemporalNodeBase> {
+/** 全局时间列：同一时刻且 mergeKey 相等的事件归并成一列，承载列级时间、行号与入口速度 */
+export class TimeColumn extends Array<TemporalNodeBase> {
     // map/filter/slice 默认会用本类重建，而构造器会把长度当事件用；统一退回普通数组
     static get [Symbol.species]() { return Array; }
 
     readonly mergeKey: number;
-    constructor(n: TemporalNodeBase) {
+    bpm: number;
+
+    constructor(n: TemporalNodeBase, bpm = DEFAULT_BPM) {
         super(1);
         this.mergeKey = n.mergeKey;
+        this.bpm = bpm;
         this[0] = n;
     }
+
     get t() {
         return this[0].t;
     }
@@ -476,6 +482,9 @@ class TimeColumn extends Array<TemporalNodeBase> {
         for (const node of this) node.t.add(offset);
     }
 
+    get layoutLine() {
+        return this[0].layoutLine;
+    }
     /** 将当前列所有事件的行号固化为 lowering 后的实际行号 */
     set layoutLine(value: number) {
         for (const node of this) node.layoutLine = value;

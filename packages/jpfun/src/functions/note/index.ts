@@ -438,7 +438,7 @@ class NoteTemporalNode extends TemporalNodeBase {
     /** 固化记谱位置的音高、力度和音色，并保留基于该调性的相对移调能力 */
     override onTimeState(state: TimeState) {
         const keySignature = this.keySignature = state.keySignature;
-        this.playbackState = { bpm: state.bpm, velocity: state.velocity, program: state.program };
+        this.playbackState = { velocity: state.velocity, program: state.program };
         this.resolvedMidi = resolveNoteMidi(this.name, this.acc, this.octave, keySignature);
         // 数字音名本身就是简谱显示形式，直接保留原始数字和相对八度
         if (this.name >= "0" && this.name <= "9") {

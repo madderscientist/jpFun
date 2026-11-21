@@ -220,8 +220,8 @@ button:focus-visible, [tabindex]:focus-visible {
 .pane-tab:hover { color: var(--ink); background: var(--hover); }
 .pane-tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); background: var(--surface); }
 .file-dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
-.source-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tab-icon { color: var(--accent); font-size: 9px; }
+.source-name, .tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-icon { flex: 0 0 auto; color: var(--accent); font-size: 9px; }
 .panel-collapse-button {
     display: none;
     width: 26px;

@@ -444,7 +444,7 @@ function splitLayoutLines(result: LoweringResult) {
         const visibleColumn: VisualTemporalNode[] = []; // 从列中提取可见元素
 
         // 空行
-        while (lines.length < column[0].layoutLine) {
+        while (lines.length < column.layoutLine) {
             lines.push(currentLine);
             currentLine = createLine();
         }

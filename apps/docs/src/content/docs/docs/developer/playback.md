@@ -156,7 +156,7 @@ interface PlaybackEmitter {
 
 ## 系统状态与控制事件
 
-速度通过系统状态生成。`onTimeState` 先将记谱位置上的基础 BPM 保存到 `Temporal.playbackState`；每次实际访问 Temporal 时，编译器将这个快照同步到 `PlaybackSystemState`。tempo 函数本身不直接发布速度事件。
+速度属于整首曲子的时间轴属性，通过系统状态生成。Lowering 在每列入口将基础速度固化到 `TimeColumn.bpm`；`tempo` 函数在 `emitPlayback` 中通过 `emitter.control` 在自身演奏时刻发布速度变更，控制流离开顺序访问跳转到目标列时编译器按 `column.bpm` 恢复基础速度。
 
 控制事件用函数描述状态修改，由系统调度执行：
 
@@ -183,7 +183,7 @@ emitter.scaleFollowingBpm(FERMATA_BPM_SCALE, 1, 2, { followConnections: true });
 
 `extend` 继承的效果从当前访问的新增部分开始。起点保存为所属区间内的相对位置，后续整体缩放时随之变换；再次扩展会重新计算这个比例，保持原起点。它保留原区间身份，因此后续延音与逻辑连接仍作用于同一目标。不属于当前计划、时间不相接或扩展时值非正时抛出 `E_PLAYBACK_EXTEND_RANGE`。
 
-系统对控制时刻与效果边界进行一次排序扫描，按 key 的活动区间数维护比例；同刻处理完成后，仅在 effective BPM 改变时生成 `tempo`。每个 `control` 回调只执行一次，`stateAt` 返回与内部时间线隔离的快照。反复访问到的 Temporal 仍按自身 `playbackState` 恢复基础速度。
+系统对控制时刻与效果边界进行一次排序扫描，按 key 的活动区间数维护比例；同刻处理完成后，仅在 effective BPM 改变时生成 `tempo`。每个 `control` 回调只执行一次，`stateAt` 返回与内部时间线隔离的快照。反复回跳或前跳到目标列时按该列的 `column.bpm` 恢复基础速度。
 
 program 同样先由 `onTimeState` 保存到记谱位置，默认值为 0。它按 Track 流动，不进入全局 `PlaybackSystemState`。编译器按实际访问顺序维护每轨当前 program，只在变化时生成 `program-change`。
 
@@ -307,8 +307,6 @@ ornament 用 `stateAt(note.start).effectiveBpm` 决定极端速度下的密度�
 ### Dash
 
 dash 用 `defer` 捕获自身的 Track 和 start。发布到 dash 时，它向前查找同轨上一组恰好在 start 结束的区间，再通过 `extend` 延长区间并承接当前位置的速度效果。有声与无声目标遵循同一规则，声音展开此时尚未执行。
-
-dash 本身有正时值，因此会在 lowering 时保存所在位置的 BPM。即使控制流直接跳到 dash，秒数积分仍使用该记谱位置的速度。
 
 - `1 - -` 将同一个音段延长到三拍
 - `0 ^ $fermata -` 将无声区间和减速范围一起延长到两拍

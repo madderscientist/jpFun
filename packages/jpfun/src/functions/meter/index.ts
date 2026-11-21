@@ -134,7 +134,7 @@ class MeterFunction extends ASTFunctionNode {
         };
 
         for (const column of result.columns) {
-            const time = column[0].t;
+            const time = column.t;
             for (const node of column) {
                 const change = changesByPosition.get(node);
                 if (!change) continue;
@@ -143,10 +143,10 @@ class MeterFunction extends ASTFunctionNode {
                 measureStart.copyFrom(time);
                 sourceStart = change.end;
             }
-            const anchor = column.find(node => node.mergeKey === ANCHOR_KEY);
-            if (anchor) {
-                closeMeasure(time, anchor.ast.sourceSpan.end);
-                sourceStart = anchor.ast.sourceSpan.end;
+            if (column.mergeKey === ANCHOR_KEY) {
+                const end = column[0].ast.sourceSpan.end;
+                closeMeasure(time, end);
+                sourceStart = end;
                 validationStarted = true;
             }
         }

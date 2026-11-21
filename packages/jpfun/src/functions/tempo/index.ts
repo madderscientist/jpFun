@@ -1,6 +1,7 @@
 import { TemporalNodeBase, type TimeState } from "../temporal.js";
 import { ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgs, LengthValue, ParserContext, SourceSpan } from "../ASTtypes.js";
 import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
+import type { PlaybackEmitter } from "../../playback/types.js";
 import type { Painter, TextStyle } from "../../render/types.js";
 import { prepareQuarterNote, type PreparedQuarterNote } from "./glyph.js";
 
@@ -59,6 +60,7 @@ class TempoTemporalNode extends TemporalNodeBase {
     declare box: LayoutBox;
 
     /** 字号和 bpm 在解析时已经固化，字形、文本、样式随之不再变 */
+    private readonly bpm?: number;
     private readonly glyph: PreparedQuarterNote;
     private readonly text: string;
     private readonly style: TextStyle;
@@ -74,13 +76,17 @@ class TempoTemporalNode extends TemporalNodeBase {
         this.text = `= ${ast.bpm}`;
         this.style = { fontSize: ast.size, fontFamily: ast.font, fill: "#000" };
         // 非法值不入时间状态，也不告知播放系统，效果是保持上一个速度
-        if (Number.isFinite(ast.bpm) && ast.bpm > 0) this.playbackState = { bpm: ast.bpm };
+        if (Number.isFinite(ast.bpm) && ast.bpm > 0) this.bpm = ast.bpm;
         this.initLayoutBox();
     }
 
     override onTimeState(state: TimeState) {
-        const bpm = this.playbackState?.bpm;
-        if (bpm !== undefined) state.bpm = bpm;
+        if (this.bpm !== undefined) state.bpm = this.bpm;
+    }
+
+    override emitPlayback(emitter: PlaybackEmitter) {
+        const bpm = this.bpm;
+        if (bpm !== undefined) emitter.control(emitter.start, state => { state.bpm = bpm; });
     }
 
     override prepareLayout(context: LayoutPrepareContext) {
