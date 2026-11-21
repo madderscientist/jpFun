@@ -8,8 +8,8 @@
  *
  * MIDI 字节解析不属于 core；这里接收的是 midi.js 已解析好的 JSON。
  */
-import { DEFAULT_BPM, SHARP_NOTE_NAMES as ABSOLUTE_NAMES, quoteSourceString } from "jpfun";
-import type { MidiJson, MidiJsonInstrument, MidiJsonNote, MidiJsonTrack } from "./json.js";
+import { DEFAULT_BPM, DEFAULT_PROGRAM, SHARP_NOTE_NAMES as ABSOLUTE_NAMES, quoteSourceString } from "jpfun";
+import type { MidiJson, MidiJsonNote, MidiJsonTrack } from "./json.js";
 import { identifyTriplets, type TripletMark } from "./triplet.js";
 import { attachAbove, renderAbsolutePitch, renderHead, renderRelativePitch, renderSystems, type PitchMode } from "../source.js";
 
@@ -73,6 +73,7 @@ type QuantizedItem = QuantizedChord | QuantizedTriplet;
 
 interface Lane {
     items: QuantizedItem[];
+    programs: Map<number, number>;
 }
 
 interface TrackRegion {
@@ -83,8 +84,7 @@ interface TrackRegion {
 
 interface ConvertedTrack {
     source: MidiJsonTrack;
-    regions: TrackRegion[];
-    programs: ReadonlyMap<number, number>;
+    segments: TrackRegion[];
 }
 
 const DEFAULT_TIME_SIGNATURE = [4, 4] as const;
@@ -113,6 +113,19 @@ function coalesceSorted<T extends { at: number }>(items: readonly T[]) {
     const result = new Map<number, T>();
     for (const item of items) result.set(item.at, item);
     return [...result.values()];
+}
+
+/** 同刻保留最后一次音色，并剔除与当前生效值相同的冗余事件 */
+function compactPrograms(entries: Iterable<readonly [number, number]>) {
+    const result = new Map<number, number>();
+    let active = DEFAULT_PROGRAM;
+    for (const [at, program] of new Map(entries)) {
+        if (program !== active) {
+            active = program;
+            result.set(at, program);
+        }
+    }
+    return result;
 }
 
 function noteName(midi: number, mode: PitchMode) {
@@ -228,7 +241,7 @@ function splitLanes(items: readonly QuantizedItem[]) {
     const lanes: Lane[] = [];
     for (const item of items) {
         let lane = lanes.find(candidate => candidate.items.at(-1)!.end <= item.start);
-        if (!lane) lanes.push(lane = { items: [] });
+        if (!lane) lanes.push(lane = { items: [], programs: new Map() });
         lane.items.push(item);
     }
     // 低音 lane 排在前面，最高 lane 固定承载全谱状态以保持输出稳定
@@ -251,14 +264,27 @@ function splitLanes(items: readonly QuantizedItem[]) {
         .map(item => item.lane);
 }
 
-/** 只把传递重叠的事件放进同一区域；每个区域独立生成局部 @stack，边界不会切断事件 */
-function splitRegions(items: readonly QuantizedItem[]) {
-    const regions: TrackRegion[] = [];
+/**
+ * 切分传递重叠区域、补齐空白段以覆盖整首乐谱，并把音色变化按声部状态精确下发到各 lane：
+ * 新分叉子轨首次继承宿主音色，仅在实际变化或复用子轨失步时写入 @program。
+ */
+function buildTrackSegments(
+    items: readonly QuantizedItem[],
+    scoreEnd: number,
+    programs: ReadonlyMap<number, number>,
+) {
+    const segments: TrackRegion[] = [];
     let group: QuantizedItem[] = [];
+    let cursor = 0;
     let end = 0;
+    const pushGap = (to: number) => {
+        if (cursor < to) segments.push({ start: cursor, end: to, lanes: [{ items: [], programs: new Map() }] });
+    };
     const flush = () => {
         if (group.length === 0) return;
-        regions.push({ start: group[0].start, end, lanes: splitLanes(group) });
+        pushGap(group[0].start);
+        segments.push({ start: group[0].start, end, lanes: splitLanes(group) });
+        cursor = end;
         group = [];
     };
     for (const item of items) {
@@ -267,7 +293,29 @@ function splitRegions(items: readonly QuantizedItem[]) {
         end = Math.max(end, item.end);
     }
     flush();
-    return regions;
+    pushGap(scoreEnd);
+
+    if (programs.size > 0) {
+        const entries = [...programs];
+        const lanePrograms: (number | undefined)[] = [DEFAULT_PROGRAM];
+        let programIndex = 0;
+        let active = DEFAULT_PROGRAM;
+        for (const segment of segments) {
+            if (entries[programIndex]?.[0] === segment.start) active = entries[programIndex++][1];
+            const interiorStart = programIndex;
+            while (programIndex < entries.length && entries[programIndex][0] < segment.end) programIndex++;
+            const exit = programIndex > interiorStart ? entries[programIndex - 1][1] : active;
+            for (const [laneIndex, lane] of segment.lanes.entries()) {
+                if ((lanePrograms[laneIndex] ?? active) !== active) lane.programs.set(segment.start, active);
+                for (let index = interiorStart; index < programIndex; index++) {
+                    lane.programs.set(entries[index][0], entries[index][1]);
+                }
+                lanePrograms[laneIndex] = exit;
+            }
+            active = exit;
+        }
+    }
+    return segments;
 }
 
 /** 把整数时值分解为 jpFun 的 `/` 与 `.` 后缀；剩余部分会另写为 dash/rest */
@@ -395,7 +443,6 @@ function renderLane(
     regionBars: readonly number[],
     lineBreaks: ReadonlySet<number>,
     adjustments: ReadonlyMap<number, readonly string[]> | undefined,
-    programs: ReadonlyMap<number, number>,
     nextTieLabel?: () => string,
 ) {
     // 事件边界与所有控制点共同切分时间线，保证每个片段内语义不变
@@ -411,9 +458,7 @@ function renderLane(
         }
     }
     // 测宽也保留 program 控制点，避免持续音的切分与完整源码不同。
-    for (const at of programs.keys()) {
-        if (at >= rangeStart && at < rangeEnd) points.add(at);
-    }
+    for (const at of lane.programs.keys()) points.add(at);
     const timeline = [...points].sort((left, right) => left - right);
     const timelineIndex = new Map(timeline.map((at, index) => [at, index]));
     const tieChains = new Map<QuantizedChord, string[][]>();
@@ -443,17 +488,6 @@ function renderLane(
     const outputs: string[][] = Array.from({ length: lineSpan }, () => []);
     let outputIndex = 0;
     let itemIndex = 0;
-    let initialProgram: number | undefined;
-    if (nextTieLabel && programs.size) {
-        initialProgram = 0;
-        let programStart = -Infinity;
-        for (const [at, program] of programs) {
-            if (at <= rangeStart && at >= programStart) {
-                initialProgram = program;
-                programStart = at;
-            }
-        }
-    }
     // 沿时间片单向推进当前事件，依次输出控制项、音符或补齐休止
     for (let index = 0; index < timeline.length; index++) {
         const at = timeline[index];
@@ -464,10 +498,8 @@ function renderLane(
 
         const next = timeline[index + 1];
         if (next === undefined) continue;
-        if (nextTieLabel) {
-            const program = at === rangeStart ? initialProgram : programs.get(at);
-            if (program !== undefined) outputs[outputIndex].push(`@program(${program})`);
-        }
+        const program = nextTieLabel ? lane.programs.get(at) : undefined;
+        if (program !== undefined) outputs[outputIndex].push(`@program(${program})`);
         const changes = adjustments?.get(at) ?? [];
         const item = lane.items[itemIndex];
         if (item && item.start <= at && item.end >= next) {
@@ -515,19 +547,10 @@ function renderTrack(
 ) {
     const lineCount = lineBreaks.size + 1;
     const outputs: string[][] = Array.from({ length: lineCount }, () => []);
-    const segments: TrackRegion[] = [];
-    let cursor = 0;
-    // 在重叠区域之间插入空区域，让每条 track 覆盖完整乐谱时长
-    for (const region of track.regions) {
-        if (cursor < region.start) segments.push({ start: cursor, end: region.start, lanes: [{ items: [] }] });
-        segments.push(region);
-        cursor = region.end;
-    }
-    if (cursor < scoreEnd) segments.push({ start: cursor, end: scoreEnd, lanes: [{ items: [] }] });
     // segments 按时间递增且连续，小节线与行号可沿游标单向推进
     let barCursor = 0;
     let lineCursor = 0;
-    for (const region of segments) {
+    for (const region of track.segments) {
         if (region.start > 0 && bars.has(region.start)) {
             outputs[lineCursor].push("|");
             if (lineBreaks.has(region.start)) lineCursor++;
@@ -590,7 +613,7 @@ export function convertMidiJsonToJpFun(
     if (typeof title !== "string") throw new TypeError("title must be a string");
 
     // 第一阶段：校验 note，并从最短时值求出全曲需要的二进制精度
-    const sourceTracks: { source: MidiJsonTrack; notes: SourceNote[]; programs: MidiJsonInstrument[] }[] = [];
+    const sourceTracks: { source: MidiJsonTrack; notes: SourceNote[] }[] = [];
     let rawNoteEnd = 0;
     let globalDivisions = 1;
     // 逐轨校验并复制会被后续阶段标记的 note，跳过尚未建模的打击乐通道
@@ -602,12 +625,10 @@ export function convertMidiJsonToJpFun(
         if (track.channel === 9) continue;
         expectArray(track.notes, `tracks[${trackIndex}].notes`);
         expectArray(track.instruments, `tracks[${trackIndex}].instruments`);
-        // program 事件保留原始 tick，等统一时间尺度确定后再换算
-        const programs = track.instruments.map((item, index) => {
+        for (const [index, item] of track.instruments.entries()) {
             expectSafeInteger(item.ticks, `tracks[${trackIndex}].instruments[${index}].ticks`);
             expectSafeInteger(item.number, `tracks[${trackIndex}].instruments[${index}].number`, 0, 127);
-            return { ...item };
-        });
+        }
         // 每个时值独立决定所需精度，全曲采用其中最高精度
         const notes = track.notes.map((note, index) => {
             expectSafeInteger(note.ticks, `tracks[${trackIndex}].notes[${index}].ticks`);
@@ -618,7 +639,7 @@ export function convertMidiJsonToJpFun(
             globalDivisions = Math.max(globalDivisions, divisions);
             return { ...note, divisions };
         });
-        if (notes.length > 0) sourceTracks.push({ source: track, notes, programs });
+        if (notes.length > 0) sourceTracks.push({ source: track, notes });
     }
 
     // 第二阶段：在原始 tick 域规范化全谱拍号和速度
@@ -651,6 +672,12 @@ export function convertMidiJsonToJpFun(
 
     // 第三阶段：先识别三连音。命中时把内部时间轴乘 3，使三分槽也能用整数表示
     const rhythmScale = 2 ** globalDivisions;
+    const rawPrograms = sourceTracks.map(({ source }) => compactPrograms(
+        source.instruments
+            .filter(item => item.ticks === 0 || item.ticks < rawNoteEnd)
+            .sort((left, right) => left.ticks - right.ticks)
+            .map(item => [item.ticks, item.number]),
+    ));
     // 状态变化和小节边界都是三连音识别不可跨越的 blocker
     const timeFactor = identifyTriplets(
         sourceTracks,
@@ -658,7 +685,7 @@ export function convertMidiJsonToJpFun(
         [
             ...rawMeters.slice(1).map(item => item.ticks),
             ...rawTempos.slice(1).map(item => item.ticks),
-            ...sourceTracks.flatMap(track => track.programs.map(item => item.ticks)),
+            ...rawPrograms.flatMap(programs => [...programs.keys()]),
             ...measureBoundaries(rawMeters, rawNoteEnd, ticksPerQuarter),
         ],
     ) ? 3 : 1;
@@ -679,7 +706,6 @@ export function convertMidiJsonToJpFun(
     }));
 
     // 第四阶段：量化音符；同一原始 tick 共用最高精度，防止和弦成员起点错开
-    const convertedTracks: ConvertedTrack[] = [];
     const startDivisions = new Map<number, number>();
     // 同一 onset 的所有和弦成员共享其中最细的起点网格
     for (const track of sourceTracks) {
@@ -688,9 +714,9 @@ export function convertMidiJsonToJpFun(
         }
     }
     let lastNoteEnd = 0;
-    // 每轨依次量化、合并和弦、折叠三连音并划分局部重叠区域
-    for (const track of sourceTracks) {
-        const notes = track.notes.map(note => {
+    const quantizedTracks = sourceTracks.map(track => ({
+        source: track.source,
+        items: groupTriplets(combineChords(track.notes.map(note => {
             const tripletUnit = note.triplet
                 ? Math.round(rawUnits(note.triplet.spanTicks) / 3)
                 : 0;
@@ -704,15 +730,8 @@ export function convertMidiJsonToJpFun(
             if (end <= start) end = start + step;
             lastNoteEnd = Math.max(lastNoteEnd, end);
             return { ...note, start, end };
-        });
-        convertedTracks.push({
-            source: track.source,
-            regions: splitRegions(groupTriplets(combineChords(notes))),
-            programs: new Map(track.programs
-                .filter(item => item.ticks === 0 || item.ticks < rawNoteEnd)
-                .map(item => [binaryUnitAt(item.ticks), item.number])),
-        });
-    }
+        }))),
+    }));
 
     // 乐谱末尾补齐到当前拍号的完整小节边界
     const activeMeter = pointAt(meters, lastNoteEnd);
@@ -720,6 +739,20 @@ export function convertMidiJsonToJpFun(
     const scoreEnd = lastNoteEnd === 0
         ? 0
         : activeMeter.at + Math.ceil((lastNoteEnd - activeMeter.at) / finalMeasureLength) * finalMeasureLength;
+
+    // 每轨切分局部重叠区并按声部状态生成稀疏的 @program 时间点
+    const convertedTracks: ConvertedTrack[] = quantizedTracks.map((track, trackIndex) => ({
+        source: track.source,
+        segments: buildTrackSegments(
+            track.items,
+            scoreEnd,
+            compactPrograms(
+                [...rawPrograms[trackIndex]]
+                    .map(([ticks, program]) => [binaryUnitAt(ticks), program] as const)
+                    .filter(([at]) => at === 0 || at < lastNoteEnd),
+            ),
+        ),
+    }));
 
     const tempoPoints = coalesceSorted(rawTempos.map(item => ({
         at: binaryUnitAt(item.ticks),
@@ -764,8 +797,13 @@ export function convertMidiJsonToJpFun(
         let tieIndex = 0;
         const nextTieLabel = lineBreaks ? () => `mt${tieIndex++}` : undefined;
         const breaks = lineBreaks ?? new Set<number>();
-        const tracks = convertedTracks.map((track, trackIndex) => renderTrack(track, scoreEnd, bars, orderedBars, breaks, (region, lane, regionBars, lineSpan) =>
-            renderLane(
+        const tracks = convertedTracks.map((track, trackIndex) => renderTrack(
+            track,
+            scoreEnd,
+            bars,
+            orderedBars,
+            breaks,
+            (region, lane, regionBars, lineSpan) => renderLane(
                 lane,
                 region.start,
                 region.end,
@@ -777,9 +815,10 @@ export function convertMidiJsonToJpFun(
                 regionBars,
                 breaks,
                 trackIndex === 0 && lane === region.lanes.at(-1) ? scoreAdjustments : undefined,
-                track.programs,
                 nextTieLabel,
-            ), convertedTracks.length > 1));
+            ),
+            convertedTracks.length > 1,
+        ));
         const body = renderSystems(tracks);
         return lineBreaks ? `${head}\n\n${body}` : body;
     };

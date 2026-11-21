@@ -47,6 +47,8 @@ test("reused overlap lanes restore the current program", () => {
     ]]);
     input.tracks[0].instruments = [{ ticks: 0, number: 40 }, { ticks: 1440, number: 41 }];
     const source = midiJsonToJpFun(input, { barsPerLine: 4 });
+    assert(source.match(/@program\(\d+\)/g)?.join(" ") === "@program(40) @program(41) @program(41)",
+        `program should only emit on real changes and stale reused lanes: ${source}`);
     const programs = new Map<number, number>();
     for (const event of compilePlayback(lower(source)).events) {
         if (event.kind === "program-change") programs.set(event.track, event.program);
@@ -405,10 +407,15 @@ test("绝对零八度和相对低八度和弦不丢失音高", () => {
 
 test("MIDI program 按原轨切换且 channel 10 整轨跳过", () => {
     const input = midi([
-        [note(0, 480, 60), note(480, 480, 62)],
+        [note(0, 480, 60), note(480, 480, 62), note(960, 480, 64), note(1440, 480, 65)],
         [note(0, 480, 36)],
     ], { names: ["Lead", "Drums"] });
-    input.tracks[0].instruments = [{ ticks: 0, number: 40 }, { ticks: 480, number: 41 }];
+    input.tracks[0].instruments = [
+        { ticks: 0, number: 40 },
+        { ticks: 480, number: 41 },
+        { ticks: 960, number: 41 },
+        { ticks: 1440, number: 0 },
+    ];
     input.tracks[1].channel = 9;
     input.tracks[1].instruments = [{ ticks: 0, number: 0 }];
 
@@ -416,13 +423,18 @@ test("MIDI program 按原轨切换且 channel 10 整轨跳过", () => {
     const plan = compilePlayback(lower(source));
     const programs = plan.events.filter(event => event.kind === "program-change");
 
-    assert(source.includes("@program(40)") && source.includes("@program(41)"),
-        `普通轨的 program 应写入源码：${source}`);
+    assert(source.match(/@program\(\d+\)/g)?.join(" ") === "@program(40) @program(41) @program(0)",
+        `普通轨只在音色实际变化时写入 @program：${source}`);
     assert(!source.includes("Drums") && playedNotes(plan).every(item => item.midi !== 36),
         `channel 10 的鼓轨应整轨跳过：${source}`);
     assert(programs.map(event => `${event.at}:${event.track}:${event.program}`).join(" ")
-        === "0:0:40 1:0:41",
+        === "0:0:40 1:0:41 3:0:0",
     `program-change 应保持原始轨道与时刻：${source}`);
+
+    const defaultPiano = midi([[note(0, 480, 60), note(960, 480, 64)]]);
+    defaultPiano.tracks[0].instruments = [{ ticks: 0, number: 0 }, { ticks: 960, number: 0 }];
+    const pianoSource = midiJsonToJpFun(defaultPiano, { barsPerLine: 4 });
+    assert(!pianoSource.includes("@program("), `默认钢琴音色不应重复输出 @program(0)：${pianoSource}`);
 
     const overlap = midi([[note(0, 960, 60), note(480, 960, 67)]]);
     overlap.tracks[0].instruments = [{ ticks: 0, number: 40 }, { ticks: 480, number: 41 }];
