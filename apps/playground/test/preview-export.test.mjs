@@ -46,7 +46,7 @@ test("bitmap export downloads each completed page before encoding the next", asy
     }
     const pages = recordLayoutPages(layout);
     const commands = pages.map(page => structuredClone(page.recording.commands));
-    const operation = downloadBitmapPages(pages, "png", 192);
+    const operation = downloadBitmapPages(pages, "png", 192, "my.score");
     assert.equal(paints, layout.objects.length);
     assert.equal(canvases.length, 1);
     assert.equal(pending.length, 1);
@@ -55,7 +55,7 @@ test("bitmap export downloads each completed page before encoding the next", asy
         assert.equal(pending.length, 1);
         pending.shift()(new Blob(["page"]));
         await Promise.resolve();
-        assert.deepEqual(events.filter(event => event[0] === "download").at(-1), ["download", `score-${index + 1}.png`]);
+        assert.deepEqual(events.filter(event => event[0] === "download").at(-1), ["download", `my.score-${index + 1}.png`]);
         const sequence = events.filter(event => ["encode", "download"].includes(event[0])).map(event => event[0]);
         assert.deepEqual(sequence.slice(0, (index + 1) * 2), Array.from({ length: index + 1 }, () => ["encode", "download"]).flat());
     }
@@ -74,7 +74,7 @@ test("JPEG encoding failure releases the canvas and stops later pages", async co
     const { pending, events, canvases } = environment(context);
     const pages = recordLayoutPages(compileScore(source).layout);
     const commands = pages.map(page => structuredClone(page.recording.commands));
-    const operation = downloadBitmapPages(pages, "jpeg", 96);
+    const operation = downloadBitmapPages(pages, "jpeg", 96, "score");
     assert.ok(events.some(event => event[0] === "fillRect"));
     assert.deepEqual(events.find(event => event[0] === "encode").slice(3), ["image/jpeg", 0.95]);
     pending.shift()(null);
@@ -100,4 +100,14 @@ test("SVG export and print reuse the preview instructions without repainting the
     assert.deepEqual(pages.map(page => recordedPageToSvg(page)), transparent);
     assert.deepEqual(pages.map(page => recordedPageToSvg(page, "#ffffff")), white);
     assert.deepEqual(pages.map(page => recordedPageToSvg(page)), transparent);
+});
+
+test("single-page JPEG export preserves the name without a page suffix", async context => {
+    const { pending, events } = environment(context);
+    const pages = recordLayoutPages(compileScore("1 2 3").layout);
+    assert.equal(pages.length, 1);
+    const operation = downloadBitmapPages(pages, "jpeg", 96, "\u96fe\u96c0.v2");
+    pending.shift()(new Blob(["page"]));
+    await operation;
+    assert.deepEqual(events.filter(event => event[0] === "download"), [["download", "\u96fe\u96c0.v2.jpeg"]]);
 });

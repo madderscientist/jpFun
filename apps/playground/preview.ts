@@ -9,7 +9,7 @@ import {
 } from "jpfun";
 import type { SourceRange } from "./editor.js";
 import type { VisualHighlight } from "./visual-edit.js";
-import { createDropdown, downloadBlob, requiredElement } from "./platform.js";
+import { createDropdown, downloadBlob, fileBaseName, requiredElement } from "./platform.js";
 import { createVirtualPages } from "./preview-pages.js";
 import {
     createPreviewNavigationMap,
@@ -30,7 +30,7 @@ export interface PreviewController {
     focusSourcePosition(position: number): void;
     showPlaybackPosition(scoreTime: number | null): void;
     showVisualHighlights(highlights: readonly VisualHighlight[], reveal?: boolean): void;
-    download(format: ImageExportFormat, ppi: number): Promise<void>;
+    download(format: ImageExportFormat, ppi: number, fileName: string): Promise<void>;
     preparePrint(): void;
     clearPrint(): void;
 }
@@ -55,8 +55,8 @@ function isPreviewBackend(value: string | undefined): value is PreviewBackend {
     return value === "svg" || value === "canvas";
 }
 
-function savePage(blob: Blob, format: ImageExportFormat, page: number, pageCount: number) {
-    downloadBlob(blob, `score${pageCount > 1 ? `-${page + 1}` : ""}.${format}`);
+function savePage(blob: Blob, baseName: string, format: ImageExportFormat, page: number, pageCount: number) {
+    downloadBlob(blob, `${baseName}${pageCount > 1 ? `-${page + 1}` : ""}.${format}`);
 }
 
 function canvasBlob(canvas: HTMLCanvasElement, format: "png" | "jpeg"): Promise<Blob> {
@@ -104,14 +104,14 @@ function drawRecordedPage(
     recording.replay(new CanvasPainter(context));
 }
 
-export async function downloadBitmapPages(pages: readonly RecordedPage[], format: "png" | "jpeg", ppi: number) {
+export async function downloadBitmapPages(pages: readonly RecordedPage[], format: "png" | "jpeg", ppi: number, baseName: string) {
     const scale = ppi / CSS_PIXELS_PER_INCH;
     const canvas = document.createElement("canvas");
     for (const [index, page] of pages.entries()) {
         try {
             drawRecordedPage(canvas, page, scale, format === "jpeg" ? "#ffffff" : undefined);
             const blob = await canvasBlob(canvas, format);
-            savePage(blob, format, index, pages.length);
+            savePage(blob, baseName, format, index, pages.length);
         } finally {
             canvas.width = 1;
             canvas.height = 1;
@@ -472,12 +472,14 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
         printHost.replaceChildren();
     }
 
-    async function download(format: ImageExportFormat, ppi: number) {
+    async function download(format: ImageExportFormat, ppi: number, fileName: string) {
         if (!result) throw new Error("当前没有可导出的谱面");
+        const baseName = fileBaseName(fileName);
         if (format === "svg") {
             for (const [index, page] of recordedPages.entries()) {
                 savePage(
                     new Blob([recordedPageToSvg(page)], { type: "image/svg+xml;charset=utf-8" }),
+                    baseName,
                     format,
                     index,
                     recordedPages.length,
@@ -486,7 +488,7 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
             return;
         }
 
-        await downloadBitmapPages(recordedPages, format, ppi);
+        await downloadBitmapPages(recordedPages, format, ppi, baseName);
     }
 
     const closeZoomMenu = createDropdown(zoomButton, zoomMenu);

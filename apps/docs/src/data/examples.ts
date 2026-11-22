@@ -2,6 +2,7 @@ import { PLAYGROUND_EXAMPLE } from "../../../playground/example";
 import timeFlowsEverOnward from "./Time Flows Ever Onward.jpfun?raw";
 import airontheGstring from "./Air on the G string.jpfun?raw";
 import foreverFriends from "./Forever_Friends.jpfun?raw";
+import hibari from "./雲雀.jpfun?raw";
 
 export const examples = [
   {
@@ -15,6 +16,12 @@ export const examples = [
     title: "Forever Friends",
     description: "动画电影《升空的焰火，从下面看还是从侧面看?》插曲，单声部+英文歌词展示。",
     source: foreverFriends,
+  },
+  {
+    id: "hibari",
+    title: "雲雀",
+    description: "单声部+日文歌词展示。",
+    source: hibari,
   },
   {
     id: "air-on-the-g-string",

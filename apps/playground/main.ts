@@ -532,7 +532,7 @@ for (const button of exportFormatButtons) {
         for (const item of exportFormatButtons) item.disabled = true;
         try {
             if (format === "midi") await playback?.downloadMidi();
-            else await preview.download(format, normalizedExportPpi());
+            else await preview.download(format, normalizedExportPpi(), sourceName.textContent || "score.jpfun");
             closeExportMenu(true);
         } catch (error) {
             statusMessage.dataset.state = "error";
