@@ -2,6 +2,7 @@ import { test } from "node:test";
 
 import { layoutDocument, type DocumentLayoutResult } from "../src/layout/engine.js";
 import { isLayoutAttachment, type PlacedAttachment, type Rect } from "../src/layout/types.js";
+import { isVisualTemporalNode } from "../src/functions/temporal.js";
 import { assert, attachmentCommands, commandsOfKind, expectLoweringError, layoutContext, layoutOf, lower, nearly, recordCommands } from "./helpers.js";
 
 test("dx/dy 在排版之后平移，邻居完全不动", () => {
@@ -123,19 +124,51 @@ test("重排两轮与重复调用 layoutDocument 时平移只施加一次", () =
     assert(nearly(movedAgain.objects[0].box.x, moved.objects[0].box.x), "重复 layoutDocument 不能丢失或重复施加 dx");
     assert(nearly(movedAgain.objects[0].box.y, moved.objects[0].box.y), "重复 layoutDocument 不能丢失或重复施加 dy");
 
-    // 新放置的未平移坐标恰好等于上一轮平移后的 placedX/placedY（含单轴偏移）时，不能吞掉偏移
+    // 新放置的布局坐标恰好等于上一轮平移后的坐标（含单轴偏移）时，不能吞掉偏移
     const collidedY = layoutOf(`@box({@adjust(1, dy=10px) 2}, padding=10px, stroke=0px)`);
     assert(nearly(collidedY.objects[0].box.y - collidedY.objects[1].box.y, 10),
         "重排纵向增量与单轴 dy 相等时仍须施加 dy");
     const graceBase = textCommands(`@page(left=20px) 2>1`);
     const collidedX = textCommands(`@page(left=20px) @adjust(2, dx=20px)>1`);
     assert(nearly(findText(collidedX, "2").x - findText(graceBase, "2").x, 20),
-        "全局放置 x 与子域单轴 placedX 相等时仍须施加 dx");
+        "全局放置 x 与子域内平移后的 x 相等时仍须施加 dx");
 
     const enclosed = layoutOf(`@adjust({1@a 2@b @tie(a,b,height=60px)}, dx=5px)`);
     const start = tieStart(enclosed);
     assert(nearly(start.x, enclosed.objects[0].box.x + enclosed.objects[0].box.anchor),
         "内部关系对象在第二轮也只能读取一次偏移后的端点");
+});
+
+test("外层依赖子域里平移过的关系对象时，平移仍不参与占用", () => {
+    // tie 的端点都在倚音里，由倚音子域认领；外层 box 通过它读取边界
+    for (const source of [
+        `@box({{2@a 3@b}>1 @adjust(@tie(a,b), dy=-20px) 5}, padding=0px, stroke=1px) @br() 6`,
+        `@grace(1, {@box({{2@a 3@b}>4 @adjust(@tie(a,b), dy=-20px) 5}, padding=0px, stroke=1px)}) @br() 6`,
+    ]) {
+        const moved = layoutOf(source);
+        const base = layoutOf(source.replace("dy=-20px", "dy=0px"));
+        assert(moved.objects.every((object, index) => nearly(object.box.y, base.objects[index].box.y)),
+            `平移不能撑高外层占用：${source}`);
+    }
+});
+
+test("引擎统一施加 placementOffset，声明方无需自行平移", () => {
+    const source = `1@a 2@b @tie(a,b)`;
+    const base = layoutOf(source);
+
+    const hostLowered = lower(source);
+    hostLowered.columns.flat().find(isVisualTemporalNode)!.placementOffset = { x: 3, y: -4 };
+    const host = layoutDocument(hostLowered, layoutContext);
+    assert(nearly(host.objects[0].box.x, base.objects[0].box.x + 3) && nearly(host.objects[0].box.y, base.objects[0].box.y - 4),
+        "主体的 placementOffset 必须在排版后叠加到 box");
+    assert(nearly(host.objects[1].box.x, base.objects[1].box.x) && nearly(host.objects[1].box.y, base.objects[1].box.y),
+        "平移不参与排版，邻居不能移动");
+
+    const tieLowered = lower(source);
+    tieLowered.attachments.find(isLayoutAttachment)!.placementOffset = { x: 2, y: -6 };
+    const tie = tieOf(layoutDocument(tieLowered, layoutContext)).regions[0];
+    assert(nearly(tie.x, tieOf(base).regions[0].x + 2) && nearly(tie.y, tieOf(base).regions[0].y - 6),
+        "attachment 的 placementOffset 必须由引擎施加到最终几何");
 });
 
 test("外包复合函数时保留对象身份与既有布局机制", () => {

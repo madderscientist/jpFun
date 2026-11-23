@@ -94,7 +94,7 @@ class HeadBoundaryTemporal extends TemporalNodeBase {
     members: TemporalNodeBase[] = [];
     slots: { ast: HeadSlotNode; start: HeadBoundaryTemporal; end: HeadBoundaryTemporal }[] = [];
     private titleBottom = 0;
-    private aligned = false; // 侧栏横向重排在一轮布局中只执行一次，避免二次 onPlaced 把成员微调后的 box.x 当成未偏移基准
+    private aligned = false; // 侧栏横向重排在一轮布局中只执行一次：后置平移后的 onPlaced 里成员已含各自平移，不能再作为基准
     private sideExtents: Record<SideName, Extent | null> = { left: null, right: null };
 
     constructor(ast: HeadSlotNode) {
@@ -200,7 +200,7 @@ class HeadBoundaryTemporal extends TemporalNodeBase {
             else cells.set(cell, [member]);
         }
         const [left, , right] = this.slots;
-        this.packRows(left.ast, left.start.box.x - (left.start.placementOffset?.x ?? 0), cells);
+        this.packRows(left.ast, left.start.box.x, cells);
         this.packRows(right.ast, right.end.box.x, cells);
     }
 

@@ -55,18 +55,21 @@ export interface DocumentLayoutResult {
 interface LineExtents {
     /** 只包含可见主体的轴局部占用，整个纵向布局中不变 */
     hostExtents: Map<Track, Extent>;
-    /**
-     * attachment 测量区域折算出的占用，必要时触发最终重排
-     *
-     * 故意跨轮累积（查询范围的占用列表则逐轮重建）：第二轮放置发生在第二轮测量之前，
-     * 求轴时读到的必须是第一轮的结果。如果将来加第三轮，要先重新定义这里的语义。
-     */
+    /** 首轮 attachment 测量折算出的占用，只写一次，供重排时求轴 */
     attachmentExtents: Map<Track, Extent>;
 }
 
 interface LayoutLine extends LineExtents {
     /** lowering 的结果只保留看得见的列 */
     columns: VisualTemporalNode[][];
+}
+
+/** 一个附件测量域，按行号稀疏索引：正文是全部谱面行，子域只占自己所在的那一行 */
+interface AttachmentDomain {
+    lines: readonly LineExtents[];
+    views: readonly QueryLine[];
+    /** 子域的私有轨归入外层可见的轨 */
+    lift: (track: Track) => Track;
 }
 
 type BaseAttachmentContext = Omit<AttachmentLayoutContext, "getAttachmentBox" | "getAttachmentOccupancy" | "getRangeExtents" | "getHorizontalExtents" | "getContentBounds">;
@@ -77,12 +80,26 @@ interface AttachmentItem {
 }
 type AttachmentLookup = (attachment: LayoutAttachment, layoutOnly?: boolean) => AttachmentItem | undefined;
 
-/** 子域附件在块内测得的几何；块此后的位移由参照成员当前与测量时的位置差给出 */
-interface SubdomainItem extends AttachmentItem {
-    reference: VisualTemporalNode;
+/** 一个测量域里的后置平移 */
+interface Displacement {
+    /** 域内声明了平移的主体，外层在前 */
+    nodes: readonly VisualTemporalNode[];
+    /** 域内（含内层子域）有主体或附件平移：首轮只测布局位置的占用，平移后另测绘制几何 */
+    layoutOnly: boolean;
+}
+
+/** 块内测得的几何及当时参照成员的位置 */
+interface BlockSnapshot {
+    geometry: AttachmentGeometry;
     position: LayoutPoint;
-    /** 只有后置平移导致布局与绘制不同，才保存另一份快照 */
-    layout?: AttachmentItem & { position: LayoutPoint };
+}
+
+/** 子域附件随块平移，块的位移由参照成员的当前位置与快照之差给出 */
+interface SubdomainItem {
+    reference: VisualTemporalNode;
+    paint: BlockSnapshot;
+    /** 占用测量使用布局位置下的快照；没有后置平移时与 paint 相同 */
+    layout: BlockSnapshot;
 }
 
 /** 一块 attachment 的轴局部占用 */
@@ -190,14 +207,9 @@ export function layoutDocument(
     // 子域在主体准备时就排版完毕；它认领的附件保留块内几何，随块平移
     const order = new Map(layoutAttachments.map((attachment, index) => [attachment, index]));
     const relations = groupRelations(layoutAttachments);
-    let hosts: VisualTemporalNode[] = [];
-    if (layoutAttachments.length) {
-        for (const nodes of result.astToTemporal.values()) {
-            if (!nodes.some(node => node.placementOffset?.x || node.placementOffset?.y)) continue;
-            hosts = [...new Set([...result.astToTemporal.values()].flat().filter(isVisualTemporalNode))];
-            break;
-        }
-    }
+    const displaced = collectDisplaced(result);
+    // 块内（含内层块）有平移的复合体：外层可能依赖它的附件，也要分开测量布局与绘制
+    const displacedBlocks: TemporalNodeBase[] = [];
     const subdomainItems = new Map<LayoutAttachment, SubdomainItem>();
     const subdomainGeometry = (attachment: LayoutAttachment, layoutOnly = false) => {
         const item = subdomainItems.get(attachment);
@@ -222,7 +234,10 @@ export function layoutDocument(
                 if (!subdomainItems.has(relation) && relation.endPoints!.every(within)) own.push(relation);
             }
             own.sort((left, right) => order.get(left)! - order.get(right)!);
-            const block = layoutSubdomainBlock(columns, line, root, own, context, subdomainGeometry, hosts.length ? hosts.filter(within) : hosts, owner);
+            const nodes = displaced.filter(within);
+            const layoutOnly = nodes.length > 0 || own.some(isDisplaced) || displacedBlocks.some(within);
+            if (layoutOnly) displacedBlocks.push(owner);
+            const block = layoutSubdomainBlock(columns, line, root, own, context, subdomainGeometry, { nodes, layoutOnly });
             own.forEach((attachment, index) => subdomainItems.set(attachment, block.items[index]));
             return { width: line.width, height: block.height, positions: block.positions };
         },
@@ -273,7 +288,9 @@ export function layoutDocument(
     // 根据配置得到行距
     const rowGaps = measureRowGaps(lines.length, objects, options.rowGap);
 
-    /** 按当前主体与 attachment 占用求轴、分页并放置所有主体 */
+    const domain: AttachmentDomain = { lines, views, lift };
+    let pages: DocumentLayoutPage[] = [];
+    /** 按当前主体与 attachment 占用求轴、分页并放置所有主体，返回本轮的附件上下文 */
     const placeVertically = () => {
         const heights: number[] = [];
         const headrooms: number[] = [];
@@ -289,7 +306,6 @@ export function layoutDocument(
             headrooms.push(top < Infinity ? top : 0);
             return solved.axes;
         });
-        let pages: DocumentLayoutPage[];
         let lineTops: number[];
         try {
             ({ pages, lineTops } = paginateLayoutLines(heights, page, pageBreaks, headrooms));
@@ -321,34 +337,16 @@ export function layoutDocument(
             node.onPlaced?.();
         }
 
-        const attachmentContext: BaseAttachmentContext = {
-            ...context,
-            width: contentWidth,
-            originX,
-            pages: pages.map(item => item.bounds),
-            lines: views,
-            // 子域的私有轨在正文里归入复合体所在的轨
-            getVisualAxis: (line, track) => visualAxisOf(line, lift(track)),
-            getHostExtent: (line, track) => lines[line]?.hostExtents.get(lift(track)),
-            getRangeColumns: (line, range, track) => rangeColumns(views[line], range, track, lift),
-        };
-
-        return { pages, attachmentContext };
+        return attachmentContext(context, domain, { width: contentWidth, originX, pages: pages.map(item => item.bounds) }, visualAxisOf);
     };
 
-    // 3. 首次纵向放置后测量 attachment；只有有效轨道占用扩张时才重新求解
-    let placement = placeVertically();
-    let measured = measureAttachments(documentAttachments, placement.attachmentContext, lines, lift, subdomainGeometry, hosts);
-
-    if (measured.needsRelayout) {
-        placement = placeVertically();
-        measured = measureAttachmentPass(documentAttachments, placement.attachmentContext, lines, lift, subdomainGeometry, false);
-    }
-    const pages = placement.pages;
+    // 3. 放置并测量正文 attachment，扩张有效轨道占用时重排一次，最后施加后置平移
+    // 正文的作用域是全文：子域认领的附件有平移时，正文依赖它也只能读布局快照
+    const displacement = { nodes: displaced, layoutOnly: displaced.length > 0 || layoutAttachments.some(isDisplaced) };
+    const { items } = placeAndMeasure(domain, placeVertically, documentAttachments, subdomainGeometry, displacement);
     let next = 0;
     const attachments = layoutAttachments.map<PlacedAttachment>(attachment => {
-        const item = subdomainItems.get(attachment);
-        const { geometry } = item ? moveSubdomainItem(item) : measured.items[next++];
+        const { geometry } = subdomainGeometry(attachment) ?? items[next++];
         return {
             kind: attachment.kind,
             regions: geometry.regions,
@@ -705,8 +703,8 @@ function layoutLocalLine(
 /**
  * 把已横排的子域按正文规则纵向排版，坐标以块的左上角为原点
  *
- * 与正文行的流程相同：沿 root 的 Track 树求轴放置，按登记顺序测量附件，
- * 附件扩张占用时重排一次。positions 是放置时写入的块内位置，不含成员 onPlaced 追加的平移
+ * 与正文行共用 placeAndMeasure：沿 root 的 Track 树求轴放置，按登记顺序测量附件，
+ * 附件扩张占用时重排一次，最后施加块内的后置平移。positions 是放置时写入的块内布局位置，不含后置平移
  */
 function layoutSubdomainBlock(
     columns: readonly (readonly VisualTemporalNode[])[],
@@ -714,9 +712,8 @@ function layoutSubdomainBlock(
     root: Track,
     attachments: readonly LayoutAttachment[],
     context: LayoutPrepareContext,
-    measuredElsewhere: AttachmentLookup,
-    hosts: readonly VisualTemporalNode[],
-    owner: TemporalNodeBase,
+    lookup: AttachmentLookup,
+    displacement: Displacement,
 ): { height: number; positions: LayoutPoint[]; items: SubdomainItem[] } {
     const members = columns.flat();
     const extents: LineExtents = { hostExtents: new Map(), attachmentExtents: new Map() };
@@ -725,49 +722,98 @@ function layoutSubdomainBlock(
         includeHostExtent(extents.hostExtents, member);
         gap = Math.max(gap, member.ast.size * ROW_GAP_RATIO);
     }
-    const positions = members.map(member => ({ x: member.box.x, y: 0 }));
-    const place = () => {
-        const solved = solveVerticalAxes(extents, root, gap);
-        members.forEach((member, index) => {
-            member.box.y = positions[index].y = solved.axes.get(member.track)! - member.box.visualAxis;
-            member.onPlaced?.();
-        });
-        return solved;
-    };
-    let solved = place();
-    if (attachments.length === 0) return { height: solved.height, positions, items: [] };
-
-    const lift = liftInto(root);
-    // 附件按行号查询，子域只占自己所在的那一行
     const lines: LineExtents[] = [];
     const views: QueryLine[] = [];
     lines[view.index] = extents;
     views[view.index] = view;
-    const measure = () => measureAttachments(attachments, {
+    const domain: AttachmentDomain = { lines, views, lift: liftInto(root) };
+
+    const positions = members.map(member => ({ x: member.box.x, y: 0 }));
+    let solved!: VerticalSolution;
+    const blockContext = attachmentContext(context, domain, { width, originX: 0, pages: [] },
+        (_line, track) => solved.axes.get(track) ?? 0);
+    const { items, layoutItems } = placeAndMeasure(domain, () => {
+        solved = solveVerticalAxes(extents, root, gap);
+        members.forEach((member, index) => {
+            member.box.y = positions[index].y = solved.axes.get(member.track)! - member.box.visualAxis;
+            member.onPlaced?.();
+        });
+        return blockContext;
+    }, attachments, lookup, displacement, true);
+
+    // 以首个成员为参照：布局快照就是它的块内位置，绘制快照取平移后的位置
+    const reference = members[0];
+    const painted = { x: reference.box.x, y: reference.box.y };
+    return {
+        height: solved.height,
+        positions,
+        items: items.map(({ geometry }, index) => {
+            const paint = { geometry, position: painted };
+            const layout = layoutItems ? { geometry: layoutItems[index].geometry, position: positions[0] } : paint;
+            return { reference, paint, layout };
+        }),
+    };
+}
+
+/** 正文与子域的附件上下文只差页面坐标系与视觉轴来源 */
+function attachmentContext(
+    context: LayoutPrepareContext,
+    { lines, views, lift }: AttachmentDomain,
+    frame: Pick<BaseAttachmentContext, "width" | "originX" | "pages">,
+    axisOf: (line: number, track: Track) => number,
+): BaseAttachmentContext {
+    return {
         ...context,
-        width,
-        originX: 0,
-        pages: [],
+        ...frame,
         lines: views,
-        getVisualAxis: (_line, track) => solved.axes.get(lift(track)) ?? 0,
+        getVisualAxis: (line, track) => axisOf(line, lift(track)),
         getHostExtent: (line, track) => lines[line]?.hostExtents.get(lift(track)),
         getRangeColumns: (line, range, track) => rangeColumns(views[line], range, track, lift),
-    }, lines, lift, measuredElsewhere, hosts, owner);
-    let measured = measure();
-    if (measured.needsRelayout) {
-        solved = place();
-        measured = measure();
-    }
-    const reference = members[0];
-    const position = { x: reference.box.x, y: reference.box.y };
-    const offset = measured.layoutItems && placementOffset(reference, owner);
-    const layoutPosition = offset && (offset.x !== 0 || offset.y !== 0)
-        ? { x: position.x - offset.x, y: position.y - offset.y } : position;
-    const items = measured.items.map((item, index) => ({
-        ...item, reference, position,
-        ...(measured.layoutItems && { layout: { ...measured.layoutItems[index], position: layoutPosition } }),
-    }));
-    return { height: solved.height, positions, items };
+    };
+}
+
+/**
+ * 正文与子域共用的纵向流程：放置 → 测占用 → [重排一次] → 后置平移 → 测绘制几何
+ *
+ * place 写入主体坐标并返回本轮附件上下文。有后置平移时首轮只测布局位置的占用，平移后再生成绘制几何；
+ * 既无平移也未重排时首轮几何就是最终结果。keepLayout 时另留一份最终布局位置下的占用几何，供外层读取。
+ */
+function placeAndMeasure(
+    domain: AttachmentDomain,
+    place: () => BaseAttachmentContext,
+    attachments: readonly LayoutAttachment[],
+    lookup: AttachmentLookup,
+    { nodes, layoutOnly }: Displacement,
+    keepLayout = false,
+): { items: AttachmentItem[]; layoutItems?: AttachmentItem[] } {
+    const measure = (context: BaseAttachmentContext, layoutOnly: boolean) =>
+        measureAttachmentPass(attachments, context, domain.lift, lookup, layoutOnly);
+    let context = place();
+    let measured = measure(context, layoutOnly);
+    const relayout = reserveOccupancy(domain.lines, measured.occupancy);
+    if (relayout) context = place();
+    const layoutItems = keepLayout && layoutOnly ? (relayout ? measure(context, true) : measured).items : undefined;
+    displace(nodes);
+    if (relayout || layoutOnly) measured = measure(context, false);
+    return { items: measured.items, layoutItems };
+}
+
+/**
+ * 首轮占用并入各行的附件占用，供重排时求轴；任一块越出主体占用就需要重排
+ *
+ * 与逐块比较「主体 ∪ 此前各块」等价：第一个越界块之前的块都落在主体占用之内
+ */
+function reserveOccupancy(lines: readonly LineExtents[], occupancy: readonly (readonly ExtentRange[])[]): boolean {
+    let needsRelayout = false;
+    occupancy.forEach((ranges, line) => {
+        const { hostExtents, attachmentExtents } = lines[line];
+        for (const { track, top, bottom } of ranges) {
+            const host = hostExtents.get(track);
+            if (!host || top < host.top || bottom > host.bottom) needsRelayout = true;
+            includeTrackExtent(attachmentExtents, track, top, bottom);
+        }
+    });
+    return needsRelayout;
 }
 
 /**
@@ -788,20 +834,48 @@ function groupRelations(attachments: readonly LayoutAttachment[]) {
 }
 
 /** 子域是刚性块：按参照成员的位移平移块内测得的几何 */
-function moveSubdomainItem(item: SubdomainItem, layoutOnly = false): AttachmentItem {
-    const measured = layoutOnly ? item.layout ?? item : item;
-    const { position, geometry } = measured;
-    const dx = item.reference.box.x - position.x;
-    const dy = item.reference.box.y - position.y;
-    if (dx === 0 && dy === 0) return measured;
+function moveSubdomainItem({ reference, paint, layout }: SubdomainItem, layoutOnly = false): AttachmentItem {
+    const { geometry, position } = layoutOnly ? layout : paint;
+    const dx = reference.box.x - position.x;
+    const dy = reference.box.y - position.y;
+    return { geometry: dx === 0 && dy === 0 ? geometry : translateGeometry(geometry, dx, dy) };
+}
+
+function translateGeometry(geometry: AttachmentGeometry, dx: number, dy: number): AttachmentGeometry {
     const move = <T extends Rect>(rect: T): T => ({ ...rect, x: rect.x + dx, y: rect.y + dy });
     return {
-        geometry: {
-            regions: geometry.regions.map(move),
-            occupancy: geometry.occupancy?.map(move),
-            paint: painter => geometry.paint(new TranslatingPainter(painter, dx, dy)),
-        },
+        regions: geometry.regions.map(move),
+        occupancy: geometry.occupancy?.map(move),
+        // attachment 的绘制大多用闭包保存几何，只能代理 painter
+        paint: painter => geometry.paint(new TranslatingPainter(painter, dx, dy)),
     };
+}
+
+function isDisplaced(target: { placementOffset?: LayoutPoint }) {
+    return !!(target.placementOffset?.x || target.placementOffset?.y);
+}
+
+/** 按 foldedInto 深度排序，外层先平移：复合体的 onPlaced 带动成员，成员再叠加自己的平移 */
+function collectDisplaced(result: LoweringResult): VisualTemporalNode[] {
+    const depths = new Map<VisualTemporalNode, number>();
+    for (const nodes of result.astToTemporal.values()) {
+        for (const node of nodes) {
+            if (!isVisualTemporalNode(node) || !isDisplaced(node)) continue;
+            let depth = 0;
+            for (let host = node.foldedInto; host; host = host.foldedInto) depth++;
+            depths.set(node, depth);
+        }
+    }
+    return [...depths.keys()].sort((left, right) => depths.get(left)! - depths.get(right)!);
+}
+
+/** 占用测量完成后施加后置平移；之后不得再放置，否则复合体会把成员同步回布局位置 */
+function displace(nodes: readonly VisualTemporalNode[]) {
+    for (const node of nodes) {
+        node.box.x += node.placementOffset!.x;
+        node.box.y += node.placementOffset!.y;
+        node.onPlaced?.();
+    }
 }
 
 /** 行距取该行最大字号的 ROW_GAP_RATIO 倍；没有可见对象的行回退到全文档最大字号 */
@@ -824,81 +898,26 @@ function measureRowGaps(
     return gaps;
 }
 
-/** 折叠成员继承外层平移，子域只累加当前复合体内部的平移 */
-function placementOffset(node: TemporalNodeBase, owner?: TemporalNodeBase): LayoutPoint {
-    let x = 0;
-    let y = 0;
-    for (let host: TemporalNodeBase | undefined = node; host && host !== owner; host = host.foldedInto) {
-        x += host.placementOffset?.x ?? 0;
-        y += host.placementOffset?.y ?? 0;
-    }
-    return { x, y };
-}
-
-/** 后置平移只改变绘制几何，占用始终在未平移的布局位置测量 */
-function measureAttachments(
-    attachments: readonly LayoutAttachment[],
-    baseContext: BaseAttachmentContext,
-    lines: readonly LineExtents[],
-    lift: (track: Track) => Track,
-    measuredElsewhere: AttachmentLookup,
-    hosts: readonly VisualTemporalNode[],
-    owner?: TemporalNodeBase,
-): ReturnType<typeof measureAttachmentPass> & { layoutItems?: AttachmentItem[] } {
-    if (attachments.length === 0) return { items: [], needsRelayout: false };
-    const shifts: { node: VisualTemporalNode; x: number; y: number; boxX: number; boxY: number }[] = [];
-    for (const node of hosts) {
-        const { x, y } = placementOffset(node, owner);
-        if (x !== 0 || y !== 0) shifts.push({ node, x, y, boxX: node.box.x, boxY: node.box.y });
-    }
-    const displaced = shifts.length > 0 || attachments.some(attachment =>
-        attachment.placementOffset?.x || attachment.placementOffset?.y);
-    let layout: ReturnType<typeof measureAttachmentPass>;
-    if (displaced) {
-        for (const { node, x, y } of shifts) {
-            node.box.x -= x;
-            node.box.y -= y;
-        }
-        try {
-            layout = measureAttachmentPass(attachments, { ...baseContext, layoutOnly: true }, lines, lift, measuredElsewhere, true);
-        } finally {
-            for (const { node, boxX, boxY } of shifts) {
-                node.box.x = boxX;
-                node.box.y = boxY;
-            }
-        }
-    } else layout = measureAttachmentPass(attachments, baseContext, lines, lift, measuredElsewhere, true);
-    if (!displaced) return layout;
-
-    // 试测结果若被重排丢弃，就不再为它生成绘制几何
-    let painted: AttachmentItem[] | undefined;
-    return {
-        needsRelayout: layout.needsRelayout,
-        layoutItems: layout.items,
-        get items() {
-            return painted ??= measureAttachmentPass(attachments, baseContext, lines, lift, measuredElsewhere, false).items;
-        },
-    };
-}
-
-/** 按声明顺序测量几何，后注册的附件可以查询此前的区域和占用 */
+/**
+ * 按声明顺序测量几何，后注册的附件可以查询此前的区域和占用；只读主体坐标，不改写行占用
+ *
+ * layoutOnly 用于有后置平移时的占用测量：主体尚未平移，附件自身的平移也不施加，依赖的子域附件取布局快照
+ */
 function measureAttachmentPass(
     attachments: readonly LayoutAttachment[],
     baseContext: BaseAttachmentContext,
-    lines: readonly LineExtents[],
     lift: (track: Track) => Track,
-    measuredElsewhere: AttachmentLookup,
-    reserve: boolean,
+    lookup: AttachmentLookup,
+    layoutOnly: boolean,
 ) {
     const measured = new Map<LayoutAttachment, AttachmentItem>();
     const occupancy: ExtentRange[][] = [];
-    let needsRelayout = false;
 
     // 同一测量轮坐标不变，子域几何只需平移一次
     function resolveAttachment(dependency: LayoutAttachment) {
         let item = measured.get(dependency);
         if (!item) {
-            item = measuredElsewhere(dependency, baseContext.layoutOnly);
+            item = lookup(dependency, layoutOnly);
             if (item) measured.set(dependency, item);
         }
         return item;
@@ -984,35 +1003,29 @@ function measureAttachmentPass(
     };
 
     const items = attachments.map(attachment => {
-        const geometry = attachment.createGeometry(context);
+        let geometry = attachment.createGeometry(context);
+        if (!layoutOnly && isDisplaced(attachment)) {
+            geometry = translateGeometry(geometry, attachment.placementOffset!.x, attachment.placementOffset!.y);
+        }
         const item: AttachmentItem = { geometry };
         measured.set(attachment, item);
         // 当前项立即登记，保证后注册的 attachment 能看到并避让它
         for (const region of geometry.occupancy ?? geometry.regions) {
             if (region.line === void 0) continue;
-            const line = lines[region.line];
             const track = lift(region.track);
             const top = region.y - baseContext.getVisualAxis(region.line, track);
-            const bottom = top + region.h;
-            const hostExtent = line.hostExtents.get(track);
-            const attachmentExtent = line.attachmentExtents.get(track);
-            if (reserve && (top < Math.min(hostExtent?.top ?? Infinity, attachmentExtent?.top ?? Infinity)
-                || bottom > Math.max(hostExtent?.bottom ?? -Infinity, attachmentExtent?.bottom ?? -Infinity))) {
-                needsRelayout = true;
-            }
-            if (reserve) includeTrackExtent(line.attachmentExtents, track, top, bottom);
             (occupancy[region.line] ??= []).push({
                 track,
                 left: region.x,
                 right: region.x + region.w,
                 top,
-                bottom,
+                bottom: top + region.h,
             });
         }
         return item;
     });
 
-    return { items, needsRelayout };
+    return { items, occupancy };
 }
 
 /** 主体完整占用相对盒顶的上沿与高度；调用方各自换算到轴局部或行坐标，不必创建全局矩形 */

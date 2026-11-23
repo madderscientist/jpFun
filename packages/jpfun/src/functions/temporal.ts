@@ -117,7 +117,10 @@ export class TemporalNodeBase implements TimeLineEvent {
 
     /** 不可见状态事件保持 undefined */
     box?: LayoutBox;
-    /** 显式微调时才创建后置平移，折叠成员还会继承外层对象的平移 */
+    /**
+     * 后置平移：在 lowering 阶段声明，引擎在占用测量后叠加到 box 上并再次调用 onPlaced，不参与占用求解
+     * 折叠成员经复合体的 onPlaced 跟随外层平移，再叠加自己的平移
+     */
     declare placementOffset?: LayoutPoint;
 
     /**
@@ -203,8 +206,9 @@ export class TemporalNodeBase implements TimeLineEvent {
     finalizeLayout?(_ctx: LayoutPrepareContext): void;
 
     /**
-     * 布局器每次改变 x 或 y 后调用
+     * 布局器每次改变 x 或 y 后调用，包括施加后置平移之后
      * 普通叶节点不需要处理，具有内部几何的复合节点可用它同步子对象坐标
+     * 只按当前 box 同步：成员自己的后置平移由引擎随后叠加，所以只能由引擎调度
      */
     onPlaced?(): void;
 

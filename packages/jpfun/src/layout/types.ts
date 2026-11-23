@@ -78,7 +78,7 @@ export interface LayoutPrepareContext {
 export interface SubdomainLayout {
     width: number;
     height: number;
-    /** 与 columns.flat() 一一对应，不含成员 onPlaced 追加的平移 */
+    /** 与 columns.flat() 一一对应的布局位置，不含后置平移 */
     positions: readonly LayoutPoint[];
 }
 
@@ -86,8 +86,6 @@ export type LayoutRange = readonly [from: LayoutHost, to: LayoutHost];
 
 /** attachment 根据当前视觉轴生成几何时需要的完整页面信息 */
 export interface AttachmentLayoutContext extends LayoutPrepareContext {
-    /** 占用测量使用布局位置，最终绘制才应用后置平移 */
-    readonly layoutOnly?: boolean;
     width: number;      // 整篇可用的内容宽（页宽减左右边距），与行无关
     originX: number;    // 内容区的左边界，即页面左边距
     pages: readonly Rect[]; // 本轮分页得到的纸张边界 page函数用于获取页码内容和位置
@@ -245,7 +243,7 @@ export interface LayoutAttachment extends LoweringAttachment {
      * 同一个值只对应一种图形，不应与时值对象的 kind 重名；取值规则见 render 文档
      */
     readonly kind?: string;
-    /** 后置平移仅影响绘制，不参与占用求解 */
+    /** 后置平移：在 lowering 阶段声明，由引擎在占用测量后施加到绘制几何，不参与占用求解；createGeometry 不应自行平移 */
     placementOffset?: LayoutPoint;
     /** 几何端点；端点全部落在同一子域的成员上时，附件属于该子域。不表示内容包含或播放端点投影 */
     readonly endPoints?: readonly TemporalNodeBase[];
