@@ -232,9 +232,7 @@ playback = createPlaybackController({
     showDiagnostics() {
         workspace.showResult("problems");
     },
-    getFileName() {
-        return sourceName.textContent || "score.jpfun";
-    },
+    getFileName: currentFileName,
     onScorePosition(scoreTime) {
         preview.showPlaybackPosition(scoreTime);
     },
@@ -278,6 +276,10 @@ function source(): string {
     return editor.state.doc.toString();
 }
 
+function currentFileName(): string {
+    return sourceName.textContent || "score.jpfun";
+}
+
 function updateSourceSize() {
     sourceSize.textContent = `${editor.state.doc.length} 字符`;
 }
@@ -286,6 +288,12 @@ function formatError(error: unknown): string {
     if (error instanceof Diagnostic) return `${error.code}: ${error.message}`;
     if (error instanceof Error) return `${error.name}: ${error.message}`;
     return String(error);
+}
+
+/** 带 span 的诊断走正常列表才能点击跳转，其余错误作为带标签的首行显示 */
+function renderFailure(base: readonly Diagnostic[], error: unknown, label: string) {
+    if (error instanceof Diagnostic) diagnostics.render(base.includes(error) ? base : [...base, error]);
+    else diagnostics.render(base, { label, message: formatError(error) });
 }
 
 function showError(error: unknown) {
@@ -298,9 +306,7 @@ function showError(error: unknown) {
     playback?.setError("请先修复排版错误");
     preview.showError(text);
     publishSemanticAst(editor, null);
-    // 带 span 的诊断走正常列表，才能点击跳转
-    if (error instanceof Diagnostic) diagnostics.render([error]);
-    else diagnostics.render([], text);
+    renderFailure([], error, "排版中断");
     statusMessage.dataset.state = "error";
     statusMessage.textContent = "排版失败";
     layoutStats.textContent = "布局 0 个对象";
@@ -435,22 +441,20 @@ function runNoteTransform(operation: NoteTransform) {
     const original = source();
     if (!ensureCompiled()) return;
     if (!latestCompiled) return;
-    updateDocumentStatus();
     try {
         const edits = transformNotes(original, latestCompiled.lowering, operation, ranges.length ? ranges : undefined,
             candidate => compileScore(candidate, compileOptions).lowering);
         if (!edits.length) {
+            updateDocumentStatus();
             statusMessage.textContent = "音高无需修改";
             return;
         }
-        commitCheckedEdits(original, edits);
+        // 提交成功会经 compileAndRender 刷新诊断与状态；未提交时才需手动清掉上次变换失败的提示
+        if (!commitCheckedEdits(original, edits)) updateDocumentStatus();
         editor.focus();
     } catch (error) {
         const detail = formatError(error);
-        const combined = [...scoreDiagnostics, ...playbackDiagnostics];
-        if (error instanceof Diagnostic) {
-            diagnostics.render(combined.includes(error) ? combined : [...combined, error]);
-        } else diagnostics.render(combined, detail, "音高变换失败");
+        renderFailure([...scoreDiagnostics, ...playbackDiagnostics], error, "音高变换失败");
         statusMessage.dataset.state = "error";
         statusMessage.textContent = `音高变换失败：${detail}`;
         statusMessage.title = detail;
@@ -532,7 +536,7 @@ for (const button of exportFormatButtons) {
         for (const item of exportFormatButtons) item.disabled = true;
         try {
             if (format === "midi") await playback?.downloadMidi();
-            else await preview.download(format, normalizedExportPpi(), sourceName.textContent || "score.jpfun");
+            else await preview.download(format, normalizedExportPpi(), currentFileName());
             closeExportMenu(true);
         } catch (error) {
             statusMessage.dataset.state = "error";

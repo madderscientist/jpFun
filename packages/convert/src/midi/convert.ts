@@ -73,7 +73,7 @@ type QuantizedItem = QuantizedChord | QuantizedTriplet;
 
 interface Lane {
     items: QuantizedItem[];
-    programs: Map<number, number>;
+    programs?: Map<number, number>;
 }
 
 interface TrackRegion {
@@ -241,7 +241,7 @@ function splitLanes(items: readonly QuantizedItem[]) {
     const lanes: Lane[] = [];
     for (const item of items) {
         let lane = lanes.find(candidate => candidate.items.at(-1)!.end <= item.start);
-        if (!lane) lanes.push(lane = { items: [], programs: new Map() });
+        if (!lane) lanes.push(lane = { items: [] });
         lane.items.push(item);
     }
     // 低音 lane 排在前面，最高 lane 固定承载全谱状态以保持输出稳定
@@ -264,21 +264,14 @@ function splitLanes(items: readonly QuantizedItem[]) {
         .map(item => item.lane);
 }
 
-/**
- * 切分传递重叠区域、补齐空白段以覆盖整首乐谱，并把音色变化按声部状态精确下发到各 lane：
- * 新分叉子轨首次继承宿主音色，仅在实际变化或复用子轨失步时写入 @program。
- */
-function buildTrackSegments(
-    items: readonly QuantizedItem[],
-    scoreEnd: number,
-    programs: ReadonlyMap<number, number>,
-) {
+/** 只把传递重叠的事件放进同一区域，并用空区域补齐，使各段连续覆盖整首乐谱 */
+function splitRegions(items: readonly QuantizedItem[], scoreEnd: number) {
     const segments: TrackRegion[] = [];
     let group: QuantizedItem[] = [];
     let cursor = 0;
     let end = 0;
     const pushGap = (to: number) => {
-        if (cursor < to) segments.push({ start: cursor, end: to, lanes: [{ items: [], programs: new Map() }] });
+        if (cursor < to) segments.push({ start: cursor, end: to, lanes: [{ items: [] }] });
     };
     const flush = () => {
         if (group.length === 0) return;
@@ -294,28 +287,27 @@ function buildTrackSegments(
     }
     flush();
     pushGap(scoreEnd);
-
-    if (programs.size > 0) {
-        const entries = [...programs];
-        const lanePrograms: (number | undefined)[] = [DEFAULT_PROGRAM];
-        let programIndex = 0;
-        let active = DEFAULT_PROGRAM;
-        for (const segment of segments) {
-            if (entries[programIndex]?.[0] === segment.start) active = entries[programIndex++][1];
-            const interiorStart = programIndex;
-            while (programIndex < entries.length && entries[programIndex][0] < segment.end) programIndex++;
-            const exit = programIndex > interiorStart ? entries[programIndex - 1][1] : active;
-            for (const [laneIndex, lane] of segment.lanes.entries()) {
-                if ((lanePrograms[laneIndex] ?? active) !== active) lane.programs.set(segment.start, active);
-                for (let index = interiorStart; index < programIndex; index++) {
-                    lane.programs.set(entries[index][0], entries[index][1]);
-                }
-                lanePrograms[laneIndex] = exit;
-            }
-            active = exit;
-        }
-    }
     return segments;
+}
+
+/** 新分叉子轨首次继承宿主音色，仅在实际变化或复用子轨失步时写入 @program */
+function assignLanePrograms(segments: readonly TrackRegion[], programs: ReadonlyMap<number, number>) {
+    const entries = [...programs];
+    const lanePrograms: (number | undefined)[] = [DEFAULT_PROGRAM];
+    let next = 0;
+    let active = DEFAULT_PROGRAM;
+    for (const segment of segments) {
+        if (entries[next]?.[0] === segment.start) active = entries[next++][1];
+        const interior = next;
+        while (next < entries.length && entries[next][0] < segment.end) next++;
+        const exit = next > interior ? entries[next - 1][1] : active;
+        for (const [laneIndex, lane] of segment.lanes.entries()) {
+            if ((lanePrograms[laneIndex] ?? active) !== active) (lane.programs ??= new Map()).set(segment.start, active);
+            for (let index = interior; index < next; index++) (lane.programs ??= new Map()).set(...entries[index]);
+            lanePrograms[laneIndex] = exit;
+        }
+        active = exit;
+    }
 }
 
 /** 把整数时值分解为 jpFun 的 `/` 与 `.` 后缀；剩余部分会另写为 dash/rest */
@@ -458,7 +450,7 @@ function renderLane(
         }
     }
     // 测宽也保留 program 控制点，避免持续音的切分与完整源码不同。
-    for (const at of lane.programs.keys()) points.add(at);
+    for (const at of lane.programs?.keys() ?? []) points.add(at);
     const timeline = [...points].sort((left, right) => left - right);
     const timelineIndex = new Map(timeline.map((at, index) => [at, index]));
     const tieChains = new Map<QuantizedChord, string[][]>();
@@ -498,7 +490,7 @@ function renderLane(
 
         const next = timeline[index + 1];
         if (next === undefined) continue;
-        const program = nextTieLabel ? lane.programs.get(at) : undefined;
+        const program = nextTieLabel ? lane.programs?.get(at) : undefined;
         if (program !== undefined) outputs[outputIndex].push(`@program(${program})`);
         const changes = adjustments?.get(at) ?? [];
         const item = lane.items[itemIndex];
@@ -741,18 +733,14 @@ export function convertMidiJsonToJpFun(
         : activeMeter.at + Math.ceil((lastNoteEnd - activeMeter.at) / finalMeasureLength) * finalMeasureLength;
 
     // 每轨切分局部重叠区并按声部状态生成稀疏的 @program 时间点
-    const convertedTracks: ConvertedTrack[] = quantizedTracks.map((track, trackIndex) => ({
-        source: track.source,
-        segments: buildTrackSegments(
-            track.items,
-            scoreEnd,
-            compactPrograms(
-                [...rawPrograms[trackIndex]]
-                    .map(([ticks, program]) => [binaryUnitAt(ticks), program] as const)
-                    .filter(([at]) => at === 0 || at < lastNoteEnd),
-            ),
-        ),
-    }));
+    const convertedTracks: ConvertedTrack[] = quantizedTracks.map((track, trackIndex) => {
+        const segments = splitRegions(track.items, scoreEnd);
+        assignLanePrograms(segments, compactPrograms(
+            Array.from(rawPrograms[trackIndex], ([ticks, program]) => [binaryUnitAt(ticks), program] as const)
+                .filter(([at]) => at === 0 || at < lastNoteEnd),
+        ));
+        return { source: track.source, segments };
+    });
 
     const tempoPoints = coalesceSorted(rawTempos.map(item => ({
         at: binaryUnitAt(item.ticks),
