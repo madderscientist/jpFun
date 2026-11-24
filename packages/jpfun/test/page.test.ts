@@ -290,6 +290,15 @@ test("page.barNumbering 从第二行起在行首显示小节号，默认隐藏�
     assert(singleTexts[0].x < secondLineNote.box.x && singleTexts[0].y < secondLineNote.box.y,
         "single-voice bar numbers must sit to the upper-left of the line");
 
+    // 行首零时值文字不影响小节号的字号与高度
+    const barNumberOf = (line: string) => attachmentCommands(
+        layoutOf(`@page(barNumbering="1")\n1 2 | 3 4 |\n\n${line} | 5 6 |`).attachments[0],
+    ).find(cmd => cmd.kind === "text")!;
+    const plain = barNumberOf("123");
+    const withText = barNumberOf('"(" 123")"');
+    assert(plain.kind === "text" && withText.kind === "text", "bar numbers must be text commands");
+    deepStrictEqual([withText.text, withText.style.fontSize, withText.y], [plain.text, plain.style.fontSize, plain.y]);
+
     // 多声部行首锚定在连谱号正上方居中
     const mvLayout = layoutOf([
         '@page(barNumbering="(1)")',

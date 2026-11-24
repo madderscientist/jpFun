@@ -151,7 +151,9 @@ class BarNumberAttachment implements LayoutAttachment {
             // 选取行首列中视觉轴最靠上的宿主，确保小节号只挂在最顶层声部上方
             const topHost = firstCol.reduce((top, host) =>
                 context.getVisualAxis(line, host.track) < context.getVisualAxis(line, top.track) ? host : top);
-            const fontSize = topHost.ast.size;
+            // 字号与高度参照该声部首个有时值的主体，避免行首零时值的文字、记号等使小节号变小或错位
+            const ref = context.lines[line].trackRuns.get(topHost.track)?.find(host => !host.T.isZero()) ?? topHost;
+            const fontSize = ref.ast.size;
             const port = topHost.ports["bar.number"];
             const style: TextStyle = {
                 fontSize: fontSize * 0.5,
@@ -165,7 +167,7 @@ class BarNumberAttachment implements LayoutAttachment {
             const x = port ? topHost.box.x + port.x : context.originX - fontSize * 0.15;
             const topY = port
                 ? topHost.box.y + port.y
-                : Math.min(topHost.box.y, context.getVisualAxis(line, topHost.track) - fontSize * 0.5);
+                : Math.min(ref.box.y, context.getVisualAxis(line, ref.track) - fontSize * 0.5);
             const baselineY = topY - fontSize * 0.04;
             return {
                 text,
