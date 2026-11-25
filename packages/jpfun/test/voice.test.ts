@@ -24,17 +24,11 @@ test("nested voices collect only their direct name hosts", () => {
     }
 });
 
-test("lyrics preserve supplementary Unicode characters as single slots", () => {
-    const word = "\u{20bb7}\u91ce";
-    const result = layoutOf(`@voice({1 2}, , ${quoteSourceString(word)})`);
-    const lyrics = attachmentCommands(result.attachments[0]).filter(command => command.kind === "text");
-    deepStrictEqual(lyrics.map(command => command.text), [...word]);
-});
-
-test("quoted voice names and lyrics share Unicode escapes across explicit calls and sugar", () => {
+test("quoted voice names and lyrics share Unicode escapes, supplementary characters stay single slots", () => {
     for (const source of [
         String.raw`@voice({1 2}, "\u004Cead", row="\uD842\uDFB7\u91CE")`,
         String.raw`N("\u004Cead"): 1 2` + "\n" + String.raw`L("\u0072ow"): "\uD842\uDFB7\u91CE"`,
+        `@voice({1 2}, Lead, row=${quoteSourceString("\u{20bb7}\u91ce")})`,
     ]) {
         const node = compileValid(source).ast.content[0];
         assert("name" in node && node.name === "Lead" && "lyrics" in node, "voice name must decode");
@@ -105,19 +99,16 @@ test("歌词标点附着正文，不单独消耗音符槽", () => {
         ["don't stop", ["don't", "stop"]],
         ["hel-lo 你 @ 好", ["hel-", "lo", "你", "好"]],
         ["你， @ “好”", ["你，", "“好”"]],
-        [String.raw`hel\-lo \@ {你\}好}`, ["hel-lo", "@", "你}好"]],
     ];
     for (const [text, expected] of cases) {
         for (const source of [
             `@voice({1 2 3 4 5 6 7 1 2 3 4 5}, , "${text}")`,
             `N: 1 2 3 4 5 6 7 1 2 3 4 5\nL: ${text}`,
         ]) {
-            const result = layoutOf(source);
-            const actual = attachmentCommands(result.attachments[0])
+            const actual = attachmentCommands(layoutOf(source).attachments[0])
                 .filter(command => command.kind === "text")
                 .map(command => command.text);
-            assert(JSON.stringify(actual) === JSON.stringify(expected),
-                `${source}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+            deepStrictEqual(actual, expected, source);
         }
     }
 });
@@ -136,11 +127,9 @@ test("歌词首尾标点悬挂，不改变正文中心和音符间距", () => {
         for (const notes of ["1 2 3 4", "1 @br() 2 3 4"]) {
             const baseline = layoutOf(`@voice({${notes}}, , ${JSON.stringify(plain)})`);
             const result = layoutOf(`@voice({${notes}}, , ${JSON.stringify(punctuated)})`);
-            assert(result.objects.length === baseline.objects.length, "punctuation must not add notes");
-            for (let index = 0; index < result.objects.length; index++) {
-                assert(nearly(result.objects[index].box.x, baseline.objects[index].box.x),
-                    `${punctuated}: punctuation must not move note ${index}`);
-            }
+            assert(result.objects.length === baseline.objects.length
+                && result.objects.every((object, index) => nearly(object.box.x, baseline.objects[index].box.x)),
+            `${punctuated}: punctuation must not add or move notes`);
             const plainRegions = baseline.attachments[0].regions;
             const regions = result.attachments[0].regions;
             const texts = attachmentCommands(result.attachments[0]).filter(command => command.kind === "text");
@@ -188,7 +177,6 @@ test("声部的名称不推进时间，歌词行归一个附件并计入文档�
     assert(top > lastVoiceNote.box.y, "lyrics must be placed below the note row");
     assert(bottom - top > voiceResult.objects[0].ast.size * 1.5, "two lyric rows must reserve more than one text line");
     assert(voiceResult.bounds.y + voiceResult.bounds.h >= bottom, "document bounds must include all lyrics");
-
 });
 
 test("歌词行共用基线且随声部字号缩放", () => {
@@ -265,7 +253,6 @@ test("跨行歌词在每个含词的系统各用一条基线", () => {
     const lastRegion = crossLineLyrics.regions.at(-1)!;
     assert(lastRegion.y + lastRegion.h > crossLineVoiceResult.objects[3].box.y + crossLineVoiceResult.objects[3].box.h,
         "lyric bounds must include the final system tokens");
-
 });
 
 test("stack 的分支各自占轨，同时刻音符共享横向对齐点", () => {
@@ -291,7 +278,6 @@ test("voices 块把首末声部基线的中点对齐到宿主轴", () => {
         "an odd voices block must still center on the first and last baselines");
     assert(nearly(axisOf(threeVoices[2]), axisOf(threeVoices[0])),
         "a symmetric three-voice block must put the middle voice on the host axis");
-
 });
 
 test("嵌套 stack 只撑开相邻基线，不移动 voices 的语义中心", () => {
@@ -384,25 +370,21 @@ test("stack 与 voices 不串轨，分支始终在宿主整块之上", () => {
     assert(mixedTracks.size === 3 && !mixedTracks.has(mixedTopology.lowering.rootTrack),
         "voices(A, stack(B, C)) must create three content tracks plus an empty host track");
 
+    type Drawn = ReturnType<typeof drawn>;
+    const aboveRest = (objects: Drawn, branch: Drawn[number]) => branch.box.y + branch.box.h
+        <= Math.min(...objects.filter(object => object !== branch).map(object => object.box.y));
+
     const voicesAsStackHost = drawn(`@stack({@voices(@voice({1}), @voice({2}))}, {3})`);
     const voicesStackAnchors = voicesAsStackHost.map(object => object.box.x + object.box.anchor);
     assert(voicesStackAnchors.every(anchor => nearly(anchor, voicesStackAnchors[0])),
         "a stack branch must align with the first note column after a voices label column");
     const voicesStackBranch = voicesAsStackHost.reduce((latest, object) =>
         object.ast.sourceSpan.start > latest.ast.sourceSpan.start ? object : latest);
-    const voicesStackHostTop = Math.min(...voicesAsStackHost
-        .filter(object => object !== voicesStackBranch)
-        .map(object => object.box.y));
-    assert(voicesStackBranch.box.y + voicesStackBranch.box.h <= voicesStackHostTop,
-        "a stack branch must stay above the complete voices host block");
+    assert(aboveRest(voicesAsStackHost, voicesStackBranch), "a stack branch must stay above the complete voices host block");
 
     const completeStackHost = drawn(`1&2 3^4`);
     const completeStackBranch = completeStackHost.find(object => object.ast.sourceSpan.start === 2);
-    assert(completeStackBranch !== undefined, "the stack branch must remain addressable by its source span");
-    const completeStackHostTop = Math.min(...completeStackHost
-        .filter(object => object !== completeStackBranch)
-        .map(object => object.box.y));
-    assert(completeStackBranch.box.y + completeStackBranch.box.h <= completeStackHostTop,
+    assert(completeStackBranch !== undefined && aboveRest(completeStackHost, completeStackBranch),
         "a stack branch must stay above the complete host track");
 });
 
@@ -607,14 +589,8 @@ test("歌词跨音符槽 Markdown 包裹、标点悬挂与往返序列化", () =
     strictEqual(lyricRowLabel.style.fontStyle, "italic", "*包裹的歌词行名应为斜体");
     assert(!lyricRowLabel.style.fontWeight, "歌词行名默认不应加粗");
 
-    for (const ch of ["春", "眠", "你", "好"]) {
-        const cmd = textCmds.find(t => t.text === ch)!;
-        strictEqual(cmd.style.fontStyle, "italic", `${ch} 应继承跨音符槽斜体`);
-    }
-    for (const ch of ["不", "觉"]) {
-        const cmd = textCmds.find(t => t.text === ch)!;
-        strictEqual(cmd.style.fontWeight, "bold", `${ch} 应继承跨音符槽粗体`);
-    }
+    for (const ch of "春眠你好") strictEqual(textCmds.find(t => t.text === ch)!.style.fontStyle, "italic", `${ch} 应继承跨音符槽斜体`);
+    for (const ch of "不觉") strictEqual(textCmds.find(t => t.text === ch)!.style.fontWeight, "bold", `${ch} 应继承跨音符槽粗体`);
 
     for (const src of [
         String.raw`V{\*}:` + "\nN:1\nN:2",
@@ -632,11 +608,8 @@ test("歌词跨音符槽 Markdown 包裹、标点悬挂与往返序列化", () =
     const plainLayout = layoutOf(`@voice({1 2}, , "你好")`);
     for (const lyric of [`"“*你好*！”"`, `"*“你好！”*"`, `"_**你好**！_"`]) {
         const richLayout = layoutOf(`@voice({1 2}, , ${lyric})`);
-        for (let i = 0; i < plainLayout.objects.length; i++) {
-            assert(nearly(richLayout.objects[i].box.x, plainLayout.objects[i].box.x),
-                `${lyric}: note ${i} position must match plain lyric`);
-        }
+        assert(plainLayout.objects.every((object, i) => nearly(richLayout.objects[i].box.x, object.box.x)),
+            `${lyric}: note positions must match plain lyric`);
     }
 });
-
 

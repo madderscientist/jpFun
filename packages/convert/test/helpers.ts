@@ -1,10 +1,10 @@
 import { deepStrictEqual, ok } from "node:assert/strict";
 import {
     RecordingPainter,
+    compilePlayback,
     compileScore,
     paintLayout,
     type DocumentLayoutResult,
-    type PlacedAttachment,
     type PlaybackNoteOffEvent,
     type PlaybackNoteOnEvent,
     type PlaybackPlan,
@@ -43,14 +43,22 @@ export function playedNotes(plan: PlaybackPlan) {
     });
 }
 
+/** 断言每个 note-on 所在 Track 的当前 program 在 changeAt 前后分别为 before/after，返回 note-on 数量。 */
+export function assertProgramsAt(source: string, changeAt: number, before: number, after: number) {
+    const programs = new Map<number, number>();
+    let count = 0;
+    for (const event of compilePlayback(lower(source)).events) {
+        if (event.kind === "program-change") programs.set(event.track, event.program);
+        if (event.kind === "note-on") {
+            count++;
+            ok(programs.get(event.track) === (event.at.compare(changeAt) < 0 ? before : after), source);
+        }
+    }
+    return count;
+}
+
 export function recordCommands(layout: DocumentLayoutResult) {
     const recording = new RecordingPainter();
     paintLayout(layout, recording);
-    return recording.commands;
-}
-
-export function attachmentCommands(attachment: PlacedAttachment) {
-    const recording = new RecordingPainter();
-    attachment.paint(recording);
     return recording.commands;
 }

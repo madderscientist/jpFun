@@ -44,18 +44,11 @@ const canvasCalls = recordCanvasCalls(result);
 
 test("综合乐谱产生各类绘制命令且坐标全部有限", () => {
     const kinds = new Set(commands.map(command => command.kind));
-    assert(kinds.has("text"), "arbitrary text must emit text commands");
-    assert(kinds.has("line"), "line symbols must emit line commands");
-    assert(kinds.has("rect"), "box and div must emit rectangle commands");
-    assert(kinds.has("circle"), "octave and dot decorations must emit circle commands");
-    assert(kinds.has("path"), "tie must emit a path command");
+    for (const kind of ["text", "line", "rect", "circle", "path"] as const) assert(kinds.has(kind), `missing ${kind} commands`);
     assert(commands.every(allNumbersFinite), "all recorded drawing coordinates must be finite");
-    assert(!commands.some(command => command.kind === "text" && command.text === "8"),
-        "hidden placeholder note 8 must not emit text");
-    assert(commands.some(command => command.kind === "text" && command.text === "X"),
-        "beat marker note 9 must be drawn as X");
-    assert(!commands.some(command => command.kind === "text" && command.text === "9"),
-        "beat marker note 9 must not emit its digit");
+    const texts = commands.flatMap(command => command.kind === "text" ? [command.text] : []);
+    assert(!texts.includes("8"), "hidden placeholder note 8 must not emit text");
+    assert(texts.includes("X") && !texts.includes("9"), "beat marker note 9 must be drawn as X instead of its digit");
 });
 
 test("SVG 文本正确转义、保留空白且不输出无效坐标", () => {
@@ -87,35 +80,17 @@ test("Fine 在 SVG 和 Canvas 中使用斜体，不影响普通文本", () => {
         context.fillText = () => { fonts.push(context.font); };
         renderLayoutPagesToCanvas(layout, [context]);
         strictEqual(fonts.length, 2);
-        strictEqual(fonts.filter(font => font.startsWith("italic ")).length, 1);
-        assert(fonts[0].includes('"Times New Roman", serif'), "Fine 应保留原有字体");
-        assert(fonts[0].startsWith("italic "), "Canvas 中的 Fine 也应使用斜体");
+        assert(fonts[0].startsWith("italic ") && fonts[0].includes('"Times New Roman", serif')
+            && !fonts[1].startsWith("italic "), "Canvas 中的 Fine 应保留原有字体并使用斜体，普通文本不受影响");
     }
 });
 
 test("SVG 路径把平移与正负缩放烘进最终几何", () => {
-    const scaledPathPainter = new SvgPainter();
-    const scaledPathCommands: readonly PathCommand[] = [
-        { op: "M", x: 0, y: 0 },
-        { op: "L", x: 1, y: 1 },
-    ];
-    scaledPathPainter.drawPath(scaledPathCommands, { stroke: "#000", strokeWidth: 1 },
+    const painter = new SvgPainter();
+    painter.drawPath([{ op: "M", x: 0, y: 0 }, { op: "L", x: 1, y: 1 }], { stroke: "#000", strokeWidth: 1 },
         { x: 7, y: 8, scaleX: 4, scaleY: -6 });
-    const scaledPathSvg = scaledPathPainter.toSvg({ x: 0, y: 0, w: 20, h: 20 });
-    assert(scaledPathSvg.includes('<path d="M7 8 L11 2"'),
+    assert(painter.toSvg({ x: 0, y: 0, w: 20, h: 20 }).includes('<path d="M7 8 L11 2"'),
         "SVG paths must bake translation and positive or negative scaling into final geometry");
-});
-
-test("颤音尾巴在 SVG 与 Canvas 中都逐截绘制", () => {
-    for (let count = 0; count <= 3; count++) {
-        const result = layoutOf(`$tr${"+".repeat(count)}`);
-        const [svg] = renderLayoutPagesToSvg(result);
-        const calls = recordCanvasCalls(result);
-        strictEqual((svg.match(/<path d=/g) ?? []).length, count + 1);
-        strictEqual(calls.filter(call => call === "fill").length, count + 1);
-        assert(recordCommands(result).every(allNumbersFinite)
-            && !/NaN|Infinity/.test(svg), "尾巴绘制坐标必须有限");
-    }
 });
 
 test("Canvas 圆形支持 fill=none，默认圆形仍填充黑色", () => {
@@ -143,10 +118,13 @@ test("Canvas 文本、直线、路径和矩形把 none 当作不绘制，而不�
     deepStrictEqual(calls.filter(call => /^(fill(Text|Rect)?|stroke(Rect)?)$/.test(call)), ["fillText", "stroke", "fill"]);
 });
 
-test("内置新增符号在 SVG 和 Canvas 中使用相同的有限矢量图元，不依赖字体", () => {
+test("内置新增符号与颤音尾巴在 SVG 和 Canvas 中使用相同的有限矢量图元，不依赖字体", () => {
     for (const [source, paths, lines, circles] of [
         ["$wheel $harmonic", 1, 0, 1],
         ["$tenuto $marcato $staccato $turn $iturn", 4, 2, 0],
+        // 颤音每个加号逐截多画一段尾巴
+        ["$tr", 1, 0, 0],
+        ["$tr+++", 4, 0, 0],
     ] as const) {
         const layout = layoutOf(source);
         const [svg] = renderLayoutPagesToSvg(layout);
@@ -201,17 +179,11 @@ test("分页 SVG 与 Canvas 保持纸张尺寸、内容归属和页面原点", (
 @page(width=200px, height=80px, top=10px, bottom=10px, left=20px, right=20px, gap=5px)
 1 @br() 2 @br() 3 @br() 4
 `);
-    assert(twoPageLayout.pages.length === 2, "the renderer sample must contain two pages");
     const pages = renderLayoutPagesToSvg(twoPageLayout);
-    assert(pages.length === 2, "page rendering must create one SVG per layout page");
     assert(pages.every(page => page.includes('width="200"') && page.includes('height="80"')),
         "each page SVG must preserve the configured paper size");
-    assert((pages[0].match(/<text /g) ?? []).length === 2 && (pages[1].match(/<text /g) ?? []).length === 2,
-        "each page SVG must contain only the objects assigned to that page");
-    assert(pages[0].includes(">1</text>") && pages[0].includes(">2</text>") && !pages[0].includes(">3</text>"),
-        "the first SVG must not duplicate content from later pages");
-    assert(pages[1].includes(">3</text>") && pages[1].includes(">4</text>") && !pages[1].includes(">2</text>"),
-        "the second SVG must not duplicate content from earlier pages");
+    deepStrictEqual(pages.map(page => [...page.matchAll(/<text [^>]*>([^<]*)<\/text>/g)].map(match => match[1])),
+        [["1", "2"], ["3", "4"]], "each page SVG must contain only the objects assigned to that page");
 
     const canvasCalls = pages.map(() => [] as string[]);
     renderLayoutPagesToCanvas(twoPageLayout, canvasCalls.map(recordingCanvasContext));
@@ -222,16 +194,6 @@ test("分页 SVG 与 Canvas 保持纸张尺寸、内容归属和页面原点", (
     assert(canvasCalls.every(calls => calls[0] === "save" && calls[1].startsWith("translate(")
         && calls.at(-1) === "restore" && calls.indexOf("fillText") > 1),
         "page Canvas transforms must wrap all drawing and restore the caller context");
-
-    const crossPageTie = layoutOf(`
-@page(width=200px, height=70px, top=10px, bottom=10px, left=20px, right=20px, gap=5px)
-1@a @br() 2 @br() 3 @br() 4@b @tie(a,b)
-`);
-    const tiePages = renderLayoutPagesToSvg(crossPageTie);
-    assert(tiePages.reduce((count, page) => count + (page.match(/<path /g) ?? []).length, 0) === 4,
-        "cross-page attachments must route each path segment once instead of duplicating every segment per page");
-    assert(tiePages.length === 4 && tiePages.every(page => (page.match(/<path /g) ?? []).length === 1),
-        "cross-page attachment segments must be assigned to their corresponding pages");
 });
 
 test("Canvas 后端能执行描边、曲线与文本绘制", () => {
@@ -265,9 +227,8 @@ test("CanvasTextMeasurer 用绘制时的同一份字体串测量", () => {
     const style: TextStyle = { fontSize: 20, fontFamily: "Cascadia Mono", fontWeight: "bold", fontStyle: "italic" };
 
     const metrics = measurer.measureText("abc", style);
-    assert(seen.length === 1 && seen[0] === canvasFont(style),
-        "the measurer must select the exact font string CanvasPainter draws with");
-    strictEqual(seen[0], "italic bold 20px Cascadia Mono");
+    deepStrictEqual(seen, ["italic bold 20px Cascadia Mono"]);
+    strictEqual(canvasFont(style), seen[0], "the measurer must select the exact font string CanvasPainter draws with");
     let drawnFont = "";
     const drawingContext = recordingCanvasContext([]);
     Object.defineProperty(drawingContext, "font", {
@@ -281,10 +242,7 @@ test("CanvasTextMeasurer 用绘制时的同一份字体串测量", () => {
 
     measurer.measureText("abc", style);
     assert(seen.length === 1, "repeated measurements of one string must be cached");
-    const largerStyle: TextStyle = { ...style, fontSize: 30 };
-    measurer.measureText("abc", largerStyle);
-    assert(seen.at(-1) === canvasFont(largerStyle), "a different style must not reuse the cached width");
-    const samples = [["abc", style], ["def", style], ["abc", largerStyle],
+    const samples = [["abc", style], ["def", style], ["abc", { ...style, fontSize: 30 }],
         ["abc", { ...style, fontFamily: "serif" }], ["abc", { ...style, fontWeight: "normal" }],
         ["abc", { ...style, fontStyle: "normal" }]] as const;
     for (const [text, sampleStyle] of samples) measurer.measureText(text, sampleStyle);

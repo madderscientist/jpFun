@@ -28,13 +28,9 @@ test("八度号包含首末音，端点顺序不限，不改变记谱音高或�
             const result = compileValid(source);
             deepStrictEqual(playedNotes(compilePlayback(result.lowering)).map(note => note.midi),
                 [60, 62 + 12 * shift, 64 + 12 * shift, 65]);
-            assert(result.layout.objects.length === plain.objects.length, "八度号不产生时间列");
-            for (let i = 0; i < plain.objects.length; i++) {
-                const note = result.layout.objects[i];
-                assert(nearly(note.box.w, plain.objects[i].box.w)
-                    && nearly(note.box.h, plain.objects[i].box.h)
-                    && note.T.equals(plain.objects[i].T), "记谱八度点、宽高与时值不变");
-            }
+            // 八度号不产生时间列，记谱八度点、宽高与时值不变
+            deepStrictEqual(result.layout.objects.map(note => [note.box.w, note.box.h, note.T.toString()]),
+                plain.objects.map(note => [note.box.w, note.box.h, note.T.toString()]));
         }
     }
     deepStrictEqual(pitches("1@a 2 @ottava(a,a)"), [72, 62]);
@@ -95,13 +91,10 @@ test("高低多八度号分别在上下方，虚线避开文字，只有末端�
         const lines = commands.filter(command => command.kind === "line");
         const horizontal = lines.filter(line => nearly(line.y1, line.y2));
         const hooks = lines.filter(line => nearly(line.x1, line.x2));
-        assert(labels.length === 1, "首段绘制一个数字标签");
-        assert(labels[0].text === text && labels[0].style.fontStyle === "italic",
-            "标签按八度数显示斜体数字");
-        assert(horizontal.length > 2, "应绘制断开的虚线，而非实线");
-        assert(hooks.length === 1, "只有末端有折钩");
-        const hook = hooks[0];
-        assert((hook.y2 - hook.y1) * shift > 0, "高八度下折，低八度上折");
+        assert(labels.length === 1 && labels[0].text === text && labels[0].style.fontStyle === "italic",
+            "首段绘制一个按八度数显示的斜体数字标签");
+        // 断开的虚线而非实线；只有末端有折钩，高八度下折，低八度上折
+        assert(horizontal.length > 2 && hooks.length === 1 && (hooks[0].y2 - hooks[0].y1) * shift > 0, `shift=${shift}`);
         const region = attachment.regions[0];
         const bounds = layout.objects.map(object => getLayoutBounds(object));
         const top = Math.min(...bounds.map(box => box.y));
@@ -110,8 +103,7 @@ test("高低多八度号分别在上下方，虚线避开文字，只有末端�
             "字形、虚线与折钩均应避让音符");
         const label = labels[0];
         const metrics = defaultTextMeasurer.measureText(label.text, label.style);
-        assert(horizontal[0].x1 > label.x + metrics.w, "虚线必须从标签的右边开始");
-        assert(nearly(label.x, region.x), "标签左沿与八度号范围对齐");
+        assert(horizontal[0].x1 > label.x + metrics.w && nearly(label.x, region.x), "虚线从标签右边开始，标签左沿对齐范围");
         const labelTop = label.y - metrics.baseline;
         const labelBottom = labelTop + metrics.h;
         const regionBottom = region.y + region.h;
@@ -166,12 +158,12 @@ test("跨行含空白行续画，首尾标记不重复，后声明的八度号�
     for (const shift of [2, -3]) {
         const { layout, attachment, commands } = ottavaCommands(
             `1@a @br(2) | 2@b @ottava(a,b,${shift}) @ottava(a,b,${shift})`);
-        assert(attachment.regions.length === 3, "跨行中间空行也要续画");
-        assert(commands.filter(command => command.kind === "text").length === 1, "续行不重复标数字");
+        // 跨行中间空行也要续画，续行不重复标数字，换行边界不画折钩
+        assert(attachment.regions.length === 3 && commands.filter(command => command.kind === "text").length === 1,
+            "跨行续画");
         const hooks = commands.filter(command => command.kind === "line" && nearly(command.x1, command.x2));
-        assert(hooks.length === 1, "换行边界不画折钩");
         const last = layout.objects.at(-1)!;
-        assert(hooks[0].kind === "line"
+        assert(hooks.length === 1 && hooks[0].kind === "line"
             && nearly(hooks[0].x1, last.box.x + last.box.w), "末段终止于末音右沿");
         const middle = attachment.regions[1];
         assert(middle.w > attachment.regions[0].w, "中间空行延伸到版心边缘");

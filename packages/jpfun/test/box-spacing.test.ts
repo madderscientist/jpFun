@@ -4,8 +4,8 @@ import { isVisualTemporalNode } from "../src/functions/temporal.js";
 import { layoutDocument } from "../src/layout/engine.js";
 import { assert, compileValid, expectLayoutError, layoutContext, nearly } from "./helpers.js";
 
-function frames(source: string) {
-    return compileValid(source).layout.attachments.filter(item => item.layer === "background").map(item => item.regions[0]);
+function frames(layout: ReturnType<typeof compileValid>["layout"]) {
+    return layout.attachments.filter(item => item.layer === "background").map(item => item.regions[0]);
 }
 
 test("box 的上下留白在 up 和 down 内参与成员间距", () => {
@@ -19,7 +19,7 @@ test("box 的上下留白在 up 和 down 内参与成员间距", () => {
             const host = [...result.lowering.astToTemporal.values()].flat()
                 .find(node => isVisualTemporalNode(node) && node.ast.sourceSpan.start === source.indexOf("1,"));
             assert(host && isVisualTemporalNode(host), source);
-            const frame = result.layout.attachments.filter(item => item.layer === "background").at(-1)?.regions[0];
+            const frame = frames(result.layout).at(-1);
             assert(frame, source);
             const gap = host.ast.size * 0.12;
             assert(side === "up"
@@ -33,12 +33,10 @@ test("范围框只扩外围占用，不改变跨轨内容的内部间距", () =>
     const plain = compileValid("@box(@stack(1,2),padding=0px,stroke=0px)").layout;
     const padded = compileValid("@box(@stack(1,2),padding=10px,stroke=2px)").layout;
     const axes = (layout: typeof plain) => layout.objects.map(node => node.box.y + node.box.visualAxis);
-    const before = axes(plain);
-    const after = axes(padded);
+    const [before, after] = [axes(plain), axes(padded)];
     assert(nearly(after[1] - after[0], before[1] - before[0]), "padding must not expand the internal track gap");
     assert(nearly(after[0] - before[0], 11), "the upper perimeter must reserve padding and half the stroke");
-    const frame = padded.attachments[0].regions[0];
-    assert(frame.y >= 0, "the frame must be included in line placement");
+    assert(padded.attachments[0].regions[0].y >= 0, "the frame must be included in line placement");
 });
 
 test("歌词避让内层范围框，但仍能作为外层框的内容", () => {
@@ -48,13 +46,11 @@ test("歌词避让内层范围框，但仍能作为外层框的内容", () => {
         const lyrics = result.attachments.find(item => item.layer === "foreground" && item.regions.length);
         assert(frame && lyrics, content);
         assert(lyrics.regions[0].y > frame.y + frame.h, `lyrics must stay outside ${content}`);
-        const regions = lyrics.regions;
-        for (let index = 1; index < regions.length; index++) {
-            const left = regions[index - 1];
-            const right = regions[index];
-            assert(left.x + left.w <= right.x || right.x + right.w <= left.x
-                || left.y + left.h <= right.y || right.y + right.h <= left.y, "lyric rows must not overlap");
-        }
+        assert(lyrics.regions.slice(1).every((right, index) => {
+            const left = lyrics.regions[index];
+            return left.x + left.w <= right.x || right.x + right.w <= left.x
+                || left.y + left.h <= right.y || right.y + right.h <= left.y;
+        }), "lyric rows must not overlap");
     }
     const outer = compileValid("@box(@voice({1 2},,ha ha),padding=20px,stroke=2px)").layout;
     const frame = outer.attachments.find(item => item.layer === "background")?.regions[0];
@@ -64,7 +60,7 @@ test("歌词避让内层范围框，但仍能作为外层框的内容", () => {
 });
 
 test("嵌套框的每层 padding 只计入一次", () => {
-    const [inner, outer] = frames("@box(@box(1,padding=4px,stroke=2px),padding=7px,stroke=2px)");
+    const [inner, outer] = frames(compileValid("@box(@box(1,padding=4px,stroke=2px),padding=7px,stroke=2px)").layout);
     assert(nearly(inner.y - outer.y, 8), "outer top padding must not be doubled");
     assert(nearly(outer.h - inner.h, 16), "outer padding must be applied once per edge");
 });
@@ -84,12 +80,11 @@ test("只有关系或一个主体加关系的框保留完整范围和布局占�
 });
 
 test("带跨轨关系的范围框按关系轨道归属稳定占位", () => {
-    const result = compileValid(`
+    const [frame] = frames(compileValid(`
 @stack(1@a,4@b)
 @box({2 3 @tie(a,b,height=60px)},padding=10px,stroke=2px)
-`).layout;
-    const frame = result.attachments.find(item => item.layer === "background")?.regions[0];
-    assert(frame && frame.y >= -1e-6, "the relation's upper track must own the upper perimeter");
+`).layout);
+    assert(frame.y >= -1e-6, "the relation's upper track must own the upper perimeter");
 });
 
 test("box 的后置平移不被占用重排抵消，也不移动邻轨", () => {
@@ -98,9 +93,8 @@ test("box 的后置平移不被占用重排抵消，也不移动邻轨", () => {
             const source = (offset: number) => `@stack(@adjust(@box(${content},padding=10px,stroke=2px),dy=${offset}px),3)`;
             const baseline = compileValid(source(0));
             const shifted = compileValid(source(dy));
-            const before = baseline.layout.attachments.find(item => item.layer === "background")?.regions[0];
-            const after = shifted.layout.attachments.find(item => item.layer === "background")?.regions[0];
-            assert(before && after, content);
+            const [before] = frames(baseline.layout);
+            const [after] = frames(shifted.layout);
             assert(nearly(after.y - before.y, dy), `${content}: the frame must follow dy exactly`);
             const neighbor = (result: typeof baseline) => result.layout.objects.find(node =>
                 "name" in node.ast && node.ast.name === "3")!.box.y;
@@ -149,11 +143,8 @@ test("子域成员分别微调时，外层位移仍只作用一次且不移动�
     const graces = `{@adjust(@box(1/,padding=3px),dx=3px,dy=-7px) @adjust(@box(2/,padding=6px),dx=-2px,dy=9px)}>3`;
     const baseline = compileValid(`@stack(${graces},4)`).layout;
     const shifted = compileValid(`@stack(@adjust(${graces},dx=13px,dy=17px),4)`).layout;
-    const before = baseline.attachments.filter(attachment => attachment.layer === "background");
-    const after = shifted.attachments.filter(attachment => attachment.layer === "background");
-    for (let index = 0; index < before.length; index++) {
-        assert(nearly(after[index].regions[0].x - before[index].regions[0].x, 13), "each frame follows outer dx once");
-        assert(nearly(after[index].regions[0].y - before[index].regions[0].y, 17), "each frame follows outer dy once");
-    }
+    const [before, after] = [frames(baseline), frames(shifted)];
+    assert(before.length === 2 && before.every((frame, index) =>
+        nearly(after[index].x - frame.x, 13) && nearly(after[index].y - frame.y, 17)), "each frame follows outer dx/dy once");
     assert(nearly(shifted.objects.at(-1)!.box.y, baseline.objects.at(-1)!.box.y), "the other track stays fixed");
 });

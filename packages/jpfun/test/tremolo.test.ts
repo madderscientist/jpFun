@@ -30,18 +30,16 @@ test("单音震音在右下角绘制 1..3 条平行斜杠并预留水平空间",
             assert(move.op === "M" && line.op === "L", "each slash is M..L");
             assert(line.x > move.x && line.y < move.y, "slashes slant upward to the right");
             assert(move.x > host.box.x + host.box.w && line.x < next.box.x, "slashes sit in reserved space on the right");
-            const midY = (move.y + line.y) / 2;
-            assert(midY > host.box.y + host.box.visualAxis, "single-note slashes sit at the lower-right of the note");
+            assert((move.y + line.y) / 2 > host.box.y + host.box.visualAxis, "single-note slashes sit at the lower-right");
         }
     }
 
     const withDash = compileValid("@tremolo({5 - -}) 3").layout;
-    const lastDash = withDash.objects[2];
-    const afterDash = withDash.objects[3];
+    const [, , lastDash, afterDash] = withDash.objects;
     const dashSlash = attachmentCommands(withDash.attachments[0]).find(item => item.kind === "path");
-    assert(dashSlash?.kind === "path" && dashSlash.commands[0].op === "M" && dashSlash.commands[1].op === "L", "dash slash path");
-    assert(dashSlash.commands[0].x > lastDash.box.x + lastDash.box.w && dashSlash.commands[1].x < afterDash.box.x,
-        "sustained single-note tremolo places slashes after the final dash");
+    assert(dashSlash?.kind === "path" && dashSlash.commands[0].op === "M" && dashSlash.commands[1].op === "L"
+        && dashSlash.commands[0].x > lastDash.box.x + lastDash.box.w && dashSlash.commands[1].x < afterDash.box.x,
+    "sustained single-note tremolo places slashes after the final dash");
 });
 
 test("双音震音在两组音符或和弦之间居中绘制斜杠并保留自动连梁", () => {
@@ -139,25 +137,13 @@ test("双音震音在两组音或和弦的总时值内按 1/2^n 交替发声", (
 
 test("tremolo 支持局部子域、外框、微调、延长记号与重复布局幂等", () => {
     for (const source of [
-        "@grace(1, @tremolo(2))",
-        "@grace(1, @tremolo({2 3}))",
-        "@tremolo(2 > 1)",
-        "@tremolo({2 > 1  3})",
-        "@tremolo({1  2 > 3})",
-        "@tremolo({{2 > 1} ^ 3  4})",
-        "@up(1, @tremolo(3))",
-        "@box(@tremolo(1))",
-        "@box(@tremolo({1 2}))",
-        "@adjust(@tremolo(1), dx=2px, dy=3px)",
-        "@adjust(@tremolo({1 2}), dx=2px, dy=3px)",
-        "@tuplet(@tremolo({1 2}), 3)",
-        "@tremolo({1^$fermata 2})",
-        "@tremolo({1^$staccato 2^$staccato})",
-        "@tremolo({1 2}) & {3/ 4/ 5/ 6/}",
-        "@tremolo({1 2}) @tie()",
-        "@tremolo({1/ 2/}) @beam()",
-        "@tremolo({1@a 2})@b @tie(a, b)",
-        "@tremolo({5 -})@a 5@b @gliss(a, b)",
+        "@grace(1, @tremolo(2))", "@grace(1, @tremolo({2 3}))",
+        "@tremolo(2 > 1)", "@tremolo({2 > 1  3})", "@tremolo({1  2 > 3})", "@tremolo({{2 > 1} ^ 3  4})",
+        "@up(1, @tremolo(3))", "@box(@tremolo(1))", "@box(@tremolo({1 2}))",
+        "@adjust(@tremolo(1), dx=2px, dy=3px)", "@adjust(@tremolo({1 2}), dx=2px, dy=3px)",
+        "@tuplet(@tremolo({1 2}), 3)", "@tremolo({1^$fermata 2})", "@tremolo({1^$staccato 2^$staccato})",
+        "@tremolo({1 2}) & {3/ 4/ 5/ 6/}", "@tremolo({1 2}) @tie()", "@tremolo({1/ 2/}) @beam()",
+        "@tremolo({1@a 2})@b @tie(a, b)", "@tremolo({5 -})@a 5@b @gliss(a, b)",
     ]) {
         const result = compileValid(source);
         assert(result.layout.bounds.w > 0 && result.layout.bounds.h > 0, source);
@@ -198,22 +184,9 @@ test("tremolo 校验斜杠数与内容合法性", () => {
         expectCompileError(`@tremolo(1, n=${badN})`, "E_TREMOLO_INVALID_N");
     }
     for (const badContent of [
-        "{}",
-        "0",
-        "8",
-        "@rest(1)",
-        "-",
-        "{1 0}",
-        "{0 1}",
-        "{1 2 3}",
-        "{1 - 2}",
-        "{1 2 -}",
-        "{1 | 2}",
-        '{1 "文字" 2}',
-        "@tremolo(1)",
-        "{@tremolo(1) 2}",
-        "1 ^ @tremolo(3)",
-        "2 > @tremolo(1)",
+        "{}", "0", "8", "@rest(1)", "-",
+        "{1 0}", "{0 1}", "{1 2 3}", "{1 - 2}", "{1 2 -}", "{1 | 2}", '{1 "文字" 2}',
+        "@tremolo(1)", "{@tremolo(1) 2}", "1 ^ @tremolo(3)", "2 > @tremolo(1)",
     ]) {
         expectCompileError(`@tremolo(${badContent})`, "E_TREMOLO_CONTENT");
     }

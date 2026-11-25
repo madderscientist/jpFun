@@ -13,25 +13,19 @@ test("关系对象向上让位，box 包含它们的完整范围", () => {
 `);
     const backgroundObjects = relationResult.attachments.filter(item => item.layer === "background");
     const foregroundObjects = relationResult.attachments.filter(item => item.layer === "foreground");
+    assert(backgroundObjects.length === 2 && foregroundObjects.length === 2,
+        "each box must create one background attachment, tie and beam one foreground attachment each");
 
-    assert(backgroundObjects.length === 2, "each box must create one background attachment");
-    assert(foregroundObjects.length === 2, "tie and beam must create two foreground attachments");
-
-    const tie = foregroundObjects[0].regions[0];
-    const beam = foregroundObjects[1].regions[0];
-    const firstNote = relationResult.objects[0];
-    const firstBeamNote = relationResult.objects[2];
-
+    const [tie, beam] = foregroundObjects.map(item => item.regions[0]);
+    const [firstNote, , firstBeamNote] = relationResult.objects;
     assert(tie.y < firstNote.box.y, "tie must reserve space above its endpoint notes");
     assert(firstNote.box.y > 0, "the track visual axis must move down to include the tie");
     assert(beam.y >= firstBeamNote.box.y + firstBeamNote.box.visualAxis, "beam must stay below note visual axes");
 
     const tieBox = backgroundObjects[0].regions[0];
-    assert(tieBox.x < tie.x, "box padding must extend left of the enclosed tie");
-    assert(tieBox.y < tie.y, "box padding must extend above the enclosed tie");
-    assert(tieBox.x + tieBox.w > tie.x + tie.w, "box must include the full tie width");
+    assert(tieBox.x < tie.x && tieBox.y < tie.y && tieBox.x + tieBox.w > tie.x + tie.w,
+        "box padding must extend around the enclosed tie");
     assert(tieBox.y + tieBox.h > firstNote.box.y + firstNote.box.h, "box must include its notes and padding");
-
 });
 
 test("box 的边框覆盖成员自身的图形，只有写在框内的关系才撑框", () => {
@@ -80,25 +74,18 @@ test("固定宽度的 box 约束成员跨度并均匀分配余宽", () => {
     const fixedBox = fixedBoxResult.attachments[0].regions[0];
     assert(adaptiveBox.w < 120, "negative default box width must preserve natural global layout");
     assert(nearly(fixedBox.w, 120), "positive box width must constrain its complete member span");
-    const fixedBoxMembers = fixedBoxResult.objects.slice(0, 3);
-    assert(nearly(fixedBoxMembers[0].box.x, fixedBox.x), "fixed box content must touch its left wall");
-    assert(nearly(fixedBoxMembers[2].box.x + fixedBoxMembers[2].box.w, fixedBox.x + fixedBox.w),
-        "fixed box content must touch its right wall");
-    const fixedGap1 = fixedBoxMembers[1].box.x + fixedBoxMembers[1].box.anchor
-        - fixedBoxMembers[0].box.x - fixedBoxMembers[0].box.anchor;
-    const fixedGap2 = fixedBoxMembers[2].box.x + fixedBoxMembers[2].box.anchor
-        - fixedBoxMembers[1].box.x - fixedBoxMembers[1].box.anchor;
-    assert(nearly(fixedGap1, fixedGap2), "fixed box must distribute spare width evenly");
-    assert(fixedBoxResult.objects[3].box.x > fixedBox.x + fixedBox.w, "objects after a fixed box must remain in the global flow");
+    const [first, second, third, after] = fixedBoxResult.objects;
+    const anchorX = (node: typeof first) => node.box.x + node.box.anchor;
+    assert(nearly(first.box.x, fixedBox.x) && nearly(third.box.x + third.box.w, fixedBox.x + fixedBox.w),
+        "fixed box content must touch both walls");
+    assert(nearly(anchorX(second) - anchorX(first), anchorX(third) - anchorX(second)),
+        "fixed box must distribute spare width evenly");
+    assert(after.box.x > fixedBox.x + fixedBox.w, "objects after a fixed box must remain in the global flow");
 
-    const alignedFixedBox = layoutOf(`@stack({@box({1 2 3},padding=0px,stroke=0px,width=120px)}, {4 5 6})`);
+    const aligned = layoutOf(`@stack({@box({1 2 3},padding=0px,stroke=0px,width=120px)}, {4 5 6})`).objects;
     for (let i = 0; i < 3; i++) {
-        const upper = alignedFixedBox.objects[i * 2];
-        const lower = alignedFixedBox.objects[i * 2 + 1];
-        assert(
-            nearly(upper.box.x + upper.box.anchor, lower.box.x + lower.box.anchor),
-            "a fixed box must move every track that shares its global time columns",
-        );
+        assert(nearly(anchorX(aligned[i * 2]), anchorX(aligned[i * 2 + 1])),
+            "a fixed box must move every track that shares its global time columns");
     }
 
     const nestedFixedBoxes = layoutOf(
@@ -109,26 +96,22 @@ test("固定宽度的 box 约束成员跨度并均匀分配余宽", () => {
 });
 
 test("矛盾、交叉与过窄的 box 各自报告到它的声明处", () => {
-    const conflictingBoxSource = `@box(@box({1 2},padding=0px,stroke=0px,width=60px),padding=0px,stroke=0px,width=80px)`;
-    const conflictingBoxDiagnostic = expectLayoutError(conflictingBoxSource, "E_BOX_CONSTRAINT_CONFLICT");    assert(conflictingBoxSource.slice(conflictingBoxDiagnostic.span.start, conflictingBoxDiagnostic.span.end) === conflictingBoxSource,
-        "a conflicting box diagnostic must point to the box that owns the rejected width");
-
-    const crossingBoxSource = `@stack({@box({1 2 3},width=80px)}, {4 @box({5 6 7},width=80px)})`;
-    const crossingBoxDiagnostic = expectLayoutError(crossingBoxSource, "E_BOX_CONSTRAINT_CROSSING");
-    assert(crossingBoxSource.slice(crossingBoxDiagnostic.span.start, crossingBoxDiagnostic.span.end).startsWith("@box"),
-        "a crossing box diagnostic must point to the box that introduces the crossing constraint");
-
-    const narrowBoxSource = `@box({1 2},width=1px)`;
-    const narrowBoxDiagnostic = expectLayoutError(narrowBoxSource, "E_BOX_WIDTH_TOO_SMALL");
-    assert(narrowBoxSource.slice(narrowBoxDiagnostic.span.start, narrowBoxDiagnostic.span.end) === narrowBoxSource,
-        "a narrow box diagnostic must point to its declaration");
+    // 交叉约束只要求指向引入交叉的那个 box，其余都指向整个外层声明
+    for (const [source, code, whole] of [
+        [`@box(@box({1 2},padding=0px,stroke=0px,width=60px),padding=0px,stroke=0px,width=80px)`, "E_BOX_CONSTRAINT_CONFLICT", true],
+        [`@stack({@box({1 2 3},width=80px)}, {4 @box({5 6 7},width=80px)})`, "E_BOX_CONSTRAINT_CROSSING", false],
+        [`@box({1 2},width=1px)`, "E_BOX_WIDTH_TOO_SMALL", true],
+    ] as const) {
+        const { span } = expectLayoutError(source, code);
+        const spanned = source.slice(span.start, span.end);
+        assert(whole ? spanned === source : spanned.startsWith("@box"), `${code} must point to the box declaration`);
+    }
 });
 
 test("box 不得跨行，分居两行的 box 各自取本行边界", () => {
-    const crossLineBoxSource = `@box({1 @br() 2}, 2px, 1px)`;
-    const crossLineBoxDiagnostic = expectLayoutError(crossLineBoxSource, "E_BOX_CROSS_LINE");
-    assert(crossLineBoxSource.slice(crossLineBoxDiagnostic.span.start, crossLineBoxDiagnostic.span.end) === crossLineBoxSource,
-        "a cross-line box diagnostic must point to its declaration");
+    const crossLineSource = `@box({1 @br() 2}, 2px, 1px)`;
+    const { span } = expectLayoutError(crossLineSource, "E_BOX_CROSS_LINE");
+    assert(crossLineSource.slice(span.start, span.end) === crossLineSource, "a cross-line box diagnostic must point to its declaration");
 
     const separateLineBoxes = layoutOf(`@box({1}) @br() @box({2})`).attachments.map(item => item.regions[0]);
     assert(

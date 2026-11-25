@@ -1,3 +1,4 @@
+import { strictEqual } from "node:assert/strict";
 import { test } from "node:test";
 
 import type { VisualTemporalNode } from "../src/functions/temporal.js";
@@ -18,6 +19,10 @@ function velocities(source: string) {
     return playedNotes(compilePlayback(lower(source))).map(note => note.velocity);
 }
 
+function expectVelocities(cases: readonly (readonly [string, string])[]) {
+    for (const [source, expected] of cases) strictEqual(velocities(source).join(" "), expected, source);
+}
+
 function hairpin(source: string) {
     const layout = layoutOf(source);
     const attachment = layout.attachments.find(item => item.sourceSpan?.start === source.indexOf("@dyn"));
@@ -25,17 +30,16 @@ function hairpin(source: string) {
     return { layout, attachment, lines: attachmentCommands(attachment).filter(command => command.kind === "line") };
 }
 
-test("dyn 按记谱时间线性叠加力度并在区间后保持", () => {
-    for (const [source, expected] of [
-        ["1@a ^ $p 2 3 4@b 5 @dyn(a,b,24)", "49 57 65 73 73"],
-        ["1@a ^ $p 2 3@b @dyn(b,a,24)", "49 61 73"],
-        ["1@a ^ $f 2 3@b 4 @dyn(a,b,-24)", "96 84 72 72"],
-        ["1@a 2@b @dyn(a,b,100)", "80 127"],
-        ["1@a 2@b @dyn(a,b,-100)", "80 1"],
-    ]) {
-        assert(velocities(source).join(" ") === expected, `${source} must produce ${expected}`);
-    }
-});
+test("dyn 按记谱时间线性叠加力度并在区间后保持，与区间内外的力度记号解耦", () => expectVelocities([
+    ["1@a ^ $p 2 3 4@b 5 @dyn(a,b,24)", "49 57 65 73 73"],
+    ["1@a ^ $p 2 3@b @dyn(b,a,24)", "49 61 73"],
+    ["1@a ^ $f 2 3@b 4 @dyn(a,b,-24)", "96 84 72 72"],
+    ["1@a 2@b @dyn(a,b,100)", "80 127"],
+    ["1@a 2@b @dyn(a,b,-100)", "80 1"],
+    // 每个音在自身原力度上叠加增量；区间后第一个显式力度接管，不再保留增量
+    ["1@a ^ $p 2 3 ^ $f 4@b 5 6 ^ $p @dyn(a,b,24)", "49 57 112 120 120 49"],
+    ["1@a ^ $p 2 3@b 4 5 ^ $f @dyn(a,b,24)", "49 61 73 73 96"],
+]));
 
 test("dyn 的增时线端点使用同轨此前最后一个音符的力度基准", () => {
     for (const endpoints of ["a,b", "b,a"]) {
@@ -49,10 +53,11 @@ test("dyn 的增时线端点使用同轨此前最后一个音符的力度基准"
         assert(nearly(lines[0].x2, end.box.x + end.box.w),
             "the visual endpoint must remain on the labeled dash");
     }
-    assert(velocities(`1@a ^ $p 2 ^ $f -@b 3 4 ^ $p @dyn(a,b,24)`).join(" ") === "49 108 120 49",
-        "the fallback must use the last original velocity, not the start velocity");
-    assert(velocities(`1 ^ $p -@a 2 -@b 3 @dyn(a,b,24)`).join(" ") === "49 61 73",
-        "both endpoints may be dashes without changing notes before the range");
+    expectVelocities([
+        // 回退基准取最后一个原始力度而不是起点力度
+        [`1@a ^ $p 2 ^ $f -@b 3 4 ^ $p @dyn(a,b,24)`, "49 108 120 49"],
+        [`1 ^ $p -@a 2 -@b 3 @dyn(a,b,24)`, "49 61 73"],
+    ]);
 });
 
 test("dyn 的增时线端点不借用其他声部的力度", () => {
@@ -83,41 +88,26 @@ test("dyn 找不到此前同轨力度时给出诊断并保留图形", () => {
     }
 });
 
-test("dyn 与区间内外的力度记号保持解耦", () => {
-    assert(velocities(`1@a ^ $p 2 3 ^ $f 4@b 5 6 ^ $p @dyn(a,b,24)`).join(" ") === "49 57 112 120 120 49",
-        "each note must receive the ramp delta on top of its own original velocity");
-    assert(velocities(`1@a ^ $p 2 3@b 4 5 ^ $f @dyn(a,b,24)`).join(" ") === "49 61 73 73 96",
-        "the first later explicit velocity must take over without the retained delta");
-});
-
 test("dyn 覆盖折叠的和弦与倚音成员", () => {
     const chord = playedNotes(compilePlayback(lower(`1@a ^ 3 2 4@b ^ 6 @dyn(a,b,20)`)));
-    assert(chord.filter(note => note.start.equals(0)).every(note => note.velocity === 80),
-        "all members at the start chord must receive zero delta");
-    assert(chord.filter(note => note.start.equals(1)).every(note => note.velocity === 90),
-        "the middle note must receive half the delta");
-    assert(chord.filter(note => note.start.equals(2)).every(note => note.velocity === 100),
-        "all members at the end chord must receive the full delta");
+    for (const [start, velocity] of [[0, 80], [1, 90], [2, 100]]) {
+        assert(chord.filter(note => note.start.equals(start)).every(note => note.velocity === velocity),
+            `all chord members at ${start} must receive the same delta`);
+    }
 
     const grace = playedNotes(compilePlayback(lower(`2>1@a 3 4@b @dyn(a,b,20)`)));
-    assert(grace.filter(note => note.start.compare(1) < 0).every(note => note.velocity === 80),
-        "grace and host members projected to the start must receive zero delta");
-    assert(grace.at(-1)?.velocity === 100, "the end note must still receive the full delta");
-
-    const markedEnd = velocities(`1@a {2 $p}>3@b 4 5 ^ $f @dyn(a,b,20)`);
-    assert(markedEnd.join(" ") === "80 100 69 69 96",
-        "the marked end note must determine the retained velocity before the next dynamic");
+    assert(grace.filter(note => note.start.compare(1) < 0).every(note => note.velocity === 80)
+        && grace.at(-1)?.velocity === 100, "grace and host members projected to the start must receive zero delta");
+    // 带力度记号的终点倚音决定区间后的保持力度
+    expectVelocities([[`1@a {2 $p}>3@b 4 5 ^ $f @dyn(a,b,20)`, "80 100 69 69 96"]]);
 });
 
-test("dyn 在反复中重放同一曲线，多条声明按加法组合", () => {
-    assert(velocities(`|: 1@a ^ $p 2 3@b :| @dyn(a,b,24)`).join(" ") === "49 61 73 49 61 73",
-        "every repeat pass must replay the same score-time velocity curve");
-
-    const forward = velocities(`1@a 2@b 3@c 4 @dyn(a,b,20) @dyn(b,c,-20)`);
-    const reversed = velocities(`1@a 2@b 3@c 4 @dyn(b,c,-20) @dyn(a,b,20)`);
-    assert(forward.join(" ") === "80 100 80 80", "opposite ramps must compose back to the base velocity");
-    assert(forward.join(" ") === reversed.join(" "), "ordinary integer deltas must compose commutatively");
-});
+test("dyn 在反复中重放同一曲线，多条声明按加法组合", () => expectVelocities([
+    [`|: 1@a ^ $p 2 3@b :| @dyn(a,b,24)`, "49 61 73 49 61 73"],
+    // 相反的两段渐变组合回原力度，且与声明顺序无关
+    [`1@a 2@b 3@c 4 @dyn(a,b,20) @dyn(b,c,-20)`, "80 100 80 80"],
+    [`1@a 2@b 3@c 4 @dyn(b,c,-20) @dyn(a,b,20)`, "80 100 80 80"],
+]));
 
 test("dyn 校验增量、音轨和时间跨度", () => {
     expectCompileError(`1@a 2@b @dyn(a,b,0)`, "E_DYN_INVALID_DELTA");
@@ -217,13 +207,11 @@ test("dyn 绘制单行楔形并申报上方占用", () => {
     const source = `1@a 2 3@b @dyn(a,b,20)`;
     const { layout, attachment, lines } = hairpin(source);
     const hosts = layout.objects as VisualTemporalNode[];
-    assert(lines.length === 2, "one hairpin segment must contain two strokes");
-    assert(nearly(lines[0].y1, lines[1].y1), "a crescendo must begin at a closed tip");
-    assert(lines[1].y2 - lines[0].y2 > 0, "a crescendo must open towards its end");
+    assert(lines.length === 2 && nearly(lines[0].y1, lines[1].y1) && lines[1].y2 - lines[0].y2 > 0,
+        "a crescendo must open from a closed tip with two strokes");
     assert(nearly(lines[0].x1, hosts[0].box.x)
         && nearly(lines[0].x2, hosts.at(-1)!.box.x + hosts.at(-1)!.box.w),
     "a hairpin must span the complete boxes of both endpoint hosts");
     assert(attachment.regions[0].y + attachment.regions[0].h < Math.min(...hosts.map(host => host.box.y)),
         "the hairpin must reserve space above the numbered notes");
-
 });

@@ -79,25 +79,20 @@ test("时值对象的 kind 默认取函数主名，糖语法与别名不影响",
     deepStrictEqual(kinds("@arpeggio({1 ^ 3})"), ["arp"]);
 });
 
-test("容器组包含成员的组", () => {
-    deepStrictEqual(svgShapes("@up(1, 3)"), ["up(note(text:1) note(text:3))"]);
-    deepStrictEqual(svgShapes("1 ^ 3"), ["up(note(text:1) note(text:3))"]);
-    // grace 组里依次是宿主、倚音和钩线
-    deepStrictEqual(svgShapes("2>1"), ["grace(note(text:1) note(text:2 rect) path)"]);
-    deepStrictEqual(svgShapes("1<2"), ["grace(note(text:1) note(text:2 rect) path)"]);
-    deepStrictEqual(svgShapes("@grace({1^3},4)/ 2/"), [
-        "grace(up(note(text:1) note(text:3)) note(text:4 rect) path) note(text:2) beam(rect)",
-    ]);
-    // arp 组里是波浪线和宿主
-    deepStrictEqual(svgShapes("@arp({1 ^ 3 ^ 5})"), [
-        "arp(path up(note(text:1) note(text:3) note(text:5)))",
-    ]);
-});
-
-test("装饰画在所属对象的组内，相连的减时线画在 beam 组内", () => {
-    deepStrictEqual(svgShapes("#2'./"), ["note(path text:2 circle circle rect)"]);
-    deepStrictEqual(svgShapes("1'. 2/"), ["note(text:1 circle circle) note(text:2 rect)"]);
-    deepStrictEqual(svgShapes("1/ 2/"), ["note(text:1) note(text:2) beam(rect)"]);
+test("容器组包含成员的组，装饰画在所属对象的组内，相连的减时线画在 beam 组内", () => {
+    const cases: [source: string, shape: string][] = [
+        ["@up(1, 3)", "up(note(text:1) note(text:3))"],
+        // grace 组里依次是宿主、倚音和钩线
+        ["2>1", "grace(note(text:1) note(text:2 rect) path)"],
+        ["1<2", "grace(note(text:1) note(text:2 rect) path)"],
+        ["@grace({1^3},4)/ 2/", "grace(up(note(text:1) note(text:3)) note(text:4 rect) path) note(text:2) beam(rect)"],
+        // arp 组里是波浪线和宿主
+        ["@arp({1 ^ 3 ^ 5})", "arp(path up(note(text:1) note(text:3) note(text:5)))"],
+        ["#2'./", "note(path text:2 circle circle rect)"],
+        ["1'. 2/", "note(text:1 circle circle) note(text:2 rect)"],
+        ["1/ 2/", "note(text:1) note(text:2) beam(rect)"],
+    ];
+    for (const [source, shape] of cases) deepStrictEqual(svgShapes(source), [shape], source);
 });
 
 test("每个 attachment 各成一组，kind 由实现声明", () => {

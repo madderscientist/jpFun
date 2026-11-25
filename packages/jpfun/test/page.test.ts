@@ -23,93 +23,65 @@ import {
 } from "./helpers.js";
 
 test("br 在 lowering 阶段就固化行号，并把文档切成两个系统", () => {
-    const loweredBreak = lower(`1 2 @br() 3 4`);
-    const loweredBreakLines = loweredBreak.columns
-        .flat()
-        .filter(isVisualTemporalNode)
-        .map(node => node.layoutLine);
-    const loweredBreakControl = loweredBreak.columns
-        .flat()
-        .find(node => !isVisualTemporalNode(node));
-    assert(
-        loweredBreakLines.join(",") === "0,0,1,1",
-        "lowering must solidify visible event line numbers before layout",
-    );
-    assert(loweredBreakControl?.layoutLine === 1, "br must receive the new line number of its own merged column");
-    const breakResult = layoutDocument(loweredBreak, layoutContext);
+    const lowered = lower(`1 2 @br() 3 4`);
+    const nodes = lowered.columns.flat();
+    deepStrictEqual(nodes.filter(isVisualTemporalNode).map(node => node.layoutLine), [0, 0, 1, 1]);
+    assert(nodes.find(node => !isVisualTemporalNode(node))?.layoutLine === 1,
+        "br must receive the new line number of its own merged column");
 
-    assert(breakResult.lineCount === 2, "br must split the document into two layout systems");
-    assert(breakResult.objects[0].layoutLine === 0 && breakResult.objects[1].layoutLine === 0, "objects before br must stay on line 0");
-    assert(breakResult.objects[2].layoutLine === 1 && breakResult.objects[3].layoutLine === 1, "objects after br must move to line 1");
-    assert(nearly(breakResult.objects[0].box.x, breakResult.objects[2].box.x), "each system must restart horizontal layout at the same origin");
-    assert(breakResult.objects[2].box.y > breakResult.objects[0].box.y + breakResult.objects[0].box.h, "the second system must be below the first system");
-
+    const { lineCount, objects } = layoutDocument(lowered, layoutContext);
+    assert(lineCount === 2, "br must split the document into two layout systems");
+    deepStrictEqual(objects.map(node => node.layoutLine), [0, 0, 1, 1]);
+    assert(nearly(objects[0].box.x, objects[2].box.x), "each system must restart horizontal layout at the same origin");
+    assert(objects[2].box.y > objects[0].box.y + objects[0].box.h, "the second system must be below the first system");
 });
 
 test("br 的偏移参数保留空行，0 被修正并报警", () => {
-    const offsetBreakResult = compileScore(`1 @br(2) 2`);
-    assert(offsetBreakResult.layout.lineCount === 3, "br(2) must preserve one empty intermediate line");
-    assert(offsetBreakResult.layout.objects[0].layoutLine === 0, "the event before br(2) must stay on line 0");
-    assert(offsetBreakResult.layout.objects[1].layoutLine === 2, "the event after br(2) must move to line 2");
+    const offset = compileScore(`1 @br(2) 2`).layout;
+    assert(offset.lineCount === 3, "br(2) must preserve one empty intermediate line");
+    deepStrictEqual(offset.objects.map(node => node.layoutLine), [0, 2]);
 
-    const zeroBreakResult = compileScore(`1 @br(0) 2`);
-    assert(zeroBreakResult.diagnostics.some(item => item.code === "W_BR_OFFSET"),
-        "br(0) must report that its offset was corrected");
-    assert(zeroBreakResult.layout.lineCount === 2, "br(0) must be corrected to br(1)");
-    assert(zeroBreakResult.layout.objects[1].layoutLine === 1, "br(0) must move following events to the next line");
+    const zero = compileScore(`1 @br(0) 2`);
+    assert(zero.diagnostics.some(item => item.code === "W_BR_OFFSET"), "br(0) must report that its offset was corrected");
+    assert(zero.layout.lineCount === 2, "br(0) must be corrected to br(1)");
+    deepStrictEqual(zero.layout.objects.map(node => node.layoutLine), [0, 1]);
 });
 
-test("并行轨的同时刻 br 归并成一列，只换一次行", () => {
-    const loweredParallelBreak = lower(`@stack({1 @br() 2}, {3 @br() 4})`);
-    const parallelBreakResult = layoutDocument(loweredParallelBreak, layoutContext);
-    const parallelBreakColumns = loweredParallelBreak.columns.filter(column =>
-        column.some(node => (node.addon?.breakBefore ?? 0) > 0)
-    );
-    assert(parallelBreakColumns.length === 1, "simultaneous parallel br controls must merge into one column");
-    assert(parallelBreakResult.lineCount === 2, "simultaneous br controls on different tracks must break the score only once");
-    assert(parallelBreakResult.objects[2].layoutLine === 1 && parallelBreakResult.objects[3].layoutLine === 1, "both parallel tracks must continue on the same new line");
+test("并行轨的同时刻 br 归并成一列，只换一次行；跨越换行点的持续事件报错", () => {
+    const lowered = lower(`@stack({1 @br() 2}, {3 @br() 4})`);
+    assert(lowered.columns.filter(column => column.some(node => (node.addon?.breakBefore ?? 0) > 0)).length === 1,
+        "simultaneous parallel br controls must merge into one column");
+    const parallel = layoutDocument(lowered, layoutContext);
+    assert(parallel.lineCount === 2, "simultaneous br controls on different tracks must break the score only once");
+    deepStrictEqual(parallel.objects.map(node => node.layoutLine), [0, 0, 1, 1]);
 
     assert(layoutOf(`1 @br() @br() 2`).lineCount === 3, "two br controls on one track must accumulate into two line offsets");
 
-    const loweredAsymmetricBreak = lower(`@stack({1 @br() 2}, {3 4})`);
-    const simultaneousAfterBreak = loweredAsymmetricBreak.columns
-        .flat()
+    // 只有一轨写了 br 时，同一合并列里的另一轨事件也要换到新行
+    const afterBreak = lower(`@stack({1 @br() 2}, {3 4})`).columns.flat()
         .filter(node => isVisualTemporalNode(node) && node.t.equals(1));
-    assert(simultaneousAfterBreak.length === 2, "the asymmetric break sample must retain both simultaneous events");
-    assert(
-        simultaneousAfterBreak.every(node => node.layoutLine === 1),
-        "a pre-column line offset must move every event in the merged column to the next line",
-    );
-});
+    deepStrictEqual(afterBreak.map(node => node.layoutLine), [1, 1]);
 
-test("换行切开所有轨道，跨越换行点的持续事件报错", () => {
     expectLoweringError(`@stack({1.},{2 @br() 3})`, "E_BREAK_INSIDE_EVENT");
 });
 
 test("默认页面与配置归一化", () => {
-    const defaultPageResult = layoutOf("1");
-    assert(defaultPageResult.pages.length === 1, "default infinite-height layout must create one page");
-    assert(defaultPageResult.pages[0].bounds.w === 794, "default page width must use the A4 approximation");
-    assert(defaultPageResult.pages[0].bounds.h < Infinity, "an infinite-height page must expose its natural finite height");
+    const [defaultPage, ...rest] = layoutOf("1").pages;
+    assert(rest.length === 0 && defaultPage.bounds.w === 794 && defaultPage.bounds.h < Infinity,
+        "default layout must create one A4-wide page with a natural finite height");
 
-    const partialPageConfig = normalizePageConfig({ width: 320, marginTop: -5 });
-    assert(partialPageConfig.width === 320, "page normalization must preserve provided values");
-    assert(partialPageConfig.marginTop === 0, "page normalization must clamp provided margins");
-    assert(partialPageConfig.marginBottom === DEFAULT_PAGE_CONFIG.marginBottom,
-        "page normalization must fill omitted values from the default config");
-    assert(partialPageConfig.fillRatio === 0.5, "page normalization must default fillRatio to 0.5");
+    const partial = normalizePageConfig({ width: 320, marginTop: -5 });
+    deepStrictEqual([partial.width, partial.marginTop, partial.marginBottom, partial.fillRatio],
+        [320, 0, DEFAULT_PAGE_CONFIG.marginBottom, 0.5]);
     for (const height of [0, -1]) {
         assert(normalizePageConfig({ height }).height === Infinity,
             "page normalization must treat non-positive heights as Infinity");
     }
 
-    const configuredFill = compileScore(`@page(fillRatio=0.75) 1`);
-    assert(configuredFill.lowering.page?.fillRatio === 0.75,
-        "page declarations must solidify the configured fillRatio");
-    assert(compileScore(`@page(fillRatio=-1) 1`).lowering.page?.fillRatio === -1,
-        "page declarations must allow fillRatio below zero");
-    assert(compileScore(`@page(fillRatio=2) 1`).lowering.page?.fillRatio === 2,
-        "page declarations must allow fillRatio above one");
+    for (const fillRatio of [0.75, -1, 2]) {
+        assert(compileScore(`@page(fillRatio=${fillRatio}) 1`).lowering.page?.fillRatio === fillRatio,
+            "page declarations must solidify any finite fillRatio, including values outside [0, 1]");
+    }
     const infiniteFill = compileScore(`@page(fillRatio=Infinity) 1`);
     assert(infiniteFill.lowering.page?.fillRatio === DEFAULT_PAGE_CONFIG.fillRatio
         && infiniteFill.diagnostics.some(item => item.code === "W_INVALID_NUMBER"),
@@ -148,18 +120,14 @@ test("有限高度的页面把系统分页并分配行间距", () => {
 @page(width=200px, height=80px, top=10px, bottom=10px, left=20px, right=20px, gap=5px)
 1 @br() 2 @br() 3 @br() 4
 `);
-    assert(paged.pages.length === 2, "four systems must split into two finite pages");
-    assert(paged.pages.every(page => page.lineEnd > page.lineStart), "every generated page must contain at least one system");
-    assert(paged.pages[0].lineStart === 0 && paged.pages[0].lineEnd === 2, "the first page must contain systems 0 and 1");
-    assert(paged.pages[1].lineStart === 2 && paged.pages[1].lineEnd === 4, "the second page must contain systems 2 and 3");
+    deepStrictEqual(paged.pages.map(page => [page.lineStart, page.lineEnd]), [[0, 2], [2, 4]]);
     assert(paged.pages[0].bounds.h === 80 && paged.pages[1].bounds.y === 80, "finite pages must keep exact stacked paper bounds");
     assert(paged.bounds.w === 200 && paged.bounds.h === 160, "document bounds must include both complete pages");
 
     const [pageLine0, pageLine1, pageLine2, pageLine3] = paged.objects;
     const fullPageGap = pageLine1.box.y - pageLine0.box.y - pageLine0.box.h;
     const lastPageGap = pageLine3.box.y - pageLine2.box.y - pageLine2.box.h;
-    const remaining = 80 - 10 - 10 - pageLine0.box.h - pageLine1.box.h - 5;
-    const share = remaining / 2;
+    const share = (80 - 10 - 10 - pageLine0.box.h - pageLine1.box.h - 5) / 2;
     const fullPageBottom = 80 - 10 - pageLine1.box.y - pageLine1.box.h;
     assert(nearly(pageLine0.box.y, 10), "a closed full page must keep its first system at the top margin");
     assert(nearly(fullPageGap, 5 + share), "a closed full page must add one share below each non-final system");
@@ -176,13 +144,14 @@ test("有限高度的页面把系统分页并分配行间距", () => {
 });
 
 test("重复与嵌套的 page 声明只报警并保留第一份", () => {
-    const duplicatePageResult = compileScore(`@page(width=200px) @page(width=-1px) 1`);
-    assert(duplicatePageResult.diagnostics.some(item => item.code === "W_DUPLICATE_PAGE"), "a repeated page declaration must create a diagnostic");
-    assert(duplicatePageResult.layout.pages[0].bounds.w === 200, "the first page declaration must win");
-
-    const nestedPageResult = compileScore(`{@page(width=-1px) 1}`);
-    assert(nestedPageResult.diagnostics.some(item => item.code === "W_PAGE_NOT_TOP_LEVEL"), "a nested page declaration must create a diagnostic");
-    assert(nestedPageResult.layout.pages[0].bounds.w === 794, "a nested page declaration must be ignored");
+    for (const [source, code, width] of [
+        ["@page(width=200px) @page(width=-1px) 1", "W_DUPLICATE_PAGE", 200],
+        ["{@page(width=-1px) 1}", "W_PAGE_NOT_TOP_LEVEL", 794],
+    ] as const) {
+        const { diagnostics, layout } = compileScore(source);
+        assert(diagnostics.some(item => item.code === code), source);
+        assert(layout.pages[0].bounds.w === width, "only the first top-level page declaration may take effect");
+    }
 });
 
 test("放不下的内容和无效的版心各自报错", () => {
@@ -207,18 +176,14 @@ test("页码单个占位符显示当前页，多个占位符的末尾显示总�
         ["1-1-1", ["1-1-3", "2-2-3", "3-3-3"]],
         ["固定文字", ["固定文字", "固定文字", "固定文字"]],
     ] as const) {
-        const result = compileScore(`
+        const { layout } = compileValid(`
 @page(width=200px, height=90px, top=10px, bottom=20px,
     left=20px, right=20px, gap=5px, numbering="${pattern}")
 1 @br() 2 @br() 3 @br() 4 @br() 5 @br() 6
 `);
-        assert(result.diagnostics.length === 0, `${pattern} must compile without diagnostics`);
-        assert(result.layout.pages.length === 3, "the sample must contain three pages");
-        const texts = attachmentCommands(result.layout.attachments[0])
+        deepStrictEqual(attachmentCommands(layout.attachments[0])
             .filter(command => command.kind === "text")
-            .map(command => command.text);
-        assert(JSON.stringify(texts) === JSON.stringify(expected),
-            `${pattern}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(texts)}`);
+            .map(command => command.text), [...expected], pattern);
     }
 });
 
@@ -229,10 +194,8 @@ test("页码是 @page 自己注册的 attachment，逐页浮在下边距带内",
 `);
     assert(paged.attachments.length === 1, "numbering must contribute exactly one attachment");
     const [numbering] = paged.attachments;
-    const numbers = attachmentCommands(numbering)
-        .filter(command => command.kind === "text");
-    assert(numbers.map(command => command.text).join("|") === "1 / 3|2 / 3|3 / 3",
-        "each page must render one number whose last counting symbol is the total page count");
+    const numbers = attachmentCommands(numbering).filter(command => command.kind === "text");
+    deepStrictEqual(numbers.map(command => command.text), ["1 / 3", "2 / 3", "3 / 3"]);
     assert(numbering.regions.every(region => region.line === void 0),
         "page numbers live in the margin and must not claim any track");
 
@@ -387,15 +350,13 @@ test("pb 严格保留空白页、并行归并，并包含在分页绘制中", ()
         ["@pb() 1", 2],
         ["1 @pb()", 2],
         ["1 @pb() @pb() 2", 3],
+        // 同时刻的 pb 归并为一次换页，不同时刻的各自换页
+        ["@stack({1 @pb() 2}, {3 @pb(false) 4})", 2],
+        ["@stack({1 @pb() 2 3}, {4 5 @pb() 6})", 3],
     ] as const) {
         const { layout } = compileValid(`@page(height=200px, top=10px, bottom=10px, gap=5px) ${source}`);
         assert(layout.pages.length === expected, `${source} must produce ${expected} pages`);
     }
-
-    assert(compileValid("@stack({1 @pb() 2}, {3 @pb(false) 4})").layout.pages.length === 2,
-        "simultaneous pb controls must merge into one page break");
-    assert(compileValid("@stack({1 @pb() 2 3}, {4 5 @pb() 6})").layout.pages.length === 3,
-        "pb at different times must create separate page boundaries");
 
     const { layout } = compileValid(`
 @page(height=200px, top=10px, bottom=20px, numbering="1 / 1")
@@ -419,8 +380,7 @@ test("pb 沿用跨持续事件、刚性复合体和单行溢出的校验", () =>
     expectLoweringError("@head(center={@pb()})", "E_HEAD_INTERNAL_BREAK");
     expectLayoutError("@page(height=36px, top=10px, bottom=10px) @pb() 1", "E_PAGE_OVERFLOW");
     assert(compileValid("{1 @pb(false) 2}").layout.pages.length === 2, "ordinary content blocks must support pb");
-    const invalid = compileScore("1 @pb(justify=invalid) 2");
-    assert(invalid.diagnostics.some(item => item.code === "W_INVALID_BOOL"), "invalid justify must be diagnosed");
-    const extra = compileScore("1 @pb(true, false) 2");
-    assert(extra.diagnostics.some(item => item.code === "W_TOO_MANY_POS_ARGS"), "extra arguments must be diagnosed");
+    for (const [source, code] of [["1 @pb(justify=invalid) 2", "W_INVALID_BOOL"], ["1 @pb(true, false) 2", "W_TOO_MANY_POS_ARGS"]]) {
+        assert(compileScore(source).diagnostics.some(item => item.code === code), source);
+    }
 });

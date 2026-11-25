@@ -171,23 +171,16 @@ test("播放 Track 保持 lowering 的稳定顺序，不随首个 NoteOn 改变"
 });
 
 test("up 由复合节点发出折叠成员且不重不漏", () => {
-    const notes = playedNotes(compilePlayback(lower(`@up(1, 3) 4`)));
-    assert(notes.length === 3, `和弦两个成员加后继音应发出三个音，实际为 ${notes.length}`);
-    assert(notes[0].start.equals(0) && notes[1].start.equals(0),
-        "up 成员必须共享同一演奏起点");
-    assert(notes[2].start.equals(1), "up 的后继音必须从和弦时值之后开始");
-    assert(notes[0].midi === 64 && notes[1].midi === 60 && notes[2].midi === 65,
-        "up 应按从上到下发出成员，之后继续主时间线");
+    // 成员从上到下、共享起点各发一次，后继音从和弦时值之后开始
+    deepStrictEqual(playedNotes(compilePlayback(lower(`@up(1, 3) 4`))).map(note => `${note.midi}@${note.start}`),
+        ["64@0", "60@0", "65@1"]);
 });
 
 test("增时线延长同轨上一组发声音符", () => {
     const plan = compilePlayback(lower(`1 - - 2`));
     const notes = playedNotes(plan);
-    assert(notes.length === 2, "增时线不能产生新的 attack");
-    assert(notes[0].duration.equals(3), "两根增时线应把前音延长到三个四分音符");
-    assert(notes[1].start.equals(3),
-        "增时线不应移动 lowering 已确定的后继起点");
-    assert(plan.diagnostics.length === 0, "有相邻目标的增时线不应产生诊断");
+    assert(notes.length === 2 && notes[0].duration.equals(3) && notes[1].start.equals(3) && plan.diagnostics.length === 0,
+        "两根增时线应把前音延长到三拍，不产生新 attack、不移动后继起点、不报诊断");
 
     const chord = playedNotes(compilePlayback(lower(`1^3 -`)));
     assert(chord.length === 2 && chord.every(note => note.duration.equals(2)),
@@ -216,29 +209,19 @@ test("增时线延长同轨上一组发声音符", () => {
 });
 
 test("前后倚音在宿主时值内按发声顺序排程", () => {
-    const pre = playedNotes(compilePlayback(lower(`2>1 3`)));
-    assert(pre.length === 3, "前倚音、宿主和后继音都应发声");
-    assert(pre[0].midi === 62 && pre[0].start.equals(0)
-        && pre[0].duration.equals(1, 8), "八分前倚音应从拍点借用 1/8 QN");
-    assert(pre[1].midi === 60 && pre[1].start.equals(1, 8)
-        && pre[1].duration.equals(7, 8), "前倚音宿主应使用剩余时值");
-    assert(pre[2].start.equals(1), "倚音不能移动后继乐谱事件");
-
-    const post = playedNotes(compilePlayback(lower(`1<2`)));
-    assert(post[0].midi === 60 && post[0].duration.equals(7, 8),
-        "后倚音应先播放缩短后的宿主");
-    assert(post[1].midi === 62 && post[1].start.equals(7, 8) && post[1].duration.equals(1, 8),
-        "八分后倚音应占宿主末尾的 1/8 QN");
-
     for (const [source, expected] of [
-        ["{3 2}>1", "0:1/8 1/8:1/8 1/4:3/4"],
-        ["{@text(A) 2 3/}>1//", "0:1/12 1/12:1/24 1/8:1/8"],
-        ["{@text(A)}>1", "0:1"],
-        ["1>2>3<4", "0:1/16 1/16:1/16 1/8:3/4 7/8:1/8"],
+        // 八分前倚音从拍点借用 1/8 QN，宿主使用剩余时值，不移动后继乐谱事件
+        ["2>1 3", "62@0:1/8 60@1/8:7/8 64@1:1"],
+        // 后倚音先播放缩短后的宿主，再占宿主末尾的 1/8 QN
+        ["1<2", "60@0:7/8 62@7/8:1/8"],
+        ["{3 2}>1", "64@0:1/8 62@1/8:1/8 60@1/4:3/4"],
+        ["{@text(A) 2 3/}>1//", "62@0:1/12 64@1/12:1/24 60@1/8:1/8"],
+        ["{@text(A)}>1", "60@0:1"],
+        ["1>2>3<4", "60@0:1/16 62@1/16:1/16 64@1/8:3/4 65@7/8:1/8"],
     ]) {
         const plan = compilePlayback(lower(source));
         deepStrictEqual(plan.diagnostics, [], source);
-        deepStrictEqual(playedNotes(plan).map(note => `${note.start}:${note.duration}`).join(" "), expected, source);
+        deepStrictEqual(playedNotes(plan).map(note => `${note.midi}@${note.start}:${note.duration}`).join(" "), expected, source);
     }
 });
 test("多声部倚音同时起奏，借时按最长分支书写时值的四分之一计算，全部在宿主轨上发声", () => {
@@ -261,9 +244,8 @@ test("多声部倚音同时起奏，借时按最长分支书写时值的四分�
 
 test("tie 只合并同轨同音且连续的单音", () => {
     const tied = playedNotes(compilePlayback(lower(`1@a 1@b 1@c @tie(a,b,c)`)));
-    assert(tied.length === 1, "连续同音 tie 链应合并成一个 gesture");
-    assert(tied[0].duration.equals(3), "合并后的 gesture 应持续到最后一个端点结束");
-    assert(tied[0].sourceSpans.length === 3, "合并后必须保留所有端点的源码范围");
+    assert(tied.length === 1 && tied[0].duration.equals(3) && tied[0].sourceSpans.length === 3,
+        "连续同音 tie 链应合并成一个持续到最后端点、保留所有端点源码范围的 gesture");
 
     for (const source of [
         "1@a 2@b @tie(a,b)",

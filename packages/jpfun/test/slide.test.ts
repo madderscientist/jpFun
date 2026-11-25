@@ -15,17 +15,14 @@ test("slide draws the four directions outside its host", () => {
             const [start, end] = path.commands;
             assert(start.op === "M" && end.op === "L", "straight arrow shaft");
             strictEqual(Math.sign(end.y - start.y), direction === "up" ? -1 : 1);
-            assert(end.x > start.x, "arrow follows time");
-            assert(nearly(Math.abs(end.y - start.y), end.x - start.x), "shaft is exactly 45 degrees");
+            assert(end.x > start.x && nearly(Math.abs(end.y - start.y), end.x - start.x), "45-degree shaft follows time");
             assert(nearly(Math.max(start.y, end.y), host.box.y + host.box.visualAxis),
                 "lower endpoint lies on the digit centerline");
             assert(nearly(Math.min(start.y, end.y), host.box.y + host.ports["shoulder"].y - host.ast.size * 0.1),
                 "upper endpoint sits slightly above the digit top");
-            if (side === "pre") {
-                assert(end.x < host.box.x && start.x > layout.objects[0].box.x + layout.objects[0].box.w, "left space clears neighbors");
-            } else {
-                assert(start.x > host.box.x + host.box.w && end.x < layout.objects[2].box.x, "right space clears neighbors");
-            }
+            assert(side === "pre"
+                ? end.x < host.box.x && start.x > layout.objects[0].box.x + layout.objects[0].box.w
+                : start.x > host.box.x + host.box.w && end.x < layout.objects[2].box.x, `${side} space clears neighbors`);
         }
     }
 });
@@ -41,10 +38,9 @@ test("slide decorates only the boundary and accepts composite and unpitched cont
         const { layout } = compileValid(`@slide({1 2 3}, side=${side})`);
         strictEqual(layout.attachments.length, 1);
         const path = attachmentCommands(layout.attachments[0]).find(item => item.kind === "path");
-        assert(path?.kind === "path", "one boundary arrow");
-        const first = path.commands[0];
-        assert(first.op === "M", "arrow starts with move");
-        assert(side === "pre" ? first.x < layout.objects[0].box.x : first.x > layout.objects[2].box.x, "correct boundary");
+        const first = path?.kind === "path" ? path.commands[0] : undefined;
+        assert(first?.op === "M"
+            && (side === "pre" ? first.x < layout.objects[0].box.x : first.x > layout.objects[2].box.x), "correct boundary");
     }
 });
 

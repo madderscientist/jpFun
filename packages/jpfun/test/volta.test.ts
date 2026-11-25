@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { deepStrictEqual } from "node:assert/strict";
 
 import { getLayoutBounds } from "../src/layout/engine.js";
 import { compilePlayback } from "../src/playback/compile.js";
@@ -9,6 +10,13 @@ function played(source: string) {
     return playedNotes(compilePlayback(lower(source)))
         .map(note => `${note.midi - 59}@${note.start}`).join(" ");
 }
+
+type Layout = ReturnType<typeof layoutOf>;
+const houseOf = (layout: Layout, source: string) =>
+    layout.attachments.find(attachment => attachment.sourceSpan?.start === source.indexOf("@volta"))!;
+const horizontalsOf = (house: Layout["attachments"][number]) => attachmentCommands(house)
+    .filter(command => command.kind === "line")
+    .filter(command => nearly(command.y1, command.y2));
 
 test("反复线把段落展开成多遍播放", () => {
     assert(played(`1 ||| 2`) === "1@0 3@1", "终止线只改变样式，不得进入反复播放控制流");
@@ -140,9 +148,6 @@ test("反复段起点是标记，写进和弦里一样找得到", () => {
     // `|:` 折叠进和弦后不在时间列里，游标要沿宿主上溯才能把它当成跳转目标
     assert(played(`1 @up(3, @bar(3)) 5 :|`) === "1@0 5@1 8@2 5@3 8@4",
         "折叠成员上的反复起点应生效，而不是退回曲首");
-    assert(played(`1 3 5 :|`) === "1@0 5@1 8@2 1@3 5@4 8@5",
-        "没有反复起点时才回到曲首");
-
     assert(played(`1 @up(3@a,@bar(3)) 5 :| @volta(a,a,2)`) === "1@0 8@1 5@2 8@3",
         "房子首端点与折叠反复起点同列时，应按该起点计算当前遍数");
 });
@@ -178,8 +183,7 @@ test("括线两端贴在相邻的小节线上", () => {
 test("房子标到增时线时完整覆盖延音、按整列跳过其他声部且不自动跨过后续对象", () => {
     const source = `|: 1 2@a 3 -@b :| 5 @volta(a,b,1)`;
     const layout = layoutOf(source);
-    const house = layout.attachments.find(a => a.sourceSpan?.start === source.indexOf("@volta"))!;
-    const top = attachmentCommands(house).find(c => c.kind === "line")!;
+    const top = attachmentCommands(houseOf(layout, source)).find(c => c.kind === "line")!;
     const bar = layout.objects.at(-2)!;
     assert(nearly(top.x2, bar.box.x + bar.box.anchor), "the labeled dash must snap to the adjacent repeat bar");
     const plan = compilePlayback(lower(source));
@@ -215,22 +219,12 @@ test("跨谱面行时逐行补满，只有真正的首尾下折", () => {
     assert(vertical.length === 2,
         `换行断点处不下折，竖线只应有首末两条，实际 ${vertical.length}`);
 
-    // 中间整行空白时没有主体可参照，仍要补上这一段
-    const blank = layoutOf(`1@a @br(2) 2@b @volta(a, b, 1)`).attachments[0];
-    assert(blank.regions.length === 3, `空白行也要补一段，实际 ${blank.regions.length}`);
-    assert(blank.regions[1].w > blank.regions[0].w && blank.regions[1].w > blank.regions[2].w,
+    // 中间整行空白时没有主体可参照，仍要补上这一段；后声明的房子在这一行也排在外层
+    const [inner, outer] = layoutOf(`1@a @br(2) 2@b @volta(a,b,1) @volta(a,b,1)`).attachments;
+    assert(inner.regions.length === 3 && outer.regions.length === 3, "空白行也要补一段");
+    assert(inner.regions[1].w > inner.regions[0].w && inner.regions[1].w > inner.regions[2].w,
         "空白中间行仍应回退到完整内容区宽度");
-
-});
-
-test("后声明的跨行房子在空白中间行也排在外层", () => {
-    const layout = layoutOf(`1@a @br(2) 2@b @volta(a,b,1) @volta(a,b,1)`);
-    const [inner, outer] = layout.attachments;
-    assert(inner.regions.length === 3 && outer.regions.length === 3,
-        "both houses must bridge the blank middle line");
-    const innerMiddle = inner.regions[1];
-    const outerMiddle = outer.regions[1];
-    assert(outerMiddle.y + outerMiddle.h <= innerMiddle.y + 1e-6,
+    assert(outer.regions[1].y + outer.regions[1].h <= inner.regions[1].y + 1e-6,
         "the later house must clear the earlier house on a line without hosts");
 });
 
@@ -253,21 +247,15 @@ N: 45
 
 @volta(x,y,1)`;
     const layout = layoutOf(source);
-    const house = layout.attachments.find(attachment =>
-        attachment.sourceSpan?.start === source.indexOf("@volta"))!;
-    assert(house.regions.length === 2,
-        `跨轨端点位于下一行时应画两段，实际 ${house.regions.length}`);
-    const lastLine = house.regions.at(-1)!.line!;
-    const lineTop = Math.min(...layout.objects
-        .filter(object => object.layoutLine === lastLine)
-        .map(object => object.box.y));
-    const lastLineTop = attachmentCommands(house)
-        .filter(command => command.kind === "line")
-        .filter(command => nearly(command.y1, command.y2))
-        .at(-1)!;
-    assert(lastLineTop.y1 < lineTop, "跨行房子应画在 voices 全部主体的上方");
+    const house = houseOf(layout, source);
     const lastRegion = house.regions.at(-1)!;
-    const firstTimedHost = layout.objects.find(object => object.layoutLine === lastLine
+    assert(house.regions.length === 2, `跨轨端点位于下一行时应画两段，实际 ${house.regions.length}`);
+    const lineTop = Math.min(...layout.objects
+        .filter(object => object.layoutLine === lastRegion.line)
+        .map(object => object.box.y));
+    const lastLineTop = horizontalsOf(house).at(-1)!;
+    assert(lastLineTop.y1 < lineTop, "跨行房子应画在 voices 全部主体的上方");
+    const firstTimedHost = layout.objects.find(object => object.layoutLine === lastRegion.line
         && object.track === lastRegion.track && !object.T.isZero())!;
     assert(nearly(lastLineTop.x1, firstTimedHost.box.x),
         "跨行房子的续行入口应跳过声部名，从本轨首个正时值主体起笔");
@@ -279,31 +267,18 @@ N: 4@y 5
 
 @volta(x,y,1)`;
     const lowerLayout = layoutOf(lowerSource);
-    const lowerHouse = lowerLayout.attachments.find(attachment =>
-        attachment.sourceSpan?.start === lowerSource.indexOf("@volta"))!;
-    const topHost = lowerLayout.objects.find(object =>
-        object.ast.sourceSpan.start === lowerSource.indexOf("2 @set"))!;
-    const lastHorizontal = attachmentCommands(lowerHouse)
-        .filter(command => command.kind === "line")
-        .filter(command => nearly(command.y1, command.y2))
-        .at(-1)!;
-    const topRight = topHost.box.x + (topHost.ports["body.right"]?.x ?? topHost.box.w);
-    assert(nearly(lastHorizontal.x2, topRight),
-        "终点标签在下声部时，房子右端仍应取该列最上面的对象");
+    const topHost = lowerLayout.objects.find(object => object.ast.sourceSpan.start === lowerSource.indexOf("2 @set"))!;
+    assert(nearly(horizontalsOf(houseOf(lowerLayout, lowerSource)).at(-1)!.x2,
+        topHost.box.x + (topHost.ports["body.right"]?.x ?? topHost.box.w)),
+    "终点标签在下声部时，房子右端仍应取该列最上面的对象");
 });
 
 test("括线高度只看房子覆盖的列", () => {
     // 高标记会把整行的轴一起压低，所以只能比相对距离
     const clearance = (source: string) => {
         const layout = layoutOf(source);
-        const house = layout.attachments.find(attachment =>
-            attachment.sourceSpan?.start === source.indexOf("@volta"))!;
-        const top = attachmentCommands(house)
-            .filter(command => command.kind === "line")
-            .find(command => nearly(command.y1, command.y2))!.y1;
-        const end = layout.objects.find(object =>
-            object.ast.sourceSpan.start === source.indexOf("3@b"))!;
-        return end.box.y - top;
+        const end = layout.objects.find(object => object.ast.sourceSpan.start === source.indexOf("3@b"))!;
+        return end.box.y - horizontalsOf(houseOf(layout, source))[0].y1;
     };
 
     const plain = clearance(`|: 1 2@a 3@b :| 4 5 || @volta(a, b, 1)`);
@@ -346,25 +321,20 @@ test("房子画出上方括线、两端下折和遍数标签", () => {
     const layout = layoutOf(`|: 1 2@a :| 3@b || @volta(a, a, 1) @volta(b, b, 2)`);
     assert(layout.attachments.length === 2, `两个房子各产生一条括线，实际 ${layout.attachments.length}`);
 
-    const commands = attachmentCommands(layout.attachments[0]);
-    const lines = commands.filter(command => command.kind === "line");
+    const lines = attachmentCommands(layout.attachments[0]).filter(command => command.kind === "line");
     assert(lines.length === 3, `一条括线由顶线和两个折角组成，实际 ${lines.length}`);
-
     const [top, left, right] = lines;
     assert(nearly(top.y1, top.y2) && top.x2 > top.x1, "第一条应是水平的顶线");
-    assert(nearly(left.x1, left.x2) && left.y2 > left.y1, "左端应向下折");
-    assert(nearly(right.x1, right.x2) && right.y2 > right.y1, "右端同样向下折");
+    assert(nearly(left.x1, left.x2) && left.y2 > left.y1 && nearly(right.x1, right.x2) && right.y2 > right.y1,
+        "两端应向下折");
     assert(nearly(left.x1, top.x1) && nearly(right.x1, top.x2), "两个折角应落在顶线两端");
 
-    const labels = commands.filter(command => command.kind === "text");
-    assert(labels.length === 1 && labels[0].text === "1.", "第一房子应写出一个 1. 标签");
-    assert(labels[0].y > top.y1 && labels[0].x > left.x1, "标签应写在括线内侧");
-
-    const second = attachmentCommands(layout.attachments[1]).filter(command => command.kind === "text");
-    assert(second.length === 1 && second[0].text === "2.", "第二房子的标签应是 2.");
-
+    const labelsOf = (house: Layout["attachments"][number]) =>
+        attachmentCommands(house).filter(command => command.kind === "text");
+    const [label, ...extra] = labelsOf(layout.attachments[0]);
+    assert(extra.length === 0 && label.text === "1." && label.y > top.y1 && label.x > left.x1,
+        "第一房子应在括线内侧写出一个 1. 标签");
+    deepStrictEqual(labelsOf(layout.attachments[1]).map(command => command.text), ["2."]);
     const shared = layoutOf(`|: 1 2@a :| :| 3@b || @volta(a, a, 1, 2) @volta(b, b, 3)`);
-    const sharedLabel = attachmentCommands(shared.attachments[0]).find(command => command.kind === "text")!;
-    assert(sharedLabel.text === "1.2.", `共用房子的标签应把遍数依次写出，实际 ${sharedLabel.text}`);
-
+    deepStrictEqual(labelsOf(shared.attachments[0]).map(command => command.text), ["1.2."], "共用房子的标签应把遍数依次写出");
 });

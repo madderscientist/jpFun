@@ -8,7 +8,7 @@ import {
   compileScore,
 } from "jpfun";
 import { musicXmlToJpFun as convertMusicXmlElement } from "@jpfun/convert/musicxml";
-import { assert, attachmentCommands, compileValid, lower, nearly, playedNotes, recordCommands } from "./helpers.js";
+import { assert, assertProgramsAt, compileValid, lower, nearly, playedNotes, recordCommands } from "./helpers.js";
 
 function importMusicXml(
   source: string,
@@ -28,6 +28,10 @@ function importMusicXml(
 
 function musicXmlToJpFun(source: string, options?: Parameters<typeof convertMusicXmlElement>[1]) {
   return importMusicXml(source, options).script;
+}
+
+function partwise(measures: string, name = "Part") {
+  return `<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>${name}</part-name></score-part></part-list><part id="P1">${measures}</part></score-partwise>`;
 }
 
 const SCORE = `<?xml version="1.0" encoding="UTF-8"?>
@@ -211,12 +215,15 @@ test("MusicXML imports basic articulations, turns, and diagnoses unsupported or 
     ["articulations", "tenuto", "tenuto"],
     ["articulations", "strong-accent", "marcato"],
     ["articulations", "staccatissimo", "staccato"],
+    ["articulations", "accent", "accent"],
+    ["ornaments", "trill-mark", "tr"],
     ["ornaments", "turn", "turn"],
     ["ornaments", "inverted-turn", "iturn"],
   ] as const) {
     const result = compileMusicXml(slideScore([`<${container}><${tag} placement="below"/></${container}>`]));
     assert(result.script.includes(`_ $${name}`), result.script);
   }
+  assert(compileMusicXml(slideScore(['<fermata type="inverted"/>'])).script.includes("_ $fermata"), "inverted fermata goes below");
   const approx = importMusicXml(slideScore(['<ornaments><turn slash="yes"/></ornaments>']));
   deepStrictEqual(approx.diagnostics.map(item => item.code), ["W_MUSICXML_APPROXIMATED"]);
 
@@ -272,16 +279,7 @@ test("MusicXML sound instrument changes honor direction offsets", () => {
 
 test("MusicXML future program changes do not leak through backup", () => {
   const source = musicXmlToJpFun(`<score-partwise><part-list><score-part id="P1"><part-name>Instrument</part-name><midi-instrument id="I1"><midi-program>41</midi-program></midi-instrument></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes><direction><offset>2</offset><sound><midi-instrument id="I1"><midi-program>42</midi-program></midi-instrument></sound></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><backup><duration>3</duration></backup><note><pitch><step>F</step><octave>4</octave></pitch><duration>3</duration><voice>2</voice></note></measure></part></score-partwise>`);
-  const programs = new Map<number, number>();
-  let count = 0;
-  for (const event of compilePlayback(lower(source)).events) {
-    if (event.kind === "program-change") programs.set(event.track, event.program);
-    if (event.kind === "note-on") {
-      count++;
-      assert(programs.get(event.track) === (event.at.compare(2) < 0 ? 40 : 41), `program must follow musical time: ${source}`);
-    }
-  }
-  assert(count === 4, "all voices must remain audible");
+  assert(assertProgramsAt(source, 2, 40, 41) === 4, "all voices must remain audible");
 });
 
 test("MusicXML imports repeated dynamics with placement, persistence and velocity clamping", () => {
@@ -340,34 +338,23 @@ test("MusicXML dynamics inside tuplets stay local to the selected voice", () => 
 });
 
 test("MusicXML 的 part、staff、voice、chord、rest 和 backup 转成可播放 jpFun", () => {
-    const document = new DOMParser().parseFromString(SCORE, "application/xml");
-    const result = convertMusicXmlElement(document.documentElement!);
-    deepStrictEqual(result.diagnostics, []);
-    const source = result.script;
-    const plan = compilePlayback(lower(source));
-    const notes = playedNotes(plan);
-    assert(plan.diagnostics.length === 0, `转换结果不应产生诊断：${source}`);
+    const { script: source, playback } = compileMusicXml(SCORE);
     assert(!source.includes("@head(")
         && source.includes("H.title: Example")
         && source.includes("H.signature: 1=G4 3/4") && source.includes("H.tempo: 120"),
         `初始调号、拍号和速度必须使用 head 语法糖：${source}`);
     assert(!source.slice(source.indexOf("\n\n") + 2, source.indexOf("N(")).match(/@(1|tempo|meter)\(/),
         `正文首行不得重复初始状态：${source}`);
-    assert(source.includes("N(\"Piano\"):") && source.includes("N(\"Flute\"):"),
-        `part 名称和多声部结构应保留：${source}`);
-    assert(!source.includes("@note(") && !source.includes("@div(")
+    assert(source.includes("N(\"Piano\"):") && source.includes("N(\"Flute\"):")
+      && !source.includes("@note(") && !source.includes("@div(")
       && !source.includes("@voice(") && !source.includes("@voices("),
-    `普通音符、减时线和 voices 应使用语法糖：${source}`);
-    assert(notes.length === 4 && notes.some(note => note.midi === 67 && note.start.equals(0) && note.duration.equals(1))
-        && notes.some(note => note.midi === 71 && note.start.equals(0) && note.duration.equals(1))
-        && notes.some(note => note.midi === 55 && note.start.equals(0) && note.duration.equals(3))
-        && notes.some(note => note.midi === 74 && note.start.equals(0) && note.duration.equals(3)),
-    `和弦、backup 与 part 并行时间应保持：${source}`);
+    `part 名称应保留，普通音符、减时线和 voices 应使用语法糖：${source}`);
+    deepStrictEqual(playedNotes(playback).map(note => `${note.midi}@${note.start}+${note.duration}`).sort(),
+      ["55@0+3", "67@0+1", "71@0+1", "74@0+3"]);
 });
 
 test("MusicXML 保留复合拍号的书面分母", () => {
-  const source = musicXmlToJpFun(`<?xml version="1.0"?>
-<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Meter</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>2</divisions><time><beats>6</beats><beat-type>8</beat-type></time></attributes><note><rest/><duration>6</duration><voice>1</voice></note></measure></part></score-partwise>`);
+  const source = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>2</divisions><time><beats>6</beats><beat-type>8</beat-type></time></attributes><note><rest/><duration>6</duration><voice>1</voice></note></measure>`));
   assert(source.includes("H.signature: 1=C4 6/8"), `6/8 不得约分成 3/4：${source}`);
 });
 
@@ -379,13 +366,10 @@ test("MusicXML instrument 切换 program 且 channel 10 鼓点跳过", () => {
 </part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes><note><instrument id="P1-I1"/><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><note><instrument id="P1-I2"/><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure></part><part id="P2"><measure number="1"><attributes><divisions>1</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes><note><instrument id="P2-I1"/><unpitched><display-step>C</display-step><display-octave>2</display-octave></unpitched><duration>1</duration><voice>1</voice></note><note><instrument id="P2-I1"/><unpitched><display-step>D</display-step><display-octave>2</display-octave></unpitched><duration>1</duration><voice>1</voice></note></measure></part></score-partwise>`);
   const plan = compilePlayback(lower(source));
   const programs = plan.events.filter(event => event.kind === "program-change");
-
-  assert(source.includes("@program(40)") && source.includes("@program(41)"),
-    `MusicXML program 应从 1..128 转为 0..127：${source}`);
   assert(!source.includes("Drums") && playedNotes(plan).map(note => note.midi).join() === "60,62",
     `channel 10 的 MusicXML 鼓点应被跳过：${source}`);
   assert(programs.map(event => `${event.at}:${event.program}`).join(" ") === "0:40 1:41",
-    `instrument id 切换应生成对应 program-change：${source}`);
+    `instrument id 切换应生成 1..128 → 0..127 的 program-change：${source}`);
 });
 
 test("首个 MusicXML lane 全休止时仍保留中途状态", () => {
@@ -397,8 +381,7 @@ test("首个 MusicXML lane 全休止时仍保留中途状态", () => {
 });
 
 test("MusicXML 状态变化在持续音内部的精确时刻生效", () => {
-  const source = musicXmlToJpFun(`<?xml version="1.0"?>
-<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Held</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><direction><offset>2</offset><sound tempo="80"/></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice></note></measure><measure number="2"><note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice></note></measure></part></score-partwise>`);
+  const source = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><direction><offset>2</offset><sound tempo="80"/></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice></note></measure><measure number="2"><note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice></note></measure>`));
   const notes = playedNotes(compilePlayback(lower(source)));
   const next = notes.find(note => note.midi === 62);
   assert(/\{-+\s+\^\s+@tempo\(80\)\}/.test(source), `长音必须在变化点切出带状态的 dash：${source}`);
@@ -406,16 +389,14 @@ test("MusicXML 状态变化在持续音内部的精确时刻生效", () => {
 });
 
 test("MusicXML 状态变化可附着到 tuplet 首成员", () => {
-  const source = musicXmlToJpFun(`<?xml version="1.0"?>
-<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Tuplet State</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>6</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>B</step><octave>3</octave></pitch><duration>6</duration><voice>1</voice></note><direction><sound tempo="80"/></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="start"/></notations></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="stop"/></notations></note><note><rest/><duration>12</duration><voice>1</voice></note></measure></part></score-partwise>`);
+  const source = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>6</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>B</step><octave>3</octave></pitch><duration>6</duration><voice>1</voice></note><direction><sound tempo="80"/></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="start"/></notations></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="stop"/></notations></note><note><rest/><duration>12</duration><voice>1</voice></note></measure>`));
   assert(/@tuplet\(\{\{C4[/.]*\s+\^\s+@tempo\(80\)\}/.test(source),
     `状态必须附着到 tuplet 首成员，而不是包裹整个 tuplet：${source}`);
   assert(compilePlayback(lower(source)).diagnostics.length === 0, `带状态的 tuplet 必须可编译：${source}`);
 });
 
 test("MusicXML tuplet 内后续成员消费状态且不切开整组", () => {
-  const source = musicXmlToJpFun(`<?xml version="1.0"?>
-<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Tuplet State</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>6</divisions><key><fifths>0</fifths></key><time><beats>3</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>B</step><octave>3</octave></pitch><duration>6</duration><voice>1</voice></note><note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="start"/></notations></note><attributes><key><fifths>1</fifths></key><time><beats>3</beats><beat-type>4</beat-type></time></attributes><direction><sound tempo="80"/></direction><note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="stop"/></notations></note><note><rest/><duration>6</duration><voice>1</voice></note></measure></part></score-partwise>`);
+  const source = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>6</divisions><key><fifths>0</fifths></key><time><beats>3</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>B</step><octave>3</octave></pitch><duration>6</duration><voice>1</voice></note><note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="start"/></notations></note><attributes><key><fifths>1</fifths></key><time><beats>3</beats><beat-type>4</beat-type></time></attributes><direction><sound tempo="80"/></direction><note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="stop"/></notations></note><note><rest/><duration>6</duration><voice>1</voice></note></measure>`));
   const tuplet = source.match(/@tuplet\(\{([\s\S]*?)\}, 2\)/)?.[1] ?? "";
   assert(tuplet.includes("@1(G4)") && tuplet.includes("@meter(3, 4)") && tuplet.includes("@tempo(80)"),
     `tuplet 第二成员的状态必须留在整组内部：${source}`);
@@ -426,8 +407,7 @@ test("MusicXML tuplet 内后续成员消费状态且不切开整组", () => {
 });
 
 test("MusicXML tuplet 成员内部的状态按 offset 精确切分", () => {
-  const source = musicXmlToJpFun(`<?xml version="1.0"?>
-<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Tuplet Offset</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>6</divisions><time><beats>3</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>B</step><octave>3</octave></pitch><duration>6</duration><voice>1</voice></note><direction><offset>1</offset><sound tempo="80"/></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="start"/></notations></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="stop"/></notations></note><note><pitch><step>F</step><octave>4</octave></pitch><duration>12</duration><voice>1</voice></note></measure></part></score-partwise>`);
+  const source = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>6</divisions><time><beats>3</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>B</step><octave>3</octave></pitch><duration>6</duration><voice>1</voice></note><direction><offset>1</offset><sound tempo="80"/></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="start"/></notations></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="stop"/></notations></note><note><pitch><step>F</step><octave>4</octave></pitch><duration>12</duration><voice>1</voice></note></measure>`));
   const tuplet = source.match(/@tuplet\(\{([\s\S]*?)\}, 4\)/)?.[1] ?? "";
   assert(/C4\/{2}\s+\{-\/{2}\s+\^\s+@tempo\(80\)\}/.test(tuplet),
     `成员内部状态必须切出带状态的 continuation：${source}`);
@@ -441,8 +421,7 @@ test("MusicXML tuplet 成员内部的状态按 offset 精确切分", () => {
 });
 
 test("MusicXML tuplet 休止被状态切分后按真实 token 数补歌词槽", () => {
-  const source = musicXmlToJpFun(`<?xml version="1.0"?>
-<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Tuplet Lyrics</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>6</divisions><time><beats>3</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>B</step><octave>3</octave></pitch><duration>6</duration><voice>1</voice><lyric><text>before</text></lyric></note><direction><offset>1</offset><sound tempo="80"/></direction><note><rest/><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="start"/></notations></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><lyric><text>after</text></lyric></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="stop"/></notations></note><note><rest/><duration>12</duration><voice>1</voice></note></measure></part></score-partwise>`);
+  const source = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>6</divisions><time><beats>3</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>B</step><octave>3</octave></pitch><duration>6</duration><voice>1</voice><lyric><text>before</text></lyric></note><direction><offset>1</offset><sound tempo="80"/></direction><note><rest/><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="start"/></notations></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><lyric><text>after</text></lyric></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="stop"/></notations></note><note><rest/><duration>12</duration><voice>1</voice></note></measure>`));
   assert(source.includes('L: "before @ @ after @ @ @"'),
     `切成两个 token 的 tuplet 休止必须补两个歌词槽：${source}`);
   const texts = recordCommands(compileScore(source).layout).filter(command => command.kind === "text");
@@ -451,21 +430,12 @@ test("MusicXML tuplet 休止被状态切分后按真实 token 数补歌词槽", 
 });
 
 test("MusicXML 缺失 tempo 的 sound 不会被当作零速度", () => {
-  const source = musicXmlToJpFun(`<?xml version="1.0"?>
-<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Sound</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><sound dynamics="80"/><sound tempo=""/><direction><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>90</per-minute></metronome></direction-type><sound/></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure></part></score-partwise>`);
+  const source = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><sound dynamics="80"/><sound tempo=""/><direction><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>90</per-minute></metronome></direction-type><sound/></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure>`));
   assert(source.includes("H.tempo: 90"), `缺失 tempo 的 sound 应忽略，direction 应回退 metronome：${source}`);
 });
 
-test("MusicXML note modifier 保留 placement", () => {
-  const source = musicXmlToJpFun(`<?xml version="1.0"?>
-<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Placement</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>3</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><notations><articulations><accent placement="below"/></articulations></notations></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><notations><ornaments><trill-mark placement="below"/></ornaments></notations></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><notations><fermata type="inverted"/></notations></note></measure></part></score-partwise>`);
-  assert(source.includes("_ $accent") && source.includes("_ $tr") && source.includes("_ $fermata"),
-    `显式 below 与 inverted fermata 必须输出到音符下方：${source}`);
-});
-
 test("MusicXML 后续和弦成员的 modifier 合并到和弦", () => {
-  const source = musicXmlToJpFun(`<?xml version="1.0"?>
-<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Chord Modifier</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><notations><articulations><accent placement="below"/></articulations></notations></note><note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><notations><articulations><accent placement="below"/></articulations><ornaments><trill-mark placement="above"/></ornaments></notations></note></measure></part></score-partwise>`);
+  const source = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><notations><articulations><accent placement="below"/></articulations></notations></note><note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><notations><articulations><accent placement="below"/></articulations><ornaments><trill-mark placement="above"/></ornaments></notations></note></measure>`));
   assert(source.includes("_ $accent") && source.includes("^ $tr"),
     `后续和弦成员的 modifier 必须保留：${source}`);
   assert((source.match(/\$accent/g) ?? []).length === 1,
@@ -473,15 +443,14 @@ test("MusicXML 后续和弦成员的 modifier 合并到和弦", () => {
 });
 
 test("MusicXML arpeggiate 转成上下行 arp", () => {
-  const source = musicXmlToJpFun(`<?xml version="1.0"?>
-<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Arpeggio</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+  const source = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
 <note><pitch><step>G</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><notations><arpeggiate number="1"/></notations></note>
 <note><chord/><pitch><step>B</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><notations><arpeggiate number="1"/></notations></note>
 <note><chord/><pitch><step>D</step><octave>5</octave></pitch><duration>2</duration><voice>1</voice><notations><arpeggiate number="1"/></notations></note>
 <note><pitch><step>G</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><notations><arpeggiate direction="down" number="1"/></notations></note>
 <note><chord/><pitch><step>B</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><notations><arpeggiate direction="down" number="1"/></notations></note>
 <note><chord/><pitch><step>D</step><octave>5</octave></pitch><duration>2</duration><voice>1</voice><notations><arpeggiate direction="down" number="1"/></notations></note>
-</measure></part></score-partwise>`);
+</measure>`));
   assert(source.includes("@arp({G4 ^ B4 ^ D5})")
     && source.includes("@arp({G4 ^ B4 ^ D5}, direction=down)"),
   `MusicXML 琶音方向必须包装整个和弦：${source}`);
@@ -490,19 +459,14 @@ test("MusicXML arpeggiate 转成上下行 arp", () => {
     && notes.slice(3, 6).map(note => note.midi).join(",") === "74,71,67",
   `导入后的上下行琶音必须改变播放顺序：${source}`);
 
-  const explicitUp = musicXmlToJpFun(`<?xml version="1.0"?>
-<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Up</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes>
+  const upThen = (second: string) => musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>1</divisions></attributes>
 <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><notations><arpeggiate direction="up"/></notations></note>
-<note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><notations><arpeggiate/></notations></note>
-</measure></part></score-partwise>`);
+<note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><notations><arpeggiate${second}/></notations></note>
+</measure>`));
+  const explicitUp = upThen("");
   assert(explicitUp.includes("@arp({C4 ^ E4}, direction=up)"),
     `显式 up 必须保留向上箭头，未指定方向的和弦成员不得制造冲突：${explicitUp}`);
-
-  throws(() => musicXmlToJpFun(`<?xml version="1.0"?>
-<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Conflict</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes>
-<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><notations><arpeggiate direction="up"/></notations></note>
-<note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><notations><arpeggiate direction="down"/></notations></note>
-</measure></part></score-partwise>`), /Conflicting MusicXML arpeggiate directions/);
+  throws(() => upThen(' direction="down"'), /Conflicting MusicXML arpeggiate directions/);
 });
 
 test("最上方 MusicXML lane 提前结束后仍在休止时间线上保留状态", () => {
@@ -528,10 +492,7 @@ test("最上方 MusicXML lane 提前结束后仍在休止时间线上保留状�
   });
 
 test("MusicXML 的 grace、tie、力度、wedge 和反复线映射到 jpFun", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-<score-partwise version="4.0">
-  <part-list><score-part id="P1"><part-name>Solo</part-name></score-part></part-list>
-  <part id="P1"><measure number="1">
+    const source = musicXmlToJpFun(partwise(`<measure number="1">
     <attributes><divisions>4</divisions><time><beats>3</beats><beat-type>4</beat-type></time></attributes>
     <barline location="left"><repeat direction="forward"/></barline>
     <direction placement="below"><direction-type><dynamics><p/></dynamics><wedge type="crescendo" number="1"/></direction-type></direction>
@@ -541,88 +502,48 @@ test("MusicXML 的 grace、tie、力度、wedge 和反复线映射到 jpFun", ()
     <direction><direction-type><wedge type="stop" number="1"/></direction-type></direction>
     <note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice></note>
     <barline location="right"><bar-style>light-heavy</bar-style><repeat direction="backward"/></barline>
-  </measure></part>
-</score-partwise>`);
+  </measure>`));
     assert(source.includes(" > ") && source.includes("$p") && source.includes("@tie(")
         && source.includes("@dyn(") && source.includes("|:") && source.includes(":|"),
     `grace、tie、力度、wedge 与反复线都应输出：${source}`);
-    assert(/@mx\d+\s+@tie\(mx\d+, mx\d+\)/.test(source),
-      `tie 应紧跟在 stop 端点音符之后：${source}`);
+    assert(/@mx\d+\s+@tie\(mx\d+, mx\d+\)/.test(source), `tie 应紧跟在 stop 端点音符之后：${source}`);
     const plan = compilePlayback(lower(source));
-    assert(plan.diagnostics.length === 0, `综合 MusicXML 转换不应产生诊断：${source}`);
     const notes = playedNotes(plan);
-    assert(notes.some(note => note.midi === 62) && notes.filter(note => note.midi === 60).length === 2,
-        `倚音与反复后的连音应保留：${source}`);
-});
-
-test("MusicXML time-modification 精确生成 jpFun tuplet", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-<score-partwise version="4.0">
-  <part-list><score-part id="P1"><part-name>Triplet</part-name></score-part></part-list>
-  <part id="P1"><measure number="1">
-    <attributes><divisions>6</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes>
-    <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="start"/></notations></note>
-    <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification></note>
-    <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification><notations><tuplet type="stop"/></notations></note>
-    <note><rest/><duration>9</duration><voice>1</voice></note>
-  </measure></part>
-</score-partwise>`);
-    assert(source.includes("@tuplet("), `三连音应生成 @tuplet：${source}`);
-    const plan = compilePlayback(lower(source));
-    assert(plan.diagnostics.length === 0, `三连音结果不应产生诊断：${source}`);
-    const notes = playedNotes(plan);
-    assert(notes.length === 3
-        && notes[0].start.equals(0) && notes[0].duration.equals(1, 6)
-        && notes[1].start.equals(1, 6) && notes[1].duration.equals(1, 6)
-        && notes[2].start.equals(1, 3) && notes[2].duration.equals(1, 6),
-    `三连音必须保持精确的 1/6 QN 时值：${source}`);
+    assert(plan.diagnostics.length === 0
+        && notes.some(note => note.midi === 62) && notes.filter(note => note.midi === 60).length === 2,
+    `倚音与反复后的连音应保留：${source}`);
 });
 
   test("跨小节 MusicXML tuplet 保留内部小节线与整组比例", () => {
     const triplet = (step: string, marker = "") => `<note><pitch><step>${step}</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>${marker ? `<notations><tuplet type="${marker}"/></notations>` : ""}</note>`;
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0">
-    <part-list><score-part id="P1"><part-name>Long Triplet</part-name></score-part></part-list>
-    <part id="P1">
-    <measure number="1"><attributes><divisions>6</divisions><time><beats>1</beats><beat-type>8</beat-type></time></attributes>${triplet("C", "start")}${triplet("D")}${triplet("E")}</measure>
-    <measure number="2">${triplet("F")}${triplet("G")}${triplet("A", "stop")}</measure>
-    </part>
-  </score-partwise>`, { barsPerLine: 1 });
+    const source = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>6</divisions><time><beats>1</beats><beat-type>8</beat-type></time></attributes>${triplet("C", "start")}${triplet("D")}${triplet("E")}</measure>
+    <measure number="2">${triplet("F")}${triplet("G")}${triplet("A", "stop")}</measure>`), { barsPerLine: 1 });
     assert(source.includes("@tuplet(") && source.includes(", 4)")
       && (source.match(/^N/gm) ?? []).length === 1,
     `六个 3:2 子音组成的整组应推导 normal=4，且内部小节线不得拆系统：${source}`);
     const plan = compilePlayback(lower(source));
-    assert(plan.diagnostics.length === 0, `跨小节 tuplet 不应产生诊断：${source}`);
     const notes = playedNotes(plan);
-    assert(notes.length === 6 && notes.every((note, index) =>
+    assert(plan.diagnostics.length === 0 && notes.length === 6 && notes.every((note, index) =>
       note.start.equals(index, 6) && note.duration.equals(1, 6)),
     `跨小节三连音应保持连续六个 1/6 QN：${source}`);
   });
 
   test("MusicXML 多段歌词保留连字符并为缺词音符补位", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0">
-    <part-list><score-part id="P1"><part-name>Voice</part-name></score-part></part-list>
-    <part id="P1"><measure number="1">
+    const source = musicXmlToJpFun(partwise(`<measure number="1">
     <attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
     <note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><lyric number="1"><syllabic>begin</syllabic><text>Hel</text><elision>‿</elision><text>le</text></lyric><lyric number="2"><text>你好</text></lyric></note>
     <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><lyric number="1"><syllabic>end</syllabic><text>lo</text></lyric></note>
     <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><lyric number="2"><text>呀</text></lyric></note>
-    </measure></part>
-  </score-partwise>`);
+    </measure>`));
     assert(source.includes('"Hel~le- @ lo @"') && source.includes('"{你好} @ @ 呀"'),
       `两段歌词、增时线与缺词音符占位应写入 voice：${source}`);
     const commands = recordCommands(compileScore(source).layout);
-    assert(commands.some(command => command.kind === "text" && command.text === "Hel~le-")
-      && commands.some(command => command.kind === "text" && command.text === "lo")
-      && commands.some(command => command.kind === "text" && command.text === "你好")
-      && commands.some(command => command.kind === "text" && command.text === "呀"),
-    `歌词应实际进入布局：${source}`);
+    assert(["Hel~le-", "lo", "你好", "呀"].every(text =>
+      commands.some(command => command.kind === "text" && command.text === text)), `歌词应实际进入布局：${source}`);
   });
 
   test("MusicXML forward 生成的休止为后续歌词补位", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Gap</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>3</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><lyric><text>one</text></lyric></note><forward><duration>1</duration></forward><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><lyric><text>two</text></lyric></note></measure></part></score-partwise>`);
+    const source = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>1</divisions><time><beats>3</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><lyric><text>one</text></lyric></note><forward><duration>1</duration></forward><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><lyric><text>two</text></lyric></note></measure>`));
     assert(source.includes('L: "one @ two"'), `forward 休止必须占一个歌词槽：${source}`);
     const commands = recordCommands(compileScore(source).layout).filter(command => command.kind === "text");
     const one = commands.find(command => command.text === "one");
@@ -630,45 +551,31 @@ test("MusicXML time-modification 精确生成 jpFun tuplet", () => {
     assert(one && two && one.x < two.x, `two 必须落到第二个音符而非中间休止：${source}`);
   });
 
-  test("MusicXML 含空格的单个歌词保持一个音符槽", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Space</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><lyric><text>one word</text></lyric></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><lyric><text>two</text></lyric></note></measure></part></score-partwise>`);
-    assert(source.includes('L: "{one word} two"'), `含空格歌词应使用单槽分组：${source}`);
-    const texts = recordCommands(compileScore(source).layout).filter(command => command.kind === "text");
-    assert(texts.some(command => command.text === "one word") && texts.some(command => command.text === "two"),
-      `分组歌词应显示原始文本：${source}`);
-  });
-
-  test("MusicXML 歌词中的槽位控制字符按字面保留", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Literal</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><lyric><text>@{a-b}</text></lyric></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><lyric><text>C:\Music</text></lyric></note></measure></part></score-partwise>`);
-    const texts = recordCommands(compileScore(source).layout).filter(command => command.kind === "text");
-    assert(texts.some(command => command.text === "@{a-b}") && texts.some(command => command.text === "C:\Music"),
-        `歌词控制字符不得被解释为空槽或分组，普通反斜杠也不得丢失：${source}`);
-  });
-
-  test("MusicXML 混合文字和非 ASCII 连读歌词各保持一个槽", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Mixed</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><lyric><text>A你</text></lyric></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><lyric><syllabic>begin</syllabic><text>你</text></lyric></note></measure></part></score-partwise>`);
-    const texts = recordCommands(compileScore(source).layout).filter(command => command.kind === "text");
-    assert(texts.some(command => command.text === "A你") && texts.some(command => command.text === "你-"),
-        `混合文字和连读标记不得增加歌词槽：${source}`);
+  test("MusicXML 含空格、槽位控制字符或混合文字的单个歌词保持一个槽并按字面显示", () => {
+    for (const [first, second, expected] of [
+      ["<text>one word</text>", "<text>two</text>", ["one word", "two"]],
+      ["<text>@{a-b}</text>", "<text>C:\Music</text>", ["@{a-b}", "C:\Music"]],
+      ["<text>A你</text>", "<syllabic>begin</syllabic><text>你</text>", ["A你", "你-"]],
+    ] as const) {
+      const source = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>1</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><lyric>${first}</lyric></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><lyric>${second}</lyric></note></measure>`));
+      const texts = recordCommands(compileScore(source).layout).filter(command => command.kind === "text");
+      assert(expected.every(text => texts.some(command => command.text === text)), source);
+      if (expected[0] === "one word") assert(source.includes('L: "{one word} two"'), `含空格歌词应使用单槽分组：${source}`);
+    }
   });
 
   test("MusicXML 有显式换行时不叠加 barsPerLine 自动换行", () => {
     const measures = Array.from({ length: 10 }, (_, index) => `<measure number="${index + 1}">${index === 0 ? '<attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes>' : ""}${index === 6 ? '<print new-system="yes"/>' : ""}<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure>`).join("");
-    const source = musicXmlToJpFun(`<?xml version="1.0"?><score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Breaks</part-name></score-part></part-list><part id="P1">${measures}</part></score-partwise>`, { barsPerLine: 4 });
+    const source = musicXmlToJpFun(partwise(measures), { barsPerLine: 4 });
     assert(source.split("\n\n").length - 1 === 2,
         `十小节应沿用 MusicXML 的 6+4 系统，不得额外切成 4+2+4：${source}`);
   });
 
 test("MusicXML ending 生成 volta、覆盖延音并支持分支 tie 链", () => {
-  const source = musicXmlToJpFun(`<?xml version="1.0"?>
-<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Branch Chain</part-name></score-part></part-list><part id="P1">
+  const source = musicXmlToJpFun(partwise(`
   <measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><tie type="start"/></note></measure>
   <measure number="2"><attributes><time><beats>2</beats><beat-type>4</beat-type></time></attributes><barline location="left"><ending number="1" type="start"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><tie type="stop"/><tie type="start"/></note><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><tie type="stop"/></note><barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline></measure>
-  <measure number="3"><barline location="left"><ending number="2" type="start"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><tie type="stop"/></note><barline location="right"><ending number="2" type="stop"/></barline></measure>
-</part></score-partwise>`);
+  <measure number="3"><barline location="left"><ending number="2" type="start"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><tie type="stop"/></note>  <barline location="right"><ending number="2" type="stop"/></barline></measure>`));
   const ties = [...source.matchAll(/@tie\((mx\d+), (mx\d+)\)/g)].map(match => [match[1], match[2]]);
   assert(ties.length === 3 && ties[0][1] === ties[1][0] && ties[0][0] === ties[2][0], source);
   assert(compilePlayback(lower(source)).diagnostics.length === 0, source);
@@ -691,7 +598,7 @@ test("MusicXML ending 生成 volta、覆盖延音并支持分支 tie 链", () =>
     assert(compileScore(source).diagnostics.length === 0, `带页面谱头的结果应无诊断：${source}`);
   });
 
-  test("score-timewise、metronome、minor key 与绝对音高均受支持", () => {
+  test("score-timewise、metronome、minor key 与绝对/相对音高均受支持", () => {
     const xml = `<?xml version="1.0"?>
   <score-timewise version="4.0">
     <part-list><score-part id="P1"><part-name>Part</part-name></score-part></part-list>
@@ -707,70 +614,50 @@ test("MusicXML ending 生成 volta、覆盖延音并支持分支 tie 链", () =>
       "默认调用必须等价于显式 absolute 模式");
     assert(relative.includes("H.signature: 1=C4 2/4") && relative.includes("H.tempo: 60"),
       `C minor 与八分音符=120 应转换为 1=C、四分音符=60：${relative}`);
+    assert(relative.includes("#2") && compileScore(relative).diagnostics.length === 0,
+      `相对音高应输出可编译的前置升号：${relative}`);
     assert(absolute.includes("Eb4"), `绝对模式应保留 Eb 拼写：${absolute}`);
     const notes = playedNotes(compilePlayback(lower(absolute)));
     assert(notes.length === 1 && notes[0].midi === 63 && notes[0].duration.equals(2),
       `timewise 音符应保持 Eb4 两拍：${absolute}`);
   });
 
-  test("相对音高把升降号写在数字前面", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Chromatic</part-name></score-part></part-list><part id="P1"><measure number="1">
-    <attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>1</beats><beat-type>4</beat-type></time></attributes>
-    <note><pitch><step>C</step><alter>1</alter><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note>
-  </measure></part></score-partwise>`, { pitchMode: "relative" });
-    assert(source.includes("#1"), `相对音高应输出前置升号：${source}`);
-    assert(compileScore(source).diagnostics.length === 0, `前置升号输出必须可重新编译：${source}`);
-  });
-
   test("measure sound、64th metronome、复合拍号和标准调式均正确换算", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Meta</part-name></score-part></part-list><part id="P1"><measure number="1">
+    const source = musicXmlToJpFun(partwise(`<measure number="1">
     <attributes><divisions>2</divisions><key><fifths>0</fifths><mode>dorian</mode></key><time><beats>2</beats><beat-type>4</beat-type><beats>3</beats><beat-type>8</beat-type></time></attributes>
     <sound tempo="90"/><note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice></note>
     <direction><direction-type><metronome><beat-unit>64th</beat-unit><per-minute>120</per-minute></metronome></direction-type></direction>
     <attributes><key><fifths>0</fifths><mode>lydian</mode></key></attributes>
     <note><pitch><step>F</step><octave>4</octave></pitch><duration>5</duration><voice>1</voice></note>
-  </measure></part></score-partwise>`);
+  </measure>`));
     assert(source.includes("H.signature: 1=D4 7/8") && source.includes("H.tempo: 90")
-      && source.includes("@tempo(7.5)") && source.includes("@1(F4)"),
-    `标准 mode、复合拍号、中途 key 和两类 tempo 都应输出：${source}`);
-    assert(source.includes("^ @tempo(7.5)") && source.includes("^ @1(F4)"),
-      `中途 tempo/key 必须用 up 附着到最上方声部的首个生效音符：${source}`);
+      && source.includes("^ @tempo(7.5)") && source.includes("^ @1(F4)"),
+    `标准 mode、复合拍号与两类 tempo 应输出，中途 tempo/key 用 up 附着到首个生效音符：${source}`);
     const plan = compilePlayback(lower(source));
-    assert(plan.diagnostics.length === 0, `元事件转换不应产生诊断：${source}`);
     const tempos = plan.events.filter(event => event.kind === "tempo");
-    assert(tempos.some(event => event.at.equals(0) && event.bpm === 90)
+    assert(plan.diagnostics.length === 0 && tempos.some(event => event.at.equals(0) && event.bpm === 90)
       && tempos.some(event => event.at.equals(1) && event.bpm === 7.5),
     `measure sound 与 64th metronome 应在正确时刻生效：${source}`);
   });
 
   test("MusicXML repeat times 和未指定 voice 的 dynamics 作用完整", () => {
-    const repeated = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Repeat</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><barline location="right"><repeat direction="backward" times="3"/></barline></measure></part></score-partwise>`);
-    assert(repeated.includes(":| :|"), `三遍反复应生成两条 backward repeat：${repeated}`);
-    assert(playedNotes(compilePlayback(lower(repeated))).map(note => note.midi).join() === "60,60,60",
-      `times=3 应播放三遍：${repeated}`);
+    const repeated = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><barline location="right"><repeat direction="backward" times="3"/></barline></measure>`));
+    assert(repeated.includes(":| :|") && playedNotes(compilePlayback(lower(repeated))).map(note => note.midi).join() === "60,60,60",
+      `times=3 应生成两条 backward repeat 并播放三遍：${repeated}`);
 
-    const dynamics = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Dynamics</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><direction placement="below"><direction-type><dynamics><p/></dynamics></direction-type></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><backup><duration>1</duration></backup><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>2</voice></note></measure></part></score-partwise>`);
+    const dynamics = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><direction placement="below"><direction-type><dynamics><p/></dynamics></direction-type></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><backup><duration>1</duration></backup><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>2</voice></note></measure>`));
     const velocities = compilePlayback(lower(dynamics)).events
       .filter(event => event.kind === "note-on").map(event => event.velocity);
     assert(velocities.length === 2 && velocities.every(value => value === 49),
       `未指定 voice 的 p 应作用同 staff 全部声部：${dynamics}`);
 
-    const wedge = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Wedge</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes><direction><direction-type><wedge type="crescendo"/></direction-type></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><backup><duration>2</duration></backup><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>2</voice></note><note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration><voice>2</voice></note><direction><direction-type><wedge type="stop"/></direction-type></direction></measure></part></score-partwise>`);
-    assert((wedge.match(/@dyn\(/g) ?? []).length === 2,
+    const wedge = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>1</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes><direction><direction-type><wedge type="crescendo"/></direction-type></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><backup><duration>2</duration></backup><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>2</voice></note><note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration><voice>2</voice></note><direction><direction-type><wedge type="stop"/></direction-type></direction></measure>`));
+    assert((wedge.match(/@dyn\(/g) ?? []).length === 2 && compilePlayback(lower(wedge)).diagnostics.length === 0,
       `未指定 voice 的 wedge 应为两个声部分别生成 dyn：${wedge}`);
-    assert(compilePlayback(lower(wedge)).diagnostics.length === 0, `多声部 wedge 应无诊断：${wedge}`);
 
-    const sustainedWedge = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Sustained Wedge</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>2</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice></note><direction><offset>-1</offset><direction-type><wedge type="crescendo"/></direction-type></direction><note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice></note><direction><direction-type><wedge type="stop"/></direction-type></direction></measure></part></score-partwise>`);
-    assert((sustainedWedge.match(/@dyn\(/g) ?? []).length === 1,
+    const sustainedWedge = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>2</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice></note><direction><offset>-1</offset><direction-type><wedge type="crescendo"/></direction-type></direction><note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice></note><direction><direction-type><wedge type="stop"/></direction-type></direction></measure>`));
+    assert((sustainedWedge.match(/@dyn\(/g) ?? []).length === 1 && compilePlayback(lower(sustainedWedge)).diagnostics.length === 0,
       `持续音内部开始的 wedge 应从持续音连接到后继音：${sustainedWedge}`);
-    assert(compilePlayback(lower(sustainedWedge)).diagnostics.length === 0,
-      `持续音内部开始的 wedge 应无诊断：${sustainedWedge}`);
   });
 
   test("带命名空间的 MusicXML direction 后代元素不会丢失", () => {
@@ -783,38 +670,31 @@ test("MusicXML ending 生成 volta、覆盖延音并支持分支 tie 链", () =>
   });
 
   test("MusicXML rehearsal 用 box 包裹且不影响普通 words", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Rehearsal</part-name></score-part></part-list><part id="P1"><measure number="9"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><direction placement="above" system="only-top"><direction-type><rehearsal font-weight="bold" font-size="14">9</rehearsal><words>Verse</words></direction-type></direction><note><rest measure="yes"/><duration>1</duration><voice>1</voice></note></measure></part></score-partwise>`);
-    assert(source.includes('@box("9")') && source.includes('^ "Verse"') && !source.includes('@box("Verse")'),
-      `rehearsal 应有 box，普通 words 不应被一并包裹：${source}`);
-    assert(compilePlayback(lower(source)).diagnostics.length === 0,
-      `带 rehearsal box 的转换结果应无诊断：${source}`);
+    const source = musicXmlToJpFun(partwise(`<measure number="9"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><direction placement="above" system="only-top"><direction-type><rehearsal font-weight="bold" font-size="14">9</rehearsal><words>Verse</words></direction-type></direction><note><rest measure="yes"/><duration>1</duration><voice>1</voice></note></measure>`));
+    assert(source.includes('@box("9")') && source.includes('^ "Verse"') && !source.includes('@box("Verse")')
+      && compilePlayback(lower(source)).diagnostics.length === 0,
+    `rehearsal 应有 box，普通 words 不应被一并包裹：${source}`);
   });
 
   test("middle barline 与休止/空 ending 边界处理", () => {
-    const middle = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Middle</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><barline location="middle"><repeat direction="forward"/></barline><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><barline location="middle"><repeat direction="backward"/></barline><note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure></part></score-partwise>`, { barsPerLine: 1 });
+    const middle = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><barline location="middle"><repeat direction="forward"/></barline><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><barline location="middle"><repeat direction="backward"/></barline><note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure>`), { barsPerLine: 1 });
     assert(playedNotes(compilePlayback(lower(middle))).map(note => note.midi).join() === "60,62,64,62,64,65" && !middle.includes("@br()"), middle);
 
-    const emptyEnding = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Empty</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><barline location="middle"><ending number="1" type="start"/></barline><barline location="middle"><ending number="1" type="stop"/><repeat direction="backward"/></barline><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure></part></score-partwise>`);
+    const emptyEnding = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><barline location="middle"><ending number="1" type="start"/></barline><barline location="middle"><ending number="1" type="stop"/><repeat direction="backward"/></barline><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure>`));
     assert(!emptyEnding.includes("@volta("), emptyEnding);
   });
 
   test("短和弦关系端点的标签位于减时线之后", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Chord Wedge</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>2</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><direction><direction-type><wedge type="crescendo"/></direction-type></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><direction><direction-type><wedge type="stop"/></direction-type></direction></measure></part></score-partwise>`);
+    const source = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>2</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><direction><direction-type><wedge type="crescendo"/></direction-type></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><direction><direction-type><wedge type="stop"/></direction-type></direction></measure>`));
     assert(/\{C4\/ \^ E4\}@mx\d+/.test(source) && !/@mx\d+\s+\//.test(source),
       `和弦减时线必须写在宿主音符上且位于关系标签之前：${source}`);
     const plan = compilePlayback(lower(source));
-    assert(plan.diagnostics.length === 0, `短和弦 wedge 应无诊断：${source}`);
-    assert(playedNotes(plan).every(note => note.duration.equals(1, 2)),
+    assert(plan.diagnostics.length === 0 && playedNotes(plan).every(note => note.duration.equals(1, 2)),
       `短和弦与后继音都应保持半拍：${source}`);
   });
 
   test("附点和弦把点写在宿主音符上，不拆成减时 dash", () => {
-    const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Dotted</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>3</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>6</duration><voice>1</voice></note><note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>6</duration><voice>1</voice></note><note><rest/><duration>6</duration><voice>1</voice></note></measure></part></score-partwise>`);
+    const source = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>4</divisions><time><beats>3</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>6</duration><voice>1</voice></note><note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>6</duration><voice>1</voice></note><note><rest/><duration>6</duration><voice>1</voice></note></measure>`));
     assert(source.includes("{C4. ^ E4}") && source.includes("0.") && !source.includes("-/"),
       `附点和弦/休止应直接使用点，不得拆成 dash：${source}`);
     const notes = playedNotes(compilePlayback(lower(source)));
@@ -843,18 +723,14 @@ test("MusicXML ending 生成 volta、覆盖延音并支持分支 tie 链", () =>
   });
 
   test("direction voice 精确选择声部，steal-time-previous 生成后倚音", () => {
-      const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0">
-    <part-list><score-part id="P1"><part-name>Voices</part-name></score-part></part-list>
-    <part id="P1"><measure number="1">
+      const source = musicXmlToJpFun(partwise(`<measure number="1">
       <attributes><divisions>1</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes>
       <direction placement="below"><direction-type><dynamics><p/></dynamics><words>pizz.</words></direction-type><voice>2</voice></direction>
       <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><note><rest/><duration>1</duration><voice>1</voice></note>
       <backup><duration>2</duration></backup>
       <note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><voice>2</voice></note>
       <note><grace steal-time-previous="20"/><pitch><step>F</step><octave>4</octave></pitch><voice>2</voice></note>
-    </measure></part>
-  </score-partwise>`);
+    </measure>`));
       assert(source.includes(" < ") && source.includes("$p") && source.includes('_ "pizz."'),
         `后倚音、voice=2 力度和文字方向应保留：${source}`);
       const notes = playedNotes(compilePlayback(lower(source)));
@@ -865,23 +741,16 @@ test("MusicXML ending 生成 volta、覆盖延音并支持分支 tie 链", () =>
   });
 
   test("未声明 steal-time-previous 的倚音跨小节绑定后继主音", () => {
-      const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0">
-    <part-list><score-part id="P1"><part-name>Grace</part-name></score-part></part-list>
-    <part id="P1">
+      const source = musicXmlToJpFun(partwise(`
       <measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure>
-      <measure number="2"><note><grace/><pitch><step>D</step><octave>4</octave></pitch><voice>1</voice></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure>
-    </part>
-  </score-partwise>`);
+      <measure number="2"><note><grace/><pitch><step>D</step><octave>4</octave></pitch><voice>1</voice></note>      <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure>`));
       assert(source.includes("{{D4} > E4}") && !source.includes("< {D4}"),
           `无 steal-time-previous 的倚音必须跨小节绑定后继主音：${source}`);
   });
 
   test("grace pitch 参与 tie 标签链", () => {
-      const source = musicXmlToJpFun(`<?xml version="1.0"?>
-  <score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Grace Tie</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><grace/><pitch><step>C</step><octave>4</octave></pitch><voice>1</voice><tie type="start"/></note><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><tie type="stop"/></note></measure></part></score-partwise>`);
-      assert(source.includes("@tie("), `grace tie 应生成关系：${source}`);
-      assert(compilePlayback(lower(source)).diagnostics.length === 0, `grace tie 应无诊断：${source}`);
+      const source = musicXmlToJpFun(partwise(`<measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><grace/><pitch><step>C</step><octave>4</octave></pitch><voice>1</voice><tie type="start"/></note><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><tie type="stop"/></note></measure>`));
+      assert(source.includes("@tie(") && compilePlayback(lower(source)).diagnostics.length === 0, `grace tie 应生成关系：${source}`);
   });
 
   test("MusicXML 非法 XML、音高、必填时值和选项会抛错", () => {
@@ -894,7 +763,7 @@ test("MusicXML ending 生成 volta、覆盖延音并支持分支 tie 链", () =>
     throws(() => musicXmlToJpFun(SCORE.replace("<octave>4</octave>", "<alter>0.5</alter><octave>4</octave>")));
     throws(() => musicXmlToJpFun(SCORE.replace("<pitch><step>G</step><octave>4</octave></pitch>", "")));
     throws(() => musicXmlToJpFun(SCORE.replace("<fifths>1</fifths>", "<fifths>oops</fifths>")));
-    const ending = (number: string) => `<?xml version="1.0"?><score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Ending</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><ending number="${number}" type="start"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><barline location="right"><ending number="${number}" type="stop"/></barline></measure></part></score-partwise>`;
+    const ending = (number: string) => partwise(`<measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><ending number="${number}" type="start"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note><barline location="right"><ending number="${number}" type="stop"/></barline></measure>`);
     for (const value of ["0", "2-1", "x", "257", "9007199254740992"]) {
       throws(() => musicXmlToJpFun(ending(value)), `非法 ending ${value} 必须抛错`);
     }
@@ -906,80 +775,35 @@ test("MusicXML ending 生成 volta、覆盖延音并支持分支 tie 链", () =>
   });
 
 test("MusicXML 导入 D.C. / D.S. / Segno / Fine / To Coda / Coda 并正确展开播放", () => {
-  const dsAlCoda = compileMusicXml(`<?xml version="1.0"?>
-<score-partwise version="4.0">
-  <part-list><score-part id="P1"><part-name>Lead</part-name></score-part></part-list>
-  <part id="P1">
-    <measure number="1">
-      <attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes>
-      <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
-    </measure>
-    <measure number="2">
-      <direction placement="above"><direction-type><segno/></direction-type><sound segno="segno"/></direction>
-      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
-      <direction placement="below"><direction-type><words>To Coda</words></direction-type><sound tocoda="coda"/></direction>
-    </measure>
-    <measure number="3">
-      <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration></note>
-      <direction placement="below"><direction-type><words>D.S. al Coda</words></direction-type><sound dalsegno="segno"/></direction>
-    </measure>
-    <measure number="4">
-      <direction placement="above"><direction-type><coda/></direction-type><sound coda="coda"/></direction>
-      <note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration></note>
-    </measure>
-  </part>
-</score-partwise>`, { barsPerLine: 3 });
+  const n = (step: string) => `<note><pitch><step>${step}</step><octave>4</octave></pitch><duration>1</duration></note>`;
+  const words = (text: string, sound: string) => `<direction placement="below"><direction-type><words>${text}</words></direction-type><sound ${sound}/></direction>`;
+  const score = (...measures: string[]) => partwise(measures.map((body, index) => `<measure number="${index + 1}">${
+    index === 0 ? '<attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes>' : ""}${body}</measure>`).join(""), "Lead");
 
+  const dsAlCoda = compileMusicXml(score(
+    n("C"),
+    `<direction placement="above"><direction-type><segno/></direction-type><sound segno="segno"/></direction>${n("D")}${words("To Coda", 'tocoda="coda"')}`,
+    `${n("E")}${words("D.S. al Coda", 'dalsegno="segno"')}`,
+    `<direction placement="above"><direction-type><coda/></direction-type><sound coda="coda"/></direction>${n("F")}`,
+  ), { barsPerLine: 3 });
   assert(dsAlCoda.script.includes("{D4 ^ $segno}")
     && dsAlCoda.script.includes("{| _ $tocoda}")
     && dsAlCoda.script.includes("{| _ $ds}")
     && dsAlCoda.script.includes("{F4 ^ $coda}"), dsAlCoda.script);
-  assert((dsAlCoda.script.match(/\$segno/g) ?? []).length === 1
-    && (dsAlCoda.script.match(/\$tocoda/g) ?? []).length === 1
-    && (dsAlCoda.script.match(/\$ds/g) ?? []).length === 1
-    && (dsAlCoda.script.match(/\$coda/g) ?? []).length === 1,
-    `direction 与 sound 同时声明的相同反复记号应去重：${dsAlCoda.script}`);
+  for (const mark of ["segno", "tocoda", "ds", "coda"]) {
+    assert((dsAlCoda.script.match(new RegExp(`\\$${mark}`, "g")) ?? []).length === 1,
+      `direction 与 sound 同时声明的相同反复记号应去重：${dsAlCoda.script}`);
+  }
   deepStrictEqual(playedNotes(dsAlCoda.playback).map(note => note.midi), [60, 62, 64, 62, 65]);
 
-  const dcAlFine = compileMusicXml(`<?xml version="1.0"?>
-<score-partwise version="4.0">
-  <part-list><score-part id="P1"><part-name>Lead</part-name></score-part></part-list>
-  <part id="P1">
-    <measure number="1">
-      <attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes>
-      <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
-      <direction placement="below"><direction-type><words>Fine.</words></direction-type><sound fine="yes"/></direction>
-    </measure>
-    <measure number="2">
-      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
-      <direction placement="below"><direction-type><words>D.C. al Fine</words></direction-type><sound dacapo="yes"/></direction>
-    </measure>
-  </part>
-</score-partwise>`);
-
+  const dcAlFine = compileMusicXml(score(`${n("C")}${words("Fine.", 'fine="yes"')}`, `${n("D")}${words("D.C. al Fine", 'dacapo="yes"')}`));
   assert(dcAlFine.script.includes("{| _ $fine}") && dcAlFine.script.includes("{||| _ $dc}"), dcAlFine.script);
   deepStrictEqual(playedNotes(dcAlFine.playback).map(note => note.midi), [60, 62, 60]);
 
-  const barlineAndSoundOnly = compileMusicXml(`<?xml version="1.0"?>
-<score-partwise version="4.0">
-  <part-list><score-part id="P1"><part-name>Lead</part-name></score-part></part-list>
-  <part id="P1">
-    <measure number="1">
-      <attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes>
-      <barline location="left"><segno/></barline>
-      <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
-      <sound tocoda="coda"/>
-    </measure>
-    <measure number="2">
-      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
-      <sound dalsegno="segno"/>
-    </measure>
-    <measure number="3">
-      <barline location="left"><coda/></barline>
-      <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration></note>
-    </measure>
-  </part>
-</score-partwise>`);
-
+  const barlineAndSoundOnly = compileMusicXml(score(
+    `<barline location="left"><segno/></barline>${n("C")}<sound tocoda="coda"/>`,
+    `${n("D")}<sound dalsegno="segno"/>`,
+    `<barline location="left"><coda/></barline>${n("E")}`,
+  ));
   deepStrictEqual(playedNotes(barlineAndSoundOnly.playback).map(note => note.midi), [60, 62, 60, 64]);
 });

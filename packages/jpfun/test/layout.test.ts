@@ -112,29 +112,19 @@ test("综合样例的每个 LayoutBox 都有效且保持横向顺序", () => {
     assert(result.objects.length === 5, `Expected 5 visible objects, got ${result.objects.length}`);
 
     let previousX = -Infinity;
-    for (const object of result.objects) {
-        const values = [
-            object.box.x,
-            object.box.y,
-            object.box.w,
-            object.box.h,
-            object.box.anchor,
-            object.box.visualAxis,
-        ];
-        assert(values.every(Number.isFinite), "Every LayoutBox field must be finite");
-        assert(object.box.w > 0, "Visible objects must have positive width");
-        assert(object.box.h > 0, "Visible objects must have positive height");
-        assert(object.box.anchor >= 0 && object.box.anchor <= object.box.w, "anchor must stay inside the box");
-        assert(object.box.visualAxis >= 0 && object.box.visualAxis <= object.box.h, "visualAxis must stay inside the box");
-        assert(object.box.x >= previousX, "Single-track objects must keep horizontal order");
-        previousX = object.box.x;
+    for (const { box } of result.objects) {
+        assert([box.x, box.y, box.w, box.h, box.anchor, box.visualAxis].every(Number.isFinite), "Every LayoutBox field must be finite");
+        assert(box.w > 0 && box.h > 0, "Visible objects must have positive size");
+        assert(box.anchor >= 0 && box.anchor <= box.w && box.visualAxis >= 0 && box.visualAxis <= box.h,
+            "anchor and visualAxis must stay inside the box");
+        assert(box.x >= previousX, "Single-track objects must keep horizontal order");
+        previousX = box.x;
     }
 
     const decoratedNote = result.objects[1];
     assert(decoratedNote.decorations.length === 3, "octave dots, dot and div must create independent decorations");
     assert(decoratedNote.box.w > decoratedNote.ast.size * 0.62, "dot must extend the note width");
     assert(getLayoutBounds(decoratedNote).h > decoratedNote.ast.size, "div or octave dots must extend occupied height");
-
 });
 
 test("增时线与附点之间保留细小间隙", () => {
@@ -149,35 +139,19 @@ test("增时线与附点之间保留细小间隙", () => {
 
 test("所有行超过半页时横向撑满，短行保持自然宽度", () => {
     const page = "@page(width=200px,left=10px,right=10px) ";
-    const filled = layoutOf(`${page}1 2 3 4 @br() 5`);
-    const filledLine = filled.objects.filter(object => object.layoutLine === 0);
-    assert(nearly(filledLine[0].box.x, 10), "a filled line must start at the left content edge");
-    assert(nearly(filledLine.at(-1)!.box.x + filledLine.at(-1)!.box.w, 190),
-        "a non-final line wider than half the content area must reach the right edge");
-
-    const compressed = layoutOf(`${page}1 2 3 4 5 6 7 1 2 3 @br() 4`);
-    const compressedLine = compressed.objects.filter(object => object.layoutLine === 0);
-    assert(nearly(compressedLine[0].box.x, 10), "a compressed line must start at the left content edge");
-    assert(nearly(compressedLine.at(-1)!.box.x + compressedLine.at(-1)!.box.w, 190),
-        "a compressed line must distribute its outside gaps and reach the right edge");
-
-    const short = layoutOf(`${page}1 2 @br() 3`).objects.filter(object => object.layoutLine === 0);
-    assert(short.at(-1)!.box.x + short.at(-1)!.box.w < 100,
-        "a line shorter than half the content area must keep its natural spacing");
-
-    const unfilled = layoutOf(`${page.replace(")", ",fillRatio=1)")}1 2 3 4 @br() 5`)
-        .objects.filter(object => object.layoutLine === 0);
-    assert(unfilled.at(-1)!.box.x + unfilled.at(-1)!.box.w < 190,
+    const firstLine = (body: string) => layoutOf(page + body).objects.filter(object => object.layoutLine === 0);
+    const right = (line: ReturnType<typeof firstLine>) => line.at(-1)!.box.x + line.at(-1)!.box.w;
+    // 非末行、需要压缩的行与末行，只要超过半页都从左边界撑到右边界
+    for (const body of ["1 2 3 4 @br() 5", "1 2 3 4 5 6 7 1 2 3 @br() 4", "1 2 3 4"]) {
+        const line = firstLine(body);
+        assert(nearly(line[0].box.x, 10) && nearly(right(line), 190), `the line must span the content width: ${body}`);
+    }
+    for (const body of ["1 2 @br() 3", "1 2"]) {
+        assert(right(firstLine(body)) < 100, `a line shorter than half the content area must keep its natural spacing: ${body}`);
+    }
+    assert(right(layoutOf(`${page.replace(")", ",fillRatio=1)")}1 2 3 4 @br() 5`)
+        .objects.filter(object => object.layoutLine === 0)) < 190,
         "fillRatio must control when a line expands to the content width");
-
-    const final = layoutOf(`${page}1 2 3 4`).objects;
-    assert(nearly(final[0].box.x, 10), "a filled final line must start at the left content edge");
-    assert(nearly(final.at(-1)!.box.x + final.at(-1)!.box.w, 190),
-        "a final line wider than half the content area must reach the right edge");
-
-    const shortFinal = layoutOf(`${page}1 2`).objects;
-    assert(shortFinal.at(-1)!.box.x + shortFinal.at(-1)!.box.w < 100,
-        "a short final line must keep its natural spacing");
 });
 
 test("可见附件保留最终区域与源码范围", () => {
@@ -189,12 +163,9 @@ test("可见附件保留最终区域与源码范围", () => {
         const layout = compileScore(source).layout;
         const visibleAttachments = layout.attachments.filter(attachment => attachment.regions.length > 0);
         assert(visibleAttachments.length > 0, "the source mapping sample must create visible attachments");
-        for (const attachment of visibleAttachments) {
-            assert(attachment.sourceSpan, "every visible built-in attachment must expose a source span");
-            assert(attachment.sourceSpan.start >= 0 && attachment.sourceSpan.end <= source.length,
-                "attachment source spans must stay inside the document");
-            assert(attachment.regions && attachment.regions.length > 0,
-                "every visible built-in attachment must expose final layout regions");
+        for (const { sourceSpan } of visibleAttachments) {
+            assert(sourceSpan && sourceSpan.start >= 0 && sourceSpan.end <= source.length,
+                "every visible built-in attachment must expose a source span inside the document");
         }
     }
 
@@ -205,15 +176,14 @@ test("可见附件保留最终区域与源码范围", () => {
 });
 
 test("字号选项与解析期字号驱动所有几何缩放", () => {
-    const optionFontSizeResult = compileScore(`1`, { variables: { fontsize: 18 } });
-    assert(optionFontSizeResult.layout.objects[0].ast.size === 18, "compileScore fontSize must initialize the root parse scope");
+    assert(layoutOf(`1`, 18).objects[0].ast.size === 18, "compileScore fontSize must initialize the root parse scope");
 
-    const [smallDecoratedNote, smallBar] = compileScore(`1.// |`, { variables: { fontsize: 20 } }).layout.objects;
-    const [largeDecoratedNote, largeBar] = compileScore(`2.// |`, { variables: { fontsize: 40 } }).layout.objects;
-    assert(nearly(largeDecoratedNote.box.w, smallDecoratedNote.box.w * 2), "dot width must scale with its host font size");
-    assert(nearly(largeDecoratedNote.box.h, smallDecoratedNote.box.h * 2), "div height must scale with its host font size");
-    assert(nearly(largeBar.box.w, smallBar.box.w * 2), "bar geometry must use its parse-time font size");
-    assert(nearly(largeBar.box.h, smallBar.box.h * 2), "bar height must use its parse-time font size");
+    const small = layoutOf(`1.// |`, 20).objects;
+    const large = layoutOf(`2.// |`, 40).objects;
+    for (let i = 0; i < 2; i++) {
+        assert(nearly(large[i].box.w, small[i].box.w * 2) && nearly(large[i].box.h, small[i].box.h * 2),
+            "dot, div and bar geometry must scale with the parse-time font size");
+    }
 });
 
 test("重复调用 layoutDocument 重置 springConfig，不累乘连梁、小节线与谱头弹簧参数", () => {
@@ -241,11 +211,8 @@ test("相邻同小节数的无挤压撑满行通过注水投影对齐内部小�
 `);
     const line0Internal = barAnchors(aligned, 0).slice(1, -1);
     const line1Internal = barAnchors(aligned, 1).slice(0, -1);
-    assert(line0Internal.length === 3 && line1Internal.length === 3, "两行均应识别出 3 根内部小节线");
-    for (let i = 0; i < 3; i++) {
-        assert(nearly(line0Internal[i], line1Internal[i]),
-            `第 ${i + 1} 根内部小节线应完全对齐: ${line0Internal[i]} vs ${line1Internal[i]}`);
-    }
+    assert(line0Internal.length === 3 && sameXs(line0Internal, line1Internal),
+        `两行的 3 根内部小节线应完全对齐: ${line0Internal} vs ${line1Internal}`);
 
     // 余量紧张（单行有余量但包络总宽超过行宽）时，在不挤压任何小节的前提下尽最大余量向邻行靠拢
     const tightPage = "@page(width=620px,left=10px,right=10px,fillRatio=0) ";
@@ -272,10 +239,7 @@ test("相邻同小节数的无挤压撑满行通过注水投影对齐内部小�
     const baseBars = barAnchors(fourLines, 0).slice(0, -1);
     for (let line = 1; line < 4; line++) {
         const current = barAnchors(fourLines, line).slice(0, -1);
-        for (let i = 0; i < 3; i++) {
-            assert(nearly(current[i], baseBars[i]),
-                `第 ${line} 行第 ${i + 1} 根小节线应与首行完全对齐: ${current[i]} vs ${baseBars[i]}`);
-        }
+        assert(sameXs(current, baseBars), `第 ${line} 行小节线应与首行完全对齐: ${current} vs ${baseBars}`);
     }
 
     // 成倍数小节行（如 4 → 2 → 4）共享细网格：2 小节行的中分小节线对齐 4 小节行的第 2 根小节线，且上下 4 小节行隔行对齐
@@ -291,10 +255,7 @@ test("相邻同小节数的无挤压撑满行通过注水投影对齐内部小�
     assert(prop0.length === 3 && prop1.length === 1 && prop2.length === 3, "三行内部小节线数应分别为 3、1、3");
     assert(nearly(prop1[0], prop0[1]) && nearly(prop1[0], prop2[1]),
         `2 小节行的中间小节线应与上下 4 小节行的第 2 根小节线完全对齐: ${prop1[0]} vs ${prop0[1]}, ${prop2[1]}`);
-    for (let i = 0; i < 3; i++) {
-        assert(nearly(prop0[i], prop2[i]),
-            `隔着 2 小节行的上下两行 4 小节线应全部对齐: ${prop0[i]} vs ${prop2[i]}`);
-    }
+    assert(sameXs(prop0, prop2), `隔着 2 小节行的上下两行 4 小节线应全部对齐: ${prop0} vs ${prop2}`);
 
     // 邻行含 @rest 锁死小节宽度且不小于邻行对应小节自然宽时，本行休止间隙保持固定，另一行自动对齐到该小节线
     const withRest = layoutOf(`
@@ -304,10 +265,8 @@ test("相邻同小节数的无挤压撑满行通过注水投影对齐内部小�
 `);
     const restLineBars = barAnchors(withRest, 0).slice(1, -1);
     const noteLineBars = barAnchors(withRest, 1).slice(1, -1);
-    for (let i = 0; i < 2; i++) {
-        assert(nearly(restLineBars[i], noteLineBars[i]),
-            `含 @rest 的邻行内部小节线应与普通行对齐: ${restLineBars[i]} vs ${noteLineBars[i]}`);
-    }
+    assert(restLineBars.length === 2 && sameXs(restLineBars, noteLineBars),
+        `含 @rest 的邻行内部小节线应与普通行对齐: ${restLineBars} vs ${noteLineBars}`);
 });
 
 test("段内各行须整除最大小节数：2、6、4 小节相邻时 2 小节行的段不并入 4 小节行", () => {

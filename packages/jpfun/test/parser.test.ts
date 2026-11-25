@@ -33,37 +33,30 @@ test("key octave parsing consumes the entire value", () => {
     assert(compileScore("@key(C#4) 1").diagnostics.length === 0, "canonical spelling must remain valid");
 });
 
-test("续行与注释掩码保持源码长度和行首偏移", () => {
-    for (const [source, expected] of [
-        ["1\\\n2", "1  2"],
-        ["1\\ % comment\n2", `1${" ".repeat(12)}2`],
-        ["1\\\\\n2", "1 \\\n2"],
-        ['"100%"\n% comment\n2', `"100%"\n${" ".repeat(9)}\n2`],
-    ]) {
-        const { maskedSource, lineStarts } = preprocessSource(source);
-        deepStrictEqual(maskedSource, expected);
-        deepStrictEqual(maskedSource.length, source.length);
-        deepStrictEqual(lineStarts, [0, ...[...source.matchAll(/\n/g)].map(match => match.index + 1)]);
-    }
-});
-
-test("CRLF preprocessing masks CR outside strings without shifting source spans", () => {
-    for (const [source, expected] of [
-        ["1\r\n2", "1 \n2"],
-        ["1\r\n\r\n2", "1 \n \n2"],
-        ['"a\r\n% b"\r\n2', '"a\r\n% b" \n2'],
-        ["1\\\r\n2", "1   2"],
-        ["1\\\\\r\n2", "1 \\ \n2"],
-        ["1\r2", "1\r2"],
-    ]) {
+test("续行、注释与 CRLF 掩码保持源码长度和行首偏移", () => {
+    for (const [source, expected, comments] of [
+        ["1\\\n2", "1  2", 0],
+        ["1\\ % comment\n2", `1${" ".repeat(12)}2`, 1],
+        ["1\\\\\n2", "1 \\\n2", 0],
+        ['"100%"\n% comment\n2', `"100%"\n${" ".repeat(9)}\n2`, 1],
+        ["1\r\n2", "1 \n2", 0],
+        ["1\r\n\r\n2", "1 \n \n2", 0],
+        ['"a\r\n% b"\r\n2', '"a\r\n% b" \n2', 0],
+        ["1\\\r\n2", "1   2", 0],
+        ["1\\\\\r\n2", "1 \\ \n2", 0],
+        ["1\r2", "1\r2", 0],
+    ] as const) {
         const result = preprocessSource(source);
         deepStrictEqual(result.maskedSource, expected);
         deepStrictEqual(result.maskedSource.length, source.length);
         deepStrictEqual(result.lineStarts, [
             0, ...[...source.matchAll(/\r\n|\r|\n/g)].map(match => match.index + match[0].length),
         ]);
-        deepStrictEqual(result.commentSpans, []);
+        deepStrictEqual(result.commentSpans.length, comments, source);
     }
+});
+
+test("CRLF 行尾注释不吞掉 CR 之后的源码跨度", () => {
     const source = '1 % comment\r\n@div(1, nope)';
     const result = preprocessSource(source);
     deepStrictEqual(result.commentSpans, [{ start: source.indexOf("%"), end: source.indexOf("\r") }]);
@@ -84,32 +77,29 @@ test("引号必须配对才算字符串", () => {
     }
 });
 
+/** 语法 token 按种类和源码文本检索，供编辑器着色用例使用 */
+const tokensOf = (source: string) => analyzeScoreSyntax(source).syntax.tokens
+    .map(token => [token.kind, source.slice(token.span.start, token.span.end)] as const);
+const hasToken = (source: string, kind: string, text: string) =>
+    tokensOf(source).some(([tokenKind, tokenText]) => tokenKind === kind && tokenText === text);
+
 test("head 行语法糖只标记前缀并递归显式内容", () => {
     const source = `H.title: jpFun 简谱示例
 H.title: @box(@text(测试))`;
-    const syntax = analyzeScoreSyntax(source).syntax;
-    const tokenText = (token: typeof syntax.tokens[number]) => source.slice(token.span.start, token.span.end);
-    assert(syntax.tokens.some(token => token.kind === "operator" && tokenText(token) === "H.title:"),
-        "head declaration prefix must be one operator token");
-    assert(syntax.tokens.some(token => token.kind === "string" && tokenText(token) === "jpFun 简谱示例"),
-        "bare head text must be colored as a string token");
-    assert(!syntax.tokens.some(token => tokenText(token) === "H.title: jpFun 简谱示例"),
-        "bare head text must not be included in the operator token");
-    assert(!syntax.tokens.some(token => token.kind === "atom" && tokenText(token) === "F"),
-        "bare head text must not be scanned as note sugar");
-    assert(syntax.tokens.some(token => token.kind === "function" && tokenText(token) === "@box")
-        && syntax.tokens.some(token => token.kind === "function" && tokenText(token) === "@text"),
-    "explicit head content must retain nested function tokens");
-
+    assert(hasToken(source, "operator", "H.title:") && hasToken(source, "string", "jpFun 简谱示例"),
+        "head prefix must be one operator token and bare head text one string token");
+    assert(!tokensOf(source).some(([kind, text]) => text === "H.title: jpFun 简谱示例" || (kind === "atom" && text === "F")),
+        "bare head text must neither join the operator token nor be scanned as note sugar");
+    assert(hasToken(source, "function", "@box") && hasToken(source, "function", "@text"),
+        "explicit head content must retain nested function tokens");
 });
 
 test("readCall locates first top-level equals, resets at commas and preserves empty args", () => {
-    const call = readCall('x@f(, a=b=c, "k=v", @g(k=v), {k=v,(}, =x=y, key = "a=b"', 1, 55)!;
+    const source = 'x@f(, a=b=c, "k=v", @g(k=v), {k=v,(}, =x=y, key = "a=b"';
+    const call = readCall(source, 1, 55)!;
+    const slice = (span?: { start: number; end: number }) => span ? source.slice(span.start, span.end) : null;
     deepStrictEqual(
-        call.args.map(arg => [
-            arg.nameSpan ? "x@f(, a=b=c, \"k=v\", @g(k=v), {k=v,(}, =x=y, key = \"a=b\"".slice(arg.nameSpan.start, arg.nameSpan.end) : null,
-            "x@f(, a=b=c, \"k=v\", @g(k=v), {k=v,(}, =x=y, key = \"a=b\"".slice(arg.valueSpan.start, arg.valueSpan.end),
-        ]),
+        call.args.map(arg => [slice(arg.nameSpan), slice(arg.valueSpan)]),
         [[null, ""], ["a", "b=c"], [null, '"k=v"'], [null, "@g(k=v)"], [null, "{k=v,(}"], [null, "=x=y"], ["key", '"a=b"']],
     );
     deepStrictEqual(call.closeParenSpan, undefined);
@@ -120,28 +110,13 @@ test("readCall locates first top-level equals, resets at commas and preserves em
 
 test("未闭合的调用仍然向编辑器暴露语法信息", () => {
     const incomplete = `@page(width=800px, height= % comment`;
-    const incompleteResult = analyzeScoreSyntax(incomplete);
-    const syntax = incompleteResult.syntax;
-    const text = (start: number, end: number) => incomplete.slice(start, end);
-    assert(syntax.calls.length === 1, "an incomplete call must remain available to editor tooling");
-    assert(syntax.calls[0].closeParenSpan === undefined, "an incomplete call must expose a missing close parenthesis");
-    assert(
-        syntax.tokens.some(token => token.kind === "function" && text(token.span.start, token.span.end) === "@page"),
-        "syntax analysis must identify the written function name",
-    );
-    assert(
-        syntax.tokens.some(token => token.kind === "property" && text(token.span.start, token.span.end) === "width"),
-        "syntax analysis must identify named arguments",
-    );
-    assert(
-        syntax.tokens.some(token => token.kind === "length" && text(token.span.start, token.span.end) === "800px"),
-        "syntax analysis must classify values from function argument definitions",
-    );
-    assert(
-        syntax.tokens.some(token => token.kind === "comment" && text(token.span.start, token.span.end).startsWith("%")),
-        "syntax analysis must preserve comments masked before AST parsing",
-    );
-    assert(incompleteResult.diagnostics.length > 0, "an incomplete call must report a diagnostic without throwing");
+    const { syntax, diagnostics } = analyzeScoreSyntax(incomplete);
+    assert(syntax.calls.length === 1 && syntax.calls[0].closeParenSpan === undefined,
+        "an incomplete call must remain available to editor tooling without a close parenthesis");
+    assert(hasToken(incomplete, "function", "@page") && hasToken(incomplete, "property", "width")
+        && hasToken(incomplete, "length", "800px") && hasToken(incomplete, "comment", "% comment"),
+    "syntax analysis must classify function name, named argument, typed value and masked comment");
+    assert(diagnostics.length > 0, "an incomplete call must report a diagnostic without throwing");
 });
 
 test("变长内容暴露嵌套的 atom 与语法糖运算符", () => {
@@ -208,21 +183,14 @@ test("语法 token 在跨越被掩码注释时保持有序、不重叠且不越�
 
 test("命名参数与标签保留无歧义的字面量类型", () => {
     const typedExtras = `@set(fontsize=30) 1@a 2@b @tie(a,b,height=0.5em) @up(1,2)`;
-    const typedSyntax = analyzeScoreSyntax(typedExtras).syntax;
-    const hasToken = (kind: string, value: string) => typedSyntax.tokens.some(token =>
-        token.kind === kind && typedExtras.slice(token.span.start, token.span.end) === value
-    );
-    assert(hasToken("number", "30"), "dynamic set values must use unambiguous literal types");
-    assert(hasToken("label", "a") && hasToken("label", "b"), "tie endpoints must use its variadic label contract");
-    assert(hasToken("length", "0.5em"), "unknown named arguments must retain unambiguous literal types");
-    assert(typedSyntax.tokens.filter(token => token.kind === "atom").length >= 4, "up variadic content must expose nested atoms");
+    assert(hasToken(typedExtras, "number", "30"), "dynamic set values must use unambiguous literal types");
+    assert(hasToken(typedExtras, "label", "a") && hasToken(typedExtras, "label", "b"), "tie endpoints must use its variadic label contract");
+    assert(hasToken(typedExtras, "length", "0.5em"), "unknown named arguments must retain unambiguous literal types");
+    assert(tokensOf(typedExtras).filter(([kind]) => kind === "atom").length >= 4, "up variadic content must expose nested atoms");
 });
 
 test("歌词行前缀着色为运算符，歌词正文着色为字符串", () => {
-    const items = (source: string) => analyzeScoreSyntax(source).syntax.tokens.map(
-        token => [token.kind, source.slice(token.span.start, token.span.end)],
-    );
-    deepStrictEqual(items(`N(主): 1\nL(男): {for-@@}ev-er @`), [
+    deepStrictEqual(tokensOf(`N(主): 1\nL(男): {for-@@}ev-er @`), [
         ["operator", "N(主):"],
         ["atom", "1"],
         ["operator", "L(男):"],

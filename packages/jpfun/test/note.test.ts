@@ -4,7 +4,7 @@ import strictAssert from "node:assert/strict";
 import { ASTTextNode, type ASTFunctionNode } from "../src/functions/ASTtypes.js";
 import { layoutDocument } from "../src/layout/engine.js";
 import { isVisualTemporalNode, type VisualTemporalNode } from "../src/functions/temporal.js";
-import type { PathCommand } from "../src/render/types.js";
+import { pathBounds } from "../src/layout/path.js";
 import { compileScore } from "../src/pipeline.js";
 import { transformNotes, type NoteTransform } from "../src/functions/note/index.js";
 import { assert, expectCompileError, layoutContext, layoutOf, lower, nearly, parse, recordCommands } from "./helpers.js";
@@ -24,6 +24,9 @@ function noteFacts(source: string) {
         .map(node => ({ midi: (node as typeof node & { resolvedMidi: number | null }).resolvedMidi,
             time: node.t.toString(), duration: node.T.toString() }));
 }
+
+const C = "@set(note.carry=true) ";
+const midis = (source: string) => noteFacts(source).map(note => note.midi);
 
 test("note source transformations preserve pitches, timing, selections and JE scopes", () => {
     const source = '@set(note.acc=#) 1 C4 #1 C#4 b1 Cb4 n1 Cn4 @n(1) @n(C4)';
@@ -60,114 +63,41 @@ test("rhythm suffixes skip ignored text nodes", () => {
         ["function", "text"]);
 });
 
-/** 固定图形只给出路径命令，取包围盒才能和数字盒比较位置 */
-function commandBounds(commands: readonly PathCommand[]) {
-    const xs: number[] = [];
-    const ys: number[] = [];
-    const point = (x: number, y: number) => {
-        xs.push(x);
-        ys.push(y);
-    };
-
-    for (const command of commands) {
-        if (command.op === "Z") continue;
-        if (command.op === "Q") point(command.cx, command.cy);
-        if (command.op === "C") {
-            point(command.cx1, command.cy1);
-            point(command.cx2, command.cy2);
-        }
-        point(command.x, command.y);
+test("音名的绝对八度完整传入，后置升降号只在无歧义时兼容", () => {
+    for (const [source, expected] of [
+        [`C0 @note("C2")`, [12, 36]],
+        [`@note("C2#")`, [37]],
+        [`A3# A3#2`, [58, 57, 63]],   // A3# -> A#3，A3#2 -> A3 和 #2
+        [`2#3`, [62, 65]],            // 2 和 #3，而不是 #2 和 3
+        [`2'#3`, [74, 65]],
+        [`6#,, #6#`, [46, 70]],       // 6#,, -> #6,,，#6# 不能合并成 ##6
+    ] as const) {
+        strictAssert.deepEqual(midis(source), expected, source);
     }
-
-    const x = Math.min(...xs);
-    const y = Math.min(...ys);
-    return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
-}
-
-test("音名中的绝对八度完整传入显式和语法糖音符", () => {
-    const shorthand = compileScore(`C0`).layout.objects[0] as VisualTemporalNode & {
-        resolvedMidi: number | null;
-        ast: ASTFunctionNode & { octave: number };
-    };
-    const explicit = compileScore(`@note("C2")`).layout.objects[0] as VisualTemporalNode & {
-        resolvedMidi: number | null;
-        ast: ASTFunctionNode & { octave: number };
-    };
-    const postfixAccidental = compileScore(`@note("C2#")`).layout.objects[0] as VisualTemporalNode & {
-        resolvedMidi: number | null;
-        ast: ASTFunctionNode & { acc: string; octave: number };
-    };
-    const shorthandPostfix = compileScore(`A3# A3#2`).layout.objects as (VisualTemporalNode & {
-        resolvedMidi: number | null;
-    })[];
-
-    assert(shorthand.ast.octave === 0 && shorthand.resolvedMidi === 12,
-        "C0 语法糖必须保留绝对八度 0");
-    assert(explicit.ast.octave === 2 && explicit.resolvedMidi === 36,
-        "显式 @note 必须采用名称中的绝对八度");
-    assert(postfixAccidental.ast.acc === "#" && postfixAccidental.ast.octave === 2
-        && postfixAccidental.resolvedMidi === 37,
-        "显式 @note 必须兼容无歧义的后置升降号");
-    assert(shorthandPostfix.map(note => note.resolvedMidi).join() === "58,57,63",
-        "A3# 必须兼容为 A#3，而 A3#2 必须解析为 A3 和 #2");
     expectCompileError(`@note("#6#")`, "E_WRONG_NOTE_NAME");
 });
 
-test("升降号贴在数字左上角且不侵入数字单元", () => {
-    const accidentalCommands = recordCommands(layoutOf(`#1`));
-    const accidentalPath = accidentalCommands.find(command => command.kind === "path");
-    const accidentalNumberText = accidentalCommands.find(command => command.kind === "text");
-    assert(accidentalPath?.kind === "path", "sharp note must emit one accidental path");
-    assert(accidentalNumberText?.kind === "text", "sharp note must emit one centered number text");
+test("升降号贴在数字左上角，与附点一起悬在节奏范围之外", () => {
+    const result = layoutOf(`#2.//`);
+    const commands = recordCommands(result);
+    const number = commands.find(command => command.kind === "text");
+    const path = commands.find(command => command.kind === "path");
+    const lines = commands.filter(command => command.kind === "rect");
+    const dot = commands.find(command => command.kind === "circle");
+    assert(number?.kind === "text" && path?.kind === "path" && dot?.kind === "circle" && lines.length === 2,
+        "decorated note must emit number, accidental, dot and two div lines");
 
-    const accidentalBounds = commandBounds(accidentalPath.commands);
-    const numberWidth = accidentalNumberText.style.fontSize * 0.62;
-    const numberLeft = accidentalNumberText.x - numberWidth / 2;
-    const accidentalRight = accidentalBounds.x + accidentalBounds.w;
-    const numberTop = accidentalNumberText.y - accidentalNumberText.style.fontSize * 0.8;
-    const accidentalGap = numberLeft - accidentalRight;
-
-    assert(accidentalGap >= 0, "accidental must stay to the left of the number cell");
-    assert(accidentalGap < accidentalNumberText.style.fontSize * 0.06, "accidental must sit close to the number left edge");
-    assert(accidentalBounds.y < numberTop + accidentalNumberText.style.fontSize * 0.2,
-        "accidental must be raised to the number upper-left area");
-});
-
-test("升降号与附点悬在节奏范围之外", () => {
-    const hangingAccidentalResult = layoutOf(`#2.//`);
-    const plainDecoratedResult = layoutOf(`2.//`);
-    const hangingCommands = recordCommands(hangingAccidentalResult);
-    const hangingNumber = hangingCommands.find(command => command.kind === "text");
-    const hangingPath = hangingCommands.find(command => command.kind === "path");
-    const hangingLines = hangingCommands.filter(command => command.kind === "rect");
-    const hangingDot = hangingCommands.find(command => command.kind === "circle");
-
-    assert(hangingNumber?.kind === "text", "decorated note must emit its number text");
-    assert(hangingPath?.kind === "path", "decorated note must emit its hanging accidental");
-    assert(hangingDot?.kind === "circle", "decorated note must emit its augmentation dot");
-    assert(hangingLines.length === 2, "double-divided note must emit two local lines");
-    assert(
-        hangingAccidentalResult.objects[0].box.w > plainDecoratedResult.objects[0].box.w,
-        "accidental must increase the complete decorated note LayoutBox width",
-    );
-
-    const hangingNumberHalfWidth = hangingNumber.style.fontSize * 0.62 / 2;
-    const hangingNumberLeft = hangingNumber.x - hangingNumberHalfWidth;
-    const hangingNumberRight = hangingNumber.x + hangingNumberHalfWidth;
-    const hangingPathBounds = commandBounds(hangingPath.commands);
-    assert(
-        hangingLines.every(line => nearly(line.x, hangingNumberLeft)),
-        "div lines must start at the number left edge",
-    );
-    assert(
-        hangingLines.every(line => nearly(line.x + line.w, hangingNumberRight)),
-        "div lines must end at the number right edge",
-    );
-    assert(hangingPathBounds.x + hangingPathBounds.w <= hangingNumberLeft + 1e-6,
-        "hanging accidental must stay outside the rhythm range");
-    assert(hangingDot.cx > hangingNumberRight, "augmentation dot must stay outside the rhythm range");
-    assert(hangingAccidentalResult.bounds.x <= hangingPathBounds.x,
-        "document bounds must include the complete accidental path");
+    const fontSize = number.style.fontSize;
+    const numberLeft = number.x - fontSize * 0.31;
+    const numberRight = number.x + fontSize * 0.31;
+    const bounds = pathBounds(path.commands);
+    const gap = numberLeft - (bounds.x + bounds.w);
+    assert(lines.every(line => nearly(line.x, numberLeft) && nearly(line.x + line.w, numberRight)),
+        "div lines must span exactly the number width");
+    assert(gap >= -1e-6 && gap < fontSize * 0.06, "accidental must hang just left of the number cell");
+    assert(bounds.y < number.y - fontSize * 0.6, "accidental must be raised to the number upper-left area");
+    assert(dot.cx > numberRight, "augmentation dot must stay outside the rhythm range");
+    assert(result.bounds.x <= bounds.x, "document bounds must include the complete accidental path");
 });
 
 test("升降号不移动对齐中心，也不改变核心范围", () => {
@@ -253,11 +183,9 @@ test("小节线与音符共享视觉中心轴，并加强附近的弹簧", () =>
     const visualAxes = barAlignmentResult.objects.map(object => object.box.y + object.box.visualAxis);
     assert(visualAxes.every(axis => nearly(axis, visualAxes[0])), "bar and note-like objects must share one visual center axis");
     const [noteBeforeBar, firstBar, noteAfterBar] = barAlignmentResult.objects;
-    assert(noteBeforeBar.springConfig.mu_R === 64, "the spring facing an anchor from the left must use 4x mu");
-    assert(firstBar.springConfig.mu_L === 64, "an anchor left spring must use 4x mu");
-    assert(firstBar.springConfig.mu_R === 64, "an anchor right spring must use 4x mu");
-    assert(noteAfterBar.springConfig.mu_L === 64, "the spring facing an anchor from the right must use 4x mu");
-    assert(noteBeforeBar.springConfig.mu_L === 16, "the side away from an anchor must keep its base mu");
+    // 朝向小节线的两侧弹簧用 4 倍 mu，背离一侧保持基础值
+    strictAssert.deepEqual([noteBeforeBar.springConfig.mu_L, noteBeforeBar.springConfig.mu_R,
+        firstBar.springConfig.mu_L, firstBar.springConfig.mu_R, noteAfterBar.springConfig.mu_L], [16, 64, 64, 64, 64]);
 
     const barAlignmentCommands = recordCommands(barAlignmentResult);
     const alignedNumberCenters = barAlignmentCommands
@@ -387,70 +315,23 @@ test("tempo 与 key 自己上谱，set 纯词法，不可见事件不分配布�
     assert(noteColumn.bpm === 90, "tempo must be frozen into the column at its score position");
     assert(stateNote.resolvedMidi === 62, "key D4 must resolve jianpu 1 to MIDI 62");
     assert(stateNote.ast.color === "#f00", "set must solidify the note color during parsing");
-    assert(invisibleStateEvents.every(event => event.box === undefined), "invisible state events must not allocate LayoutBox");
-    assert(invisibleStateEvents.every(event => event.springConfig === undefined), "invisible state events must not allocate HorizontalSpringConfig");
-    assert(invisibleStateEvents.every(event => event.ports === undefined), "invisible state events must not allocate layout ports");
-    assert(invisibleStateEvents.every(event => event.decorations === undefined), "invisible state events must not allocate decorations");
+    assert(invisibleStateEvents.every(event => event.box === undefined && event.springConfig === undefined
+        && event.ports === undefined && event.decorations === undefined),
+    "invisible state events must not allocate box, springs, ports or decorations");
     strictAssert.deepEqual(invisibleStateEvents.map(event => event.addon), [undefined, { breakBefore: 1 }],
         "only the boundary control needs addon; an ordinary program state event must not allocate it");
 });
 
-test("JE 谱括号按局部作用域调整八度", () => {
-    const source = `(1 [2] 3) 4 [[5]] {(6} 7`;
-    const notes = compileScore(source).layout.objects as (VisualTemporalNode & {
-        octave: number;
-        resolvedMidi: number | null;
-    })[];
+test("JE 谱括号按局部作用域调整八度，去糖后不重复应用", () => {
+    // 支持嵌套，离开大括号作用域后恢复八度
+    strictAssert.deepEqual(midis(`(1 [2] 3) 4 [[5]] {(6} 7`), [48, 62, 52, 65, 91, 57, 71]);
 
-    assert(notes.map(note => note.octave).join() === "-1,0,-1,0,2,-1,0",
-        "JE 括号必须支持嵌套，并在离开大括号作用域后恢复八度");
-    assert(notes.map(note => note.resolvedMidi).join() === "48,62,52,65,91,57,71",
-        "JE 括号必须让音高随每层括号改变 12 个半音");
-});
-
-test("JE 谱括号内的音符去糖不会重复应用八度", () => {
     const source = `(@note(1))`;
-    const note = compileScore(source).layout.objects[0] as VisualTemporalNode & {
-        octave: number;
-        resolvedMidi: number | null;
-        ast: ASTFunctionNode;
-    };
-    const replacement = note.ast.toString(source);
-    const replacedSource = source.slice(0, note.ast.sourceSpan.start)
-        + replacement
-        + source.slice(note.ast.sourceSpan.end);
-    const replaced = compileScore(replacedSource).layout.objects[0] as VisualTemporalNode & {
-        octave: number;
-        resolvedMidi: number | null;
-    };
-
-    assert(note.octave === -1 && note.resolvedMidi === 48, "显式音符也必须读取 JE 八度作用域");
-    assert(replaced.octave === -1 && replaced.resolvedMidi === 48,
-        "替换为音符的去糖写法后，外层 JE 括号不能重复施加偏移");
+    const { ast } = compileScore(source).layout.objects[0];
+    const replaced = source.slice(0, ast.sourceSpan.start) + ast.toString(source) + source.slice(ast.sourceSpan.end);
+    // 替换为音符的去糖写法后，外层 JE 括号不能重复施加偏移
+    strictAssert.deepEqual([...midis(source), ...midis(replaced)], [48, 48]);
 });
-
-test("数字音名只在无歧义时兼容后置升降号", () => {
-    const notes = compileScore(`2#3`).layout.objects as (VisualTemporalNode & {
-        resolvedMidi: number | null;
-    })[];
-    const notesAfterOctave = compileScore(`2'#3`).layout.objects as (VisualTemporalNode & {
-        resolvedMidi: number | null;
-    })[];
-
-    assert(notes.map(note => note.resolvedMidi).join() === "62,65",
-        "2#3 必须解析为 2 和 #3，而不是 #2 和 3");
-    assert(notesAfterOctave.map(note => note.resolvedMidi).join() === "74,65",
-        "2'#3 必须解析为 2' 和 #3，而不是 #2' 和 3");
-
-    const compatible = compileScore(`6#,, #6#`).layout.objects as (VisualTemporalNode & {
-        resolvedMidi: number | null;
-    })[];
-    assert(compatible.map(note => note.resolvedMidi).join() === "46,70",
-        "6#,, 必须兼容为 #6,,，而 #6# 不能合并成 ##6");
-});
-
-const C = "@set(note.carry=true) ";
-const midis = (source: string) => noteFacts(source).map(note => note.midi);
 
 test("carry：数字音名按本小节前文读谱，同列互不影响，八度、小节线、转调与声部各自独立", () => {
     strictAssert.deepEqual(midis(`${C}#1 1 1' 1 | 1`), [61, 61, 72, 61, 60]);

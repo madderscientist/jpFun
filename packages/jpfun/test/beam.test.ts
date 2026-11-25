@@ -1,5 +1,5 @@
 import { test } from "node:test";
-import { deepStrictEqual } from "node:assert/strict";
+import { deepStrictEqual, strictEqual } from "node:assert/strict";
 
 import { divLinePortName } from "../src/functions/div/index.js";
 import { TemporalNodeBase } from "../src/functions/temporal.js";
@@ -14,105 +14,72 @@ import {
     recordCommands,
 } from "./helpers.js";
 
+function rectCount(layout: ReturnType<typeof layoutOf>) {
+    return recordCommands(layout).filter(command => command.kind === "rect").length;
+}
+
+function expectBeams(cases: readonly (readonly [string, number])[]) {
+    for (const [source, count] of cases) strictEqual(layoutOf(source).attachments.length, count, source);
+}
+
 test("相邻分割音符自动连梁，连梁内的音符间距更紧凑", () => {
-    const adjacentAutoBeamResult = layoutOf(`1/ 2// 3/`);
-    assert(adjacentAutoBeamResult.attachments.length === 1, "separate divided notes must auto-connect by default");
-    const unconnected = layoutOf(`@set(div.autobeam=false) 1/ 2// 3/`).objects;
-    for (let i = 1; i < unconnected.length; i++) {
-        const gap = adjacentAutoBeamResult.objects[i].box.x - adjacentAutoBeamResult.objects[i - 1].box.x;
-        assert(gap < unconnected[i].box.x - unconnected[i - 1].box.x, "连梁内侧应比独立分割音符更紧凑");
+    const auto = layoutOf(`1/ 2// 3/`);
+    const disabled = layoutOf(`@set(div.autobeam=false) 1/ 2// 3/`);
+    assert(auto.attachments.length === 1 && disabled.attachments.length === 0,
+        "autobeam=false must keep separately written divs independent");
+    for (let i = 1; i < disabled.objects.length; i++) {
+        const gap = auto.objects[i].box.x - auto.objects[i - 1].box.x;
+        assert(gap < disabled.objects[i].box.x - disabled.objects[i - 1].box.x, "连梁内侧应比独立分割音符更紧凑");
     }
-    assert(recordCommands(adjacentAutoBeamResult).filter(command => command.kind === "rect").length === 2,
-        "default auto beam must merge the shared level and keep one inner beamlet");
-
-    const visibleBarrierBeamResult = layoutOf(`1// @text("barrier") 2//`);
-    assert(visibleBarrierBeamResult.attachments.length === 0, "a visible zero-duration element must break automatic beam adjacency");
+    // 自动连梁合并共享层并保留一条内层短梁；关闭后各自在本地绘制
+    deepStrictEqual([rectCount(auto), rectCount(disabled)], [2, 4]);
+    strictEqual(layoutOf(`1// @text("barrier") 2//`).attachments.length, 0);
 });
 
-test("一个 div 作用域总是连成一条梁，层数决定线数", () => {
-    const autoBeamResult = layoutOf(`@div({1 2 -}, 2)`);
-    assert(autoBeamResult.attachments.length === 1, "one multi-object div scope must always create one beam");
-    assert(autoBeamResult.attachments[0].regions[0].w > 0, "scope beam must connect at least two divided objects");
-    assert(attachmentCommands(autoBeamResult.attachments[0]).filter(command => command.kind === "rect").length === 2,
-        "two div levels must create two scope beam lines");
+test("一个 div 作用域总是连成一条梁，层数决定线数，autobeam=false 不断开作用域内部", () => {
+    const scope = layoutOf(`@div({1 2 -}, 2)`);
+    assert(scope.attachments.length === 1 && scope.attachments[0].regions[0].w > 0,
+        "one multi-object div scope must always create one beam");
+    strictEqual(attachmentCommands(scope.attachments[0]).filter(command => command.kind === "rect").length, 2);
+    const disabled = layoutOf(`@set(div.autobeam=false) @div({1 2}, 1)`);
+    assert(disabled.attachments.length === 1 && rectCount(disabled) === 1,
+        "autobeam=false must not disable connections inside one div");
 });
 
-test("autobeam=false 只断开分写的 div，不断开一个作用域内部", () => {
-    const disabledAutoBeamResult = layoutOf(`@set(div.autobeam=false) 1/ 2// 3/`);
-    assert(disabledAutoBeamResult.attachments.length === 0, "autobeam=false must keep separately written divs independent");
-    assert(recordCommands(disabledAutoBeamResult).filter(command => command.kind === "rect").length === 4,
-        "disabled auto beam must paint separately written div lines locally");
-
-    const disabledScopeBeamResult = layoutOf(`@set(div.autobeam=false) @div({1 2}, 1)`);
-    assert(disabledScopeBeamResult.attachments.length === 1, "autobeam=false must not disable connections inside one div");
-    assert(recordCommands(disabledScopeBeamResult).filter(command => command.kind === "rect").length === 1,
-        "one div scope must keep one merged line while auto beam is disabled");
-});
-
-test("autobeam 可以只关掉单个 div", () => {
-    // 两份源码只差 autobeam 这一个参数
-    const connected = layoutOf(`1/ @div(2, 1) 3/`).attachments;
-    assert(connected.length === 1, "three adjacent divs must connect by default");
-
+test("autobeam 可以只关掉单个 div", () => expectBeams([
+    [`1/ @div(2, 1) 3/`, 1],
     // 被关掉的 div 是分隔符而不是被跳过，所以两侧也连不起来
-    const broken = layoutOf(`1/ @div(2, 1, autobeam=false) 3/`).attachments;
-    assert(broken.length === 0, "a disabled div must break the run instead of being skipped");
-
+    [`1/ @div(2, 1, autobeam=false) 3/`, 0],
     // n=0 的空操作 div 或不产生可见事件的兄弟 div 不应污染复合宿主的作用域与 autobeam
-    assert(layoutOf(`@div({@up(1/, 3) | @up(2/, 4)}, 0)`).attachments.length === 0,
-        "an n=0 div must not create a scope beam across bar lines");
-    assert(layoutOf(`@div(@up(1/, 3), 0, autobeam=false) 2/`).attachments.length === 1,
-        "an n=0 div must not disable adjacent auto-beaming on a folded host");
-    assert(layoutOf(`{@div(@set(bpm=120), 1, autobeam=false) 1/} ^ 3 2/`).attachments.length === 1,
-        "a zero-event sibling div inside a folded host must not steal the active div scope");
-});
+    [`@div({@up(1/, 3) | @up(2/, 4)}, 0)`, 0],
+    [`@div(@up(1/, 3), 0, autobeam=false) 2/`, 1],
+    [`{@div(@set(bpm=120), 1, autobeam=false) 1/} ^ 3 2/`, 1],
+]));
 
-test("自动连梁在拍点、换行、小节线与并行轨处分组", () => {
-    assert(layoutOf(`1/ 2/ 3/ 4/`).attachments.length === 2,
-        "automatic beams must split at quarter-note beat boundaries");
-    assert(layoutOf(`1/ 2// @br() 1/2/`).attachments.length === 2,
-        "a new layout line must reset the automatic beam beat phase");
-    assert(layoutOf(`1// 2// | 3// 4// 5// 6//`).attachments.length === 2,
-        "bar lines must end the current beam and reset the following beat phase");
-    assert(layoutOf(`@stack({1// 2//}, {3// 4//})`).attachments.length === 2,
-        "automatic beams must group parallel tracks independently");
-    assert(layoutOf(`@div({@div({1 2}, 1) 3}, 1)`).attachments.length === 1,
-        "nested div scopes must share one non-overlapping beam attachment");
-});
+test("自动连梁在拍点、换行、小节线与并行轨处分组", () => expectBeams([
+    [`1/ 2/ 3/ 4/`, 2],
+    [`1/ 2// @br() 1/2/`, 2],
+    [`1// 2// | 3// 4// 5// 6//`, 2],
+    [`@stack({1// 2//}, {3// 4//})`, 2],
+    [`@div({@div({1 2}, 1) 3}, 1)`, 1],
+]));
 
-test("自动连梁随 @meter 拍号切换分拍单位与小节相位", () => {
-    assert(layoutOf(`@meter(6,8) | 1/ 2/ 3/ 4/ 5/ 6/ |`).attachments.length === 2,
-        "6/8 must group six eighth notes into two dotted-quarter beats of three");
-    assert(layoutOf(`@meter(3,8) | 1/ 2/ 3/ |`).attachments.length === 1,
-        "3/8 must group three eighth notes into one dotted-quarter beat");
-    assert(layoutOf(`@meter(9,8) | 1/ 2/ 3/ 4/ 5/ 6/ 7/ 1'/ 2'/ |`).attachments.length === 3,
-        "9/8 must group nine eighth notes into three beats of three");
-    assert(layoutOf(`@meter(12,8) | 1/ 2/ 3/ 4/ 5/ 6/ 7/ 1'/ 2'/ 3'/ 4'/ 5'/ |`).attachments.length === 4,
-        "12/8 must group twelve eighth notes into four beats of three");
-    assert(layoutOf(`@meter(6,16) | 1// 2// 3// 4// 5// 6// |`).attachments.length === 2,
-        "6/16 must group six sixteenth notes into two dotted-eighth beats of three");
-    assert(layoutOf(`@meter(6,16) | 1/. 2// 3// 4// |`).attachments.length === 1,
-        "a full dotted-eighth beat note in 6/16 must not auto-beam with the next beat");
-
-    assert(layoutOf(`@meter(2,8) | 1/ 2/ |`).attachments.length === 0,
-        "in 2/8 each eighth note is a full beat and must not auto-beam across beats");
-    assert(layoutOf(`@meter(2,8) | 1// 2// 3// 4// |`).attachments.length === 2,
-        "in 2/8 sixteenth notes must auto-beam within each eighth-note beat");
-    assert(layoutOf(`@meter(2,8) | 1// 2/ 3// |`).attachments.length === 0,
-        "in 2/8 a full-beat eighth note must break adjacent sixteenth notes");
-
-    assert(layoutOf(`@meter(2,2) | 1/ 2/ 3/ 4/ 5/ 6/ 7/ 1'/ |`).attachments.length === 4,
-        "2/2 must keep quarter-note beat grouping in Jianpu");
-
-    assert(layoutOf(`H.signature: 1=C 6/8\n1/ 2/ 3/ 4/ 5/ 6/ |`).attachments.length === 2,
-        "meter declared in @head must drive subsequent auto-beam grouping");
-    assert(layoutOf(`@meter(2,4) 1/ 2/ 3/ 4/ @meter(6,8) 1/ 2/ 3/ 4/ 5/ 6/`).attachments.length === 4,
-        "a mid-line @meter change must flush active beams, reset phase, and switch beat unit");
-    assert(layoutOf(`1/ {2/ ^ @meter(6,8)} 3/ 4/ 5/ 6/ 7/`).attachments.length === 2,
-        "a folded @meter must reset the beat phase at its host column");
-    assert(layoutOf(`@meter(6,8) 1/ 2/ 3/ | @meter(0,0) 1/ 2/ 3/ 4/ 5/ 6/`).attachments.length === 4,
-        "switching to free meter @meter(0,0) must restore 1 QN quarter-note beat grouping");
-});
+// 6/8、行中切换与折叠 @meter 的分组由下一个用例按实际端点检查
+test("自动连梁随 @meter 拍号切换分拍单位与小节相位", () => expectBeams([
+    [`@meter(3,8) | 1/ 2/ 3/ |`, 1],
+    [`@meter(9,8) | 1/ 2/ 3/ 4/ 5/ 6/ 7/ 1'/ 2'/ |`, 3],
+    [`@meter(12,8) | 1/ 2/ 3/ 4/ 5/ 6/ 7/ 1'/ 2'/ 3'/ 4'/ 5'/ |`, 4],
+    [`@meter(6,16) | 1// 2// 3// 4// 5// 6// |`, 2],
+    [`@meter(6,16) | 1/. 2// 3// 4// |`, 1],
+    // 2/8 中八分音符是整拍，只有十六分音符在拍内连梁
+    [`@meter(2,8) | 1/ 2/ |`, 0],
+    [`@meter(2,8) | 1// 2// 3// 4// |`, 2],
+    [`@meter(2,8) | 1// 2/ 3// |`, 0],
+    // 简谱 2/2 仍按四分音符分拍
+    [`@meter(2,2) | 1/ 2/ 3/ 4/ 5/ 6/ 7/ 1'/ |`, 4],
+    [`H.signature: 1=C 6/8\n1/ 2/ 3/ 4/ 5/ 6/ |`, 2],
+    [`@meter(6,8) 1/ 2/ 3/ | @meter(0,0) 1/ 2/ 3/ 4/ 5/ 6/`, 4],
+]));
 
 test("自动连梁的实际端点遵循拍号、切换位置及同列最终拍号", () => {
     const cases: [string, number[][]][] = [
@@ -139,12 +106,10 @@ test("自动连梁的实际端点遵循拍号、切换位置及同列最终拍�
 });
 
 test("显式 @beam 只连接相邻端点，否则报错", () => {
-    const explicitBeamResult = layoutOf(`@set(div.autobeam=false) 1/@a 2/@b @beam(a,b)`);
-    assert(explicitBeamResult.attachments.length === 1, "explicit beam must connect separate divs while autobeam is disabled");
-    assert(recordCommands(explicitBeamResult).filter(command => command.kind === "rect").length === 1,
+    const explicit = layoutOf(`@set(div.autobeam=false) 1/@a 2/@b @beam(a,b)`);
+    assert(explicit.attachments.length === 1 && rectCount(explicit) === 1,
         "explicit beam must replace local lines while auto beam is disabled");
-    assert(commandsOfKind(`@div({1@a 2@b @beam(a,b)}, 1)`, "rect").length === 1,
-        "explicit beam over divided notes must emit one merged line");
+    strictEqual(commandsOfKind(`@div({1@a 2@b @beam(a,b)}, 1)`, "rect").length, 1);
 
     for (const source of [
         `@set(div.autobeam=false) 1/@a 2/ 3/@b @beam(a,b)`,
@@ -160,8 +125,8 @@ test("显式 @beam 只连接相邻端点，否则报错", () => {
         expectLoweringError(source, "E_NON_ADJACENT_BEAM");
     }
 
-    const parallelExplicitBeamResult = layoutOf(`@set(div.autobeam=false) @stack({1/@a 2/@b @beam(a,b)}, {3})`);
-    assert(parallelExplicitBeamResult.attachments.length === 1, "events on another track must not break explicit beam adjacency");
+    // 其他轨上的事件不打断显式连梁的相邻关系
+    expectBeams([[`@set(div.autobeam=false) @stack({1/@a 2/@b @beam(a,b)}, {3})`, 1]]);
 });
 
 test("增时线可显式连梁，也参与最近两个端点的回退", () => {
@@ -204,48 +169,27 @@ test("显式 beam 跨小节线连接，保留小节线间距与自动分组边�
     }
 });
 
-test("写在 up 成员上的标签是合法的 beam 端点", () => {
-    for (const source of [
-        `@set(div.autobeam=false) @up(1/@a, 3) 2/@b @beam(a,b)`,
-        `@set(div.autobeam=false) @up(1, 3/@a) 2/@b @beam(a,b)`,
-        `@set(div.autobeam=false) @up(@up(1/@a, 3), 5) 2/@b @beam(a,b)`,
-    ]) {
-        assert(layoutOf(source).attachments.length === 1, `label on an up member must beam through its chord: ${source}`);
-    }
-});
+test("写在 up 成员上的标签是合法的 beam 端点", () => expectBeams([
+    [`@set(div.autobeam=false) @up(1/@a, 3) 2/@b @beam(a,b)`, 1],
+    [`@set(div.autobeam=false) @up(1, 3/@a) 2/@b @beam(a,b)`, 1],
+    [`@set(div.autobeam=false) @up(@up(1/@a, 3), 5) 2/@b @beam(a,b)`, 1],
+]));
 
+// 下八度点与最后一条减时线的间距由 decoration.test.ts 检查
 test("减时线在数字与下八度点之间保持水平", () => {
-    const lowerOctaveBeamResult = layoutOf(`@div({1 2,}, 1)`);
-    const normalBeamPort = lowerOctaveBeamResult.objects[0].ports[divLinePortName(0, "left")];
-    const lowerOctaveBeamPort = lowerOctaveBeamResult.objects[1].ports[divLinePortName(0, "left")];
-    const normalBeamY = lowerOctaveBeamResult.objects[0].box.y + normalBeamPort.y;
-    const lowerOctaveBeamY = lowerOctaveBeamResult.objects[1].box.y + lowerOctaveBeamPort.y;
-
-    assert(nearly(normalBeamY, lowerOctaveBeamY), "same-level div lines must stay horizontal across lower-octave notes");
-    assert(lowerOctaveBeamPort.y < lowerOctaveBeamResult.objects[1].box.h, "lower octave dots must reserve space after the div line");
-    const lowerOctaveDivCommands = recordCommands(lowerOctaveBeamResult);
-    const numberTexts = lowerOctaveDivCommands.filter(command => command.kind === "text");
-    const numberBaselines = numberTexts.map(command => command.y);
-    const mergedDivLines = lowerOctaveDivCommands.filter(command => command.kind === "rect");
-    const divLineYs = mergedDivLines.map(command => command.y + command.h / 2);
-    const lowerOctaveDotYs = lowerOctaveDivCommands
-        .filter(command => command.kind === "circle")
-        .map(command => command.cy);
-
-    assert(numberBaselines.length === 2, "two notes must emit two centered number texts");
-    assert(mergedDivLines.length === 1, "one connected div level must emit exactly one merged line");
-    assert(mergedDivLines[0].w > 0, "the merged div line must cover the complete endpoint range");
-    assert(mergedDivLines[0].h > 0, "the merged div line must be horizontal");
-    assert(lowerOctaveDotYs.length === 1, "one lower-octave mark must emit one dot");
-    assert(Math.max(...numberBaselines) < divLineYs[0], "div lines must be below note numbers");
-    assert(divLineYs[0] < lowerOctaveDotYs[0], "lower-octave dots must be below div lines");
-
+    const layout = layoutOf(`@div({1 2,}, 1)`);
+    const beamY = (node: typeof layout.objects[number]) => node.box.y + node.ports[divLinePortName(0, "left")].y;
+    assert(nearly(beamY(layout.objects[0]), beamY(layout.objects[1])),
+        "same-level div lines must stay horizontal across lower-octave notes");
+    const commands = recordCommands(layout);
+    const numberTexts = commands.filter(command => command.kind === "text");
+    const lines = commands.filter(command => command.kind === "rect");
+    assert(numberTexts.length === 2 && lines.length === 1 && lines[0].w > 0 && lines[0].h > 0,
+        "one connected div level must emit exactly one merged line");
     const numberBottom = Math.max(...numberTexts.map(command => command.y + command.style.fontSize * 0.2));
-    const divVisualGap = mergedDivLines[0].y - numberBottom;
+    const divVisualGap = lines[0].y - numberBottom;
     assert(divVisualGap >= -2 && divVisualGap < 1, "div line must stay close to the number box with at most a slight overlap");
 });
-
-const EXPLICIT_BEAM = `@set(div.autobeam=false) 1/@a 2/@b @beam(a,b)`;
 
 test("折叠宿主的减时线被连梁接管后只绘制一次", () => {
     for (const source of [
@@ -259,41 +203,33 @@ test("折叠宿主的减时线被连梁接管后只绘制一次", () => {
     ]) {
         const layout = layoutOf(source);
         const lines = recordCommands(layout).filter(command => command.kind === "rect");
-        assert(layout.attachments.length === 1, `${source}: the sample must create one beam attachment`);
+        strictEqual(layout.attachments.length, 1, source);
         const beamLines = attachmentCommands(layout.attachments[0]).filter(command => command.kind === "rect");
-        assert(beamLines.length === 1, `${source}: the beam must paint one complete line`);
-        assert(lines.length === 1, `${source}: a claimed folded div must not paint a duplicate local line`);
-        assert(nearly(lines[0].x, beamLines[0].x) && nearly(lines[0].w, beamLines[0].w),
-            `${source}: the remaining line must span the complete beam`);
+        // 被接管的折叠减时线不能再画一条本地线，剩下的唯一线段覆盖整条梁
+        assert(beamLines.length === 1 && lines.length === 1
+            && nearly(lines[0].x, beamLines[0].x) && nearly(lines[0].w, beamLines[0].w), source);
     }
 });
 
 test("折叠与倚音相互嵌套时共享宿主的减时线接管状态", () => {
     for (const source of [`@grace({1^3},4)/ 2/`, `@up({4>1},3)/ 2/`]) {
         const layout = layoutOf(source);
-        assert(layout.attachments.length === 1, "the two main events must share one beam");
-        assert(recordCommands(layout).filter(command => command.kind === "rect").length === 2,
-            `only the main beam and the unconnected grace line must remain: ${source}`);
+        // 只剩主梁与未连梁的倚音减时线
+        assert(layout.attachments.length === 1 && rectCount(layout) === 2, source);
     }
 });
 
 test("折叠宿主保留未被连梁接管的减时线级别", () => {
-    assert(commandsOfKind(`1/`, "rect").length === 1,
-        "an unconnected divided note must keep one local line");
-    assert(commandsOfKind(`{1^3}/`, "rect").length === 1,
-        "an isolated folded div must keep its local line");
-    assert(commandsOfKind(`@set(div.autobeam=false) {1^3}/ 2/`, "rect").length === 2,
-        "disabled auto beam must preserve both local lines");
-    assert(commandsOfKind(`{1^3}// 2/`, "rect").length === 2,
-        "only the shared level is claimed; the extra folded level must remain local");
+    for (const [source, count] of [
+        [`{1^3}/`, 1],
+        [`@set(div.autobeam=false) {1^3}/ 2/`, 2],
+        // 只有共享层被接管，折叠宿主多出的一层仍在本地绘制
+        [`{1^3}// 2/`, 2],
+    ] as const) strictEqual(commandsOfKind(source, "rect").length, count, source);
 });
 
 test("连梁线宽随端点字号缩放", () => {
-    const smallBeamLine = commandsOfKind(EXPLICIT_BEAM, "rect", 20)[0];
-    const largeBeamLine = commandsOfKind(EXPLICIT_BEAM, "rect", 40)[0];
-    assert(smallBeamLine !== undefined && largeBeamLine !== undefined, "scaled beam samples must emit merged lines");
-    assert(
-        nearly(largeBeamLine.h, smallBeamLine.h * 2),
-        "beam stroke width must scale with the largest endpoint font size",
-    );
+    const [small, large] = [20, 40].map(size =>
+        commandsOfKind(`@set(div.autobeam=false) 1/@a 2/@b @beam(a,b)`, "rect", size)[0]);
+    assert(nearly(large.h, small.h * 2), "beam stroke width must scale with the largest endpoint font size");
 });

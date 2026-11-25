@@ -2,7 +2,7 @@ import { deepStrictEqual, strictEqual } from "node:assert/strict";
 import { test } from "node:test";
 
 import { ASTFunctionNode } from "../src/functions/ASTtypes.js";
-import { ANCHOR_KEY, DEFAULT_KEY, type TemporalNodeBase } from "../src/functions/temporal.js";
+import { ANCHOR_KEY, type TemporalNodeBase } from "../src/functions/temporal.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import { renderLayoutPagesToSvg } from "../src/render/svg.js";
 import {
@@ -118,11 +118,9 @@ test("rest has fixed minimum graphical width, size-based anchor, thick bar and r
             .filter(command => command.x >= rest.box.x - 1e-6 && command.x + command.w <= rest.box.x + rest.box.w);
         strictEqual(rects.length, 3);
         const [bar, left, right] = rects;
-        assert(nearly(bar.h, size * 0.24)
-            && nearly(left.w, size * 0.12), "horizontal stroke must be twice the caps");
+        assert(nearly(bar.h, size * 0.24) && nearly(left.w, size * 0.12), "horizontal stroke must be twice the caps");
         const number = commands.filter(command => command.kind === "text").find(command => command.text === "3")!;
-        const numberGap = bar.y - number.y;
-        assert(nearly(numberGap, size * 0.255), "the number must sit close to the horizontal stroke at every size");
+        assert(nearly(bar.y - number.y, size * 0.255), "the number must sit close to the horizontal stroke at every size");
         assert(nearly(left.x, rest.box.x), "painted left edge must match the box left edge");
         const paintedRight = right.x + right.w;
         assert(paintedRight - rest.box.x >= 80 - 1e-6, "width must reserve at least the requested graphical width");
@@ -137,9 +135,8 @@ test("rest keeps compact symmetric bar gaps and rejects invalid arguments or sus
         const layout = layoutOf(`@page(fillRatio=${fillRatio}) @meter(2,4) | @rest(20,width=80px,size=16px) |`);
         const rest = layout.objects.find(node => named(node, "rest"))!;
         const bars = layout.objects.filter(node => named(node, "bar"));
-        const paintedWidth = rest.box.w - 16 * 0.25;
         const leftGap = rest.box.x - (bars[0].box.x + bars[0].box.w);
-        const rightGap = bars[1].box.x - (rest.box.x + paintedWidth);
+        const rightGap = bars[1].box.x - (rest.box.x + rest.box.w - 16 * 0.25);
         assert(nearly(leftGap, 4) && nearly(rightGap, 4), `fillRatio=${fillRatio}`);
     }
 

@@ -49,7 +49,6 @@ test("bitmap export downloads each completed page before encoding the next", asy
     const operation = downloadBitmapPages(pages, "png", 192, "my.score");
     assert.equal(paints, layout.objects.length);
     assert.equal(canvases.length, 1);
-    assert.equal(pending.length, 1);
     assert.equal(events.filter(event => event[0] === "download").length, 0);
     for (let index = 0; index < layout.pages.length; index++) {
         assert.equal(pending.length, 1);
@@ -60,9 +59,7 @@ test("bitmap export downloads each completed page before encoding the next", asy
         assert.deepEqual(sequence.slice(0, (index + 1) * 2), Array.from({ length: index + 1 }, () => ["encode", "download"]).flat());
     }
     await operation;
-    assert.equal(canvases.length, 1);
-    assert.equal(canvases[0].width, 1);
-    assert.equal(canvases[0].height, 1);
+    assert.deepEqual(canvases.map(canvas => [canvas.width, canvas.height]), [[1, 1]]);
     assert.equal(paints, layout.objects.length);
     assert.deepEqual(pages.map(page => page.recording.commands), commands);
     assert.ok(!events.some(event => event[0] === "fillRect"));
@@ -81,8 +78,7 @@ test("JPEG encoding failure releases the canvas and stops later pages", async co
     await assert.rejects(operation);
     assert.equal(pending.length, 0);
     assert.ok(!events.some(event => event[0] === "download"));
-    assert.equal(canvases[0].width, 1);
-    assert.equal(canvases[0].height, 1);
+    assert.deepEqual([canvases[0].width, canvases[0].height], [1, 1]);
     assert.deepEqual(pages.map(page => page.recording.commands), commands);
 });
 

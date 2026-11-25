@@ -6,6 +6,21 @@ import { ANCHOR_KEY, DEFAULT_KEY, type TemporalNodeBase, type VisualTemporalNode
 import { compilePlayback } from "../src/playback/compile.js";
 import { assert, expectCompileError, expectLoweringError, layoutOf, lower, nearly, parse, playedNotes, recordCommands } from "./helpers.js";
 
+const notesOf = (source: string) => playedNotes(compilePlayback(lower(source)));
+
+/** 先序遍历 AST，返回第一个满足条件的函数调用节点 */
+function findFunction(source: string, match: (node: ASTFunctionNode) => boolean) {
+    const visit = (node: ASTNodeBase): ASTFunctionNode | undefined => {
+        if (node instanceof ASTFunctionNode && match(node)) return node;
+        for (const child of node.children ?? []) {
+            const found = visit(child);
+            if (found) return found;
+        }
+        return undefined;
+    };
+    return visit(parse(source));
+}
+
 const loweredUp = lower(`@up(1, #3', @text("上层")) 4`);
 const upTemporal = loweredUp.columns[0][0] as TemporalNodeBase & {
     members: readonly TemporalNodeBase[];
@@ -31,9 +46,7 @@ test("up 继承成员的锚点合并组，并拒绝非法子节点", () => {
         lower(`@up(1, @bar()) 2`).columns[0][0].mergeKey === ANCHOR_KEY,
         "up must inherit the anchor merge group from its members",
     );
-    expectLoweringError(`@up({1 2}, 3)`, "E_UP_INVALID_CHILD");
-    expectLoweringError(`@up({@tempo(90) 1}, 3)`, "E_UP_INVALID_CHILD");
-    for (const source of ["@up(@stack(1,3),5)", "@up({},3)", "@up(@program(1),3)"]) {
+    for (const source of ["@up({1 2}, 3)", "@up({@tempo(90) 1}, 3)", "@up(@stack(1,3),5)", "@up({},3)", "@up(@program(1),3)"]) {
         expectLoweringError(source, "E_UP_INVALID_CHILD");
     }
 });
@@ -74,16 +87,7 @@ test("折叠小节线保留宿主的横向间距和防压缩规则", () => {
 });
 
 test("up 成员标签与整体标签保持各自的 AST 承载者", () => {
-    const labeledFunction = (source: string, label: string) => {
-        let found: ASTFunctionNode | undefined;
-        const visit = (node: ASTNodeBase) => {
-            if (node instanceof ASTFunctionNode && node.label === label) found = node;
-            for (const child of node.children ?? []) visit(child);
-        };
-        visit(parse(source));
-        return found;
-    };
-
+    const labeledFunction = (source: string, label: string) => findFunction(source, node => node.label === label);
     assert(labeledFunction(`{1@x}^{@1(C4)}`, "x")?.callName === "note",
         "a label written on an up member must stay on that member");
     assert(labeledFunction(`{1^@1(C4)}@x`, "x")?.callName === "up",
@@ -99,12 +103,12 @@ test("堆叠成员共享第一个成员的时值，零时长成员保持 0", () 
         };
         return { duration: temporal.T, members: temporal.members.map(member => member.T) };
     };
-    const dottedChord = upMemberDurations(`@up(1., 3)`);
-    assert(dottedChord.duration.equals(3, 2) && dottedChord.members.every(T => T.equals(3, 2)),
-        "up members must adopt the first member duration");
-    const flattenedChord = upMemberDurations(`@up(1, 3.)`);
-    assert(flattenedChord.duration.equals(1) && flattenedChord.members.every(T => T.equals(1)),
-        "a longer later member must be pulled back to the first member duration");
+    // 后写的更长成员也要被拉回第一个成员的时值
+    for (const [source, duration] of [[`@up(1., 3)`, 1.5], [`@up(1, 3.)`, 1]] as const) {
+        const chord = upMemberDurations(source);
+        assert(chord.duration.equals(duration) && chord.members.every(T => T.equals(duration)),
+            `${source}: up members must adopt the first member duration`);
+    }
     const annotatedChord = upMemberDurations(`@up(1., @text("cresc."))`);
     assert(annotatedChord.members[0].equals(3, 2) && annotatedChord.members[1].isZero(),
         "a zero-duration up member must stay at zero");
@@ -145,19 +149,12 @@ test("up 自己完成成员的堆叠定位与绘制", () => {
     };
     const [chordLow, chordHigh] = chordTemporal.members;
     assert(chord.objects.length === 3, "up members must stay out of the global visible object list");
-    assert(
-        nearly(chordLow.box.y + chordLow.box.visualAxis, chord.objects[0].box.y + chord.objects[0].box.visualAxis),
-        "the first up member must sit on the track baseline",
-    );
+    assert(nearly(chordLow.box.y + chordLow.box.visualAxis, chord.objects[0].box.y + chord.objects[0].box.visualAxis),
+        "the first up member must sit on the track baseline");
     assert(chordHigh.box.y + chordHigh.box.h <= chordLow.box.y, "later up members must stack above the previous one");
-    assert(
-        nearly(chordLow.box.x + chordLow.box.anchor, chordHigh.box.x + chordHigh.box.anchor),
-        "up members must share one horizontal anchor",
-    );
-    assert(
-        recordCommands(chord).filter(command => command.kind === "text").length === 4,
-        "up must paint every stacked member",
-    );
+    assert(nearly(chordLow.box.x + chordLow.box.anchor, chordHigh.box.x + chordHigh.box.anchor),
+        "up members must share one horizontal anchor");
+    assert(recordCommands(chord).filter(command => command.kind === "text").length === 4, "up must paint every stacked member");
 });
 
 test("大括号阻断展平，内层 up 整体折叠成外层的一个成员", () => {
@@ -178,14 +175,12 @@ test("叠在音符上方的状态标记传出和弦，但不撑宽横向占位",
         members: readonly { box: LayoutBox }[];
         mergeKey: number;
     };
-    const markedFollower = markedTempo.objects[1];
-    assert(playedNotes(compilePlayback(lower(`1 ^ @tempo(150) 1`))).every(note => note.bpm === 150),
+    assert(notesOf(`1 ^ @tempo(150) 1`).every(note => note.bpm === 150),
         "a tempo stacked by ^ must reach the following notes");
     assert(markedChord.mergeKey === DEFAULT_KEY, "a folded member's own merge group must not leak to the chord");
-    assert(nearly(markedChord.box.w, markedChord.members[0].box.w),
-        "only the lead member decides the chord's horizontal footprint");
-    assert(nearly(markedFollower.box.x, layoutOf(`1 1`).objects[1].box.x),
-        "a wide upper mark must not push the next note away");
+    assert(nearly(markedChord.box.w, markedChord.members[0].box.w)
+        && nearly(markedTempo.objects[1].box.x, layoutOf(`1 1`).objects[1].box.x),
+    "only the lead member decides the chord's horizontal footprint, so a wide upper mark must not push the next note away");
 
     const markedKey = layoutOf(`1 ^ @1(F#) 1`);
     const markedKeyChord = markedKey.objects[0] as VisualTemporalNode & {
@@ -194,8 +189,7 @@ test("叠在音符上方的状态标记传出和弦，但不撑宽横向占位",
     assert(markedKeyChord.members[0].resolvedMidi === 66 && (markedKey.objects[1] as { resolvedMidi?: number }).resolvedMidi === 66,
         "a key stacked by ^ must apply to its own chord and to the following notes");
 
-    const graceState = `@tempo(60) @tempo(150) > 1 1`;
-    assert(playedNotes(compilePlayback(lower(graceState))).every(note => note.bpm === 150),
+    assert(notesOf(`@tempo(60) @tempo(150) > 1 1`).every(note => note.bpm === 150),
         "a tempo written inside a grace must escape the composite too");
 });
 
@@ -236,15 +230,7 @@ test("^ 与 _ 混写时全部绑到同一个宿主，像 LaTeX 上下标", () =>
 });
 
 test("混写折叠体的 toString 是可解析的等价写法", () => {
-    const foldNode = (source: string) => {
-        let found: ASTFunctionNode | undefined;
-        const visit = (node: ASTNodeBase) => {
-            if (node instanceof ASTFunctionNode && (node.callName === "up" || node.callName === "down")) found ??= node;
-            for (const child of node.children ?? []) visit(child);
-        };
-        visit(parse(source));
-        return found;
-    };
+    const foldNode = (source: string) => findFunction(source, node => node.callName === "up" || node.callName === "down");
     // hover 的「替换」按钮直接用这段文本改写源码，写不出来就会生成非法代码
     const source = `1^2_3^4_5`;
     const desugared = foldNode(source)!.toString(source);
@@ -288,8 +274,7 @@ test("up 和 down 支持 gap 参数与 @set 设置，并校验非负长度", () 
 });
 
 test("折叠体先播附属成员、最后播宿主，与画在上下哪一侧无关", () => {
-    const velocity = (source: string) => playedNotes(compilePlayback(lower(source)))[0]?.velocity;
-    assert(velocity(`1 ^ $accent`) === 100, "写在上方的修饰记号必须作用到宿主");
+    const velocity = (source: string) => notesOf(source)[0]?.velocity;
     assert(velocity(`1 _ $accent`) === 100, "写在下方的修饰记号同样必须作用到宿主");
     // 宿主永远最后播放，所以把记号写成宿主本身就够不到其它成员
     assert(velocity(`$accent ^ 1`) === 80, "记号成为宿主时不修饰其它成员");
@@ -300,7 +285,7 @@ test("折叠体先播附属成员、最后播宿主，与画在上下哪一侧�
 });
 
 test("和弦的记号与设置作用到上下两侧所有音，与成员写在哪一侧无关", () => {
-    const notes = (source: string) => playedNotes(compilePlayback(lower(source)))
+    const notes = (source: string) => notesOf(source)
         .map(note => `${note.midi}/v${note.velocity}`).sort().join(" ");
     for (const source of [`1 _ 5, ^ $p`, `1 ^ $p _ 5,`, `1 ^ 3 _ $p`, `1 _ $p ^ 5`]) {
         assert(notes(source).split(" ").every(note => note.endsWith("/v49")), `${source}: ${notes(source)}`);

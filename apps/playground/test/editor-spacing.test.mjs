@@ -52,6 +52,15 @@ function editorFor(doc, positions = [doc.length]) {
     return editor;
 }
 
+function assertEnter(source, expected) {
+    const editor = editorFor(source);
+    assert.equal(insertFormattedNewline(editor), true);
+    assert.equal(editor.state.doc.toString(), expected, source);
+    assert.equal(editor.state.selection.main.head, expected.length, source);
+    assert.equal(undo(editor), true);
+    assert.equal(editor.state.doc.toString(), source);
+}
+
 test("Enter spaces score tokens and argument commas without splitting notes", () => {
     for (const [source, expected] of [
         ["6#3", "6 #3"],
@@ -71,14 +80,7 @@ test("Enter spaces score tokens and argument commas without splitting notes", ()
         ['@text("a,b",size=2em)', '@text("a,b", size=2em)'],
         ["@up(1,", "@up(1,"],
         ["", ""],
-    ]) {
-        const editor = editorFor(source);
-        assert.equal(insertFormattedNewline(editor), true);
-        assert.equal(editor.state.doc.toString(), expected + "\n", source);
-        assert.equal(editor.state.selection.main.head, expected.length + 1, source);
-        assert.equal(undo(editor), true);
-        assert.equal(editor.state.doc.toString(), source);
-    }
+    ]) assertEnter(source, expected + "\n");
 });
 
 test("Enter preserves indentation and formats only the line just left", () => {
@@ -102,13 +104,7 @@ test("Enter preserves voice declarations, comments and connector strings", () =>
         ['@vs(@voice(1),@voice(2),connect="")', '@vs(@voice(1), @voice(2), connect="")\n'],
         ['@set(voices.connect="[-4] { 3 - }")', '@set(voices.connect="[-4] { 3 - }")\n'],
         ['@set(vs.connect="[-]{-}")', '@set(vs.connect="[-]{-}")\n'],
-    ]) {
-        const editor = editorFor(source);
-        insertFormattedNewline(editor);
-        assert.equal(editor.state.doc.toString(), expected);
-        assert.equal(undo(editor), true);
-        assert.equal(editor.state.doc.toString(), source);
-    }
+    ]) assertEnter(source, expected);
 });
 
 test("Enter handles multiple cursors in one transaction", () => {

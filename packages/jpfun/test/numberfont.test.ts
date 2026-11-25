@@ -1,11 +1,10 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
-import { ASTFunctionNode, type ASTNodeBase } from "../src/functions/ASTtypes.js";
+import { ASTBraceNode, ASTFunctionNode, type ASTNodeBase } from "../src/functions/ASTtypes.js";
 import { compileScore } from "../src/pipeline.js";
 import { JIANPU_NUMBER_FONT, defaultTextMeasurer } from "../src/render/text.js";
 import type { TextStyle } from "../src/render/types.js";
 import { createParser, createLowering, layoutContext, recordCommands } from "./helpers.js";
-import { ASTBraceNode } from "../src/functions/ASTtypes.js";
 import { layoutDocument } from "../src/layout/engine.js";
 
 const cases = [
@@ -24,6 +23,16 @@ function findFunction(node: ASTNodeBase, name: string): ASTFunctionNode | undefi
     return undefined;
 }
 
+/** 用默认测量器编译，同时记录每次测量请求的文本与样式 */
+function compileMeasured(source: string) {
+    const measured: { text: string; style: TextStyle }[] = [];
+    const compiled = compileScore(source, { textMeasurer: { measureText(text, style) {
+        measured.push({ text, style: { ...style } });
+        return defaultTextMeasurer.measureText(text, style);
+    } } });
+    return { compiled, measured };
+}
+
 for (const entry of cases) {
     test(`${entry.name}: scoped numberfont, shared styles and serialization`, () => {
         const escapedFont = 'Custom "Face", Back\\Slash';
@@ -34,15 +43,7 @@ for (const entry of cases) {
             [`@set(numberfont=${JSON.stringify(escapedFont)})`, '', escapedFont],
         ] as const) {
             const source = `${settings} ${entry.call}${argument}) @set(numberfont="Later")`;
-            const measured: { text: string; style: TextStyle }[] = [];
-            const compiled = compileScore(source, {
-                textMeasurer: {
-                    measureText(text, style) {
-                        measured.push({ text, style: { ...style } });
-                        return defaultTextMeasurer.measureText(text, style);
-                    },
-                },
-            });
+            const { compiled, measured } = compileMeasured(source);
             equal(compiled.diagnostics.filter(item => item.code === "W_SET_UNKNOWN_TARGET").length, settings.includes(`${entry.name}.font=`) ? 1 : 0);
             const drawn = recordCommands(compiled.layout).find(command => command.kind === "text" && command.text === entry.text);
             ok(drawn?.kind === "text");
@@ -80,16 +81,12 @@ test("symbol preserves its fixed font and vector geometry", () => {
     const base = recordCommands(compileScore('$fine').layout).find(command => command.kind === "text");
     ok(base?.kind === "text");
     equal(base.style.fontStyle, "italic");
-    const source = '@set(font="Ordinary", numberfont="Digits", symbol.font="Preset") @symbol(fine, font="Explicit") $tr';
-    const measured: TextStyle[] = [];
-    const compiled = compileScore(source, { textMeasurer: { measureText(text, style) {
-        measured.push({ ...style });
-        return defaultTextMeasurer.measureText(text, style);
-    } } });
+    const { compiled, measured } = compileMeasured(
+        '@set(font="Ordinary", numberfont="Digits", symbol.font="Preset") @symbol(fine, font="Explicit") $tr');
     const drawn = recordCommands(compiled.layout).find(command => command.kind === "text");
     ok(drawn?.kind === "text");
     equal(drawn.style.fontFamily, base.style.fontFamily);
-    deepEqual(drawn.style, measured[0]);
+    deepEqual(drawn.style, measured[0].style);
     deepEqual(recordCommands(compiled.layout), recordCommands(compileScore('$fine $tr').layout));
 });
 
@@ -98,9 +95,8 @@ test("volta captures category font without consuming variadic passes", () => {
         ['', JIANPU_NUMBER_FONT], ['@set(font="Ordinary", numberfont="")', JIANPU_NUMBER_FONT],
         ['@set(numberfont="Digits")', 'Digits'],
     ] as const) {
-        const source = `${settings} 1@a 2@b @volta(a,b,3,1,2,3) @set(numberfont="Later")`;
-        const compiled = compileScore(source);
-        const text = recordCommands(compiled.layout).find(command => command.kind === "text" && command.text === "1.2.3.");
+        const text = recordCommands(compileScore(`${settings} 1@a 2@b @volta(a,b,3,1,2,3) @set(numberfont="Later")`).layout)
+            .find(command => command.kind === "text" && command.text === "1.2.3.");
         ok(text?.kind === "text");
         equal(text.style.fontFamily, expected);
     }
@@ -110,8 +106,7 @@ test("volta captures category font without consuming variadic passes", () => {
 });
 
 test("volta ignores unknown named args and uses numeric extra-arg diagnostics", () => {
-    const source = '1@a 2@b @volta(a,b,1,2,3,font="Explicit")';
-    const compiled = compileScore(source);
+    const compiled = compileScore('1@a 2@b @volta(a,b,1,2,3,font="Explicit")');
     deepEqual(compiled.diagnostics, []);
     deepEqual(recordCommands(compiled.layout), recordCommands(compileScore('1@a 2@b @volta(a,b,1,2,3)').layout));
     deepEqual(compileScore('1@a 2@b @volta(a,b,1,2,"Custom")').diagnostics.map(item => item.code), ["W_INVALID_NUMBER"]);
@@ -122,12 +117,7 @@ test("ottava captures scoped numberfont and measures the same italic label it pa
         ['', JIANPU_NUMBER_FONT], ['@set(font="Ordinary", numberfont="")', JIANPU_NUMBER_FONT],
         ['@set(numberfont="Digits")', 'Digits'],
     ] as const) {
-        const measured: { text: string; style: TextStyle }[] = [];
-        const source = `${settings} 1@a @ottava(a,a,2) @set(numberfont="Later")`;
-        const compiled = compileScore(source, { textMeasurer: { measureText(text, style) {
-            measured.push({ text, style: { ...style } });
-            return defaultTextMeasurer.measureText(text, style);
-        } } });
+        const { compiled, measured } = compileMeasured(`${settings} 1@a @ottava(a,a,2) @set(numberfont="Later")`);
         deepEqual(compiled.diagnostics, []);
         const label = recordCommands(compiled.layout).find(command => command.kind === "text" && command.text === "15");
         ok(label?.kind === "text");

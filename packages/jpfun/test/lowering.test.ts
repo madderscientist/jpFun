@@ -2,11 +2,10 @@ import { deepStrictEqual } from "node:assert/strict";
 import { test } from "node:test";
 
 import { Fraction } from "../src/fraction.js";
-import { ASTFunctionNode, ASTNodeBase } from "../src/functions/ASTtypes.js";
+import { ASTNodeBase } from "../src/functions/ASTtypes.js";
 import { layoutDocument } from "../src/layout/engine.js";
 import { LoweringContext } from "../src/lowering/loweringContext.js";
 import { Track } from "../src/lowering/track.js";
-import type { LoweringResult } from "../src/lowering/types.js";
 import { assert, createLowering, layoutContext, layoutOf, lower, nearly, parse } from "./helpers.js";
 
 test("dot 与 div 的嵌套顺序不影响时值和计数", () => {

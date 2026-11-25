@@ -1,10 +1,29 @@
 import { test } from "node:test";
 import { deepStrictEqual, strictEqual } from "node:assert/strict";
 
+import type { PlacedAttachment } from "../src/layout/types.js";
 import { compileScore } from "../src/pipeline.js";
 import type { PathCommand } from "../src/render/types.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import { assert, attachmentCommands, commandsOfKind, compileValid, layoutOf, lower, nearly, playedNotes, recordCommands } from "./helpers.js";
+
+type LayoutObject = ReturnType<typeof layoutOf>["objects"][number];
+type Composite = LayoutObject & {
+    members: readonly LayoutObject[];
+    host: LayoutObject;
+    graces: readonly LayoutObject[];
+};
+type PathDraw = Extract<ReturnType<typeof attachmentCommands>[number], { kind: "path" }>;
+
+const tiePaths = (attachment: PlacedAttachment) =>
+    attachmentCommands(attachment).filter((command): command is PathDraw => command.kind === "path");
+
+/** 连音线路径的起点（首个 M 指令） */
+function startOf(path: PathDraw | undefined) {
+    const start = path?.commands[0];
+    if (start?.op !== "M") throw new Error("expected tie path to start with M");
+    return start;
+}
 
 /** 两个控制点同高的三次贝塞尔，实际弧高是抬高的 3/4 */
 function tieApexHeight(path: { commands: readonly PathCommand[] }) {
@@ -24,10 +43,8 @@ test("增时线参与显式及默认连音端点，但不合并播放音符", ()
         `1 - 1 @tie()`,
     ]) {
         const layout = layoutOf(source);
-        const path = attachmentCommands(layout.attachments[0]).find(command => command.kind === "path");
-        assert(path?.kind === "path" && path.commands[0]?.op === "M", "a dash tie must still draw its curve");
         const start = source.startsWith("1@a") ? layout.objects[0] : layout.objects[1];
-        assert(nearly(path.commands[0].x, start.box.x + (start.ports["tie.top"]?.x ?? start.box.w / 2)),
+        assert(nearly(startOf(tiePaths(layout.attachments[0])[0]).x, start.box.x + (start.ports["tie.top"]?.x ?? start.box.w / 2)),
             "default endpoints must include the recent dash instead of skipping it");
         const plan = compilePlayback(lower(source));
         const notes = playedNotes(plan);
@@ -47,10 +64,8 @@ test("连音线弧高支持自动跨度缩放、显式长度、作用域继承�
     const autoPaths = commandsOfKind("1@a 2@b 3 4 5 6 7 1@c @tie(a,b,c)", "path", 20);
     assert(tieApexHeight(autoPaths[0]) < tieApexHeight(autoPaths[1]) && nearly(tieApexHeight(autoPaths[1]), 10),
         "automatic height grows with span and caps at 0.5em");
-    const graceTiePath = attachmentCommands(layoutOf("{1@a 2 3 4 5 6 7 1@b @tie(a,b)}>3", 20).attachments[0])
-        .find(command => command.kind === "path")!;
-    assert(graceTiePath.kind === "path" && nearly(tieApexHeight(graceTiePath), 7),
-        "grace tie automatic height scales with endpoint font size");
+    const [graceTiePath] = tiePaths(layoutOf("{1@a 2 3 4 5 6 7 1@b @tie(a,b)}>3", 20).attachments[0]);
+    assert(nearly(tieApexHeight(graceTiePath), 7), "grace tie automatic height scales with endpoint font size");
     deepStrictEqual(commandsOfKind("1@a 2@b @tie(a,b,height=0)", "path"), commandsOfKind("1@a 2@b @tie(a,b)", "path"));
 
     const crossAuto = commandsOfKind("1@a @br() 2@b @tie(a,b)", "path", 20);
@@ -63,40 +78,32 @@ test("连音线弧高支持自动跨度缩放、显式长度、作用域继承�
 });
 
 test("ties leave a small font-relative gap above upper octave dots", () => {
-    const layout = layoutOf("1'@a 2'@b @tie(a,b)", 20);
-    const [path] = attachmentCommands(layout.attachments[0]).filter(command => command.kind === "path");
-    const start = path.commands[0];
-    assert(start.op === "M", "expected tie start");
-    const circles = recordCommands(layout).filter(command => command.kind === "circle");
-    const dots = circles.filter(dot => nearly(dot.cx, start.x) && dot.cy > start.y);
-    assert(dots.length > 0 && nearly(Math.min(...dots.map(dot => dot.cy - dot.r)) - start.y, 2),
+    const tieAndDots = (source: string) => {
+        const layout = layoutOf(source, 20);
+        const start = startOf(tiePaths(layout.attachments[0])[0]);
+        const dots = recordCommands(layout).filter(command => command.kind === "circle").filter(dot => nearly(dot.cx, start.x));
+        return { start, dots };
+    };
+    const single = tieAndDots("1'@a 2'@b @tie(a,b)");
+    const dots = single.dots.filter(dot => dot.cy > single.start.y);
+    assert(dots.length > 0 && nearly(Math.min(...dots.map(dot => dot.cy - dot.r)) - single.start.y, 2),
         "the tie endpoint must stay 0.1em above the uppermost dot");
 
-    const chordLayout = layoutOf("2@x ^3, 2@y ^3, @tie(x,y)", 20);
-    const [chordTie] = attachmentCommands(chordLayout.attachments[0]).filter(command => command.kind === "path");
-    const chordStart = chordTie.commands[0];
-    assert(chordStart.op === "M", "expected chord tie start");
-    const upperDots = recordCommands(chordLayout)
-        .filter(command => command.kind === "circle")
-        .filter(dot => nearly(dot.cx, chordStart.x));
-    assert(upperDots.length === 1 && chordStart.y - (upperDots[0].cy + upperDots[0].r) > 20 * 0.3,
+    const chord = tieAndDots("2@x ^3, 2@y ^3, @tie(x,y)");
+    assert(chord.dots.length === 1 && chord.start.y - (chord.dots[0].cy + chord.dots[0].r) > 20 * 0.3,
         "heightening a tied lower chord member must push the upper member's lower octave dot clear of the tie arc");
 });
 
 test("同轨连音线上方留空按显式弧高估算，同一端点取各连音线的最大值", () => {
     const measure = (source: string) => {
         const layout = layoutOf(source, 20);
-        const upper = (layout.objects[0] as typeof layout.objects[number] & {
-            members: readonly (typeof layout.objects[number])[];
-        }).members[1];
-        const path = attachmentCommands(layout.attachments[0]).find(command => command.kind === "path");
-        assert(path?.kind === "path", "expected tie path");
-        return { upper: { right: upper.box.x + upper.box.w, bottom: upper.box.y + upper.box.h }, commands: path.commands };
+        const upper = (layout.objects[0] as Composite).members[1];
+        const path = tiePaths(layout.attachments[0])[0];
+        return { upper: { right: upper.box.x + upper.box.w, bottom: upper.box.y + upper.box.h }, path };
     };
     const gap = (source: string) => {
-        const { upper, commands: [start] } = measure(source);
-        assert(start.op === "M", "expected tie start");
-        return start.y - upper.bottom;
+        const { upper, path } = measure(source);
+        return startOf(path).y - upper.bottom;
     };
     const auto = gap("2@x ^3, 2@y ^3, @tie(x,y)");
     const tall = gap("2@x ^3, 2@y ^3, @tie(x,y,height=1em)");
@@ -106,7 +113,7 @@ test("同轨连音线上方留空按显式弧高估算，同一端点取各连�
     "同一端点上的多条连音线应按最大弧高留空，与书写顺序无关");
 
     // 跨度不小于参考跨度 2.5em 时，弧线外缘经过上方成员的水平范围内不得穿入该成员
-    const { upper, commands: [start, outer] } = measure("2@x ^3, 4 2@y ^3, @tie(x,y,height=1em)");
+    const { upper, path: { commands: [start, outer] } } = measure("2@x ^3, 4 2@y ^3, @tie(x,y,height=1em)");
     assert(start.op === "M" && outer.op === "C", "unexpected tie path shape");
     for (let i = 0; i <= 100; i++) {
         const t = i / 100, s = 1 - t;
@@ -116,99 +123,48 @@ test("同轨连音线上方留空按显式弧高估算，同一端点取各连�
     }
 });
 
-test("up 成员标签连接该成员，整体标签连接整个 up", () => {
-    const tieStartY = (source: string) => {
-        const result = layoutOf(source);
-        const chord = result.objects[0] as typeof result.objects[number] & {
-            members: readonly (typeof result.objects[number])[];
-        };
-        const path = attachmentCommands(result.attachments[0]).find(command => command.kind === "path");
-        assert(path?.kind === "path" && path.commands[0]?.op === "M", "the up tie must start with a path move");
-        const member = chord.members[0];
-        return {
-            actual: path.commands[0].y,
-            member: member.box.y + (member.ports["tie.top"]?.y ?? 0),
-            chord: chord.box.y + chord.ports["tie.top"].y,
-        };
-    };
-
-    const memberTie = tieStartY(`{1@x}^{@1(C4)} 2@y @tie(x,y)`);
-    assert(nearly(memberTie.actual, memberTie.member) && !nearly(memberTie.actual, memberTie.chord),
-        "a tie from an up member label must use that member's own top port");
-
-    const chordTie = tieStartY(`{1^@1(C4)}@x 2@y @tie(x,y)`);
-    assert(nearly(chordTie.actual, chordTie.chord) && !nearly(chordTie.actual, chordTie.member),
-        "a tie from an up label must use the whole chord's top port");
-});
-
-test("grace 内部标签连接成员，外部标签穿透到宿主", () => {
+test("up/grace 成员上的标签连接该成员，整体之后的标签连接整个 up 或穿透到 grace 宿主", () => {
+    const portOf = (object: LayoutObject) => ({
+        x: object.box.x + (object.ports["tie.top"]?.x ?? object.box.anchor),
+        y: object.box.y + (object.ports["tie.top"]?.y ?? 0),
+    });
     const tieStart = (source: string) => {
-        const result = layoutOf(source);
-        const grace = result.objects[0] as typeof result.objects[number] & {
-            host: typeof result.objects[number];
-            graces: readonly (typeof result.objects[number])[];
-        };
-        const path = attachmentCommands(result.attachments[0]).find(command => command.kind === "path");
-        assert(path?.kind === "path" && path.commands[0]?.op === "M", "the grace tie must start with a path move");
-        const graceMember = grace.graces[0];
-        return {
-            actual: { x: path.commands[0].x, y: path.commands[0].y },
-            host: {
-                x: grace.host.box.x + (grace.host.ports["tie.top"]?.x ?? grace.host.box.anchor),
-                y: grace.host.box.y + (grace.host.ports["tie.top"]?.y ?? 0),
-            },
-            grace: {
-                x: graceMember.box.x + (graceMember.ports["tie.top"]?.x ?? graceMember.box.anchor),
-                y: graceMember.box.y + (graceMember.ports["tie.top"]?.y ?? 0),
-            },
-            composite: {
-                x: grace.box.x + (grace.ports["tie.top"]?.x ?? grace.box.anchor),
-                y: grace.box.y + (grace.ports["tie.top"]?.y ?? 0),
-            },
-        };
+        const layout = layoutOf(source);
+        return { start: startOf(tiePaths(layout.attachments[0])[0]), node: layout.objects[0] as Composite };
     };
+
+    const memberTie = tieStart(`{1@x}^{@1(C4)} 2@y @tie(x,y)`);
+    assert(nearly(memberTie.start.y, portOf(memberTie.node.members[0]).y) && !nearly(memberTie.start.y, portOf(memberTie.node).y),
+        "a tie from an up member label must use that member's own top port");
+    const chordTie = tieStart(`{1^@1(C4)}@x 2@y @tie(x,y)`);
+    assert(nearly(chordTie.start.y, portOf(chordTie.node).y) && !nearly(chordTie.start.y, portOf(chordTie.node.members[0]).y),
+        "a tie from an up label must use the whole chord's top port");
 
     const graceTie = tieStart(`@grace({1},{2@x}) 3@y @tie(x,y)`);
-    assert(nearly(graceTie.actual.x, graceTie.grace.x) && nearly(graceTie.actual.y, graceTie.grace.y),
+    const gracePort = portOf(graceTie.node.graces[0]);
+    assert(nearly(graceTie.start.x, gracePort.x) && nearly(graceTie.start.y, gracePort.y),
         "a label on a grace member must use that member's own port");
-
     const hostTie = tieStart(`@grace({1},{2})@x 3@y @tie(x,y)`);
-    assert(nearly(hostTie.actual.x, hostTie.host.x) && nearly(hostTie.actual.y, hostTie.host.y)
-        && !nearly(hostTie.actual.y, hostTie.grace.y),
+    const hostPort = portOf(hostTie.node.host);
+    assert(nearly(hostTie.start.x, hostPort.x) && nearly(hostTie.start.y, hostPort.y)
+        && !nearly(hostTie.start.y, portOf(hostTie.node.graces[0]).y),
     "a label after grace must delegate to the host's labelable node");
 });
 
 test("跨系统连音线按首、中、尾分段绘制", () => {
-    const crossLineTieResult = layoutOf(`1@a @br() 2@b @tie(a,b)`);
-    const crossLineTiePaths = attachmentCommands(crossLineTieResult.attachments[0])
-        .filter(command => command.kind === "path");
-    assert(crossLineTiePaths.length === 2, "a two-system tie must emit first and final segments");
-    assert(crossLineTieResult.objects[0].box.y > 0, "the first tie segment must push its note row down");
-    assert(
-        opsOf(crossLineTiePaths[0]) === "M,Q,L,L,L,Q,Z",
-        "the first system tie segment must rise, extend to the right edge and close back",
-    );
-    assert(
-        opsOf(crossLineTiePaths[1]) === "M,L,Q,Q,L,Z",
-        "the final system tie segment must enter from the left edge, fall and close back",
-    );
+    const twoLines = layoutOf(`1@a @br() 2@b @tie(a,b)`);
+    assert(twoLines.objects[0].box.y > 0, "the first tie segment must push its note row down");
+    // 首段升起、伸到右缘后折回；中段是一整条横带；尾段从左缘进入、落下后折回
+    deepStrictEqual(tiePaths(twoLines.attachments[0]).map(opsOf), ["M,Q,L,L,L,Q,Z", "M,L,Q,Q,L,Z"]);
+    deepStrictEqual(commandsOfKind(`1@a @br() 2 @br() 3@b @tie(a,b)`, "path").map(opsOf),
+        ["M,Q,L,L,L,Q,Z", "M,L,L,L,Z", "M,L,Q,Q,L,Z"]);
 
-    const threeLineTiePaths = commandsOfKind(`1@a @br() 2 @br() 3@b @tie(a,b)`, "path");
-    assert(threeLineTiePaths.length === 3, "a three-system tie must emit first, middle and final segments");
-    assert(
-        opsOf(threeLineTiePaths[1]) === "M,L,L,L,Z",
-        "every intermediate system must use one full horizontal tie band",
-    );
-
-    const emptyMiddleTieResult = layoutOf(`1@a @br(2) 2@b @tie(a,b)`);
-    assert(emptyMiddleTieResult.lineCount === 3, "a tie spanning br(2) must preserve its empty middle system");
-    const emptyMiddleTiePaths = attachmentCommands(emptyMiddleTieResult.attachments[0])
-        .filter(command => command.kind === "path");
-    assert(emptyMiddleTiePaths.length === 3, "a tie spanning an empty system must still emit three segments");
-    assert(
-        emptyMiddleTiePaths[1].commands.every(command => command.op === "Z" || command.y > 0),
-        "an attachment-only middle system must receive a final positive visual-axis position",
-    );
+    const emptyMiddle = layoutOf(`1@a @br(2) 2@b @tie(a,b)`);
+    const emptyMiddlePaths = tiePaths(emptyMiddle.attachments[0]);
+    assert(emptyMiddle.lineCount === 3 && emptyMiddlePaths.length === 3,
+        "a tie spanning br(2) must preserve its empty middle system and still emit three segments");
+    assert(emptyMiddlePaths[1].commands.every(command => command.op === "Z" || command.y > 0),
+        "an attachment-only middle system must receive a final positive visual-axis position");
 });
 
 test("短行跨行连音线的首尾段最短时只有起落弧", () => {
@@ -218,86 +174,50 @@ test("短行跨行连音线的首尾段最短时只有起落弧", () => {
     const firstLineRight = Math.max(...layout.objects
         .filter(object => object.layoutLine === 0)
         .map(object => object.box.x + object.box.w));
-    const opening = layout.attachments[0].regions.find(region => region.line === 0);
+    const curveWidth = layout.objects[0].ast.size * 0.45 * 1.2;
+    const [opening, closing] = [0, 1].map(line => layout.attachments[0].regions.find(region => region.line === line));
     assert(opening && opening.x + opening.w >= firstLineRight,
         "a short opening tie segment must cover its system's actual content edge");
-    const curveWidth = layout.objects[0].ast.size * 0.45 * 1.2;
-    assert(nearly(opening.w, curveWidth),
-        "a short opening tie segment must be exactly one rising curve wide");
-    const closing = layout.attachments[0].regions.find(region => region.line === 1);
-    assert(closing && nearly(closing.w, curveWidth),
-        "a short closing tie segment must be exactly one falling curve wide");
+    assert(nearly(opening.w, curveWidth) && closing && nearly(closing.w, curveWidth),
+        "short opening/closing tie segments must be exactly one rising/falling curve wide");
 
-    const paths = attachmentCommands(layout.attachments[0]).filter(command => command.kind === "path");
-    const openingCurve = paths[0].commands[1];
-    const openingLine = paths[0].commands[2];
+    const [openingPath, closingPath] = tiePaths(layout.attachments[0]);
+    const [, openingCurve, openingLine] = openingPath.commands;
     assert(openingCurve.op === "Q" && openingLine.op === "L" && nearly(openingCurve.x, openingLine.x),
         "the shortest opening segment must have no horizontal line");
-    const closingStart = paths[1].commands[0];
-    const closingLine = paths[1].commands[1];
+    const [closingStart, closingLine] = closingPath.commands;
     assert(closingStart.op === "M" && closingLine.op === "L" && nearly(closingStart.x, closingLine.x),
         "the shortest closing segment must have no horizontal line");
 });
 
-test("进入多声部系统的连音线从大括号右侧开始", () => {
-    const source = `1@a @br()
-@voices(@voice({2@b 3}, A), @voice({4 5}, B))
-@tie(a,b)`;
-    const layout = layoutOf(source);
-    const brace = layout.attachments.find(attachment => attachment.layer === "background");
-    const tie = layout.attachments.find(attachment => attachment.sourceSpan
-        && source.slice(attachment.sourceSpan.start, attachment.sourceSpan.end).startsWith("@tie"));
-    assert(brace && tie, "the sample must create both a voices brace and a tie");
-    const closingPath = attachmentCommands(tie).filter(command => command.kind === "path").at(-1);
-    assert(closingPath?.kind === "path" && closingPath.commands[0]?.op === "M",
-        "the closing tie segment must begin with a path move");
-    assert(closingPath.commands[0].x >= brace.regions[0].x + brace.regions[0].w,
+test("进入多声部系统的连音线尾段从大括号右侧、中段端点从该 Track 首音开始", () => {
+    const closingStart = (source: string) => {
+        const layout = layoutOf(source);
+        const tie = layout.attachments.find(attachment => attachment.sourceSpan?.start === source.indexOf("@tie"));
+        assert(tie, "the sample must create a tie");
+        return { layout, start: startOf(tiePaths(tie).at(-1)) };
+    };
+    const braced = closingStart(`1@a @br()\n@voices(@voice({2@b 3}, A), @voice({4 5}, B))\n@tie(a,b)`);
+    const brace = braced.layout.attachments.find(attachment => attachment.layer === "background");
+    assert(brace && braced.start.x >= brace.regions[0].x + brace.regions[0].w,
         "the closing tie segment must not pass through the voices brace");
-});
 
-test("进入多声部系统中段端点的连音线从该 Track 首音开始", () => {
-    const source = `3@x
-
-N: 44@tie(x)
-N: 3`;
-    const layout = layoutOf(source);
-    const firstFour = layout.objects.find(object => object.ast.sourceSpan.start === source.indexOf("44"));
-    assert(firstFour, "the sample must contain the first 4 on the target track");
-    const tie = layout.attachments.find(attachment => attachment.sourceSpan
-        && source.slice(attachment.sourceSpan.start, attachment.sourceSpan.end).startsWith("@tie"));
-    assert(tie, "the sample must create a tie");
-    const closingPath = attachmentCommands(tie).filter(command => command.kind === "path").at(-1);
-    assert(closingPath?.kind === "path" && closingPath.commands[0]?.op === "M",
-        "the closing tie segment must begin with a path move");
-    assert(nearly(closingPath.commands[0].x, firstFour.box.x),
+    const source = `3@x\n\nN: 44@tie(x)\nN: 3`;
+    const midTrack = closingStart(source);
+    const firstFour = midTrack.layout.objects.find(object => object.ast.sourceSpan.start === source.indexOf("44"));
+    assert(firstFour && nearly(midTrack.start.x, firstFour.box.x),
         "the closing tie segment must start at the target track's leftmost note edge");
 });
 
 test("连音线可以跨行与跨轨，首尾弧从端点固定抬高", () => {
-    const crossTrackTieResult = layoutOf(`@stack({1@a}, {2@b}) @tie(a,b)`);
-    assert(crossTrackTieResult.attachments.length === 1, "tie must allow endpoints on different tracks");
-    assert(crossTrackTieResult.attachments[0].regions[0].h > 0, "a cross-track tie must produce visible geometry");
-
-    const tieIntoUp = layoutOf(`@set(tie.height=0.5em) 1@x
-
-@up(3,4) 5@y @tie(x,y)`);
-    const closingPath = attachmentCommands(tieIntoUp.attachments[0])
-        .filter(command => command.kind === "path").at(-1);
-    assert(closingPath?.kind === "path"
-        && closingPath.commands[0]?.op === "M"
-        && closingPath.commands[2]?.op === "Q",
-    "the closing tie segment must contain its plateau and endpoint");
-    assert(nearly(closingPath.commands[2].y - closingPath.commands[0].y, 9),
+    const closingPath = tiePaths(layoutOf(`@set(tie.height=0.5em) 1@x\n\n@up(3,4) 5@y @tie(x,y)`).attachments[0]).at(-1)!;
+    const closingPlateau = closingPath.commands[2];
+    assert(closingPlateau.op === "Q" && nearly(closingPlateau.y - startOf(closingPath).y, 9),
         "a closing tie plateau must be exactly one configured height above its endpoint");
 
-    const tieOutOfUp = layoutOf(`@set(tie.height=0.5em) @up(3,4) 5@x @br() 1@y @tie(x,y)`);
-    const openingPath = attachmentCommands(tieOutOfUp.attachments[0])
-        .find(command => command.kind === "path");
-    assert(openingPath?.kind === "path"
-        && openingPath.commands[0]?.op === "M"
-        && openingPath.commands[1]?.op === "Q",
-    "the opening tie segment must contain its endpoint and plateau");
-    assert(nearly(openingPath.commands[0].y - openingPath.commands[1].y, 9),
+    const [openingPath] = tiePaths(layoutOf(`@set(tie.height=0.5em) @up(3,4) 5@x @br() 1@y @tie(x,y)`).attachments[0]);
+    const openingPlateau = openingPath.commands[1];
+    assert(openingPlateau.op === "Q" && nearly(startOf(openingPath).y - openingPlateau.y, 9),
         "an opening tie plateau must be exactly one configured height above its endpoint");
 
     const compactCrossTrackTie = layoutOf(`
@@ -305,9 +225,8 @@ test("连音线可以跨行与跨轨，首尾弧从端点固定抬高", () => {
 @stack({1@a 2},{3 4@b}) @tie(a,b,height=60px)
 `);
     const compactTieBox = compactCrossTrackTie.attachments[0].regions[0];
-    assert(compactCrossTrackTie.pages.length === 1, "a cross-track tie must not duplicate its height across tracks");
-    assert(compactTieBox.y >= 10 - 1e-6 && compactTieBox.y + compactTieBox.h <= 140 + 1e-6,
-        "a cross-track tie must stay inside the measured page content area");
+    assert(compactCrossTrackTie.pages.length === 1 && compactTieBox.y >= 10 - 1e-6 && compactTieBox.y + compactTieBox.h <= 140 + 1e-6,
+        "a cross-track tie must not duplicate its height across tracks and must stay inside the page content area");
 });
 
 test("跨轨连音线只占用主体上方，不撑开两条轨之间的间距", () => {
@@ -319,36 +238,29 @@ test("跨轨连音线只占用主体上方，不撑开两条轨之间的间距",
     const plain = measure(`@stack({1@a},{2@b})`);
     const shortTied = measure(`@stack({1@a},{2@b}) @tie(a,b)`);
     const tied = measure(`@stack({1@a},{2@b}) @tie(a,b,height=60px)`);
-
-    assert(nearly(shortTied.gap, tied.gap),
-        `a cross-track tie must not widen the branch gap: ${shortTied.gap.toFixed(2)} -> ${tied.gap.toFixed(2)}`);
-    assert(tied.top - plain.top > 40,
-        "a cross-track tie must still reserve its own height above the upper track");
+    assert(nearly(shortTied.gap, tied.gap), `a cross-track tie must not widen the branch gap: ${shortTied.gap} -> ${tied.gap}`);
+    assert(tied.top - plain.top > 40, "a cross-track tie must still reserve its own height above the upper track");
 });
 
 test("跨越空谱面行的连音线只占自己的带宽", () => {
     // 空行没有主体可以让出下半截，此时整段弧带就是它自己的全部占用
-    const regions = layoutOf(`@page(gap=0px) 1@a @br(3) 2@b @tie(a,b)`).attachments[0].regions;
-    const middle = regions
+    const middle = layoutOf(`@page(gap=0px) 1@a @br(3) 2@b @tie(a,b)`).attachments[0].regions
         .filter(region => region.line === 1 || region.line === 2)
         .sort((left, right) => left.y - right.y);
-    assert(middle.length === 2, "a tie crossing empty systems must draw one band per system");
-    assert(nearly(middle[1].y - middle[0].y, middle[0].h),
-        `an empty system must reserve only the tie band:`
-        + ` ${(middle[1].y - middle[0].y).toFixed(2)} vs ${middle[0].h.toFixed(2)}`);
+    assert(middle.length === 2 && nearly(middle[1].y - middle[0].y, middle[0].h),
+        "a tie crossing empty systems must draw one band per system and reserve only that band");
 });
 
 test("跨页连音线每个逻辑系统一段，几何保持有限", () => {
-    const crossPageTie = layoutOf(`
+    const layout = layoutOf(`
 @page(width=200px, height=80px, top=10px, bottom=10px, left=20px, right=20px, gap=5px)
 1@a @br() 2 @br() 3 @br() 4@b @tie(a,b)
 `);
-    const crossPageTieAttachment = crossPageTie.attachments[0];
-    assert(crossPageTie.pages.length > 1, "the cross-page tie sample must span multiple pages");
-    assert(crossPageTie.pages.every(page => page.lineEnd > page.lineStart), "cross-page tie layout must not create empty pages");
-    assert(attachmentCommands(crossPageTieAttachment).filter(command => command.kind === "path").length === 4,
-        "a cross-page tie must retain one segment per logical system");
-    assert(crossPageTieAttachment.regions.every(region => [region.x, region.y, region.w, region.h].every(Number.isFinite)),
+    const tie = layout.attachments[0];
+    assert(layout.pages.length > 1 && layout.pages.every(page => page.lineEnd > page.lineStart),
+        "the cross-page tie sample must span multiple non-empty pages");
+    assert(tiePaths(tie).length === 4, "a cross-page tie must retain one segment per logical system");
+    assert(tie.regions.every(region => [region.x, region.y, region.w, region.h].every(Number.isFinite)),
         "cross-page tie geometry must stay finite");
 });
 

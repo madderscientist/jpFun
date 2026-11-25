@@ -98,15 +98,11 @@ test("meter 固化任意正整数拍号且不改变音符时值", () => {
         ["@meter(5,6)", [5, 6, 10, 3]],
     ] as const) {
         const meter = lower(source).columns[0][0].ast as unknown as MeterAst;
-        assert(meter.numerator === expected[0] && meter.denominator === expected[1],
-            `${source} must preserve its displayed fraction`);
-        assert(meter.measureDuration?.equals(expected[2], expected[3]),
-            `${source} must freeze its exact measure duration`);
+        assert(meter.numerator === expected[0] && meter.denominator === expected[1]
+            && meter.measureDuration?.equals(expected[2], expected[3]), `${source}: fraction and measure duration`);
     }
-
     const events = lower(`@meter(6,8) 1 2/`).columns.flat();
-    assert(events[1].T.equals(1) && events[2].T.equals(1, 2),
-        "meter must not change bare or divided note durations");
+    assert(events[1].T.equals(1) && events[2].T.equals(1, 2), "meter must not change note durations");
 });
 
 test("meter 非法参数默认回落为 4/4，strict 模式报错", () => {
@@ -121,48 +117,33 @@ test("meter 非法参数默认回落为 4/4，strict 模式报错", () => {
     }
 });
 
-test("meter 精确校验完整、过长与不足小节", () => {
-    assert(lower(`@meter(4,4) 1 | 2 3 4 5 |`).diagnostics.length === 0,
-        "content before the first barline must not be validated");
-    assert(lower(`@meter(6,8) | 1/ 2/ 3/ 4/ 5/ 6/ |`).diagnostics.length === 0,
-        "six eighth notes must fill 6/8 exactly");
-    assert(lower(`@meter(3,3) | 1 2 3 4 |`).diagnostics.length === 0,
-        "non-power-of-two denominators must compare exactly");
-
+test("meter 精确校验完整、过长与不足小节，声明与变更建立各自的小节起点", () => {
+    for (const source of [
+        // 首条小节线或首个拍号之前的内容不校验
+        `@meter(4,4) 1 | 2 3 4 5 |`,
+        `1 @meter(2,4) 2 3 |`,
+        `@meter(6,8) | 1/ 2/ 3/ 4/ 5/ 6/ |`,
+        `@meter(3,3) | 1 2 3 4 |`,
+        // 后续拍号结束旧小节并开启新小节，写在小节线处不产生空小节
+        `@meter(2,4) 1 2 @meter(3,4) 3 4 5 |`,
+        `@meter(2,4) 1 2 | @meter(3,4) 3 4 5 |`,
+    ]) {
+        deepStrictEqual(lower(source).diagnostics, [], source);
+    }
     for (const source of ["@meter(4,4) 1 2 3 4 5 |", "@meter(4,4) | 1 | 2 3 4 5 |", "@meter(2,4) | 1 2 3 |", "@meter(2,4) | 1"]) {
-        const diagnostics = lower(source).diagnostics;
-        assert(diagnostics.some(diagnostic => diagnostic.code === "W_METER_MISMATCH"),
-            `${source} must report W_METER_MISMATCH`);
+        assert(lower(source).diagnostics.some(diagnostic => diagnostic.code === "W_METER_MISMATCH"), source);
     }
 });
 
-test("meter 失配诊断覆盖整个小节", () => {
+test("meter 失配诊断覆盖整个小节，并按声明处 strict 决定是否中断", () => {
     const source = `@meter(2,4) | 1 | 2 |`;
-    const diagnostics = lower(source).diagnostics.filter(diagnostic => diagnostic.code === "W_METER_MISMATCH");
-    const firstBarEnd = source.indexOf("|") + 1;
-    const secondBarEnd = source.lastIndexOf("|") + 1;
-    assert(diagnostics.length === 2, "both incomplete measures must be reported");
-    assert(diagnostics[0].span.start === firstBarEnd && diagnostics[0].span.end === source.indexOf("|", firstBarEnd) + 1,
-        "the first diagnostic must start at the first barline");
-    assert(diagnostics[1].span.start === diagnostics[0].span.end && diagnostics[1].span.end === secondBarEnd,
-        "the next diagnostic must cover from the previous barline through the closing barline");
-});
+    const bars = [...source.matchAll(/\|/g)].map(match => match.index! + 1);
+    deepStrictEqual(lower(source).diagnostics.filter(diagnostic => diagnostic.code === "W_METER_MISMATCH")
+        .map(diagnostic => [diagnostic.span.start, diagnostic.span.end]), [[bars[0], bars[1]], [bars[1], bars[2]]]);
 
-test("meter 按声明处 strict 决定失配是否中断", () => {
-    const source = `@set(strict=true) @meter(2,4) | 1 |`;
-    const diagnostic = expectCompileError(source, "E_METER_MISMATCH");
-    assert(diagnostic.span.start === source.indexOf("|") + 1
-        && diagnostic.span.end === source.lastIndexOf("|") + 1,
-        "strict mismatch must cover the complete measure source");
-});
-
-test("meter 声明与变更建立各自的小节起点", () => {
-    assert(lower(`1 @meter(2,4) 2 3 |`).diagnostics.length === 0,
-        "content before the first meter must not be validated");
-    assert(lower(`@meter(2,4) 1 2 @meter(3,4) 3 4 5 |`).diagnostics.length === 0,
-        "a later meter must close the old measure and start a new one");
-    assert(lower(`@meter(2,4) 1 2 | @meter(3,4) 3 4 5 |`).diagnostics.length === 0,
-        "a meter at a barline must not create an empty measure diagnostic");
+    const strict = `@set(strict=true) @meter(2,4) | 1 |`;
+    const diagnostic = expectCompileError(strict, "E_METER_MISMATCH");
+    deepStrictEqual(diagnostic.span, { start: strict.indexOf("|") + 1, end: strict.lastIndexOf("|") + 1 });
 });
 
 test("meter 使用紧凑字号绘制真分数", () => {
@@ -173,12 +154,10 @@ test("meter 使用紧凑字号绘制真分数", () => {
     const commands = recordCommands(layout);
     const texts = commands.filter(command => command.kind === "text");
     const lines = commands.filter(command => command.kind === "rect");
-    assert(texts.length === 2 && texts.every(command => command.text === "4"),
-        "meter must draw numerator and denominator text");
-    assert(lines.length === 1 && lines[0].w === meter.box.w,
-        "meter must draw one full-width fraction line");
-    assert(texts.every(command => nearly(command.style.fontSize, 18 * 0.7) && command.style.fontWeight === 700),
-        "meter must default each digit to 0.7em and fontWeight 700");
+    // 分子分母各一个 0.7em 粗体数字，中间一条通宽分数线
+    assert(texts.length === 2 && texts.every(command => command.text === "4"
+        && nearly(command.style.fontSize, 18 * 0.7) && command.style.fontWeight === 700), "numerator and denominator");
+    assert(lines.length === 1 && lines[0].w === meter.box.w, "one full-width fraction line");
 });
 
 test("meter 零分子或零分母表示散板，不限制小节时长", () => {

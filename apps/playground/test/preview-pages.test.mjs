@@ -69,8 +69,7 @@ test("only intersecting pages draw; scrolling releases old canvases without chan
     flush();
     assert.deepEqual(host.children, pages);
     assert.equal(pages[0].children.length, 1);
-    assert.equal(rendered[0][1].width, 1);
-    assert.equal(rendered[0][1].height, 1);
+    assert.deepEqual([rendered[0][1].width, rendered[0][1].height], [1, 1]);
     assert.equal(pages[99].children.length, 2);
     observers[0].notify(pages, [98, 99], false);
     observers[0].notify(pages, [0], true);

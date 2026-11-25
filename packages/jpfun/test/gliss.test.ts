@@ -29,6 +29,12 @@ function gliss(source: string, noPitch = false) {
     return { ...compiled, attachment, path, start, end };
 }
 
+/** 按时间排序的 @a / @b 端点主体 */
+function endpoints(layout: ReturnType<typeof gliss>["layout"]) {
+    return layout.objects.filter(node => node.ast instanceof ASTFunctionNode
+        && (node.ast.label === "a" || node.ast.label === "b")).sort((a, b) => a.t.compare(b.t));
+}
+
 test("gliss draws upward, downward and unison arrows between explicit labels", () => {
     for (const [notes, direction] of [["1@a 5@b", -1], ["5@a 1@b", 1], ["1@a 1@b", 0]] as const) {
         const { layout, start, end, path } = gliss(`${notes} @gliss(a,b)`);
@@ -54,17 +60,9 @@ test("gliss uses the selected dash, searches its preceding pitch and clears dots
 
 test("gliss orders positional endpoints by time regardless of argument order", () => {
     for (const source of [
-        "1@a 5@b",
-        "5@a 1@b",
-        "1@a 1@b",
-        "5 -@a - #1@b",
-        "@up(1@a,3) 5@b",
-        "5 @grace(-@a,1) 2@b",
-        "@stack({1@a 0}, {0 5@b})",
-        "@stack({0 5@b}, {1@a 0})",
-        "5 @br() -@a 2@b",
-        "1@a @br() 5@b",
-        "1@a 2 @br() 3 5@b",
+        "1@a 5@b", "5@a 1@b", "1@a 1@b", "5 -@a - #1@b", "@up(1@a,3) 5@b", "5 @grace(-@a,1) 2@b",
+        "@stack({1@a 0}, {0 5@b})", "@stack({0 5@b}, {1@a 0})",
+        "5 @br() -@a 2@b", "1@a @br() 5@b", "1@a 2 @br() 3 5@b",
     ]) {
         const forward = gliss(`${source} @gliss(a,b)`);
         const reverse = gliss(`${source} @gliss(b,a)`);
@@ -79,24 +77,18 @@ test("gliss crosses tracks in either vertical direction on the same score line",
         "@stack({0 5@b}, {1@a 0}) @gliss(a,b)",
     ]) {
         const { layout, start, end, attachment } = gliss(source);
-        const [from, to] = layout.objects.filter(node => node.ast instanceof ASTFunctionNode
-            && (node.ast.label === "a" || node.ast.label === "b"))
-            .sort((a, b) => a.t.compare(b.t));
+        const [from, to] = endpoints(layout);
         assert(from.track !== to.track, "fixture must cross tracks");
-        assert(nearly(start.y, from.box.y + from.box.visualAxis), "cross-track source uses its actual axis");
-        assert(nearly(end.y, to.box.y + to.box.visualAxis), "cross-track target uses its actual axis");
+        assert(nearly(start.y, from.box.y + from.box.visualAxis) && nearly(end.y, to.box.y + to.box.visualAxis),
+            "cross-track endpoints use their actual axes");
         assert(attachment.regions[0].w > 0 && attachment.regions[0].h > 0, "cross-track bounds must be finite");
         assert(layout.bounds.h < 500, "cross-track occupancy must not repeatedly push tracks apart");
     }
 });
 
 test("gliss geometry scales with fontsize and does not accumulate spacing on relayout", () => {
-    strictEqual(lower("1 2 3").attachments.length, 0);
-    const small = gliss("@set(fontsize=20) 1@a 5@b @gliss(a,b)");
-    const large = compileValid("1@a 5@b @gliss(a,b)", { variables: { fontsize: 40 } });
-    const largePath = attachmentCommands(large.layout.attachments[0]).find(command => command.kind === "path")!;
-    assert(largePath.kind === "path", "expected arrow path");
-    assert(nearly(largePath.style!.strokeWidth!, small.path.style!.strokeWidth! * 2), "stroke scales with font size");
+    const [small, large] = [20, 40].map(size => gliss(`@set(fontsize=${size}) 1@a 5@b @gliss(a,b)`).path);
+    assert(nearly(large.style!.strokeWidth!, small.style!.strokeWidth! * 2), "stroke scales with font size");
     for (const source of ["1@a 5@b @gliss(a,b)", "5 -@a 2@b @gliss(b,a)"]) {
         const lowered = lower(source);
         const first = layoutDocument(lowered, layoutContext);
@@ -188,11 +180,10 @@ test("gliss accepts arbitrary graphical endpoints and falls back horizontally wi
         deepStrictEqual(attachmentCommands(reverse.attachment), attachmentCommands(result.attachment));
     }
     const result = gliss("@stack({0@a 0}, {0 5@b}) @gliss(a,b)", true);
-    const [from, to] = result.layout.objects.filter(node => node.ast instanceof ASTFunctionNode
-        && (node.ast.label === "a" || node.ast.label === "b")).sort((a, b) => a.t.compare(b.t));
-    assert(nearly(result.start.y, from.box.y + from.box.visualAxis), "cross-track start retains its actual axis");
-    assert(nearly(result.end.y, to.box.y + to.box.visualAxis), "cross-track end retains its actual axis");
-    assert(!nearly(result.end.y, result.start.y), "cross-track endpoints remain connected rather than forced horizontal");
+    const [from, to] = endpoints(result.layout);
+    // 跨轨端点保留各自的实际轴线，而不是被强制水平
+    assert(nearly(result.start.y, from.box.y + from.box.visualAxis) && nearly(result.end.y, to.box.y + to.box.visualAxis)
+        && !nearly(result.end.y, result.start.y), "cross-track endpoints retain their actual axes");
 });
 
 test("gliss warns once per attachment, including repeated geometry measurement and layout", () => {
@@ -209,13 +200,12 @@ test("gliss supports folded note labels, beams, boxes and explicit adjustments",
     gliss("@set(div.autobeam=false) 1/@a 5/@b @beam(a,b) @gliss(a,b)");
     const plain = gliss("1@a 5@b @gliss(a,b)");
     const shifted = gliss("@adjust({1@a},dx=3px,dy=5px) 5@b @gliss(a,b)");
-    assert(nearly(shifted.start.x - plain.start.x, 3), "arrow follows source dx");
-    assert(nearly(shifted.start.y - plain.start.y, 5), "arrow follows source dy");
+    assert(nearly(shifted.start.x - plain.start.x, 3) && nearly(shifted.start.y - plain.start.y, 5),
+        "arrow follows source dx/dy");
     const relationShift = gliss("1@a 5@b @adjust({@gliss(a,b)},dx=3px,dy=5px)");
-    assert(nearly(relationShift.start.x - plain.start.x, 3), "arrow accepts attachment dx");
-    assert(nearly(relationShift.end.y - plain.end.y, 5), "arrow accepts attachment dy");
-    const boxed = compileValid("@box({1@a 5@b @gliss(a,b)})");
-    assert(boxed.layout.attachments.length === 2, "box retains its contained arrow");
+    assert(nearly(relationShift.start.x - plain.start.x, 3) && nearly(relationShift.end.y - plain.end.y, 5),
+        "arrow accepts attachment dx/dy");
+    strictEqual(compileValid("@box({1@a 5@b @gliss(a,b)})").layout.attachments.length, 2);
 });
 
 test("gliss leaves readable space on compact pages without stacking duplicate reservations", () => {

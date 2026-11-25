@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { deepStrictEqual } from "node:assert/strict";
 import { compileScore } from "../src/pipeline.js";
 
 import type { TemporalNodeBase, VisualTemporalNode } from "../src/functions/temporal.js";
@@ -8,17 +9,21 @@ import {
     expectCompileError,
     layoutOf,
     lower,
+    nearly,
 } from "./helpers.js";
+
+/** 显示单位数 text 的 tuplet 括线范围 */
+function bracketOf(result: ReturnType<typeof layoutOf>, text = "5") {
+    return result.attachments.find(item =>
+        attachmentCommands(item).some(command => command.kind === "text" && command.text === text));
+}
 
 test("tuplet 从内容推导单位数并精确缩放时间", () => {
     const result = lower(`@tuplet({1/23},4) 4`);
     const events = result.columns.map(column => column[0]);
-
-    assert(events.length === 4, "tuplet must keep every member in the global time columns");
-    assert(events[0].t.equals(0) && events[0].T.equals(2, 5), "the eighth member must become 2/5 QN");
-    assert(events[1].t.equals(2, 5) && events[1].T.equals(4, 5), "the second member must start at 2/5 QN");
-    assert(events[2].t.equals(6, 5) && events[2].T.equals(4, 5), "the third member must end the tuplet at 2 QN");
-    assert(events[3].t.equals(2) && result.duration.equals(3), "the following event must start at the rewritten cursor");
+    deepStrictEqual(events.map(event => [event.t.toString(), event.T.toString()]),
+        [["0", "2/5"], ["2/5", "4/5"], ["6/5", "4/5"], ["2", "1"]]);
+    assert(result.duration.equals(3), "the following event must start at the rewritten cursor");
     const metered = lower(`@meter(2,4) @tuplet({1/23},4) |`);
     assert(!metered.diagnostics.some(diagnostic => diagnostic.code === "W_METER_MISMATCH"),
         "meter must validate the tuplet's rewritten 2 QN duration");
@@ -66,9 +71,7 @@ test("tuplet 在 onTimeState 向 up 与 grace 的隐藏成员同步最终宿主�
 
 test("tuplet 在整组上方绘制居中的单位数与括线", () => {
     const result = layoutOf(`@tuplet({1/23},4)`);
-    const attachment = result.attachments.find(item =>
-        attachmentCommands(item).some(command => command.kind === "text" && command.text === "5"),
-    );
+    const attachment = bracketOf(result);
     assert(attachment, "tuplet must create an attachment that displays the inferred actual count");
 
     const commands = attachmentCommands(attachment);
@@ -84,25 +87,16 @@ test("tuplet 在整组上方绘制居中的单位数与括线", () => {
         "the tuplet number must be centered over the member span");
     assert(attachment.regions[0].y < Math.min(...members.map(member => member.box.y)),
         "the tuplet bracket must reserve space above its members");
-
 });
 
 test("tuplet 括线只避让自己盖住的列，区间外的高对象顶不起它", () => {
     // 括线到首个成员的相对距离才是不变量：行内的高对象会把整轨的视觉轴一起压低
     const bracketGap = (source: string) => {
         const result = layoutOf(source);
-        const attachment = result.attachments.find(item =>
-            attachmentCommands(item).some(command => command.kind === "text" && command.text === "5"),
-        );
-        assert(attachment, "tuplet must create an attachment");
-        const first = result.objects[0] as VisualTemporalNode;
-        const region = attachment.regions[0];
-        return first.box.y - (region.y + region.h);
+        const region = bracketOf(result)!.regions[0];
+        return result.objects[0].box.y - (region.y + region.h);
     };
-
-    const plain = bracketGap(`@tuplet({1/23},4) 3`);
-    const tall = bracketGap(`@tuplet({1/23},4) 3^4^5`);
-    assert(Math.abs(plain - tall) < 1e-6,
+    assert(nearly(bracketGap(`@tuplet({1/23},4) 3`), bracketGap(`@tuplet({1/23},4) 3^4^5`)),
         "content outside the tuplet range must not push the bracket away from its members");
 });
 
@@ -121,12 +115,8 @@ test("嵌套 tuplet 的外层括线排在内层括线之外", () => {
 test("tuplet 主体横移或纵移后仍按最终位置避让", () => {
     for (const adjustment of ["dx=200px", "dy=-40px"]) {
         const result = layoutOf(`@adjust({@tuplet({1/23},4)}, ${adjustment})`);
-        const bracket = result.attachments.find(item =>
-            attachmentCommands(item).some(command => command.kind === "text" && command.text === "5"),
-        )?.regions[0];
-        assert(bracket, `tuplet must create an attachment after ${adjustment}`);
-        const hostTop = Math.min(...result.objects.map(host => host.box.y));
-        assert(bracket.y + bracket.h <= hostTop + 1e-6,
+        const bracket = bracketOf(result)!.regions[0];
+        assert(bracket.y + bracket.h <= Math.min(...result.objects.map(host => host.box.y)) + 1e-6,
             `the bracket must stay above adjusted hosts: ${adjustment}`);
     }
 });
@@ -137,8 +127,7 @@ test("tuplet brackets stay above folded grace members", () => {
         "@grace(1,@tuplet({2 3 4},2), side=post)",
     ]) {
         const result = compileScore(source);
-        const bracket = result.layout.attachments.find(item =>
-            attachmentCommands(item).some(command => command.kind === "text" && command.text === "3"))?.regions[0];
+        const bracket = bracketOf(result.layout, "3")?.regions[0];
         const members = [...result.lowering.astToTemporal.values()].flat()
             .filter(node => node.foldedInto && node.ast.sourceSpan.start > source.indexOf("tuplet")) as VisualTemporalNode[];
         assert(bracket && members.length === 3, "all folded tuplet members must remain addressable");

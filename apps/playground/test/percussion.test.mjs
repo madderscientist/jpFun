@@ -128,20 +128,22 @@ test("playback recovers after an initial compile failure and preserves a paused 
         requestPlan: () => false, showDiagnostics() {}, getFileName: () => "score.jpfun", onScorePosition() {},
     });
     context.after(() => { controller.destroy(); globalThis.document = documentBefore; });
+    const tick = () => new Promise(resolve => setImmediate(resolve));
+    const toggle = document.querySelector("#playbackToggle");
     controller.setActive(true);
-    await new Promise(resolve => setImmediate(resolve));
+    await tick();
     controller.setPlan(planOf("1 2 3 4"));
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(elements.get("#playbackToggle").disabled, false);
-    elements.get("#playbackToggle").dispatchEvent(new Event("click"));
-    await new Promise(resolve => setImmediate(resolve));
+    await tick();
+    assert.equal(toggle.disabled, false);
+    toggle.dispatchEvent(new Event("click"));
+    await tick();
     const synth = TinySynthStub.instances.at(-1);
     const starts = synth.calls.length;
     controller.pause();
     assert.equal(controller.hasPlan, true);
     assert.equal(elements.get("#playbackTotalTime").textContent, "00:02");
-    elements.get("#playbackToggle").dispatchEvent(new Event("click"));
-    await new Promise(resolve => setImmediate(resolve));
+    toggle.dispatchEvent(new Event("click"));
+    await tick();
     assert.ok(synth.calls.length > starts);
 });
 
@@ -173,10 +175,6 @@ test("mixed notes reuse one channel while percussion ignores program and transpo
     settings[0].overrideProgram = true;
     await player.updateTrackSettings(settings, true);
     assert.deepEqual(synth.calls.slice(-3).map(call => call.instrument), [11, 128, 11]);
-    const stops = synth.stops;
-    player.pause();
-    assert.equal(synth.stops, stops + 1);
-    assert.equal(player.isPlaying, false);
 });
 
 test("percussion keeps independent source-track mixer gains", async context => {
@@ -268,15 +266,16 @@ test("MIDI omits empty melodic and silent drum tracks and does not bake in mute/
     assert.deepEqual((await exportedTracks(planOf("1"))).map(track => track.channelId), [0, 0]);
 });
 
-test("MIDI shares one drum track but scales each source track independently", async () => {
-    const plan = planOf("@stack({9 -}, {9 -})");
+test("MIDI shares one drum track, scales each source track independently and keeps each overlapping note's own end", async () => {
+    const plan = planOf("@stack({9 - -}, {0 9})");
     const settings = settingsFor(plan);
     settings[0].volume = 25;
     settings[1].volume = 75;
     const tracks = await exportedTracks(plan, settings);
     assert.equal(tracks.length, 2);
-    const starts = tracks[1].events.filter(event => event.code === 0x9 && event.value[1] > 0);
-    assert.deepEqual(starts.map(event => event.value[1]), [20, 60]);
+    assert.equal(tracks[1].channelId, 9);
+    const notes = tracks[1].events.filter(event => event.code === 0x9);
+    assert.deepEqual(notes.map(event => [event.ticks, event.value[1]]), [[0, 20], [480, 60], [960, 0], [1440, 0]]);
     assert.equal(tracks[1].events.filter(event => event.code === 0xb).length, 1);
 });
 
@@ -289,10 +288,10 @@ test("MIDI reserves channel 10 in every port, not just the first", async () => {
         [8, 10, 16, 26, 32]);
 });
 
-test("stop, clearPlan and destroy all stop pre-scheduled percussion", async context => {
+test("pause, stop, clearPlan and destroy all stop pre-scheduled percussion", async context => {
     const plan = planOf("9 9 9");
     const player = playerFor(context, plan);
-    for (const action of ["stop", "clearPlan", "destroy"]) {
+    for (const action of ["pause", "stop", "clearPlan", "destroy"]) {
         player.setPlan(plan, settingsFor(plan));
         await player.play();
         const synth = TinySynthStub.instances.at(-1);
@@ -301,13 +300,4 @@ test("stop, clearPlan and destroy all stop pre-scheduled percussion", async cont
         assert.equal(synth.stops, stops + 1);
         assert.equal(player.isPlaying, false);
     }
-});
-
-test("overlapping percussion retains each note's own end on the shared MIDI channel", async () => {
-    const tracks = await exportedTracks(planOf("@stack({9 - -}, {0 9})"));
-    assert.equal(tracks.length, 2);
-    assert.equal(tracks[1].channelId, 9);
-    const notes = tracks[1].events.filter(event => event.code === 0x9);
-    assert.deepEqual(notes.map(event => [event.ticks, event.value[1]]),
-        [[0, 80], [480, 80], [960, 0], [1440, 0]]);
 });

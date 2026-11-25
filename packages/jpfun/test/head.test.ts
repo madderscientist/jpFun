@@ -15,8 +15,16 @@ import {
     recordCommands,
 } from "./helpers.js";
 
-const texts = (source: string) => recordCommands(layoutOf(source))
-    .filter(command => command.kind === "text");
+type Layout = ReturnType<typeof layoutOf>;
+
+/** 按文字内容查找绘制出的文字命令 */
+const textCommands = (source: string) => {
+    const commands = recordCommands(layoutOf(source)).filter(command => command.kind === "text");
+    return (text: string) => commands.find(command => command.text === text)!;
+};
+
+const callObject = (layout: Layout, name: string) => layout.objects.find(object =>
+    object.ast instanceof ASTFunctionNode && object.ast.callName === name)!;
 
 const CONTENT_LEFT = 40;
 const CONTENT_RIGHT = 754;
@@ -24,9 +32,9 @@ const PAGE_CENTER = (CONTENT_LEFT + CONTENT_RIGHT) / 2;
 // 居中由两根强弹簧的对称性保证，但求解器按合力收敛，落到坐标上留下亚像素残差
 const SOLVER_TOLERANCE = 0.05;
 
-const textObjects = (source: string) => {
-    const found = new Map<string, ReturnType<typeof layoutOf>["objects"][number]>();
-    for (const object of layoutOf(source).objects) {
+const textObjects = (source: string | Layout) => {
+    const found = new Map<string, Layout["objects"][number]>();
+    for (const object of (typeof source === "string" ? layoutOf(source) : source).objects) {
         const ast = object.ast;
         if (!(ast instanceof ASTFunctionNode) || ast.callName !== "text"
             || !("text" in ast) || typeof ast.text !== "string") continue;
@@ -35,17 +43,17 @@ const textObjects = (source: string) => {
     return found;
 };
 
+const textBoxes = (source: string) =>
+    Object.fromEntries([...textObjects(source)].map(([text, object]) => [text, object.box]));
+
 test("head 分开左中右三槽，center 不受两侧宽度影响", () => {
     const source = `@head(
         left={@text(L)},
         center={@text(C)},
         right={@text(R)}
     ) @br() 1`;
-    const commands = texts(source);
-    const left = commands.find(command => command.text === "L")!;
-    const center = commands.find(command => command.text === "C")!;
-    const right = commands.find(command => command.text === "R")!;
-    assert(left.x < center.x && center.x < right.x, "head slots must form distinct horizontal regions");
+    const text = textCommands(source);
+    assert(text("L").x < text("C").x && text("C").x < text("R").x, "head slots must form distinct horizontal regions");
     const centerBox = textObjects(source).get("C")!.box;
     assert(Math.abs(centerBox.x + centerBox.w / 2 - PAGE_CENTER) < SOLVER_TOLERANCE,
         "center slot must align to the page content center");
@@ -64,11 +72,7 @@ H.tempo: 94
 H.author: 作者
 @br()
 1`);
-    const byName = (name: string) => layout.objects.find(object =>
-        object.ast instanceof ASTFunctionNode && object.ast.callName === name)!;
-    const key = byName("key");
-    const tempo = byName("tempo");
-    const author = byName("text");
+    const [key, tempo, author] = ["key", "tempo", "text"].map(name => callObject(layout, name));
     assert(Math.abs(key.box.x - CONTENT_LEFT) < SOLVER_TOLERANCE
         && Math.abs(tempo.box.x - CONTENT_LEFT) < SOLVER_TOLERANCE,
         "every left row must start at the page content left edge");
@@ -77,64 +81,34 @@ H.author: 作者
 });
 
 test("head 侧栏底部对齐且较高侧贴住标题下侧", () => {
-    const layout = layoutOf(`@head(
+    const boxes = textBoxes(`@head(
         left={@text(L1) @text(L2) @text(L3)},
         center={@text(T, 2em)},
         right={@text(R)}
     )`);
-    const boxes: Record<string, typeof layout.objects[number]["box"]> = {};
-    for (const object of layout.objects) {
-        const ast = object.ast;
-        if (!(ast instanceof ASTFunctionNode) || ast.callName !== "text"
-            || !("text" in ast) || typeof ast.text !== "string") continue;
-        boxes[ast.text] = object.box;
-    }
-    const leftTop = Math.min(boxes.L1.y, boxes.L2.y, boxes.L3.y);
-    const leftBottom = Math.max(
-        boxes.L1.y + boxes.L1.h,
-        boxes.L2.y + boxes.L2.h,
-        boxes.L3.y + boxes.L3.h,
-    );
-    const rightTop = boxes.R.y;
-    const rightBottom = boxes.R.y + boxes.R.h;
-    assert(nearly(leftBottom, rightBottom),
+    const left = [boxes.L1, boxes.L2, boxes.L3];
+    const leftTop = Math.min(...left.map(box => box.y));
+    assert(nearly(Math.max(...left.map(box => box.y + box.h)), boxes.R.y + boxes.R.h),
         "left and right slots must share one bottom edge");
-    assert(nearly(leftTop, boxes.T.y + boxes.T.h),
-        "the taller side slot must start at the title bottom");
-    assert(rightTop > leftTop, "the shorter side slot must start lower above the shared bottom");
+    assert(nearly(leftTop, boxes.T.y + boxes.T.h), "the taller side slot must start at the title bottom");
+    assert(boxes.R.y > leftTop, "the shorter side slot must start lower above the shared bottom");
 });
 
 test("head 以 center 首个有视觉占用的行作为标题行", () => {
-    const layout = layoutOf(`@head(
+    const boxes = textBoxes(`@head(
         left={@text(L)},
         center={@set(foo=bar) @text(T, 2em)}
     )`);
-    const boxes = Object.fromEntries(layout.objects.flatMap(object => {
-        const ast = object.ast;
-        if (!(ast instanceof ASTFunctionNode) || ast.callName !== "text"
-            || !("text" in ast) || typeof ast.text !== "string") return [];
-        return [[ast.text, object.box]];
-    }));
     assert(nearly(boxes.L.y, boxes.T.y + boxes.T.h),
         "non-visual center rows must not detach side slots from the title bottom");
 });
 
 test("head 三槽独立计算内部行距", () => {
-    const positions = (rightSize: string) => {
-        const layout = layoutOf(`@head(
+    const positions = (rightSize: string) => Object.fromEntries([...textObjects(`@head(
             left={@text(L1) @text(L2)},
             center={@text(C1) @text(C2) @text(C3)},
             right={@text(R1, ${rightSize}) @text(R2)}
-        )`);
-        const axes: Record<string, number> = {};
-        for (const object of layout.objects) {
-            const ast = object.ast;
-            if (!(ast instanceof ASTFunctionNode) || ast.callName !== "text"
-                || !("text" in ast) || typeof ast.text !== "string") continue;
-            axes[ast.text] = object.box.y + object.box.visualAxis;
-        }
-        return axes;
-    };
+        )`)].map(([text, object]) => [text, object.box.y + object.box.visualAxis]));
     const normal = positions("1em");
     const tallRight = positions("3em");
     assert(nearly(normal.C3 - normal.C2, tallRight.C3 - tallRight.C2),
@@ -160,17 +134,9 @@ test("head 侧栏按顶层元素紧凑排列", () => {
     const layout = layoutOf(`H.left: @key(D4)@meter(4,4)
 H.left: @tempo(96)@text("96")
 H.right: {@text(A) @text(B)}`);
-    const find = (name: string, text?: string) => layout.objects.find(object => {
-        const ast = object.ast;
-        if (!(ast instanceof ASTFunctionNode) || ast.callName !== name) return false;
-        return text === void 0 || ("text" in ast && ast.text === text);
-    })!;
-    const key = find("key");
-    const meter = find("meter");
-    const tempo = find("tempo");
-    const text = find("text", "96");
-    const rightA = find("text", "A");
-    const rightB = find("text", "B");
+    const [key, meter, tempo] = ["key", "meter", "tempo"].map(name => callObject(layout, name));
+    const texts = textObjects(layout);
+    const [text, rightA, rightB] = ["96", "A", "B"].map(name => texts.get(name)!);
     const gap = key.ast.size * 0.25;
     assert(nearly(meter.box.x - key.box.x - key.box.w, gap),
         "left key and meter must use the fixed item gap");
@@ -210,17 +176,10 @@ H.author: 作者
 H.left: @text(A) @text(B)
 @br()
 1`;
-    const layout = layoutOf(source);
-    const commands = recordCommands(layout).filter(command => command.kind === "text");
-    const title = commands.find(command => command.text === "标题")!;
-    const subtitle = commands.find(command => command.text === "副标题")!;
-    const leftA = commands.find(command => command.text === "A")!;
-    const leftB = commands.find(command => command.text === "B")!;
-    assert(title.y < subtitle.y, "title and subtitle must occupy consecutive center rows");
-    assert(nearly(leftA.y, leftB.y), "one H declaration must remain one visual row");
-    assert(layout.objects.filter(object =>
-        object.ast instanceof ASTFunctionNode && object.ast.callName === "note"
-    ).length === 1,
+    const text = textCommands(source);
+    assert(text("标题").y < text("副标题").y, "title and subtitle must occupy consecutive center rows");
+    assert(nearly(text("A").y, text("B").y), "one H declaration must remain one visual row");
+    assert(layoutOf(source).objects.filter(object => object.ast instanceof ASTFunctionNode && object.ast.callName === "note").length === 1,
         "consecutive H declarations must compile as one head block");
 
     const boxes = textObjects(source);
@@ -232,18 +191,14 @@ H.left: @text(A) @text(B)
 });
 
 test("H 显式 call 与 brace 的内部换行不终止声明", () => {
-    const commands = texts(`H.center: {@text(A)
+    const text = textCommands(`H.center: {@text(A)
 @text(B)}
 H.right: @text("R1
 R2")
 @br()
 1`);
-    const a = commands.find(command => command.text === "A")!;
-    const b = commands.find(command => command.text === "B")!;
-    const r1 = commands.find(command => command.text === "R1")!;
-    const r2 = commands.find(command => command.text === "R2")!;
-    assert(nearly(a.y, b.y), "brace-internal newline must remain inside one head row");
-    assert(r1.y < r2.y, "call-internal newline must remain inside one text call");
+    assert(nearly(text("A").y, text("B").y), "brace-internal newline must remain inside one head row");
+    assert(text("R1").y < text("R2").y, "call-internal newline must remain inside one text call");
 });
 
 test("H.author 多行共享右边缘", () => {
@@ -251,30 +206,23 @@ test("H.author 多行共享右边缘", () => {
 H.author: 很长的作者信息
 @br()
 1`;
-    const commands = commandsOfKind(source, "text").filter(command =>
-        command.text === "短" || command.text === "很长的作者信息"
-    );
-    assert(commands.length === 2 && nearly(commands[0].x, commands[1].x),
-        "author rows must share one right-aligned anchor");
-    assert(commands.every(command => command.style.textAlign === "right"),
-        "author rows must use right text alignment");
+    const commands = commandsOfKind(source, "text").filter(command => command.text === "短" || command.text === "很长的作者信息");
+    assert(commands.length === 2 && nearly(commands[0].x, commands[1].x)
+        && commands.every(command => command.style.textAlign === "right"),
+    "author rows must share one right-aligned anchor");
 });
 
 test("head 与 H 内容使用完整全局 attachment 生命周期", () => {
-    for (const source of [
-        "@head(center={@box(@text(测试), padding=0.2em)}) @br() 1",
-        "H.title: @box({@text(A) @text(B)}, width=300px)\n@br()\n1",
-    ]) {
+    for (const [source, texts, width] of [
+        ["@head(center={@box(@text(测试), padding=0.2em)}) @br() 1", ["测试"], undefined],
+        ["H.title: @box({@text(A) @text(B)}, width=300px)\n@br()\n1", ["A", "B"], 300],
+    ] as const) {
         const commands = recordCommands(layoutOf(source));
         const box = commands.find(command => command.kind === "rect");
-        assert(box, "box inside head must be painted");
-        if (source.startsWith("H.")) {
-            assert(nearly(box.w, 300), "fixed-width box inside H.title must run its global horizontal hook");
-        }
-        for (const text of source.startsWith("@head") ? ["测试"] : ["A", "B"]) {
-            assert(commands.some(command => command.kind === "text" && command.text === text),
-                `box content inside head must remain visible: ${text}`);
-        }
+        assert(box && (width === undefined || nearly(box.w, width)),
+            `box inside head must be painted and run its global horizontal hook: ${source}`);
+        assert(texts.every(text => commands.some(command => command.kind === "text" && command.text === text)),
+            `box content inside head must remain visible: ${source}`);
     }
 });
 
@@ -293,12 +241,13 @@ H.title: 标题
 
 test("H 调号速度作用于正文，保留源码范围并支持空行分段", () => {
     const source = `H.signature: 1 = D4  4 / 4\nH.tempo: 90\n@br()\n1 2 3 4 |`;
-    const objects = compileScore(source).layout.objects;
-    const key = objects.find(object => object.ast instanceof ASTFunctionNode && object.ast.callName === "key")!;
-    const meter = objects.find(object => object.ast instanceof ASTFunctionNode && object.ast.callName === "meter")!;
-    assert(source.slice(key.ast.sourceSpan.start, key.ast.sourceSpan.end) === "1 = D4", "key span");
-    assert(source.slice(meter.ast.sourceSpan.start, meter.ast.sourceSpan.end) === "4 / 4", "meter span");
-    const note = objects.find(object => object.ast instanceof ASTFunctionNode && object.ast.callName === "note") as VisualTemporalNode & { resolvedMidi: number };
+    const layout = layoutOf(source);
+    const spanOf = (name: string) => {
+        const { start, end } = callObject(layout, name).ast.sourceSpan;
+        return source.slice(start, end);
+    };
+    assert(spanOf("key") === "1 = D4" && spanOf("meter") === "4 / 4", "key and meter must keep their source spans");
+    const note = callObject(layout, "note") as VisualTemporalNode & { resolvedMidi: number };
     assert(note.resolvedMidi === 62 && playedNotes(compilePlayback(lower(source)))[0].bpm === 90, "head state applies to score");
 
     const twoHeads = compileScore(`H.title: A\n\nH.title: B`).ast.content

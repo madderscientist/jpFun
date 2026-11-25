@@ -1,3 +1,4 @@
+import { deepStrictEqual, strictEqual } from "node:assert/strict";
 import { test } from "node:test";
 
 import { pathBounds } from "../src/layout/path.js";
@@ -5,26 +6,23 @@ import { compileScore } from "../src/pipeline.js";
 import { compilePlayback } from "../src/playback/compile.js";
 import { assert, expectCompileError, layoutOf, lower, nearly, playedNotes, recordCommands } from "./helpers.js";
 
+function arpPaths(source: string) {
+    return recordCommands(layoutOf(source)).filter(command => command.kind === "path");
+}
+
 test("琶音省略方向时无箭头，显式方向时绘制对应箭头", () => {
-    const plain = recordCommands(layoutOf(`@arp({1 ^ 3 ^ 5})`));
-    const upward = recordCommands(layoutOf(`@arp({1 ^ 3 ^ 5}, direction=up)`));
-    const downward = recordCommands(layoutOf(`@arpeggio({1 ^ 3 ^ 5}, direction=down)`));
-    assert(plain.filter(command => command.kind === "path").length === 1,
-        "plain arpeggio must paint one arrowless wave path");
-    assert(upward.filter(command => command.kind === "path").length === 1,
-        "up arpeggio must paint one combined wave and arrow path");
-    assert(downward.filter(command => command.kind === "path").length === 1,
-        "down arpeggio must paint one combined wave and arrow path");
-    const plainPath = plain.find(command => command.kind === "path")!;
-    const upPath = upward.find(command => command.kind === "path")!;
-    const downPath = downward.find(command => command.kind === "path")!;
-    assert(plainPath.style?.fill === "#000" && plainPath.style.stroke === undefined
-        && plainPath.commands.length > 50 && upPath.commands.length > 50 && downPath.commands.length > 50,
-    "arpeggio must use repeated filled MuseScore outlines rather than a stroked approximation");
+    const [plainPath, upPath, downPath] = [
+        `@arp({1 ^ 3 ^ 5})`, `@arp({1 ^ 3 ^ 5}, direction=up)`, `@arpeggio({1 ^ 3 ^ 5}, direction=down)`,
+    ].map(source => {
+        const paths = arpPaths(source);
+        // 波浪线与箭头合成一条由重复轮廓组成的路径
+        assert(paths.length === 1 && paths[0].commands.length > 50, `${source}: one combined wave path`);
+        return paths[0];
+    });
+    assert(plainPath.style?.fill === "#000" && plainPath.style.stroke === undefined,
+        "arpeggio must use filled MuseScore outlines rather than a stroked approximation");
     const plainBounds = pathBounds(plainPath.commands);
-    const upBounds = pathBounds(upPath.commands);
-    const downBounds = pathBounds(downPath.commands);
-    assert(upBounds.w > plainBounds.w && downBounds.w > plainBounds.w,
+    assert(pathBounds(upPath.commands).w > plainBounds.w && pathBounds(downPath.commands).w > plainBounds.w,
         "explicit directions must add a terminal wider than the plain wave");
     const subpaths = downPath.commands.flatMap((command, index) => command.op === "M" ? [index] : []);
     const tileBounds = pathBounds(downPath.commands.slice(subpaths[0], subpaths[1]));
@@ -35,20 +33,17 @@ test("琶音省略方向时无箭头，显式方向时绘制对应箭头", () =>
         "the down arrow terminal must stay centered on the repeated wave");
 });
 
-test("琶音只接受至少两个成员的同轨 Fold", () => {
+test("琶音只接受至少两个成员的同轨 Fold，非法方向警告后回退到无箭头上行", () => {
     expectCompileError(`@arpeggio(1)`, "E_ARPEGGIO_INVALID_CONTENT");
     expectCompileError(`@arpeggio({1 & 3})`, "E_ARPEGGIO_INVALID_CONTENT");
-});
 
-test("非法方向警告后回退到无箭头上行", () => {
     const source = `@arp({1 ^ 3}, direction=sideways)`;
     const compiled = compileScore(source);
     assert(compiled.diagnostics.some(item => item.code === "W_ARPEGGIO_INVALID_DIRECTION"),
         "an invalid direction must report a warning");
-    const notes = playedNotes(compilePlayback(compiled.lowering));
-    assert(notes.map(note => note.midi).join(",") === "60,64", "fallback playback must remain upward");
-    assert(recordCommands(layoutOf(source)).filter(command => command.kind === "path").length === 1,
-        "fallback rendering must use the arrowless path");
+    deepStrictEqual(playedNotes(compilePlayback(compiled.lowering)).map(note => note.midi), [60, 64]);
+    deepStrictEqual(recordCommands(compiled.layout).filter(command => command.kind === "path"),
+        arpPaths(`@arp({1 ^ 3})`), "fallback rendering must use the arrowless path");
 });
 
 test("琶音按方向和视觉顺序错开起音并保持共同终点", () => {
@@ -56,22 +51,23 @@ test("琶音按方向和视觉顺序错开起音并保持共同终点", () => {
         for (const [direction, expected] of [["", "60,64,67"], [", direction=down", "67,64,60"]]) {
             const source = `@arpeggio({${content}}${direction})`;
             const notes = playedNotes(compilePlayback(lower(source)));
-            assert(notes.map(note => note.midi).join(",") === expected, `${source}: unexpected visual order`);
-            assert(notes[0].start.compare(notes[1].start) < 0 && notes[1].start.compare(notes[2].start) < 0,
-                `${source}: arpeggio starts must increase`);
-            assert(notes.every(note => note.end.equals(notes[0].end)), `${source}: notes must share one end`);
+            strictEqual(notes.map(note => note.midi).join(","), expected, source);
+            assert(notes[0].start.compare(notes[1].start) < 0 && notes[1].start.compare(notes[2].start) < 0
+                && notes.every(note => note.end.equals(notes[0].end)), `${source}: staggered starts and one shared end`);
         }
     }
-    const dotted = playedNotes(compilePlayback(lower(`@arp({G3. ^ A3 ^ C4})`)));
-    assert(dotted.map(note => note.start.toString()).join(",") === "0,1/8,1/4",
-        "a dotted arp chord must use the audible default spread");
-});
-
-test("反复中的每次琶音访问独立错开一次", () => {
-    const notes = playedNotes(compilePlayback(lower(`|: @arpeggio({1 ^ 3 ^ 5}) :|`)));
-    assert(notes.length === 6, "the repeated chord must produce two visits");
-    const starts = notes.map(note => note.start.toString()).join(",");
-    assert(starts === "0,1/8,1/4,1,9/8,5/4", `unexpected repeated starts: ${starts}`);
+    for (const [source, starts] of [
+        // 附点和弦使用默认可闻错开量
+        [`@arp({G3. ^ A3 ^ C4})`, "0,1/8,1/4"],
+        // 反复中的每次访问独立错开一次
+        [`|: @arpeggio({1 ^ 3 ^ 5}) :|`, "0,1/8,1/4,1,9/8,5/4"],
+        // 短时值压缩延迟：最后起音不超过和弦时值的一半
+        [`@arpeggio({1// ^ 3// ^ 5//})`, "0,1/16,1/8"],
+    ]) {
+        strictEqual(playedNotes(compilePlayback(lower(source))).map(note => note.start.toString()).join(","), starts, source);
+    }
+    assert(playedNotes(compilePlayback(lower(`@arpeggio({1// ^ 3// ^ 5//})`))).every(note => note.end.equals(1, 4)),
+        "compressed members must keep the common chord end");
 });
 
 test("不发声成员占用延迟槽，但系统状态仍在和弦时刻生效", () => {
@@ -88,13 +84,6 @@ test("不发声成员占用延迟槽，但系统状态仍在和弦时刻生效",
     }
 });
 
-test("短时值压缩延迟且保持共同终点", () => {
-    const notes = playedNotes(compilePlayback(lower(`@arpeggio({1// ^ 3// ^ 5//})`)));
-    assert(notes.map(note => note.start.toString()).join(",") === "0,1/16,1/8",
-        "the last onset must not exceed half of the chord duration");
-    assert(notes.every(note => note.end.equals(1, 4)), "all members must keep the common chord end");
-});
-
 test("波浪线和箭头完整落在复合盒内", () => {
     for (const source of [
         `@arpeggio({1 ^ 3 ^ 5})`,
@@ -103,21 +92,18 @@ test("波浪线和箭头完整落在复合盒内", () => {
         `@arp({1 ^ {3 ^ b5}})`,
     ]) {
         const layout = layoutOf(source);
-        const host = layout.objects[0];
+        const { box } = layout.objects[0];
         const commands = recordCommands(layout);
         const paths = commands.filter(command => command.kind === "path");
         assert(paths.length > 0, "arpeggio must paint a path");
         const markBounds = pathBounds(paths[0].commands);
-        assert(markBounds.x >= host.box.x && markBounds.x + markBounds.w <= host.box.x + host.box.w,
-            "arpeggio path must stay inside the composite box horizontally");
-        assert(markBounds.y >= host.box.y && markBounds.y + markBounds.h <= host.box.y + host.box.h,
-            "arpeggio path must stay inside the composite box vertically");
+        assert(markBounds.x >= box.x && markBounds.x + markBounds.w <= box.x + box.w
+            && markBounds.y >= box.y && markBounds.y + markBounds.h <= box.y + box.h,
+        `${source}: arpeggio path must stay inside the composite box`);
         for (const path of paths.slice(1)) {
             const bounds = pathBounds(path.commands);
-            assert(bounds.x > markBounds.x + markBounds.w,
-                `${source}: member accidentals must stay to the right of the arpeggio mark`);
-            assert(bounds.x >= host.box.x && bounds.x + bounds.w <= host.box.x + host.box.w,
-                `${source}: member paths must stay inside the composite box horizontally`);
+            // 成员升降号在琶音记号右侧，且不超出复合盒
+            assert(bounds.x > markBounds.x + markBounds.w && bounds.x + bounds.w <= box.x + box.w, source);
         }
         for (const text of commands.filter(command => command.kind === "text")) {
             assert(text.x > markBounds.x + markBounds.w,

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import { deepStrictEqual } from "node:assert/strict";
 import { DIV_ADDON_KEY, divLineWidth } from "../src/functions/div/index.js";
 import { GraceTemporal } from "../src/functions/grace/index.js";
-import { isVisualTemporalNode } from "../src/functions/temporal.js";
+import { isVisualTemporalNode, type VisualTemporalNode } from "../src/functions/temporal.js";
 import { getLayoutBounds, layoutDocument, type DocumentLayoutResult } from "../src/layout/engine.js";
 import { assert, compileValid, layoutContext, lower, nearly, recordCommands } from "./helpers.js";
 
@@ -16,14 +16,24 @@ function octaveGeometry(layout: DocumentLayoutResult) {
     return { dots, lines, size: number.style.fontSize, top: dots[0].cy - dots[0].r - number.y };
 }
 
-test("above 和 below 由内向外排列，纯留白不进入内容边界", () => {
-    const lowered = lower('@text("1", size=22px)');
+/** 在首个可见节点的 prepareLayout 之后追加测试装饰 */
+function decorate(source: string, extend: (node: VisualTemporalNode) => void) {
+    const lowered = lower(source);
     const node = lowered.columns[0][0];
-    assert(isVisualTemporalNode(node), "the note must be visual");
-    const positions: number[] = [];
+    assert(isVisualTemporalNode(node), "the host must be visual");
     const prepare = node.prepareLayout;
     node.prepareLayout = context => {
         prepare.call(node, context);
+        extend(node);
+    };
+    return { lowered, node };
+}
+
+const TEXT_HOST = '@text("1", size=22px)';
+
+test("above 和 below 由内向外排列，纯留白不进入内容边界", () => {
+    const positions: number[] = [];
+    const { lowered, node } = decorate(TEXT_HOST, node => {
         node.decorations.push(
             { above: { order: 100, gap: 1, height: 4, place: y => positions.push(y) }, paint() {} },
             { above: { order: 0, gap: 2, height: 3, place: y => positions.push(y) }, paint() {} },
@@ -31,7 +41,7 @@ test("above 和 below 由内向外排列，纯留白不进入内容边界", () =
             { below: { order: 0, gap: 1, height: 3, place: y => positions.push(y) }, paint() {} },
             { below: { order: Infinity, height: 5 } },
         );
-    };
+    });
     layoutDocument(lowered, layoutContext);
     deepStrictEqual(positions, [-5, -10, 23]);
     const content = getLayoutBounds(node, true);
@@ -111,19 +121,14 @@ test("八度点只跟随实际 decoration，不依赖 div 语义，重复布局�
 });
 
 test("宿主可以提供下方装饰起点，上方排列与主体绘制位置不变", () => {
-    const lowered = lower('@text("1", size=22px)');
-    const node = lowered.columns[0][0];
-    assert(isVisualTemporalNode(node), "the host must be visual");
     const positions: number[] = [];
-    const prepare = node.prepareLayout;
-    node.prepareLayout = context => {
-        prepare.call(node, context);
+    const { lowered, node } = decorate(TEXT_HOST, node => {
         node.ports["decoration.below"] = { x: node.box.anchor, y: 18 };
         node.decorations.push(
             { above: { order: 0, gap: 1, height: 2, place: y => positions.push(y) }, paint() {} },
             { below: { order: 0, gap: 2, height: 3, place: y => positions.push(y) }, paint() {} },
         );
-    };
+    });
     for (let pass = 0; pass < 2; pass++) {
         positions.length = 0;
         const commands = recordCommands(layoutDocument(lowered, layoutContext));
@@ -136,17 +141,14 @@ test("宿主可以提供下方装饰起点，上方排列与主体绘制位置�
 
 test("下方装饰起点不吞掉纯留白，留白始终包围完整内容", () => {
     for (const source of ["1", "1,", "1/", "1,/"]) {
-        const lowered = lower(source);
-        const node = lowered.columns[0][0];
-        assert(isVisualTemporalNode(node), "the host must be visual");
+        let padded = false;
+        const { lowered, node } = decorate(source, node => {
+            if (padded) node.decorations.push({ below: { order: Infinity, height: 5 } });
+        });
         layoutDocument(lowered, layoutContext);
         const contentHeight = getLayoutBounds(node, true).h;
         const occupiedHeight = getLayoutBounds(node).h;
-        const prepare = node.prepareLayout;
-        node.prepareLayout = context => {
-            prepare.call(node, context);
-            node.decorations.push({ below: { order: Infinity, height: 5 } });
-        };
+        padded = true;
         for (let pass = 0; pass < 2; pass++) {
             layoutDocument(lowered, layoutContext);
             assert(nearly(getLayoutBounds(node, true).h, contentHeight), "pure spacing must not change content height");
@@ -156,27 +158,17 @@ test("下方装饰起点不吞掉纯留白，留白始终包围完整内容", ()
 });
 
 test("下方装饰保留负 gap 的既有占高，不能额外补回正文高度", () => {
-    const lowered = lower('@text("1", size=22px)');
-    const node = lowered.columns[0][0];
-    assert(isVisualTemporalNode(node), "the note must be visual");
-    const prepare = node.prepareLayout;
-    node.prepareLayout = context => {
-        prepare.call(node, context);
+    const { lowered, node } = decorate(TEXT_HOST, node => {
         node.decorations.push({ below: { order: 0, gap: -2, height: 1 }, paint() {} });
-    };
+    });
     layoutDocument(lowered, layoutContext);
     assert(nearly(node.box.h, 21) && nearly(getLayoutBounds(node).h, 21), "negative gaps preserve legacy height");
 });
 
 test("上下装饰独立排序，但绘制仍保留注册顺序", () => {
-    const lowered = lower('@text("1", size=22px)');
-    const node = lowered.columns[0][0];
-    assert(isVisualTemporalNode(node), "the note must be visual");
     const order: string[] = [];
     const positions: [string, number][] = [];
-    const prepare = node.prepareLayout;
-    node.prepareLayout = context => {
-        prepare.call(node, context);
+    const { lowered, node } = decorate(TEXT_HOST, node => {
         node.decorations.push(
             {
                 above: { order: 100, height: 2, place: y => positions.push(["first.above", y]) },
@@ -189,7 +181,7 @@ test("上下装饰独立排序，但绘制仍保留注册顺序", () => {
                 paint() { order.push("second"); },
             },
         );
-    };
+    });
     const result = layoutDocument(lowered, layoutContext);
     deepStrictEqual(positions, [["second.above", -4], ["first.above", -6], ["first.below", 22], ["second.below", 25]]);
     assert(nearly(getLayoutBounds(node).h, 36), "both sides reserve their complete extent");
@@ -203,13 +195,8 @@ test("上方负间距越过正文时，两侧仍独立排列并保留各自边�
         [true, -20, 1, 30],
         [false, -20, 1, 3],
     ] as const) {
-        const lowered = lower('@text("1", size=22px)');
-        const node = lowered.columns[0][0];
-        assert(isVisualTemporalNode(node), "the note must be visual");
         const positions: number[] = [];
-        const prepare = node.prepareLayout;
-        node.prepareLayout = context => {
-            prepare.call(node, context);
+        const { lowered, node } = decorate(TEXT_HOST, node => {
             node.decorations.push(
                 {
                     above: { order: 0, gap: -30, height: 4, place: y => positions.push(y) },
@@ -217,7 +204,7 @@ test("上方负间距越过正文时，两侧仍独立排列并保留各自边�
                 },
                 { below: { order: 0, gap, height, place: y => positions.push(y) }, paint() {} },
             );
-        };
+        });
         layoutDocument(lowered, layoutContext);
         deepStrictEqual(positions, [26, 22 + gap]);
         assert(nearly(getLayoutBounds(node).h, 30), "occupied bounds contain both sides");

@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { deepStrictEqual, strictEqual } from "node:assert/strict";
 
 import { layoutDocument, type DocumentLayoutResult } from "../src/layout/engine.js";
 import { isLayoutAttachment, type PlacedAttachment, type Rect } from "../src/layout/types.js";
@@ -8,11 +9,9 @@ import { assert, attachmentCommands, commandsOfKind, expectLoweringError, layout
 test("dx/dy 在排版之后平移，邻居完全不动", () => {
     const base = layoutOf(`1 2`);
     const moved = layoutOf(`@adjust({1}, dx=3px, dy=-4px) 2`);
-
-    assert(nearly(moved.objects[0].box.x, base.objects[0].box.x + 3), "dx 必须精确平移目标");
-    assert(nearly(moved.objects[0].box.y, base.objects[0].box.y - 4), "dy 必须精确平移目标");
-    assert(nearly(moved.objects[1].box.x, base.objects[1].box.x), "平移不参与排版，右邻不能移动");
-    assert(nearly(moved.objects[1].box.y, base.objects[1].box.y), "平移不能改变行内纵向布局");
+    assert(nearly(moved.objects[0].box.x, base.objects[0].box.x + 3)
+        && nearly(moved.objects[0].box.y, base.objects[0].box.y - 4), "dx/dy 必须精确平移目标");
+    deepStrictEqual(moved.objects[1].box, base.objects[1].box);
 });
 
 test("dw/dh 在排版之前生效，邻居会让开", () => {
@@ -32,25 +31,21 @@ test("dw/dh 在排版之前生效，邻居会让开", () => {
 test("括住多个对象时逐个施加同一增量", () => {
     const base = layoutOf(`1 2 3`);
     const moved = layoutOf(`@adjust({1 2 3}, dy=-4px)`);
-    assert(moved.objects.length === 3, "内容组必须保留全部对象");
-    for (let i = 0; i < 3; i++) {
-        assert(nearly(moved.objects[i].box.y, base.objects[i].box.y - 4), `第 ${i + 1} 个对象必须一起平移`);
-        assert(nearly(moved.objects[i].box.x, base.objects[i].box.x), `第 ${i + 1} 个对象的横向位置不变`);
-    }
+    strictEqual(moved.objects.length, 3);
+    assert(moved.objects.every((object, i) => nearly(object.box.y, base.objects[i].box.y - 4)
+        && nearly(object.box.x, base.objects[i].box.x)), "每个对象都必须一起纵向平移");
 });
 
 test("嵌套 adjust 的位置与尺寸增量逐层叠加", () => {
     const base = layoutOf(`1 2`);
     const nested = layoutOf(`@adjust(@adjust(1, dx=2px, dy=-3px, dw=4px, dh=5px), dx=7px, dy=-11px, dw=6px, dh=8px) 2`);
-    assert(nearly(nested.objects[0].box.x, base.objects[0].box.x + 9), "嵌套 dx 必须叠加");
-    assert(nearly(nested.objects[0].box.y, base.objects[0].box.y - 14), "嵌套 dy 必须叠加");
-    assert(nearly(nested.objects[0].box.w, base.objects[0].box.w + 10), "嵌套 dw 必须叠加");
-    assert(nearly(nested.objects[0].box.h, base.objects[0].box.h + 13), "嵌套 dh 必须叠加");
+    const [from, to] = [base.objects[0].box, nested.objects[0].box];
+    assert(nearly(to.x - from.x, 9) && nearly(to.y - from.y, -14) && nearly(to.w - from.w, 10) && nearly(to.h - from.h, 13),
+        "嵌套 dx/dy/dw/dh 必须叠加");
     assert(nearly(nested.objects[1].box.x, base.objects[1].box.x + 10), "右邻只受累计 dw 影响");
 
-    const clamped = layoutOf(`@adjust(@adjust(1, dw=-100px, dh=-100px), dw=100px, dh=100px)`);
-    assert(nearly(clamped.objects[0].box.w, 100), "嵌套 dw 必须先执行内层截断，再执行外层增量");
-    assert(nearly(clamped.objects[0].box.h, 100), "嵌套 dh 必须先执行内层截断，再执行外层增量");
+    const clamped = layoutOf(`@adjust(@adjust(1, dw=-100px, dh=-100px), dw=100px, dh=100px)`).objects[0].box;
+    assert(nearly(clamped.w, 100) && nearly(clamped.h, 100), "嵌套尺寸增量必须先执行内层截断，再执行外层增量");
 });
 
 test("折叠成员也能微调：@up 的上方标记与倚音", () => {
@@ -121,8 +116,7 @@ test("重排两轮与重复调用 layoutDocument 时平移只施加一次", () =
     assert(calls === 2, `顶层重排时附件只需测 layoutOnly 与最终几何共 2 次，实际 ${calls} 次`);
     const movedAgain = layoutDocument(movedLowering, layoutContext);
     assert(nearly(moved.objects[0].box.x, base.objects[0].box.x + 5), "两轮放置也只能平移一次");
-    assert(nearly(movedAgain.objects[0].box.x, moved.objects[0].box.x), "重复 layoutDocument 不能丢失或重复施加 dx");
-    assert(nearly(movedAgain.objects[0].box.y, moved.objects[0].box.y), "重复 layoutDocument 不能丢失或重复施加 dy");
+    deepStrictEqual(movedAgain.objects[0].box, moved.objects[0].box);
 
     // 新放置的布局坐标恰好等于上一轮平移后的坐标（含单轴偏移）时，不能吞掉偏移
     const collidedY = layoutOf(`@box({@adjust(1, dy=10px) 2}, padding=10px, stroke=0px)`);
@@ -161,8 +155,7 @@ test("引擎统一施加 placementOffset，声明方无需自行平移", () => {
     const host = layoutDocument(hostLowered, layoutContext);
     assert(nearly(host.objects[0].box.x, base.objects[0].box.x + 3) && nearly(host.objects[0].box.y, base.objects[0].box.y - 4),
         "主体的 placementOffset 必须在排版后叠加到 box");
-    assert(nearly(host.objects[1].box.x, base.objects[1].box.x) && nearly(host.objects[1].box.y, base.objects[1].box.y),
-        "平移不参与排版，邻居不能移动");
+    deepStrictEqual(host.objects[1].box, base.objects[1].box);
 
     const tieLowered = lower(source);
     tieLowered.attachments.find(isLayoutAttachment)!.placementOffset = { x: 2, y: -6 };
@@ -179,37 +172,30 @@ test("外包复合函数时保留对象身份与既有布局机制", () => {
     const headBase = textCommands(`@head(left={@text(L)}, center={@text(C)}, right={@text(R)}) @br() 1`);
     const headMoved = textCommands(`@adjust(@head(left={@text(L)}, center={@text(C)}, right={@text(R)}), dx=5px, dy=-2px) @br() 1`);
     for (const text of ["L", "C", "R"]) {
-        assert(nearly(findText(headMoved, text).x, findText(headBase, text).x + 5),
-            `adjust 外包 head 时 ${text} 的横向位移必须精确施加一次`);
-        assert(nearly(findText(headMoved, text).y, findText(headBase, text).y - 2),
-            `adjust 外包 head 时 ${text} 的纵向位移必须精确施加一次`);
+        assert(nearly(findText(headMoved, text).x, findText(headBase, text).x + 5)
+            && nearly(findText(headMoved, text).y, findText(headBase, text).y - 2),
+        `adjust 外包 head 时 ${text} 的位移必须精确施加一次`);
     }
-});
 
-test("外包含关系对象的 box 时保留 attachment 依赖", () => {
-    const layout = layoutOf(`@adjust(@box({1@a 2@b @tie(a,b)}, padding=0px, stroke=1px), dy=-2px)`);
-    assert(contains(frameOf(layout), tieOf(layout).regions[0]), "box 必须仍能读取内部关系对象的边界");
-});
-
-test("adjust 不绕过 attachment 自身的语义校验", () => {
-    expectLoweringError(`@adjust(@tuplet({1 2 @br() 3}, 2))`, "E_TUPLET_CROSS_LINE");
+    const tied = layoutOf(`@adjust(@box({1@a 2@b @tie(a,b)}, padding=0px, stroke=1px), dy=-2px)`);
+    assert(contains(frameOf(tied), tieOf(tied).regions[0]), "box 必须仍能读取内部关系对象的边界");
 });
 
 test("负 dw/dh 缩小占位但最终尺寸保持非负", () => {
     const base = layoutOf(`1`).objects[0].box;
     const shrunk = layoutOf(`@adjust(1, dw=-5px, dh=-5px)`).objects[0].box;
-    assert(nearly(shrunk.w, Math.max(0, base.w - 5)), "负 dw 必须缩小宽度");
-    assert(nearly(shrunk.h, Math.max(0, base.h - 5)), "负 dh 必须缩小高度");
+    assert(nearly(shrunk.w, Math.max(0, base.w - 5)) && nearly(shrunk.h, Math.max(0, base.h - 5)), "负 dw/dh 必须缩小尺寸");
     assert(nearly(shrunk.anchor / shrunk.w, base.anchor / base.w), "缩小时也必须保持左右占位比例");
 
     const collapsed = layoutOf(`@adjust(1, dw=-100px, dh=-100px)`).objects[0].box;
-    assert(collapsed.w === 0 && collapsed.h === 0, "尺寸增量不能产生负宽高");
-    assert(collapsed.anchor === 0, "宽度归零时左右占位也必须归零");
+    // 尺寸增量不能产生负宽高，宽度归零时左右占位也归零
+    deepStrictEqual([collapsed.w, collapsed.h, collapsed.anchor], [0, 0, 0]);
 });
 
-test("没有作用对象时报警告", () => {
+test("没有作用对象时报警告，且不绕过 attachment 自身的语义校验", () => {
     const result = lower(`@adjust(@set(div.autobeam=false), dy=-4px)`);
     assert(result.diagnostics.some(item => item.code === "W_ADJUST_NO_TARGET"), "落空的微调必须给出警告");
+    expectLoweringError(`@adjust(@tuplet({1 2 @br() 3}, 2))`, "E_TUPLET_CROSS_LINE");
 });
 
 function textCommands(source: string) {

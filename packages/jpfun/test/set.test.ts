@@ -62,12 +62,8 @@ test("仅命名选项不占用位置参数，必需的位置参数仍会校验",
     expectDiagnostic(() => node.getArgValue(new Map([["style", "[-]"]]), context), "E_MISSING_REQUIRED_ARG");
 });
 
-test("别名写法归一到主名", () => {
-    const [digit] = commandsOfKind(`@set(n.color=#f00) 1`, "text");
-    assert(digit.style.fill === "#f00", `alias must reach note.color, got ${digit.style.fill}`);
-});
-
-test("长度默认值与 em 字号按声明类型和当前字号解析", () => {
+test("别名写法归一到主名，长度默认值与 em 字号按声明类型和当前字号解析", () => {
+    deepStrictEqual(commandsOfKind(`@set(n.color=#f00) 1`, "text")[0].style.fill, "#f00");
     for (const source of ["@set(text.size=2em) @text(A)", "@set(fontsize=2em) @text(A, size=1em)"]) {
         assert(nearly(layoutOf(source).objects[0].ast.size, 36), source);
     }
@@ -75,9 +71,7 @@ test("长度默认值与 em 字号按声明类型和当前字号解析", () => {
 
 test("bool 默认值不会被当成非空字符串", () => {
     // 旧实现存字符串 "false"，恒为真，反而打开了 strict
-    const { diagnostics } = compileScore(`@set(strict=false) @nosuchfn()`);
-    assert(diagnostics.some(item => item.code === "W_UNKNOWN_FUNCTION"),
-        "strict=false must keep the unknown function tolerant");
+    deepStrictEqual(compileScore(`@set(strict=false) @nosuchfn()`).diagnostics.map(item => item.code), ["W_UNKNOWN_FUNCTION"]);
 });
 
 test("目标参数不存在时报警而不是静默无效", () => {

@@ -29,23 +29,17 @@ test("文本盒子按最长行、行高倍数与首字符锚点测量", () => {
 
 test("每行单独绘制且左对齐", () => {
     const commands = commandsOfKind(`@text("上行\n下行")`, "text");
-    assert(commands.length === 2, `Expected one draw per line, got ${commands.length}`);
-
+    deepStrictEqual(commands.map(command => command.text), ["上行", "下行"]);
     const [first, second] = commands;
-    assert(first.text === "上行" && second.text === "下行", "each line must be drawn as written");
     assert(nearly(first.x, second.x), "lines must be left aligned");
-    assert(nearly(second.y - first.y, first.style.fontSize * 1.25),
-        "baseline distance must be the line advance");
+    assert(nearly(second.y - first.y, first.style.fontSize * 1.25), "baseline distance must be the line advance");
 });
 
 test("括号内的换行不打断 N: 声部语法糖", () => {
     // 换行属于 @text 这一个语法节点，voice 的断行判定看不见它
     const content = parse(`N: 1 2 @text("上行\n下行") 3`).content;
-    assert(content.length === 1, `Expected the whole line to stay in one voice, got ${content.length} nodes`);
-
-    const voice = content[0];
-    assert(voice instanceof ASTFunctionNode && voice.callName === "voice",
-        "the N: sugar must still produce exactly one voice");
+    assert(content.length === 1 && content[0] instanceof ASTFunctionNode && content[0].callName === "voice",
+        "the whole line must stay in one voice");
 });
 
 test("align=center 时锚点与各行都取整块中心", () => {
@@ -60,7 +54,8 @@ test("align=center 时锚点与各行都取整块中心", () => {
         "centered lines must share the block center line");
 });
 
-test("align=right 时锚点取末字符中心，各行取整块右缘", () => {
+test("align=right 时锚点取末字符中心，各行取整块右缘；align 只接受 left、center 和 right", () => {
+    expectCompileError(`@text("上行", align=middle)`, "E_TEXT_INVALID_ALIGN");
     const result = layoutOf(`@text("短\n下面这行更长", align=right)`);
     const box = result.objects[0].box;
     const [first, second] = recordCommands(result).filter(command => command.kind === "text");
@@ -72,28 +67,15 @@ test("align=right 时锚点取末字符中心，各行取整块右缘", () => {
         "right-aligned lines must share the block right edge");
 });
 
-test("align 只接受 left、center 和 right", () => {
-    expectCompileError(`@text("上行", align=middle)`, "E_TEXT_INVALID_ALIGN");
-});
-
-test("双引号语法糖等价于 @text", () => {
-    const sugar = textBox(`"进入"`).box;
-    const explicit = textBox(`@text("进入")`).box;
-    assert(nearly(sugar.w, explicit.w) && nearly(sugar.h, explicit.h) && nearly(sugar.anchor, explicit.anchor),
-        "sugar and explicit call must produce the same box");
-});
-
-test("语法糖里的逗号、括号和换行都属于文本", () => {
-    const commands = commandsOfKind(`"a,b)c\n第二行"`, "text");
-    assert(commands.map(command => command.text).join("|") === "a,b)c|第二行",
-        "argument separators lose their meaning inside a string literal");
+test("双引号语法糖等价于 @text，逗号、括号和换行都属于文本", () => {
+    deepStrictEqual(textBox(`"进入"`).box, textBox(`@text("进入")`).box);
+    deepStrictEqual(commandsOfKind(`"a,b)c\n第二行"`, "text").map(command => command.text), ["a,b)c", "第二行"]);
 });
 
 test("字符串在编码层仅解码 \\\"、\\\\ 与 \\uXXXX，其余 \\X 原样保留给下游函数", () => {
-    const sugar = commandsOfKind(`"说\\"你好\\""`, "text");
-    const explicit = commandsOfKind(`@text("说\\"你好\\"")`, "text");
-    assert(sugar[0].text === `说"你好"`, `escaped quote must survive, got ${sugar[0].text}`);
-    assert(explicit[0].text === sugar[0].text, "both paths must share one unescape rule");
+    for (const source of [`"说\\"你好\\""`, `@text("说\\"你好\\"")`]) {
+        strictEqual(commandsOfKind(source, "text")[0].text, `说"你好"`, source);
+    }
 });
 
 test("Unicode 转义解码且只处理一次", () => {
@@ -168,25 +150,17 @@ test("文本源码往返保留换行、制表符和字体字符串", () => {
     }
 });
 
-test("引号未配对时不去糖也不抛出", () => {
-    const source = `"没闭合 1 2`;
-    assert(!analyzeScoreSyntax(source).syntax.tokens.some(token => token.kind === "string"),
-        "an unpaired quote must not be colored as a string");
-    assert(layoutOf(source).objects.length === 2, "the notes after an unpaired quote must still compile");
-});
-
-test("语法糖着色为字符串并覆盖两侧引号", () => {
-    const source = `1 "渐强"`;
-    const tokens = analyzeScoreSyntax(source).syntax.tokens.filter(token => token.kind === "string");
-    assert(tokens.length === 1 && source.slice(tokens[0].span.start, tokens[0].span.end) === `"渐强"`,
-        "the string token must cover the quotes themselves");
+test("语法糖着色为字符串并覆盖两侧引号，引号未配对时不去糖也不抛出", () => {
+    const strings = (source: string) => analyzeScoreSyntax(source).syntax.tokens
+        .filter(token => token.kind === "string").map(token => source.slice(token.span.start, token.span.end));
+    deepStrictEqual(strings(`1 "渐强"`), [`"渐强"`]);
+    deepStrictEqual(strings(`"没闭合 1 2`), []);
+    strictEqual(layoutOf(`"没闭合 1 2`).objects.length, 2);
 });
 
 test("Markdown 粗体、斜体、下划线、上标及组合样式测量与绘制", () => {
-    const plain = textBox(`"进入"`).box;
-    const styled = textBox(`"**_*进入*_**"`).box;
-    assert(nearly(styled.w, plain.w) && nearly(styled.h, plain.h) && nearly(styled.anchor, plain.anchor),
-        "Markdown 标记本身不应计入盒子宽度或偏移首字符锚点");
+    // Markdown 标记本身不应计入盒子宽度或偏移首字符锚点
+    deepStrictEqual(textBox(`"**_*进入*_**"`).box, textBox(`"进入"`).box);
 
     const layout = layoutOf(`"普通 *斜体* **粗体** ***粗斜*** _下划线_ C^7^"`);
     const commands = recordCommands(layout);
@@ -207,11 +181,10 @@ test("Markdown 粗体、斜体、下划线、上标及组合样式测量与绘�
     ]);
     const baseText = texts[0];
     const supText = texts.at(-1)!;
-    assert(nearly(supText.style.fontSize, baseText.style.fontSize * 0.7), "superscript must scale font size by 0.7");
-    assert(nearly(supText.y, baseText.y - baseText.style.fontSize * 0.35), "superscript must shift baseline up");
-    assert(lines.length === 1, `Expected 1 underline, got ${lines.length}`);
-    const [underline] = lines;
-    assert(underline.y + underline.h / 2 > baseText.y && underline.h > 0, "underline must sit below baseline");
+    assert(nearly(supText.style.fontSize, baseText.style.fontSize * 0.7)
+        && nearly(supText.y, baseText.y - baseText.style.fontSize * 0.35), "superscript must shrink and rise");
+    strictEqual(lines.length, 1);
+    assert(lines[0].y + lines[0].h / 2 > baseText.y && lines[0].h > 0, "underline must sit below baseline");
 
     const supDecorated = recordCommands(layoutOf(`"_^7^_"`));
     const supGlyph = supDecorated.find(cmd => cmd.kind === "text")!;
