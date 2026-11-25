@@ -109,20 +109,17 @@ class GraceFunction extends ASTFunctionNode {
             next: start + 1,
             node: {
                 kind: "sugar",
-                data: {
-                    class: GraceFunction,
-                    side: char as GraceSide
-                },
-                span: { start, end: start + 1 }
+                data: char as GraceSide,
+                span: { start, end: start + 1 },
+                relation: GraceFunction.deSugarRelation,
             } as GrammarSugarNode
         };
     }
 
     // 取左右操作数的流程同 stack / up
-    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
+    private static deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
         const n = nodes[at++] as GrammarSugarNode;
-        if (n.kind !== "sugar" || n.data?.class !== GraceFunction) return null;
-        const side: GraceSide = n.data.side;
+        const side: GraceSide = n.data;
         // 箭头指向宿主：`1>2>3` 是 `{1>2}>3`，所以 `>` 登记 chain 左结合；`1<2<3` 是 `1<{2<3}`，`<` 保持右结合
         const chain = side === "pre" ? GraceFunction : undefined;
         const leftNode = ctx.takeLeftOperand(chain);

@@ -191,22 +191,18 @@ class FoldFunction extends ASTFunctionNode {
         return this;
     }
 
-    /**
-     * `this` 是发起调用的那个子类，所以方向和构造都从它取。子类必须写成
-     * `UpFunction.desugar(...)` 这种带显式接收者的形式 —— 解析器是把
-     * `deSugarRelation` 摘成游离函数引用来调的，`this` 到不了这里。
-     */
-    protected static desugar(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
+    /** `^` / `_` 共用的关系去糖；sugar 的 data 是发出它的子类，方向和构造都从它取 */
+    protected static deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
         const n = nodes[at++] as GrammarSugarNode;
-        if (!(n.kind === "sugar" && n.data === this)) return null;
-        const label = this.side === "above" ? "@up" : "@down";
+        const cls: typeof FoldFunction = n.data;
+        const label = cls.side === "above" ? "@up" : "@down";
         const leftNode = ctx.takeLeftOperand();
         if (!leftNode) throw new ErrorDiagnostic(
             "E_FOLD_NO_TARGET",
             "{fn}语法糖错误: 左边没有找到可叠加的目标",
             n.span, { fn: label }
         );
-        const wrapper = new this({ ...n.span }, new Map(), ctx);
+        const wrapper = new cls({ ...n.span }, new Map(), ctx);
         const host = leftNode instanceof FoldFunction
             ? leftNode
             : wrapper.addContent(leftNode, "above", ctx);
@@ -219,8 +215,8 @@ class FoldFunction extends ASTFunctionNode {
             // 右操作数可能已被 @tie() 等按引用取走（它就在本层剩余部分里，先于合成解析），
             // 而新建的左包装无人引用，所以合并时让右边存活；接收者就是存活的那一方
             const merged = right instanceof FoldFunction
-                ? right.flatten(host, this.side, ctx, wrapper.gap, host !== wrapper)
-                : host.addContent(right, this.side, ctx, wrapper.gap);
+                ? right.flatten(host, cls.side, ctx, wrapper.gap, host !== wrapper)
+                : host.addContent(right, cls.side, ctx, wrapper.gap);
             // 语法糖不走 pushNode，这里补登记；null 同样入表，和显式调用一样成为边界
             ctx.labelableNodes.push(merged.labelable());
             return merged;
@@ -250,12 +246,8 @@ class UpFunction extends FoldFunction {
 
     static override deSugarAtom(source: string, start: number, _end: number) {
         if (source[start] !== "^") return null;
-        const node: GrammarSugarNode = { kind: "sugar", data: UpFunction, span: { start, end: start + 1 } };
+        const node: GrammarSugarNode = { kind: "sugar", data: UpFunction, span: { start, end: start + 1 }, relation: FoldFunction.deSugarRelation };
         return { next: start + 1, node };
-    }
-
-    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
-        return UpFunction.desugar(ctx, nodes, at);
     }
 }
 
@@ -279,12 +271,8 @@ class DownFunction extends FoldFunction {
 
     static override deSugarAtom(source: string, start: number, _end: number) {
         if (source[start] !== "_") return null;
-        const node: GrammarSugarNode = { kind: "sugar", data: DownFunction, span: { start, end: start + 1 } };
+        const node: GrammarSugarNode = { kind: "sugar", data: DownFunction, span: { start, end: start + 1 }, relation: FoldFunction.deSugarRelation };
         return { next: start + 1, node };
-    }
-
-    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
-        return DownFunction.desugar(ctx, nodes, at);
     }
 }
 

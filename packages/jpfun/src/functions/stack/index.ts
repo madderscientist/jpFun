@@ -64,15 +64,14 @@ class StackFunction extends ASTFunctionNode {
         if (source[start] === '&') {
             const node: GrammarSugarNode = {
                 kind: "sugar",
-                data: StackFunction,
                 span: { start, end: start + 1 },
+                relation: StackFunction.deSugarRelation,
             }; return { next: start + 1, node };
         } return null;
     }
 
-    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
+    private static deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
         const n = nodes[at++] as GrammarSugarNode;
-        if (!(n.kind === "sugar" && n.data === StackFunction)) return null;
         const leftNode = ctx.takeLeftOperand();
         if (!leftNode) {
             throw new ErrorDiagnostic("E_STACK_NO_TARGET", "@stack语法糖错误: 左边没有找到可叠加的目标", n.span);

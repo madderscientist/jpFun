@@ -1,4 +1,4 @@
-﻿import type { SourceSpan, LengthValue, deSugarAtomFunction, deSugarRelationFunction } from "../parser/types.js";
+﻿import type { SourceSpan, LengthValue, deSugarAtomFunction } from "../parser/types.js";
 import type { CallArgumentInfo } from "../parser/grammarType.js";
 import type { ParserContext } from "../parser/parserContext.js";
 import { Diagnostic } from "../diagnostic.js";
@@ -177,9 +177,8 @@ export class ASTFunctionNode extends ASTNodeBase {
         return this.def ? primaryName(this.def) : "";
     }
 
-    // 去糖函数 详见 ParserContext 中 deSugarAtomFns 和 deSugarRelationFns 的定义
-    static deSugarAtom: deSugarAtomFunction = () => null; // 默认没有去糖，子类只需要定义static deSugarAtom方法即可
-    static deSugarRelation: deSugarRelationFunction = () => null;
+    // 原子去糖，默认没有，子类只需要定义 static deSugarAtom 即可；需要关系去糖时在产出的 sugar 节点上挂 relation
+    static deSugarAtom: deSugarAtomFunction = () => null;
 
     // 按声明顺序取值，位置编号独立于仅命名参数
     getArgValue(args: FunctionArgs, ctx: ParserContext): paramValue[] {
@@ -236,6 +235,6 @@ export type ASTFunctionClass = (new (
     ctx: ParserContext,
     parent: ASTNodeBase | null
 ) => ASTFunctionNode) & Pick<typeof ASTFunctionNode,
-    "prototype" | "def" | "deSugarAtom" | "deSugarRelation"
+    "prototype" | "def" | "deSugarAtom"
     | "layoutDecorationHandler"
 >;

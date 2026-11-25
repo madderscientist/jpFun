@@ -173,9 +173,10 @@ class NoteFunction extends ASTFunctionNode {
             next: start + 1,
             node: {
                 kind: "sugar" as const,
-                data: { jeOffset },
+                data: jeOffset,
                 span: { start, end: start + 1 },
                 syntaxKind: "punctuation" as const,
+                relation: NoteFunction.deSugarRelation,
             },
         };
         // 解析音符名
@@ -200,11 +201,9 @@ class NoteFunction extends ASTFunctionNode {
         return { next, node };
     }
 
-    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
+    private static deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
         const node = nodes[at] as GrammarSugarNode;
-        const jeOffset = node.data?.jeOffset;
-        if (typeof jeOffset !== "number") return null;
-        ctx.variables[JE_OCTAVE_OFFSET] = (ctx.variables[JE_OCTAVE_OFFSET] ?? 0) + jeOffset;
+        ctx.variables[JE_OCTAVE_OFFSET] = (ctx.variables[JE_OCTAVE_OFFSET] ?? 0) + node.data;
         // JE 谱兼容：保留括号源码，并让关系语法糖像跳过普通文本一样跳过它。
         ctx.nodes.push(new ASTTextNode(node.span));
         return at + 1;

@@ -1,4 +1,4 @@
-import { deSugarAtomFunction, deSugarRelationFunction, LengthValue, SourceSpan } from "./types.js";
+import { deSugarAtomFunction, LengthValue, SourceSpan } from "./types.js";
 import { Diagnostic } from "../diagnostic.js";
 import { DEFAULT_TEXT_FONT, JIANPU_NUMBER_FONT } from "../render/text.js";
 import { GrammarBraceNode, GrammarCallNode, GrammarCallNodeRaw, GrammarLabelNode, GrammarNode, type CallArgumentInfo } from "./grammarType.js";
@@ -64,10 +64,8 @@ export class ParserContext {
     /** 函数定义查找表 */
     functions: Map<string, ASTFunctionClass>;
 
-    /** 语法糖识别函数列表，分为两轮：第一轮原子级去糖：将文本转为函数调用，或特殊标记 */
+    /** 第一轮原子去糖：将文本转为函数调用，或 sugar 标记；第二轮由 sugar 节点自带的 relation 处理 */
     deSugarAtomFns: deSugarAtomFunction[];
-    /** 第二轮关系型去糖：得到函数节点。用于依赖 ASTNode 的语法糖 */
-    deSugarRelationFns: deSugarRelationFunction[];
 
     /** .labelable() 返回的承载节点；null 是边界标记，标签绑定不能越过它 */
     labelableNodes: (ASTFunctionNode | null)[];
@@ -95,7 +93,6 @@ export class ParserContext {
             this.variables = { ...ctx.variables };  // 继承但不修改父上下文的变量
             this.functions = ctx.functions; // 函数定义全局共享
             this.deSugarAtomFns = ctx.deSugarAtomFns; // 去糖方法全局共享
-            this.deSugarRelationFns = ctx.deSugarRelationFns; // 去糖方法全局共享
             this.labelableNodes = ctx.labelableNodes;   // 标签是全局属性
             this.nodes = [];    // 待消费节点不共享，每个上下文单独维护
         } else {
@@ -108,24 +105,16 @@ export class ParserContext {
             this.functions = ctx.functions ?? new Map();
             this.labelableNodes = ctx.labelableNodes ?? [];
             this.nodes = ctx.toConsume ?? [];
-            if (ctx.functions) [this.deSugarAtomFns, this.deSugarRelationFns] = ParserContext.getDeSugarFns(this.functions.values());
-            else this.deSugarAtomFns = [], this.deSugarRelationFns = [];
+            this.deSugarAtomFns = ParserContext.getDeSugarFns(this.functions.values());
         }
     }
 
-    static getDeSugarFns(classes: Iterable<ASTFunctionClass>): [
-        deSugarAtomFunction[], deSugarRelationFunction[]
-    ] {
-        // 去重 因为一个函数有多个别名
-        const cls: Set<ASTFunctionClass> = new Set(classes);
-        const deSugarAtomFns: deSugarAtomFunction[] = [];
-        const deSugarRelationFns: deSugarRelationFunction[] = [];
-        for (const fnClass of cls) {
-            const deSugarAtom = fnClass.deSugarAtom;
-            if (deSugarAtom && deSugarAtom !== ASTFunctionNode.deSugarAtom) deSugarAtomFns.push(deSugarAtom);
-            const deSugarRelation = fnClass.deSugarRelation;
-            if (deSugarRelation && deSugarRelation !== ASTFunctionNode.deSugarRelation) deSugarRelationFns.push(deSugarRelation);
-        } return [deSugarAtomFns, deSugarRelationFns];
+    static getDeSugarFns(classes: Iterable<ASTFunctionClass>): deSugarAtomFunction[] {
+        // 按函数去重：一个类有多个别名
+        const fns = new Set<deSugarAtomFunction>();
+        for (const fnClass of classes) fns.add(fnClass.deSugarAtom);
+        fns.delete(ASTFunctionNode.deSugarAtom);
+        return [...fns];
     }
 
     pushNode(node: ASTNodeBase) {
@@ -157,7 +146,7 @@ export class ParserContext {
                 map.set(name.toLowerCase(), funcClass);
             }
         }
-        [this.deSugarAtomFns, this.deSugarRelationFns] = ParserContext.getDeSugarFns(this.functions.values());
+        this.deSugarAtomFns = ParserContext.getDeSugarFns(this.functions.values());
     }
 
     //====== 解析相关 ======//
@@ -225,7 +214,7 @@ export class ParserContext {
      */
     makeNodes(nodes: (GrammarNode | number)[]) {
         const base = this.pendingRight.length;  // 只收尾本次登记的合成，同一上下文可重入
-        outer: for (let i = 0; i < nodes.length; i++) {
+        for (let i = 0; i < nodes.length; i++) {
             const node = nodes[i];
             if (typeof node === "number") {
                 this.pushText(node, node + 1);
@@ -253,14 +242,9 @@ export class ParserContext {
                         this.nodes.push(new ASTLabelNode(node.span, node.label, tgt));
                     } break;
                 case "sugar":
-                    for (const fn of this.deSugarRelationFns) {
-                        const r = fn(this, nodes, i);
-                        if (r !== null) {
-                            i = r - 1; // 循环会+1
-                            continue outer;
-                        }
-                    }
-                    this.pushText(node.span.start, node.span.end);  // 匹配失败，保留为文本
+                    const next = node.relation(this, nodes, i);
+                    if (next === null) this.pushText(node.span.start, node.span.end);  // 发出者放弃，保留为文本
+                    else i = next - 1; // 循环会+1
                     break;
             }
         }

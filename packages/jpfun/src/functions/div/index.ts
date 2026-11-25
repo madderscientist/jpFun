@@ -100,33 +100,30 @@ class DivFunction extends ASTFunctionNode {
             pos++;
         }
         if (divCnt === 0) return null;
-        // 对前一个节点的探查放到 deSugarRelation 中
+        // 对前一个节点的探查放到 relation 中
         const node: GrammarSugarNode = {
             kind: "sugar",
-            data: {
-                class: DivFunction,
-                n: divCnt,
-            },
+            data: divCnt,
             span: { start, end: pos },
+            relation: DivFunction.deSugarRelation,
         };
         return { next: pos, node };
     };
 
-    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
+    private static deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
         const n = nodes[at++] as GrammarSugarNode;
-        if (n.data?.class !== DivFunction) return null;
         const prevIndex = ctx.findLastOperandIndex();
         if (prevIndex < 0) return at;   // 没有了 直接当作无效文本跳过
         const prev = ctx.nodes[prevIndex];
         if (prev instanceof DivFunction) {
             // 已经是div了 继续加深
-            prev.n += n.data.n;
+            prev.n += n.data;
             prev.sourceSpan.end = Math.max(prev.sourceSpan.end, n.span.end);
             return at;
         }
         const argMap: FunctionArgs = new Map();
         argMap.set(0, prev);
-        argMap.set("n", n.data.n);
+        argMap.set("n", n.data);
         const spanPrev = prev.sourceSpan;
         ctx.nodes[prevIndex] = new DivFunction({
             start: Math.min(spanPrev.start, n.span.start),

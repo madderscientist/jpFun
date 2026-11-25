@@ -18,7 +18,7 @@ flowchart TB
   Grammar --> Nodes["GrammarNode 与字符位置"]
   Nodes --> Make["makeNodes"]
   Make --> Call["parseCallNode：参数解析与节点构造"]
-  Make --> Relation["deSugarRelation：组合或修饰节点"]
+  Make --> Relation["sugar.relation：组合或修饰节点"]
   Make -->|大括号| Child["子 ParserContext"]
   Call -->|content 参数| Child
   Child --> Grammar
@@ -86,16 +86,16 @@ AST 解析、语法着色和编辑器提示都使用这份类型信息。`conten
 
 ### 函数注册与两轮钩子
 
-函数类通过两个静态钩子参与解析。`registerFunctions()` 注册函数名及别名，`getDeSugarFns()` 按类去重并收集钩子：
+函数类通过静态钩子 `deSugarAtom` 参与解析。`registerFunctions()` 注册函数名及别名，`getDeSugarFns()` 按函数去重并收集钩子。需要第二轮处理的语法糖，由 `deSugarAtom` 在产出的 `GrammarSugarNode` 上挂 `relation` 回调：
 
-| 钩子 | 调用阶段 | 可用信息 | 返回值 |
+| 入口 | 调用阶段 | 可用信息 | 返回值 |
 | --- | --- | --- | --- |
 | `deSugarAtom(source, start, end, depth)` | `parseGrammar` 扫描当前位置时 | 源码、扫描区间、作用域深度 | `{ node, next }`；`next` 是下一个字符位置 |
-| `deSugarRelation(ctx, nodes, at)` | `makeNodes` 遇到 `kind: "sugar"` 时 | 解析上下文、当前层中间节点序列、已构造的 AST | 下一个待处理的节点下标 |
+| `GrammarSugarNode.relation(ctx, nodes, at)` | `makeNodes` 遇到该 sugar 节点时 | 解析上下文、当前层中间节点序列、已构造的 AST | 下一个待处理的节点下标；`null` 表示放弃，标记保留为文本 |
 
-钩子按注册顺序尝试，采用第一个匹配结果；返回 `null` 时继续尝试下一个。第一轮的 `next` 是**源码字符位置**，第二轮返回的是**中间节点下标**。
+`deSugarAtom` 按注册顺序尝试，采用第一个匹配结果；`relation` 由引擎直接调用，不再逐个尝试。第一轮的 `next` 是**源码字符位置**，第二轮返回的是**中间节点下标**。要改写内置语法糖，可把自定义类注册在默认函数之前，让它的 `deSugarAtom` 先匹配。
 
-两轮之间通过 `GrammarSugarNode` 传递标记、数据和源码区间。第二轮同时持有 `ctx.nodes`（已构造的 AST）与 `nodes`（当前层的中间节点），因此可以处理标记两侧的内容。节点定义见 [grammarType.ts](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/parser/grammarType.ts)。
+两轮之间通过 `GrammarSugarNode` 传递标记、数据、源码区间和 `relation`。第二轮同时持有 `ctx.nodes`（已构造的 AST）与 `nodes`（当前层的中间节点），因此可以处理标记两侧的内容。节点定义见 [grammarType.ts](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/parser/grammarType.ts)。
 
 ### 原子解析：`1`
 
@@ -106,9 +106,9 @@ AST 解析、语法着色和编辑器提示都使用这份类型信息。`conten
 这里的“前方”指源码中标记左侧、已经构造的节点。[DivFunction](https://github.com/madderscientist/jpFun/blob/HEAD/packages/jpfun/src/functions/div/index.ts) 的处理分两步：
 
 1. `deSugarAtom` 统计连续 `/` 的数量，将层数写入 `GrammarSugarNode.data`。
-2. `deSugarRelation` 通过 `ctx.findLastOperandIndex()` 定位前一个内容节点（若末尾带有标签，会将被标注节点连同标签原位打包为 `ASTBraceNode`），再将它包装成 div；目标已经是 div 时，直接累加层数并扩展 `sourceSpan.end`。
+2. `relation` 通过 `ctx.findLastOperandIndex()` 定位前一个内容节点（若末尾带有标签，会将被标注节点连同标签原位打包为 `ASTBraceNode`），再将它包装成 div；目标已经是 div 时，直接累加层数并扩展 `sourceSpan.end`。
 
-结果是 div 包含 note，包装节点的 `sourceSpan` 覆盖音符和减时标记。关系钩子更新 `ctx.nodes` 后，返回标记之后的节点下标。
+结果是 div 包含 note，包装节点的 `sourceSpan` 覆盖音符和减时标记。`relation` 更新 `ctx.nodes` 后，返回标记之后的节点下标。
 
 ### 后向解析：`1 ^ 3/`
 
@@ -116,7 +116,7 @@ AST 解析、语法着色和编辑器提示都使用这份类型信息。`conten
 
 1. 第一轮识别 `^`，生成关系标记。
 2. 第二轮用 `ctx.takeLeftOperand()` 摘出左操作数（若带标签则一并打包）。
-3. 调用 `ctx.deferRightOperand(combine)` 登记合成函数，然后钩子返回标记之后的下标，让 `makeNodes` 继续扫描。
+3. 调用 `ctx.deferRightOperand(combine)` 登记合成函数，然后 `relation` 返回标记之后的下标，让 `makeNodes` 继续扫描。
 4. 当前层解析完后，`makeNodes` 由内向外处理挂起的合成：取剩余序列的首个非文本节点作为右操作数（此例中 `3/` 已经组合成完整的 div 节点），交给 `combine`，再把结果连同余下的 AST 接回左侧节点之后。没有右操作数时 `combine` 收到 `undefined`，由函数自己报错。
 
 挂起合成默认右结合：`1 ^ 3 ^ 5` 先合成 `3 ^ 5`，`1 < 2 < 3` 即 `1 < {2 < 3}`。`^`、`_`、`&` 同种连写会展平成同一个容器，结合方向不影响结果；不同算符混写按右结合，如 `1 ^ 3 & 5` 即 `1 ^ {3 & 5}`。需要左结合的 `>` 在两处传入同一个 `chain` 标记，即 `takeLeftOperand(chain)` 与 `deferRightOperand(combine, chain)`：读到下一个同 chain 的中缀时，若末尾操作数恰是上一帧唯一的右操作数，`takeLeftOperand` 先合成上一帧，再把结果作为左操作数返回，于是 `1 > 2 > 3` 得到 `{1 > 2} > 3`。不同 chain 混写仍向右结合，如 `1 > 2 < 3` 即 `1 > {2 < 3}`。提前合成的结果不经过节点序列，所以用 chain 的 `combine` 不应有登记标签候选之类的副作用。这样，同层平放的中缀标记不会让扫描递归解析整个后缀。

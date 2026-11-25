@@ -1,4 +1,4 @@
-import type { SourceSpan } from "./types.js";
+import type { SourceSpan, deSugarRelationFunction } from "./types.js";
 import type { FunctionArgs } from "../functions/ASTtypes.js";
 
 // 仅仅是数据传递，所以没用 class
@@ -46,11 +46,12 @@ export interface GrammarCallNodeTyped extends GrammarCallNodeBase {
 export type GrammarCallNode = GrammarCallNodeRaw | GrammarCallNodeTyped;
 
 /**
- * 语法糖节点，具体数据含义由具体函数去糖函数决定，将在第二轮解析中被处理
+ * 语法糖节点，由发出它的 deSugarAtom 同时给出数据和第二轮的处理函数
  */
 export interface GrammarSugarNode extends GrammarNodeBase {
     kind: "sugar";
-    data: any;
+    data?: any;
+    relation: deSugarRelationFunction;
 }
 
 /**

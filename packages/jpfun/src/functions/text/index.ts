@@ -63,16 +63,15 @@ class TextFunction extends ASTFunctionNode {
         if (close < 0) return null; // 未闭合就不去糖，与预处理“配对才算字符串”一致
         const node: GrammarSugarNode = {
             kind: "sugar",
-            data: TextFunction,
             span: { start, end: close + 1 },
             syntaxKind: "string",
+            relation: TextFunction.deSugarRelation,
         };
         return { next: close + 1, node };
     }
 
-    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
+    private static deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
         const node = nodes[at] as GrammarSugarNode;
-        if (node.data !== TextFunction) return null;
         // 之所以不在 deSugarAtom 里直接解码返回 typed call，是因为字符串转义可能产生诊断（如非法 \u 转义）：
         // 第一轮 deSugarAtom 没有 ctx（抛异常则会中断词法扫描），放到第二轮才能复用 parseArgWithType 记录警告并回退原文
         ctx.pushNode(new TextFunction(node.span, new Map([[0, ctx.parseArgWithType(node.span, "string")!]]), ctx, null));

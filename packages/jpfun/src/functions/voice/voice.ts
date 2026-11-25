@@ -86,11 +86,9 @@ L: la la la
             // 等到第二轮寻找该层级的终止符 \n 来确定内容范围
             const node: GrammarSugarNode = {
                 kind: "sugar",
-                data: {
-                    class: VoiceFunction,
-                    name,
-                },
+                data: { name },
                 span: { start, end: pos },
+                relation: VoiceFunction.deSugarLine,
             };
             return { next: pos, node };
         }
@@ -112,23 +110,20 @@ L: la la la
         }
         const node: GrammarSugarNode = {
             kind: "sugar",
-            data: {
-                class: VoiceFunction,
-                lyric,
-                name,
-            },
+            data: { lyric, name },
             span: { start, end: lyric.end },
             syntaxKind: [
                 { kind: "operator", span: { start, end: pos } },
                 { kind: "string", span: lyric },
             ],
+            relation: VoiceFunction.deSugarLine,
         };
         return { next: lyric.end, node };
     }
 
-    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number, members?: VoiceFunction[]) {
+    /** `N:` / `L:` 的关系去糖；V 声明分组时直接调用并传入 members 收集成员 */
+    static deSugarLine(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number, members?: VoiceFunction[]) {
         const n = nodes[at++] as GrammarSugarNode;
-        if (n.data?.class !== VoiceFunction) return null;
         const parseStr = (span: SourceSpan) => (ctx.parseArgWithType(span, "string") as string | null) ?? "";
         if (n.data?.lyric !== void 0) {
             // 歌词 需要找到最近的voice节点并添加歌词
@@ -175,7 +170,7 @@ L: la la la
                     break;
                 }
             } else if (n.kind === "sugar"
-                && (n.data?.class === VoiceFunction || n.data?.class === VoicesFunction)) break;
+                && (n.relation === VoiceFunction.deSugarLine || n.relation === VoicesFunction.deSugarGroup)) break;
         }
         // 解析后面的内容 得到 VoiceFunction
         const newCtx = new ParserContext(ctx);

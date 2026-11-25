@@ -28,8 +28,9 @@ export type deSugarAtomFunction = (source: string, start: number, end: number, d
 } | null;
 
 /**
+ * 关系去糖：由 deSugarAtom 挂在 sugar 节点上，makeNodes 遇到该节点时直接调用，不再逐个尝试
  * 传入的列表已经被拆为单字符了 会修改 ctx
- * 返回值是下一个位置 指 nodes 数组；若为null则表示不匹配，需要继续尝试
+ * 返回值是下一个位置 指 nodes 数组；返回 null 表示放弃，该 sugar 保留为文本
  * 内部报错需要push到ctx再throw
  */
 export type deSugarRelationFunction = (ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) => number | null;

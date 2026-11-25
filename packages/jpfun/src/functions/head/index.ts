@@ -405,8 +405,9 @@ H.tempo: 94
             next: explicitContent ? pos : lineEnd,
             node: {
                 kind: "sugar",
-                data: { class: HeadFunction, field, contentSpan },
+                data: { field, contentSpan },
                 span: { start, end: pos },
+                relation: HeadFunction.deSugarRelation,
                 syntaxKind: contentSpan && field !== "signature" && field !== "tempo" && contentSpan.start < contentSpan.end
                     ? [{ kind: "operator", span: { start, end: pos } }, { kind: "string", span: contentSpan }]
                     : undefined,
@@ -414,9 +415,8 @@ H.tempo: 94
         };
     }
 
-    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
+    private static deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
         const sugar = nodes[at++] as GrammarSugarNode;
-        if (sugar.data?.class !== HeadFunction) return null;
         const field = sugar.data.field as HeadField;
         let breakAt = at;
         let span = sugar.data.contentSpan as SourceSpan | undefined;
@@ -425,7 +425,7 @@ H.tempo: 94
             for (; breakAt < nodes.length; breakAt++) {
                 const node = nodes[breakAt];
                 if (typeof node === "number" && (ctx.source[node] === "\r" || ctx.source[node] === "\n")) break;
-                if (typeof node !== "number" && node.kind === "sugar" && node.data?.class === HeadFunction) break;
+                if (typeof node !== "number" && node.kind === "sugar" && node.relation === HeadFunction.deSugarRelation) break;
             }
             const sub = new ParserContext(ctx);
             sub.makeNodes(nodes.slice(at, breakAt));

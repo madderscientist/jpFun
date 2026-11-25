@@ -3,7 +3,7 @@ import { ErrorDiagnostic, WarningDiagnostic } from "../../diagnostic.js";
 import type { Extent, LayoutAttachment, LayoutPrepareContext, LayoutRegion } from "../../layout/types.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { MeasureFn, Track } from "../../lowering/track.js";
-import type { GrammarNode } from "../../parser/grammarType.js";
+import type { GrammarNode, GrammarSugarNode } from "../../parser/grammarType.js";
 import { findClosingQuote, quoteSourceString } from "../../parser/parse-utils/string-utils.js";
 import { ParserContext } from "../../parser/parserContext.js";
 import { paintRichLine, prepareRichLine, type PreparedRichLine } from "../../render/text.js";
@@ -129,8 +129,9 @@ N(女低): 1 2 3
                 next: start + 3,
                 node: {
                     kind: "sugar" as const,
-                    data: { class: VoicesFunction, kind: "line" as const },
+                    data: { kind: "line" as const },
                     span: { start, end: start + 3 },
+                    relation: VoicesFunction.deSugarGroup,
                 },
             };
         }
@@ -143,18 +144,18 @@ N(女低): 1 2 3
             node: {
                 kind: "sugar" as const,
                 data: {
-                    class: VoicesFunction,
                     kind: open === "{" ? "brace" as const : "bracket" as const,
                     name: { start: start + 2, end: at },
                 },
                 span: { start, end: at + 2 },
+                relation: VoicesFunction.deSugarGroup,
             },
         };
     }
 
-    static override deSugarRelation(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
-        const first = nodes[at];
-        if (typeof first === "number" || first.kind !== "sugar" || first.data?.class !== VoicesFunction) return null;
+    /** `V|:`、`V{name}:`、`V[name]:` 的关系去糖；向后连续收集 V 声明及其 N/L 行 */
+    static deSugarGroup(ctx: ParserContext, nodes: (GrammarNode | number)[], at: number) {
+        const first = nodes[at] as GrammarSugarNode;
 
         let previousIndex = ctx.nodes.length - 1;
         while (previousIndex >= 0 && ctx.nodes[previousIndex] instanceof ASTTextNode) {
@@ -171,7 +172,7 @@ N(女低): 1 2 3
         let cursor = at;
         while (cursor < nodes.length) {
             const marker = nodes[cursor];
-            if (typeof marker === "number" || marker.kind !== "sugar" || marker.data?.class !== VoicesFunction) break;
+            if (typeof marker === "number" || marker.kind !== "sugar" || marker.relation !== VoicesFunction.deSugarGroup) break;
             cursor++;
             const carriageReturn = nodes[cursor];
             if (typeof carriageReturn === "number" && ctx.source[carriageReturn] === "\r") cursor++;
@@ -183,8 +184,8 @@ N(女低): 1 2 3
             const from = members.length + 1;
             while (cursor < nodes.length) {
                 const node = nodes[cursor];
-                if (typeof node === "number" || node.kind !== "sugar" || node.data?.class !== VoiceFunction) break;
-                cursor = VoiceFunction.deSugarRelation(section, nodes, cursor, members)!;
+                if (typeof node === "number" || node.kind !== "sugar" || node.relation !== VoiceFunction.deSugarLine) break;
+                cursor = VoiceFunction.deSugarLine(section, nodes, cursor, members);
             }
             if (members.length < from) {
                 throw new ErrorDiagnostic("E_VOICES_GROUP_EMPTY", "V 声部分组必须至少包含一条 N: 声部声明", marker.span);
