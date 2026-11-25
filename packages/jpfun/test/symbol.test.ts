@@ -55,15 +55,13 @@ test("重复字形的边界与颤音尾巴几何及播放等价性", () => {
     strictEqual(summary("1 ^ $tr 2"), summary("1 ^ $tr+++ 2"));
 });
 
-test("effect 类符号只影响同一 up 中位于其下方的成员", () => {
+test("effect 类符号作用于同一折叠体的所有有声成员", () => {
     assert(playedNotes(compilePlayback(lower(`1 ^ $accent`)))[0].velocity === 100, "$accent 应增强下方音符力度");
     assert(playedNotes(compilePlayback(lower(`$accent 1`)))[0].velocity === 80, "独立写出的 effect 不能泄漏到后继音符");
 
     const split = playedNotes(compilePlayback(lower(`1 ^ $accent ^ 3`)));
-    assert(split[0].midi === 64 && split[0].velocity === 80,
-        "位于 symbol 上方的 up 成员不应受影响");
-    assert(split[1].midi === 60 && split[1].velocity === 100,
-        "位于 symbol 下方的 up 成员应接收 modifier");
+    assert(split.length === 2 && split.every(note => note.velocity === 100),
+        "记号无论写在和弦哪一层，都作用于整个和弦");
 
     // 大括号阻断展平，$accent 落在中间那层里；它下方还有外层自己的成员
     const nested = playedNotes(compilePlayback(lower(`1 ^ {3 ^ $accent} ^ 5`)));

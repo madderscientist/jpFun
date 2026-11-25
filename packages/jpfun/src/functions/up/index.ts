@@ -326,15 +326,28 @@ class FoldTemporal extends TemporalNodeBase {
     }
 
     /**
-     * 成员共享全局时间状态，从写在最后的成员开始固化
+     * 固化与播放共用的成员顺序：零时长成员（记号、设置、文字）→ 有时长成员 → 宿主，组内倒序。
+     * 记号因此先写入状态、先注册效果，上下两侧的音都能读到；宿主始终最后
+     */
+    private memberOrder(): VisualTemporalNode[] {
+        const marks: VisualTemporalNode[] = [];
+        const notes: VisualTemporalNode[] = [];
+        for (let i = this.members.length - 1; i > 0; i--) {
+            const member = this.members[i];
+            (member.T.isZero() ? marks : notes).push(member);
+        }
+        const host = this.members[0];
+        return host ? [...marks, ...notes, host] : [...marks, ...notes];
+    }
+
+    /**
+     * 成员共享全局时间状态，按 memberOrder 固化
      */
     override onTimeState(state: TimeState) {
         const duration = this.T.clone();
         let offset: Fraction | void = undefined;
         let durationChanged = false;
-        // 宿主写在最前面，标记写在它后面；标记先写入状态，宿主才读得到
-        for (let i = this.members.length - 1; i >= 0; i--) {
-            const member = this.members[i];
+        for (const member of this.memberOrder()) {
             // 堆叠在一起的成员共享同一个时值，由第一个成员决定；
             // 本来就没有时长的成员（标注、小节线等）保持 0，不会被拉长
             if (!member.T.isZero() && !this.T.isZero()) member.T.copyFrom(this.T);
@@ -356,8 +369,8 @@ class FoldTemporal extends TemporalNodeBase {
     }
 
     override emitPlayback(emitter: PlaybackEmitter) {
-        // 倒序发布，宿主（members[0]）最后：附属成员注册的局部变换因此作用到宿主
-        for (let i = this.members.length - 1; i >= 0; i--) emitter.play(this.members[i]);
+        // 记号先发布，注册的局部变换因此作用到所有有声成员和宿主
+        for (const member of this.memberOrder()) emitter.play(member);
     }
 
     override prepareHorizontal(line: HorizontalLineView) {

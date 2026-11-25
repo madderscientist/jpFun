@@ -298,3 +298,15 @@ test("折叠体先播附属成员、最后播宿主，与画在上下哪一侧�
     assert(velocity(`$p ^ 1`) === 80 && velocity(`$p _ 1`) === 80, "力度记号当宿主时轮不到其它成员，与 @key 同一条规则");
     assert(velocity(`1 _ $p ^ $f`) === 96, "同一个位置上后固化的力度覆盖先固化的");
 });
+
+test("和弦的记号与设置作用到上下两侧所有音，与成员写在哪一侧无关", () => {
+    const notes = (source: string) => playedNotes(compilePlayback(lower(source)))
+        .map(note => `${note.midi}/v${note.velocity}`).sort().join(" ");
+    for (const source of [`1 _ 5, ^ $p`, `1 ^ $p _ 5,`, `1 ^ 3 _ $p`, `1 _ $p ^ 5`]) {
+        assert(notes(source).split(" ").every(note => note.endsWith("/v49")), `${source}: ${notes(source)}`);
+    }
+    assert(notes(`3 ^ 5 _ 1 ^ $accent`) === notes(`3 ^ 5 ^ 1 ^ $accent`), "下方音也要被重音覆盖");
+    assert(notes(`3 ^ 5 _ 1 ^ $accent`).split(" ").every(note => note.endsWith("/v100")), "重音作用到整个和弦");
+    // @key 在下方音之前固化：D 调的 5, 是 A3
+    assert(notes(`1 _ 5, ^ @key(D4) 1`).startsWith("57/"), notes(`1 _ 5, ^ @key(D4) 1`));
+});
