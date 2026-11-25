@@ -578,71 +578,93 @@ function alignHorizontalBars(
         return { columns, extra, groupAt, totalGaps, ends, gaps, minW };
     });
 
+    type State = NonNullable<typeof states[number]>;
     const divides = (a: number, b: number) => a % b === 0 || b % a === 0;
     const gcd = (a: number, b: number): number => b ? gcd(b, a % b) : a;
+    // 在各行小节数最小公倍数 L 的细网格上求公共台阶（整段时 L 即最大小节数，回退子窗口时也保证整除），并通过水位填充（涨水填谷）补足剩余空白
+    const buildGrid = (lo: number, hi: number) => {
+        const group = states.slice(lo, hi + 1) as State[];
+        const L = group.reduce((acc, n) => acc / gcd(acc, n.minW.length) * n.minW.length, 1);
+        const grid = new Array<number>(L).fill(0);
+        // 先填细网格行，再把粗网格行（如 2 小节行）超出对应细格之和的差额平摊进去
+        for (const n of [...group].sort((a, b) => b.minW.length - a.minW.length)) {
+            const step = L / n.minW.length;
+            for (let m = 0; m < n.minW.length; m++) {
+                const w = n.minW[m];
+                let sum = 0;
+                for (let j = 0; j < step; j++) sum += grid[m * step + j];
+                if (w > sum) for (let j = 0; j < step; j++) grid[m * step + j] += (w - sum) / step;
+            }
+        }
+        // 公共台阶总和不超过行宽时，把水位拉到 avg，只填平低于水位的窄格，不拉大已高于水位的宽格
+        // open 记录段内所有行在该细格均有自由间隙，供第 3 步复用
+        const open = grid.map((_, g) => Number(group.every(n => n.gaps[Math.floor(g * n.minW.length / L)] > 0)));
+        const free = open.slice();
+        let rem = contentWidth;
+        for (let g = 0; g < L; g++) if (!free[g]) rem -= grid[g];
+        for (let step = 0; step < L; step++) {
+            const freeSum = free.reduce((a, b) => a + b, 0);
+            if (!freeSum || rem <= 0) break;
+            const avg = rem / freeSum;
+            if (!grid.some((w, g) => free[g] && w > avg && (rem -= w, free[g] = 0, true))) {
+                for (let g = 0; g < L; g++) if (free[g]) grid[g] = avg;
+                break;
+            }
+        }
+        return { L, grid, open };
+    };
+    // 公共台阶只取决于窗口，按窗口缓存，避免段内每行重建网格导致 O(行数²)；每行只把每 r 个细格合回自己的 1 个小节目标宽度
+    const grids = new Map<number, ReturnType<typeof buildGrid>>();
+    const targetOf = (s: State, lo: number, hi: number) => {
+        const key = lo * states.length + hi;
+        let cell = grids.get(key);
+        if (!cell) grids.set(key, cell = buildGrid(lo, hi));
+        const { L, grid, open } = cell, r = L / s.minW.length;
+        // 本行被 @rest 等完全锁死的小节保持原宽
+        const target = s.minW.map((w, m) => {
+            if (!s.gaps[m]) return w;
+            let sum = 0;
+            for (let j = 0; j < r; j++) sum += grid[m * r + j];
+            return sum;
+        });
+        return { r, open, target };
+    };
 
+    // 同小节数且被上一行段覆盖的行，两侧扩展与相同行窗口的扫描都与上一行一致，从上一行结果续扫以免每行重扫整段
+    let prev: { l: number; s: State; start: number; end: number; win?: number[] } | undefined;
     for (let l = 0; l < states.length; l++) {
         const s = states[l];
         if (!s || s.extra <= 0 || !s.totalGaps) continue;
         const M = s.minW.length;
         // 2. 向两侧扩展收集连续行段：新行小节数须与本行及段内最大小节数都成整数倍，从而段内各行都整除最大小节数
         //    （如 2、6 小节行成段后不再并入 4 小节行）；遇到 extra = 0 的挤压行或强制换页即作为刚性边界停下
-        let start = l, end = l, maxM = M;
-        const joins = (n?: typeof s) => !!n && divides(n.minW.length, M) && divides(n.minW.length, maxM);
-        while (states[start]!.extra > 0 && pageBreaks[start] === undefined && joins(states[start - 1])) maxM = Math.max(maxM, states[--start]!.minW.length);
-        while (states[end]!.extra > 0 && pageBreaks[end + 1] === undefined && joins(states[end + 1])) maxM = Math.max(maxM, states[++end]!.minW.length);
+        const last = prev?.l === l - 1 && prev.s.minW.length === M && prev.end >= l ? prev : undefined;
+        let start = last?.start ?? l, end = last?.end ?? l, maxM = M;
+        if (!last) {
+            const joins = (n?: State) => !!n && divides(n.minW.length, M) && divides(n.minW.length, maxM);
+            while (states[start]!.extra > 0 && pageBreaks[start] === undefined && joins(states[start - 1])) maxM = Math.max(maxM, states[--start]!.minW.length);
+            while (states[end]!.extra > 0 && pageBreaks[end + 1] === undefined && joins(states[end + 1])) maxM = Math.max(maxM, states[++end]!.minW.length);
+        }
+        prev = { l, s, start, end };
         if (start === end) continue;
 
-        // 在各行小节数最小公倍数 L 的细网格上求公共台阶（整段时 L 即最大小节数，回退子窗口时也保证整除），并通过水位填充（涨水填谷）补足剩余空白
-        const env = (lo: number, hi: number) => {
-            const group = states.slice(lo, hi + 1) as NonNullable<typeof s>[];
-            const L = group.reduce((acc, n) => acc / gcd(acc, n.minW.length) * n.minW.length, 1), r = L / M;
-            const grid = new Array<number>(L).fill(0);
-            // 先填细网格行，再把粗网格行（如 2 小节行）超出对应细格之和的差额平摊进去
-            for (const n of [...group].sort((a, b) => b.minW.length - a.minW.length)) {
-                const step = L / n.minW.length;
-                for (let m = 0; m < n.minW.length; m++) {
-                    const w = n.minW[m];
-                    let sum = 0;
-                    for (let j = 0; j < step; j++) sum += grid[m * step + j];
-                    if (w > sum) for (let j = 0; j < step; j++) grid[m * step + j] += (w - sum) / step;
-                }
-            }
-            // 公共台阶总和不超过行宽时，把水位拉到 avg，只填平低于水位的窄格，不拉大已高于水位的宽格
-            const free = grid.map((_, g) => Number(group.every(n => n.gaps[Math.floor(g * n.minW.length / L)] > 0)));
-            let rem = contentWidth;
-            for (let g = 0; g < L; g++) if (!free[g]) rem -= grid[g];
-            for (let step = 0; step < L; step++) {
-                const freeSum = free.reduce((a, b) => a + b, 0);
-                if (!freeSum || rem <= 0) break;
-                const avg = rem / freeSum;
-                if (!grid.some((w, g) => free[g] && w > avg && (rem -= w, free[g] = 0, true))) {
-                    for (let g = 0; g < L; g++) if (free[g]) grid[g] = avg;
-                    break;
-                }
-            }
-            // 将每 r 个细格合回本行的 1 个小节目标宽度（本行被 @rest 等完全锁死的小节保持原宽）
-            const target = s.minW.map((w, m) => {
-                if (!s.gaps[m]) return w;
-                let sum = 0;
-                for (let j = 0; j < r; j++) sum += grid[m * r + j];
-                return sum;
-            });
-            return { group, target };
-        };
-        let { group, target } = env(start, end);
+        let { r, open, target } = targetOf(s, start, end);
         // 若整段公共台阶总和超出行宽，退回只与上下紧邻行对齐；与本行台阶相同的相邻行视为一体共用窗口，避免相同行逐行错开
         if (target.reduce((a, b) => a + b, 0) > contentWidth + 1e-6) {
-            const same = (n?: typeof s) => n?.minW.length === M
+            const same = (n?: State) => n?.minW.length === M
                 && n.minW.every((w, m) => Math.abs(w - s.minW[m]) <= 1e-6 && !n.gaps[m] === !s.gaps[m]);
-            let lo = l, hi = l;
+            // 与上一行逐值相同时 same 判定不变，上一行窗口的两端必然停在扫描终点，从那里续扫即可
+            let [lo, hi] = last?.win && last.win[1] >= l
+                && last.s.minW.every((w, m) => w === s.minW[m] && last.s.gaps[m] === s.gaps[m]) ? last.win : [l, l];
             while (lo > start && same(states[lo - 1])) lo--;
             while (hi < end && same(states[hi + 1])) hi++;
-            ({ group, target } = env(Math.max(start, lo - 1), Math.min(end, hi + 1)));
+            prev.win = [lo, hi];
+            ({ r, open, target } = targetOf(s, Math.max(start, lo - 1), Math.min(end, hi + 1)));
         }
 
         // 3. 退水触底：若目标总宽仍超出行宽（空白不够追平邻行），同步回缩并在碰到本行底线 minW 时锁死
-        const free = s.gaps.map((g, m) => g > 0 ? Number(group.every(n => n.gaps[Math.floor(m * n.minW.length / M)] > 0)) : 0);
+        //    本行第 m 小节对应细格 m·r，段内各行在该细格的自由标记即 open[m·r]
+        const free = s.gaps.map((g, m) => g > 0 ? open[m * r] : 0);
         if (!free.some(Boolean)) for (let m = 0; m < M; m++) free[m] = Number(s.gaps[m] > 0);
         for (let step = 0; step < M; step++) {
             let rem = contentWidth, remTarget = 0, freeSum = 0;
