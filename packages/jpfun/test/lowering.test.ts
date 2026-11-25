@@ -24,6 +24,21 @@ test("dot 与 div 的嵌套顺序不影响时值和计数", () => {
     }
 });
 
+test("锚点等其他分支排完后才会合，列时间保持单调", () => {
+    const columnTimes = (source: string) => lower(source).columns.map(column => column.t.toString());
+    // 无锚点的分支排在小节线之前，小节线及其后的事件推到它结束之后
+    deepStrictEqual(columnTimes("@stack({1 2 | 3 4}, {5 - - -})"), ["0", "1", "2", "3", "4", "4", "5"]);
+    // 已越过最后一个锚点的分支同样如此
+    deepStrictEqual(columnTimes("@stack({1 | 2 3 4 5}, {1 | 2 | 3})"), ["0", "1", "1", "2", "3", "4", "5", "5"]);
+    // 都有锚点时仍会合：较早到达的分支整体后移
+    deepStrictEqual(columnTimes("@stack({1 | 2}, {1 2 | 3})"), ["0", "1", "2", "2"]);
+    // 带时值的锚点列作为分支结尾时，后续锚点也要等它结束
+    deepStrictEqual(columnTimes("@stack({@up(1, @bar())}, {1 | | 2})"), ["0", "1", "2", "2"]);
+    // 内层并行的会合时刻向外传递，外层按它对齐
+    deepStrictEqual(columnTimes("@stack({{1 2 | 3} & {5 - - -} 6}, {1 2 | 3 4 5 6})"),
+        ["0", "1", "2", "3", "4", "4", "5", "6", "7"]);
+});
+
 test("修饰作用域在推进时间前逐个更新事件", () => {
     const scopedDiv = lower(`@div({1 2}, 1)`);
     assert(scopedDiv.columns[0][0].t.equals(0) && scopedDiv.columns[1][0].t.equals(1, 2)

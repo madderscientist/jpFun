@@ -308,6 +308,7 @@ export class LoweringContext {
                     );
 
                     const branches: TimeColumn[][] = [];
+                    const ends: Fraction[] = [];
                     for (let i = 0; i < children.length; i++) {
                         const c = children[i];
                         // 宿主成员就地留在当前轨，其余成员按书写顺序拿分支音轨
@@ -319,20 +320,14 @@ export class LoweringContext {
                         const branch = this.trackedEvents(c, branchTime, branchTrack);
                         if (branch.length === 0) {
                             this.diagnostics.push(Diagnostic.warning.ZeroTimeTrack(c.sourceSpan, i + 1));
+                            continue;
                         }
                         branches.push(branch);
+                        ends.push(branchTime);
                     }
                     // 归并 局部归并以限制对齐作用域
-                    const mergeStart = columns.length;
-                    for (const column of LoweringContext.anchorAlign(branches)) columns.push(column);
-                    // 最长的事件未必落在最后一列，所以要扫全部合并列取最晚终点
-                    const eventEnd = new Fraction();
-                    for (let i = mergeStart; i < columns.length; i++) {
-                        for (const node of columns[i]) {
-                            eventEnd.copyFrom(node.t).add(node.T);
-                            if (eventEnd.compare(timeOffset) > 0) timeOffset.copyFrom(eventEnd);
-                        }
-                    }
+                    const end = LoweringContext.anchorAlign(branches, ends, columns);
+                    if (end && end.compare(timeOffset) > 0) timeOffset.copyFrom(end);
                 } break;
             }
         }
@@ -378,25 +373,24 @@ export class LoweringContext {
 
     /**
      * 多轨时间上的 ANCHOR 对齐形成列，被 trackedEvents 在中间使用。会修改时间
-     * @param tracks 多个 trackedEvents 的结果
-     * @returns 锚点对齐后的 tracks，多轨道相同时间的会被合并为一个列
+     * @param tracks 多个非空的 trackedEvents 结果
+     * @param ends 各轨道的结束时刻，会被原地平移
+     * @param result 锚点对齐后的列追加到这里，多轨道相同时间的会被合并为一个列
+     * @returns 对齐后最晚的轨道结束时刻；没有轨道时为 undefined
      */
-    static anchorAlign(tracks: TimeColumn[][]): TimeColumn[] {
-        // 删去长度为0的轨道
-        for (let i = tracks.length - 1; i >= 0; i--) {
-            if (tracks[i].length === 0) tracks.splice(i, 1);
-        }
+    private static anchorAlign(tracks: TimeColumn[][], ends: Fraction[], result: TimeColumn[]): Fraction | undefined {
         const l = tracks.length;
-        // 分支全空；调用方已经逐条报过 ZeroTimeTrack
-        if (l === 0) return [];
-        if (l === 1) return tracks[0];
-
-        const result: TimeColumn[] = [];
+        if (l <= 1) {
+            if (l === 1) for (const column of tracks[0]) result.push(column);
+            return ends[0];
+        }
 
         // 归并多个轨道
         const p = new Uint32Array(l);   // 当前指向第几个
         const dt = Array.from({ length: l }, () => new Fraction()); // 每个轨道的偏移量
         const anchorBuffer: heapItem[] = [];
+        // 已排完轨道的最晚终点：没有后续锚点的轨道会先排完，锚点要落在它们结束之后
+        const end = new Fraction();
         const heap = new HeapSort(l); // 保证每个轨在堆里最多一个
         for (let i = 0; i < l; i++) heap.push({ e: tracks[i][0], i });
 
@@ -405,28 +399,25 @@ export class LoweringContext {
             if (e) {
                 if (!dt[i].isZero()) e.shiftTime(dt[i]);
                 heap.push({ e, i });
+            } else if (ends[i].add(dt[i]).compare(end) > 0) {
+                // 排完时平移量已定，平移后的终点就是原终点加平移量
+                end.copyFrom(ends[i]);
             }
         }
 
         while (true) {
-            const front = heap.pop() as heapItem | undefined;
+            const front = heap.pop();
             if (front === void 0) {
                 if (anchorBuffer.length === 0) break;   // 都完了
 
-                const first = anchorBuffer[0];
-                const container = first.e;
-                let maxT = container.t;
-                for (let j = 1; j < anchorBuffer.length; j++) {
-                    if (anchorBuffer[j].e.t.compare(maxT) > 0) maxT = anchorBuffer[j].e.t;
-                }
-                dt[first.i].add(maxT).sub(container.t);
-                fetchNext(first.i);
-
-                for (let j = 1; j < anchorBuffer.length; j++) {
-                    const item = anchorBuffer[j];
-                    container.push(...item.e);
-                    dt[item.i].add(maxT).sub(item.e.t);
-                    fetchNext(item.i);
+                // 有锚点的轨道已全部停在锚点，其余轨道已排完
+                const maxT = end.clone();
+                for (const { e } of anchorBuffer) if (e.t.compare(maxT) > 0) maxT.copyFrom(e.t);
+                const container = anchorBuffer[0].e;
+                for (const { e, i } of anchorBuffer) {
+                    if (e !== container) container.push(...e);
+                    dt[i].add(maxT).sub(e.t);
+                    fetchNext(i);
                 }
                 anchorBuffer.length = 0;
                 container.t = maxT;
@@ -452,7 +443,7 @@ export class LoweringContext {
             result.push(front.e);
             // 最后再加新的，使得只合并每个轨道最前面的，防止把后面同时刻的都合并了
             for (const i of consumed) fetchNext(i);
-        } return result;
+        } return end;
     }
 }
 
