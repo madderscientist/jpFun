@@ -251,6 +251,11 @@ test("content recovery discards failed inner labels while preserving valid outer
     }
 });
 
+test("必填 content 参数解析失败时抛出真正的内部错误而非缺参", () => {
+    expectDiagnostic(() => createParser("@box(1@a @tie(a,zz))").parse(), "E_UNKNOWN_LABEL");
+    expectDiagnostic(() => createParser("@div(@box(1 2 @n(Q) 3))").parse(), "E_WRONG_NOTE_NAME");
+});
+
 test("内容解析恢复时不重复记录内部错误", () => {
     const failure = Diagnostic.error.Bug("atom", { start: 4, end: 5 });
     class Fail extends DashNode {

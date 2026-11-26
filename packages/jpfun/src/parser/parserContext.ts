@@ -8,7 +8,7 @@ import { parseString } from "./parse-utils/string-utils.js";
 import { readBrace } from "./parse-utils/brace-utils.js";
 import { readLabel } from "./parse-utils/label-utils.js";
 import { parseLength } from "./parse-utils/length-utils.js";
-import { ASTBraceNode, ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgDef, FunctionArgs, ASTLabelNode, paramType, paramValue, ASTTextNode, resolveArgType } from "../functions/ASTtypes.js";
+import { ASTBraceNode, ASTFunctionClass, ASTFunctionNode, ASTNodeBase, FunctionArgDef, FunctionArgs, ASTLabelNode, paramType, paramValue, ASTTextNode, resolveArgDef, resolveArgType } from "../functions/ASTtypes.js";
 
 // bool 字面量 严格要求小写
 export const BOOL_RE = /^(true|false)$/;
@@ -397,7 +397,8 @@ export class ParserContext {
                     } else args.set(key, arg);
                     continue;
                 }
-                const value = this.parseArgWithType(arg.valueSpan, type, callNode.span.start);
+                const required = resolveArgDef(def, name, i)?.default === null;
+                const value = this.parseArgWithType(arg.valueSpan, type, callNode.span.start, required);
                 if (value !== null) args.set(key, value);
             }
             this.callNode = callNode;
@@ -412,8 +413,9 @@ export class ParserContext {
      * 根据参数类型解析参数值，解析过程中会记录诊断信息
      * funcStart 是为了找到该函数之前的label的位置 因为如果content先解析会污染 labelableNodes
      * 解析成功返回值 解析失败返回null
+     * required 的 content 解析失败时直接抛出内部错误：返回 null 只会换来掩盖真因的缺参错误
      */
-    parseArgWithType(span: SourceSpan, type?: paramType, funcStart?: number): paramValue | null {
+    parseArgWithType(span: SourceSpan, type?: paramType, funcStart?: number, required = false): paramValue | null {
         // 先去空白
         const r = trimRange(this.source, span.start, span.end);
         const start = r.start, end = r.end;
@@ -455,7 +457,7 @@ export class ParserContext {
                         if (hadLabel) target.label = label;
                         else delete target.label;
                     }
-                    if (this.variables.strict || !(e instanceof Diagnostic)) throw e;
+                    if (required || this.variables.strict || !(e instanceof Diagnostic)) throw e;
                     // 当前参数会被跳过，因此在恢复点记录被吞掉的具体错误
                     this.diagnostics.push(e, Diagnostic.warning.InvalidContent(r));
                     return null;
