@@ -493,10 +493,12 @@ function runLineBreakReflow(barsPerLine?: number) {
             ranges: ranges.length ? ranges : undefined,
         });
         if (!edits.length) {
+            updateDocumentStatus();
             statusMessage.textContent = "换行无需修改";
             return;
         }
-        commitCheckedEdits(original, edits);
+        // 提交成功会经 compileAndRender 刷新状态；未提交时才需手动清掉上次换行失败的提示
+        if (!commitCheckedEdits(original, edits)) updateDocumentStatus();
         if (activeTab === "source") editor.focus();
     } catch (error) {
         statusMessage.dataset.state = "error";
