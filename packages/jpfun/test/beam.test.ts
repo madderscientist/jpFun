@@ -64,6 +64,14 @@ test("自动连梁在拍点、换行、小节线与并行轨处分组", () => ex
     [`@div({@div({1 2}, 1) 3}, 1)`, 1],
 ]));
 
+test("同一 div 内连成一组的减时线不能跨谱面行", () => {
+    for (const source of [`{1 2 @br() 3 4}/`, `@div({1 @br(3) 2}, 2)`, `0 {{1 2}/ @br() 3}/`]) {
+        const { span } = expectLoweringError(source, "E_DIV_CROSS_LINE");
+        // 报错范围是最外层 div，而不是某个端点
+        strictEqual(source.slice(span.start, span.end), source.replace(/^0 /, ""), source);
+    }
+});
+
 // 6/8、行中切换与折叠 @meter 的分组由下一个用例按实际端点检查
 test("自动连梁随 @meter 拍号切换分拍单位与小节相位", () => expectBeams([
     [`@meter(3,8) | 1/ 2/ 3/ |`, 1],

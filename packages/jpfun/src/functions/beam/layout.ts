@@ -9,7 +9,6 @@ import type { Track } from "../../lowering/track.js";
 import type { SourceSpan } from "../../parser/types.js";
 import type { Painter } from "../../render/types.js";
 import type {
-    AttachmentLayoutContext,
     HorizontalLineView,
     LayoutAttachment,
     LayoutHost,
@@ -143,8 +142,8 @@ class BeamLayoutAttachment implements LayoutAttachment {
         }
     }
 
-    createGeometry(context: AttachmentLayoutContext) {
-        const lines = this.collectLines(context);
+    createGeometry() {
+        const lines = this.collectLines();
         const strokeWidth = this.strokeWidth;
         // 减时线永远水平，butt 端帽只在纵向占半个描边
         const regions = lines.map(line => ({
@@ -173,7 +172,7 @@ class BeamLayoutAttachment implements LayoutAttachment {
         };
     }
 
-    private collectLines(context: AttachmentLayoutContext) {
+    private collectLines() {
         const lines: BeamLine[] = [];
         const available = this.endPoints.filter(isVisualTemporalNode);
         if (available.length < 2) return lines;
@@ -190,7 +189,7 @@ class BeamLayoutAttachment implements LayoutAttachment {
                     node,
                 });
             }
-            this.addSystemLines(spans, context, level, lines);
+            this.addLine(spans, level, lines);
         }
 
         // 显式关系允许连接没有 div 端口的任意可见对象
@@ -209,60 +208,28 @@ class BeamLayoutAttachment implements LayoutAttachment {
                     node,
                 };
             });
-            this.addSystemLines(spans, context, null, lines);
+            this.addLine(spans, null, lines);
         }
         return lines;
     }
 
-    /** 同一级减时线按谱面行拆开，跨行时连接到对应页面边界 */
-    private addSystemLines(
-        spans: BeamSpan[],
-        context: AttachmentLayoutContext,
-        connectedLevel: number | null,
-        lines: BeamLine[],
-    ) {
-        const firstLine = Math.min(...spans.map(item => item.line));
-        const lastLine = Math.max(...spans.map(item => item.line));
-        const fallbackTrack = spans[0].track;
-        const firstVisualAxis = context.getVisualAxis(spans[0].line, fallbackTrack);
-        const visualAxisOffset = spans[0].left.y - firstVisualAxis;
+    /** 端点在 lowering 收尾时已保证同一谱面行，只需连接首尾端口 */
+    private addLine(spans: BeamSpan[], connectedLevel: number | null, lines: BeamLine[]) {
+        spans.sort((left, right) => left.left.x - right.left.x);
+        const first = spans[0];
+        const last = spans[spans.length - 1];
+        const y = first.left.y;
+        if (first.left.x === last.right.x) return;
 
-        for (let line = firstLine; line <= lastLine; line++) {
-            const current = spans
-                .filter(item => item.line === line)
-                .sort((left, right) => left.left.x - right.left.x);
-
-            if (current.length === 0) {
-                const visualAxis = context.getVisualAxis(line, fallbackTrack);
-                const y = visualAxis + visualAxisOffset;
-                lines.push({
-                    start: { x: context.originX, y },
-                    end: { x: context.originX + context.width, y },
-                    line,
-                    track: fallbackTrack,
-                });
-                continue;
-            }
-
-            const first = current[0];
-            const last = current[current.length - 1];
-            const y = first.left.y;
-            const start = { x: first.left.x, y };
-            const end = { x: last.right.x, y };
-            if (line > firstLine) start.x = context.originX;
-            if (line < lastLine) end.x = context.originX + context.width;
-            if (start.x === end.x && firstLine === lastLine) continue;
-
-            if (connectedLevel !== null) {
-                for (const span of current) claimDivLine(span.node, connectedLevel);
-            }
-
-            lines.push({
-                start,
-                end,
-                line,
-                track: first.track,
-            });
+        if (connectedLevel !== null) {
+            for (const span of spans) claimDivLine(span.node, connectedLevel);
         }
+
+        lines.push({
+            start: { x: first.left.x, y },
+            end: { x: last.right.x, y },
+            line: first.line,
+            track: first.track,
+        });
     }
 }

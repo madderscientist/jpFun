@@ -5,6 +5,7 @@ import {
     type VisualTemporalNode,
 } from "../temporal.js";
 import type { LoweringResult } from "../../lowering/types.js";
+import { ErrorDiagnostic } from "../../diagnostic.js";
 import { Fraction } from "../../fraction.js";
 import type { LayoutAttachment } from "../../layout/types.js";
 import {
@@ -49,7 +50,7 @@ function createAutoBeam(nodes: VisualTemporalNode[]): LayoutAttachment {
     return createBeamLayoutAttachment(nodes, false, { start, end });
 }
 
-/** 同一个 div 内部始终按轨道连接，手工 beam 端点会截断自动片段 */
+/** 同一个 div 内部始终按轨道连接，手工 beam 端点会截断自动片段；连梁不能跨谱面行 */
 function createScopeBeams(
     scopes: Iterable<readonly VisualTemporalNode[]>,
     explicitEndpoints: ReadonlySet<TemporalNodeBase>,
@@ -57,7 +58,16 @@ function createScopeBeams(
     const attachments: LayoutAttachment[] = [];
     const segments = new Map<TemporalNodeBase["track"], VisualTemporalNode[]>();
     const flush = (segment: VisualTemporalNode[] | undefined) => {
-        if (segment && segment.length >= 2) attachments.push(createAutoBeam(segment));
+        if (!segment || segment.length < 2) return;
+        const line = segment[0].layoutLine;
+        if (segment.some(node => node.layoutLine !== line)) {
+            throw new ErrorDiagnostic(
+                "E_DIV_CROSS_LINE",
+                "@div 内连成一组的减时线不能跨越谱面行",
+                getDivOwner(segment[0])!.sourceSpan,
+            );
+        }
+        attachments.push(createAutoBeam(segment));
     };
 
     for (const scopeNodes of scopes) {
