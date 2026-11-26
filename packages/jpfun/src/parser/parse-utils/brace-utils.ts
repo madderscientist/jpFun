@@ -11,8 +11,9 @@ export function readBrace(
     for (let i = lBracePos + 1; i < end; i++) {
         const ch = source[i];
         if (ch === '"') {
-            i = findClosingQuote(source, i, end);
-            if (i < 0) break;
+            // 孤立引号按普通字符，与预处理“配对才算字符串”一致
+            const q = findClosingQuote(source, i, end);
+            if (q >= 0) i = q;
         } else if (ch === "{") depth++;
         else if (ch === "}" && --depth === 0) return i;
     } return -1;

@@ -67,10 +67,10 @@ export function readCall(source: string, atPos: number, end: number): CallInfo |
 
     for (i++; i < end; i++) {
         const ch = source[i];
-        // 跳过字符串；忽略大括号内的小括号 防止大括号内小括号的不闭合影响外部
+        // 跳过字符串（孤立引号按普通字符）；忽略大括号内的小括号 防止大括号内小括号的不闭合影响外部
         if (ch === '"') {
-            i = findClosingQuote(source, i, end);
-            if (i < 0) break;
+            const q = findClosingQuote(source, i, end);
+            if (q >= 0) i = q;
         } else if (ch === "{") braceDepth++;
         else if (ch === "}") braceDepth = Math.max(0, braceDepth - 1);
         else if (ch === "(" && braceDepth === 0) parenDepth++;
@@ -116,8 +116,8 @@ export function findRightParen(source: string, start: number, end: number): numb
     for (let i = start; i < end; i++) {
         const ch = source[i];
         if (ch === '"') {
-            i = findClosingQuote(source, i, end);
-            if (i < 0) break;
+            const q = findClosingQuote(source, i, end);
+            if (q >= 0) i = q;
         } else if (ch === "(") parenDepth++;
         else if (ch === ")" && --parenDepth === 0) return i;
     } return -1;
