@@ -185,19 +185,19 @@ class OttavaAttachment implements LayoutAttachment {
             const region = part(0, 0, 0, 0);
             unionLayoutBoxes(region, parts);
 
+            // 八度号只属于本轨：其他轨由纵向求解按占用推开，不在这里避让
+            const axis = context.getVisualAxis(line, track);
             let lineY = above ? Infinity : -Infinity;
             for (const part of parts) {
-                for (const [lane, extent] of context.getHorizontalExtents(line, part.x, part.x + part.w)) {
-                    const axis = context.getVisualAxis(line, lane);
-                    lineY = above
-                        ? Math.min(lineY, axis + extent.top - gap - part.y - part.h)
-                        : Math.max(lineY, axis + extent.bottom + gap - part.y);
-                }
+                const extent = context.getHorizontalExtents(line, part.x, part.x + part.w).get(track);
+                if (!extent) continue;
+                lineY = above
+                    ? Math.min(lineY, axis + extent.top - gap - part.y - part.h)
+                    : Math.max(lineY, axis + extent.bottom + gap - part.y);
             }
             if (!Number.isFinite(lineY)) {
                 const extent = context.getRangeExtents(line,
                     first || last ? this.endPoints : undefined, track);
-                const axis = context.getVisualAxis(line, track);
                 lineY = above
                     ? axis + (extent?.top ?? 0) - gap - (region.y + region.h)
                     : axis + (extent?.bottom ?? 0) + gap - region.y;
