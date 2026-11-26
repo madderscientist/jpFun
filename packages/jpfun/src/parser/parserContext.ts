@@ -389,7 +389,10 @@ export class ParserContext {
                 const key = name ?? i;
                 if (type === void 0) {
                     if (!def.allowExtraArgs) {
-                        this.diagnostics.push(
+                        this.diagnostics.push(name ?
+                            Diagnostic.warning.UnknownArg(
+                                callNode.name, this.source.slice(arg.nameSpan!.start, arg.nameSpan!.end), arg.span
+                            ) :
                             Diagnostic.warning.TooManyPosArgs(
                                 callNode.name, defArgs.filter(arg => !arg.namedOnly).length, i + 1, arg.valueSpan
                             )

@@ -129,9 +129,9 @@ test("gliss requires two positional labels and does not accept named or extra op
     for (const args of ["", "a", "from=a,to=b", "a=b,b=a", "a,to=b"]) {
         expectCompileError(`1@a 5@b @gliss(${args})`, "E_MISSING_REQUIRED_ARG");
     }
-    for (const extra of ["play=true", "style=straight", "a"]) {
+    for (const [extra, code] of [["play=true", "W_UNKNOWN_ARG"], ["style=straight", "W_UNKNOWN_ARG"], ["a", "W_TOO_MANY_POS_ARGS"]]) {
         const result = compileScore(`1@a 5@b @gliss(a,b,${extra})`);
-        deepStrictEqual(result.diagnostics.map(item => item.code), ["W_TOO_MANY_POS_ARGS"]);
+        deepStrictEqual(result.diagnostics.map(item => item.code), [code]);
     }
 });
 

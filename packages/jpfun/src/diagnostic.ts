@@ -160,6 +160,12 @@ const warnings = {
             "函数 @{fn} 接收了过多的位置参数，期望 {expected} 个但得到了 {actual} 个", span,
             { fn: functionName, expected, actual }
         ),
+    UnknownArg: (functionName: string, argumentName: string, span: SourceSpan) =>
+        new WarningDiagnostic(
+            "W_UNKNOWN_ARG",
+            "函数 @{fn} 没有名为 {arg} 的参数；该参数将被忽略", span,
+            { fn: functionName, arg: formatArg(argumentName) }
+        ),
     InvalidNumber: (value: string, span: SourceSpan) =>
         new WarningDiagnostic(
             "W_INVALID_NUMBER",
