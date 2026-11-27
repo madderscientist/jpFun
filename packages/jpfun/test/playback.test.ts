@@ -87,12 +87,24 @@ test("拍号按实际播放访问发布且不参与速度积分", () => {
     const signatures = plan.events.filter(event => event.kind === "time-signature");
 
     assert(signatures.map(event => `${event.at}:${event.numerator}/${event.denominator}`).join(" ")
-        === "0:3/4 1:6/8 3:6/8",
-    "反复段内的拍号应在每次实际访问时重新发布，段外拍号只发布一次");
+        === "0:3/4 1:6/8 2:3/4 3:6/8",
+    "反复段内的拍号应在每次实际访问时重新发布，回跳时恢复目标处生效的拍号");
     assert(plan.events.slice(0, 4).map(event => event.kind).join(" ")
         === "tempo time-signature program-change note-on",
     "同刻事件应按 tempo、拍号、program-change、note-off、note-on 的系统顺序输出");
     assert(nearly(plan.durationSeconds, 8 / 3), "拍号事件不能改变 QN 到秒的速度积分");
+});
+
+test("跳转后恢复目标处的拍号且不重复发布", () => {
+    const signaturesOf = (source: string) => compilePlayback(lower(source)).events
+        .filter(event => event.kind === "time-signature")
+        .map(event => `${event.at}:${event.numerator}/${event.denominator}`).join(" ");
+    deepStrictEqual(signaturesOf(`@meter(3,4) |: 1 2 3 | 4 5 6 | @meter(2,4) 7 1' :|`),
+        "0:3/4 6:2/4 8:3/4 14:2/4");
+    deepStrictEqual(signaturesOf(`@meter(3,4) 1 2 3 | $segno 4 5 6 | @meter(2,4) 7 1' $ds`),
+        "0:3/4 6:2/4 8:3/4 11:2/4");
+    deepStrictEqual(signaturesOf(`|: @meter(3,4) 1 2 3 | @meter(2,4) 4 5 :|`),
+        "0:3/4 3:2/4 5:3/4 8:2/4", "目标列自带拍号时只发布一次");
 });
 
 test("音色按音轨固化并在反复后恢复", () => {

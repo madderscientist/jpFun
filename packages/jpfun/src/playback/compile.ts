@@ -5,6 +5,7 @@ import { DEFAULT_BPM, type TemporalNodeBase } from "../functions/temporal.js";
 import type { SourceSpan } from "../parser/types.js";
 import type {
     PlaybackDraftEvent,
+    PlaybackEventInput,
     PlaybackDraftNoteOffEvent,
     PlaybackDraftNoteOnEvent,
 } from "./event.js";
@@ -209,6 +210,12 @@ export function compilePlayback(
     const notes: PlaybackNote[] = [];
     const transforms = new Map<PlaybackNote, readonly PlaybackTransform[]>();
     const activePrograms = new Map<TemporalNodeBase["track"], number>();
+    let lastSignature: PlaybackEventInput | undefined;
+    /** 与上一个拍号相同则跳过，避免跳转补发与目标列自身拍号重复 */
+    const emitTimeSignature = (event: PlaybackEventInput) => {
+        if (lastSignature?.numerator === event.numerator && lastSignature.denominator === event.denominator) return;
+        events.push(lastSignature = { ...event, at: event.at.clone() });
+    };
     let nextNoteId = 0;
 
     interface BpmScale {
@@ -324,7 +331,7 @@ export function compilePlayback(
                 if (scales.length) spanScales.set(span, scales);
                 span.end.add(duration);
             },
-            emit: event => events.push({ ...event, at: event.at.clone() }),
+            emit: emitTimeSignature,
             control: (at, apply) => scheduleControl(at, lineage, apply),
             /** 只登记效果身份和比例，范围等结构与连接确定后再计算 */
             scaleFollowingBpm(key, numerator, denominator = 1, options) {
@@ -386,6 +393,8 @@ export function compilePlayback(
         const resume = nextColumn.t.clone();
         shift.add(boundary).sub(resume);
         scheduleControl(performanceEnd, [{ node: nextColumn[0] }], state => { state.bpm = nextColumn.bpm; });
+        const { timeSignature } = nextColumn;
+        if (timeSignature) emitTimeSignature({ kind: "time-signature", at: performanceEnd, ...timeSignature });
         const point = { performance: performanceEnd.clone(), score: resume };
         const previous = scoreMap[scoreMap.length - 1];
         // 同一个演奏时刻指向后面最近的谱面时刻

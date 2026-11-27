@@ -189,6 +189,8 @@ class MeterTemporal extends TemporalNodeBase {
 
     override onTimeState(state: TimeState) {
         state.meter = this.ast.measureDuration;
+        const { measureDuration, numerator, denominator } = this.ast;
+        state.timeSignature = measureDuration && { numerator, denominator };
         recordMeasureChange(this, this.ast);
     }
 

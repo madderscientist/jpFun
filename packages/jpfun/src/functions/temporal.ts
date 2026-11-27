@@ -36,6 +36,8 @@ export interface TimeState {
     accidentals: AccidentalMemory;
     /** 当前小节时长（QN）；尚无显式拍号或散板时为 undefined */
     meter?: Fraction;
+    /** 当前可输出的拍号；尚无显式拍号或散板时为 undefined */
+    timeSignature?: { readonly numerator: number; readonly denominator: number };
     [key: string]: any;
 }
 export const DEFAULT_BPM = 120;
