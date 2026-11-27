@@ -1,4 +1,5 @@
 import type { PaintStyle, PathCommand } from "../../../render/types.js";
+import type { TemporalNodeBase, TimeState } from "../../temporal.js";
 import type { SymbolDefinition } from "../index.js";
 
 /**
@@ -151,7 +152,18 @@ const P_WEIGHT = 0.79341;
 const P_VELOCITIES = [49, 33, 16, 10, 5, 1] as const;
 const F_VELOCITIES = [96, 112, 126, 127] as const;
 
+/** 力度记号的 onTimeState → 力度；符号节点直接引用定义里的回调，因而可按引用识别 */
+const markVelocities = new WeakMap<NonNullable<SymbolDefinition["onTimeState"]>, number>();
+
+/** 节点是力度记号时返回它设置的力度 */
+export function dynamicMarkVelocity(node: TemporalNodeBase): number | undefined {
+    const onTimeState = node.onTimeState as SymbolDefinition["onTimeState"];
+    return onTimeState && markVelocities.get(onTimeState);
+}
+
 function dynamic(name: string, velocity: number, description: string): SymbolDefinition {
+    const onTimeState = (state: TimeState) => { state.velocity = velocity; };
+    markVelocities.set(onTimeState, velocity);
     let dx = 0;
     const shapes = Array.from(name, (letter, index) => {
         const shape = { path: GLYPHS[letter], style: INK, dx };
@@ -163,7 +175,7 @@ function dynamic(name: string, velocity: number, description: string): SymbolDef
         description,
         shapes,
         weight: name.includes("f") ? 1 : P_WEIGHT,
-        onTimeState: state => { state.velocity = velocity; },
+        onTimeState,
     };
 }
 

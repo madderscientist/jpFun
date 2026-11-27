@@ -41,6 +41,18 @@ test("dyn 按记谱时间线性叠加力度并在区间后保持，与区间内�
     ["1@a ^ $p 2 3@b 4 5 ^ $f @dyn(a,b,24)", "49 61 73 73 96"],
 ]));
 
+test("dyn 的保持在下一个力度记号处结束", () => expectVelocities([
+    // 同值重写也结束保持
+    ["1@a ^ $p 2 3 4@b @dyn(a,b,32) | 5 ^ $p 6", "49 60 70 81 49 49"],
+    // 记号做宿主时，同刻挂在其上的音不再保持
+    ["1@a ^ $p 2 3 4@b @dyn(a,b,32) | $p ^ 5 6", "49 60 70 81 49 49"],
+    ["1@a 2@b @dyn(a,b,0.4999999)", "80 80"],
+]));
+
+test("dyn 按固化后的最终时间判断端点", () => {
+    strictEqual(velocities(`@meter(4,4) @rest(1)@a 1@b @dyn(a,b,20) 2`).join(" "), "100 100");
+});
+
 test("dyn 的增时线端点使用同轨此前最后一个音符的力度基准", () => {
     for (const endpoints of ["a,b", "b,a"]) {
         const source = `1@a ^ $p 2 -@b 3 4 ^ $f @dyn(${endpoints},24)`;
@@ -117,7 +129,7 @@ test("dyn 校验增量、音轨和时间跨度", () => {
     const clamped = compileScore(`1@a ^ $p 2 3@b @dyn(a,b,200)`);
     assert(clamped.diagnostics.some(item => item.code === "W_DYN_DELTA_CLAMPED"),
         "a finite delta outside the velocity range must be clamped with a warning");
-    assert(playedNotes(compilePlayback(clamped.lowering))[1].velocity === 112.5,
+    assert(playedNotes(compilePlayback(clamped.lowering))[1].velocity === 113,
         "the clamped delta must be used for interpolation");
 });
 
