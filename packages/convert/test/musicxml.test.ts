@@ -358,6 +358,110 @@ test("MusicXML 保留复合拍号的书面分母", () => {
   assert(source.includes("H.signature: 1=C4 6/8"), `6/8 不得约分成 3/4：${source}`);
 });
 
+// 调号与移调测试用的最小 MusicXML 片段
+const note = (pitch: string, staff = 0, duration = 1) => `<note><pitch><step>${pitch[0]}</step>${
+  pitch[1] === "#" ? "<alter>1</alter>" : ""}<octave>4</octave></pitch><duration>${duration}</duration>${staff ? `<staff>${staff}</staff>` : ""}</note>`;
+const rest = (staff = 0) => `<note><rest/><duration>1</duration>${staff ? `<staff>${staff}</staff>` : ""}</note>`;
+const backup = (duration = 1) => `<backup><duration>${duration}</duration></backup>`;
+const key = (fifths: number, attributes = "") => `<key${attributes}><fifths>${fifths}</fifths></key>`;
+const bar = (number: number, attributes: string, body: string) =>
+  `<measure number="${number}">${attributes && `<attributes>${attributes}</attributes>`}${body}</measure>`;
+const scale = (fifths: number, pitches: string[], transpose = "", number = 1) =>
+  bar(number, key(fifths) + transpose, pitches.map(pitch => note(pitch)).join(""));
+const duet = (first: string, second: string, firstInstrument = "") => `<score-partwise><part-list>
+  <score-part id="P1"><part-name>P1</part-name>${firstInstrument}</score-part>
+  <score-part id="P2"><part-name>P2</part-name></score-part></part-list>
+  <part id="P1">${first}</part><part id="P2">${second}</part></score-partwise>`;
+
+const bbClarinet = "<transpose><chromatic>-2</chromatic></transpose>";
+const aClarinet = "<transpose><diatonic>-2</diatonic><chromatic>-3</chromatic></transpose>";
+
+test("MusicXML 移调乐器的音符与调号一起换算为实音", () => {
+  const sax = "<transpose><diatonic>-5</diatonic><chromatic>-9</chromatic><octave-change>-1</octave-change></transpose>";
+  for (const [name, xml, pitchMode, expected, midi] of [
+    ["降 B 单簧管中途转调", partwise(scale(2, ["D", "E", "F#", "G"], bbClarinet) + scale(0, ["C"], "", 2)),
+      "relative", ["1=C4", "1 2 3 4", "@1(Bb4)"], [60, 62, 64, 65, 58]],
+    ["换 A 单簧管但不重写调号", partwise(scale(2, ["D"], bbClarinet) + bar(2, aClarinet, note("D"))),
+      "relative", ["1=C4", "@1(B4)"], [60, 59]],
+    ["低音域萨克斯的八度移调不改变调号", partwise(scale(0, ["C"], sax)), "absolute", ["1=Eb4", "Eb2"], [39]],
+  ] as const) {
+    const { script, playback } = compileMusicXml(xml, { pitchMode });
+    assert(expected.every(text => script.includes(text)), `${name}\n${script}`);
+    deepStrictEqual(playedNotes(playback).map(item => item.midi), midi, name);
+  }
+});
+
+test("MusicXML 按谱表合成全谱实音调号", () => {
+  const twoBarsOfD = scale(2, ["D"]) + scale(2, ["D"], "", 2);
+  const drums = bar(1, key(0) + "<clef><sign>percussion</sign></clef>",
+    "<note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>1</duration></note>");
+  const visibleThenHidden = scale(0, ["C"]) + bar(2, key(2, ' print-object="no"'), note("D"));
+  const concertG = scale(3, ["A"], bbClarinet);
+  const hiddenUpperVisibleLower = `<staves>2</staves>${key(0, ' number="1" print-object="no"')}${key(2, ' number="2"')}`;
+  const visibleBothStaves = `<staves>2</staves>${key(0, ' number="1"')}${key(2, ' number="2"')}`;
+  const laterLowerStaff = (staves: string) =>
+    bar(1, staves + key(0), rest(1)) + bar(2, "<staves>2</staves>", note("C", 2));
+  const staffDrop = `<divisions>1</divisions><staves>2</staves>${key(1, ' number="1" print-object="no"')}${key(2, ' number="2"')}`;
+  // [名称, XML, 首调, 后续换调, 冲突警告的 [声部, 小节, 谱表]]
+  const cases: [string, string, string, string[], (string | number | undefined)[][]][] = [
+    ["打击乐声部在前", duet(drums, twoBarsOfD), "D4", [], []],
+    ["隐藏调号声部在前", duet(bar(1, key(0, ' print-object="no"'), note("C")), twoBarsOfD), "D4", [], []],
+    ["通道 10 鼓轨在前", duet(scale(0, ["C"]), twoBarsOfD,
+      `<midi-instrument id="P1-I1"><midi-channel>10</midi-channel></midi-instrument>`), "D4", [], []],
+    ["钢琴与单簧管实音一致", duet(scale(0, ["C"]), scale(2, ["D"], bbClarinet)), "C4", [], []],
+    ["单簧管与钢琴实音一致", duet(scale(2, ["D"], bbClarinet), scale(0, ["C"])), "C4", [], []],
+    ["冲突时保留控制声部", duet(scale(0, ["C"]), concertG + scale(1, ["G"], "", 2)), "C4", [], [["P2", 1, undefined], ["P2", 2, undefined]]],
+    ["控制声部为单簧管", duet(concertG, scale(0, ["C"]) + scale(1, ["G"], "", 2)), "G4", [], [["P2", 1, undefined]]],
+    ["独奏调号改为隐藏", partwise(visibleThenHidden), "C4", ["D4"], []],
+    ["隐藏后让给其他声部", duet(visibleThenHidden, scale(1, ["G"]) + scale(1, ["G"], "", 2)), "C4", ["G4"], [["P2", 1, undefined]]],
+    ["控制声部转调后首次冲突", duet(scale(0, ["C"]) + scale(2, ["D"], "", 2) + scale(2, ["D"], "", 3),
+      scale(0, ["C"]) + bar(2, "", rest()) + bar(3, "", rest())), "C4", ["D4"], [["P2", 2, undefined]]],
+    ["显式等音换调号", partwise(scale(6, ["F#"]) + scale(-6, ["G"], "", 2)), "F#4", ["Gb4"], []],
+    ["只有下谱表转调", partwise(bar(1, `<staves>2</staves>${key(0)}`, note("C", 1) + backup() + note("C", 2))
+      + bar(2, key(2, ' number="2"'), note("C", 1) + backup() + note("D", 2))), "C4", [], [["P1", 2, "2"]]],
+    ["全休止上谱表", partwise(bar(1, visibleBothStaves, rest(1) + backup() + note("D", 2))), "D4", [], []],
+    ["只有无宿主倚音的上谱表", partwise(bar(1, visibleBothStaves, rest(1)
+      + `<note><grace/><pitch><step>C</step><octave>5</octave></pitch><staff>1</staff></note>` + backup() + note("D", 2))), "D4", [], []],
+    ["只有下谱表移调", partwise(bar(1, `<staves>2</staves>${key(0)}<transpose number="2"><diatonic>-1</diatonic><chromatic>-2</chromatic></transpose>`,
+      note("C", 1) + backup() + note("D", 2))), "C4", [], [["P1", 1, "2"]]],
+    ["移除可见调号的谱表", partwise(bar(1, hiddenUpperVisibleLower, note("C", 1) + backup() + note("D", 2))
+      + bar(2, `<staves>1</staves>${key(1, ' print-object="no"')}`, note("G", 1))), "D4", ["G4"], []],
+    ["移除唯一有调号的谱表", partwise(bar(1, `<divisions>1</divisions><staves>2</staves>${key(2, ' number="2"')}`, note("D", 2))
+      + bar(2, "<staves>1</staves>", note("C", 1))), "D4", ["C4"], []],
+    ["首个 staves 省略", duet(laterLowerStaff(""), twoBarsOfD), "D4", ["C4"], [["P2", 2, undefined]]],
+    ["首个 staves 为 1", duet(laterLowerStaff("<staves>1</staves>"), twoBarsOfD), "D4", ["C4"], [["P2", 2, undefined]]],
+    ["首小节只有 forward", partwise(bar(1, `<divisions>1</divisions><staves>1</staves>${key(2)}`, "<forward><duration>4</duration></forward>")
+      + bar(2, "<staves>2</staves>", note("D", 2))), "D4", [], []],
+    ["谱表数减为 0", duet(scale(0, ["C"]) + bar(2, "<staves>0</staves>", ""), twoBarsOfD), "C4", ["D4"], [["P2", 1, undefined]]],
+    ["谱表数按时间生效", partwise(bar(1, staffDrop, note("G", 1, 2) + "<attributes><staves>1</staves></attributes>" + note("G", 1, 2)
+      + backup(4) + note("D", 2, 2))), "D4", ["G4"], []],
+    ["谱表数不按 XML 顺序生效", partwise(bar(1, "<divisions>1</divisions>", "<forward><duration>2</duration></forward>"
+      + "<attributes><staves>1</staves></attributes>" + backup(2) + `<attributes>${staffDrop}</attributes>`
+      + note("G", 1, 4) + backup(4) + note("D", 2, 2))), "D4", ["G4"], []],
+  ];
+  for (const [name, xml, signature, changes, warnings] of cases) {
+    const { script, diagnostics } = importMusicXml(xml);
+    assert(script.includes(`H.signature: 1=${signature}`), `${name}\n${script}`);
+    deepStrictEqual([...script.matchAll(/@1\(([^)]+)\)/g)].map(match => match[1]), changes, name);
+    deepStrictEqual(diagnostics.filter(({ location }) => location.element === "key" || location.element === "transpose")
+      .map(({ location }) => [location.partId, location.measureIndex, location.staff]), warnings, name);
+  }
+});
+
+test("MusicXML 按 part-list 而非正文顺序决定声部顺序与调号优先级", () => {
+  const partList = `<part-list>${["P1", "P2"].map(id =>
+    `<score-part id="${id}"><part-name>${id}</part-name></score-part>`).join("")}</part-list>`;
+  const timewisePart = (id: string, fifths: number, step: string) => `<part id="${id}"><attributes>${key(fifths)}</attributes>${note(step)}</part>`;
+  for (const xml of [
+    `<score-partwise>${partList}<part id="P2">${scale(2, ["D"])}</part><part id="P1">${scale(0, ["C"])}</part></score-partwise>`,
+    `<score-timewise>${partList}<measure number="1">${timewisePart("P2", 2, "D")}${timewisePart("P1", 0, "C")}</measure></score-timewise>`,
+  ]) {
+    const { script, diagnostics } = importMusicXml(xml);
+    assert(script.includes("H.signature: 1=C4") && script.indexOf('N("P1")') < script.indexOf('N("P2")'), script);
+    deepStrictEqual(diagnostics.map(({ location }) => [location.partId, location.element]), [["P2", "key"]]);
+  }
+});
+
 test("MusicXML instrument 切换 program 且 channel 10 鼓点跳过", () => {
   const source = musicXmlToJpFun(`<?xml version="1.0"?>
 <score-partwise version="4.0"><part-list>

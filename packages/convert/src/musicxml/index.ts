@@ -14,10 +14,12 @@ import {
     type MusicXmlElement,
 } from "./dom.js";
 import {
-    MusicXmlReader, acceptTuplets, directionDynamic, directionTexts, endingPasses, metronomeBpm,
+    MusicXmlReader, acceptTuplets, directionDynamic, directionTexts, endingPasses, latestAt, metronomeBpm,
     mergeArpeggio, noteArpeggio, noteGlissandi, noteLyrics, noteModifiers, parsePitch,
-    parseTimeSignature, partMeasures, readInstrument, reportDiagnostic, scoreMetadata, soundRepeats, timeModification, transposePitch,
+    parseTimeSignature, partMeasures, readInstrument, readTransposition, reportDiagnostic, scoreMetadata, soundRepeats,
+    timeModification, transposePitch,
 } from "./features.js";
+import { forStaff, resolveConcertKeys, type PartKeys } from "./keys.js";
 import type {
     MusicXmlDiagnostic,
     MusicXmlDirectionPoint as DirectionPoint,
@@ -69,8 +71,9 @@ interface RenderAdjustment {
     pendingLocations: MusicXmlDiagnostic["location"][];
 }
 
-const MAJOR_KEYS = ["Cb", "Gb", "Db", "Ab", "Eb", "Bb", "F", "C", "G", "D", "A", "E", "B", "F#", "C#"];
-const MINOR_KEYS = ["Ab", "Eb", "Bb", "F", "C", "G", "D", "A", "E", "B", "F#", "C#", "G#", "D#", "A#"];
+// 两表均按五度圈排列：零升降号时，各调式的主音依次为 F、C、G、D、A、E、B。
+const MODES = ["lydian", "major", "mixolydian", "dorian", "minor", "phrygian", "locrian"];
+const TONICS = ["Fb", "Cb", "Gb", "Db", "Ab", "Eb", "Bb", "F", "C", "G", "D", "A", "E", "B", "F#", "C#", "G#", "D#", "A#", "E#", "B#"];
 
 function add(left: Fraction, right: Fraction) {
     return left.clone().add(right);
@@ -159,7 +162,7 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
     // 先收集按时间定位的原始语义；关系端点在所有 part 解析完后统一配对
     const lanes = new Map<string, Lane>();
     const meters = new Map<string, MeterPoint>();
-    const keys = new Map<string, KeyPoint>();
+    const partKeys: PartKeys[] = [];
     const tempos = new Map<string, ParsedScore["tempos"][number]>();
     const repeats = new Map<string, RepeatPoint>();
     const directions: DirectionPoint[] = [];
@@ -178,7 +181,10 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
     };
 
     // 主时间解析：逐 part、逐小节扫描 attributes/direction/note/barline
-    const measuresByPart = partMeasures(root);
+    // 谱面顺序由 part-list 决定；正文中未登记的 part 按出现顺序排在其后
+    const bodyParts = partMeasures(root);
+    const measuresByPart = new Map([...partNames.keys()].filter(id => bodyParts.has(id)).map(id => [id, bodyParts.get(id)!]));
+    for (const [id, measures] of bodyParts) if (!measuresByPart.has(id)) measuresByPart.set(id, measures);
     const partOrder = new Map([...measuresByPart.keys()].map((id, index) => [id, index]));
     // 第一 part 决定全谱小节边界，其他 part 必须落在同一时间框架内
     const controlPartId = measuresByPart.keys().next().value as string | undefined;
@@ -191,11 +197,12 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
         let activeMeter = { numerator: 4, denominator: 4 };
         const lastEvent = new Map<string, MusicEvent>();
         const pendingGraces = new Map<string, Pitch[][]>();
-        const transpositions: { at: Fraction; staff: string; chromatic: number; diatonic?: number; octaves: number }[] = [];
-        const pitches: { pitch: Pitch; at: Fraction }[] = [];
+        const partKey: PartKeys = {
+            staves: new Set(["1"]), pitchedStaves: new Set(), staffCounts: [], measures: [], declarations: [], transpositions: [],
+        };
+        const pitches = new Map<Pitch, Fraction>();
         const instrumentChanges: { at: Fraction; id: string; instrument: Instrument }[] = [];
         const eventInstruments = new Map<MusicEvent, string>();
-        const measureStarts: Fraction[] = [];
         const firstRest = multipleRests.length;
         const instrumentAt = (id: string, at: Fraction): Instrument => {
             const value = { ...(partInstruments?.byId.get(id) ?? partInstruments?.fallback) };
@@ -206,12 +213,12 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
         };
         // 小节游标从零开始，partTime 保存当前小节在全谱中的绝对起点
         for (let measureIndex = 0; measureIndex < measures.length; measureIndex++) {
-            measureStarts.push(partTime.clone());
             const { body: measure, container: measureContainer } = measures[measureIndex];
             const measureLocation = {
                 partId, measureIndex: measureIndex + 1,
                 measureNumber: measureContainer.getAttribute("number") ?? undefined,
             };
+            partKey.measures.push({ at: partTime.clone(), location: measureLocation });
             let cursor = new Fraction();
             let measureEnd = new Fraction();
             let chordStart: Fraction | undefined;
@@ -265,14 +272,14 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
                 if (tag === "attributes") {
                     const at = add(partTime, cursor);
                     for (const transpose of children(item, "transpose")) {
-                        const chromatic = number(transpose, "chromatic");
-                        const diatonic = child(transpose, "diatonic") ? number(transpose, "diatonic") : undefined;
-                        const octaves = number(transpose, "octave-change", 0);
-                        if (![chromatic, octaves, diatonic ?? 0].every(Number.isSafeInteger) || child(transpose, "double")) {
-                            throw new RangeError("jpFun requires integer MusicXML transposition without octave doubling");
-                        }
-                        transpositions.push({ at: at.clone(), staff: transpose.getAttribute("number") ?? "", chromatic, diatonic, octaves });
+                        partKey.transpositions.push({
+                            ...readTransposition(transpose, at),
+                            location: { ...measureLocation, element: "transpose", staff: transpose.getAttribute("number") || undefined },
+                        });
                     }
+                    const staffCount = child(item, "staves") ? number(item, "staves") : NaN;
+                    // 只记录允许的编号上限，谱表本身由音符和带编号的 key 决定
+                    if (Number.isSafeInteger(staffCount) && staffCount >= 0) partKey.staffCounts.push({ at, count: staffCount });
                     if (child(item, "divisions")) divisions = number(item, "divisions");
                     if (!Number.isSafeInteger(divisions) || divisions <= 0) throw new RangeError("MusicXML divisions must be a positive integer");
                     const time = child(item, "time");
@@ -281,14 +288,17 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
                         activeMeter = { numerator, denominator };
                         meters.set(keyOf(at), { at, numerator, denominator });
                     }
-                    const key = child(item, "key");
-                    if (key) {
+                    for (const key of children(item, "key")) {
                         const fifths = number(key, "fifths", 0);
                         if (!Number.isSafeInteger(fifths)) throw new RangeError("MusicXML fifths must be an integer");
-                        keys.set(keyOf(at), {
-                            at,
-                            fifths,
-                            mode: text(key, "mode") || "major",
+                        if (Math.abs(fifths) > 7) throw new RangeError("jpFun supports MusicXML key signatures from -7 to 7 fifths");
+                        const mode = text(key, "mode").toLowerCase() || "major";
+                        const staff = key.getAttribute("number") || undefined;
+                        if (staff) partKey.staves.add(staff);
+                        partKey.declarations.push({
+                            at, fifths, mode: mode === "ionian" ? "major" : mode === "aeolian" ? "minor" : mode,
+                            hidden: key.getAttribute("print-object") === "no",
+                            location: { ...measureLocation, element: "key", staff },
                         });
                     }
                     for (const style of children(item, "measure-style")) {
@@ -393,6 +403,7 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
                 // note 先确定 lane 与 instrument，再区分打击乐、倚音、和弦成员和普通起音
                 const voice = text(item, "voice") || "1";
                 const staff = text(item, "staff") || "1";
+                partKey.staves.add(staff);
                 const location = { ...measureLocation, element: "note", staff, voice };
                 const laneKey = `${partId}\0${staff}\0${voice}`;
                 const instrumentId = child(item, "instrument")?.getAttribute("id")
@@ -409,7 +420,6 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
                 const grace = child(item, "grace");
                 const start = chord && chordStart ? chordStart.clone() : add(partTime, cursor);
                 if (!chord && !grace) chordStart = start.clone();
-                if (pitch && child(item, "pitch")) pitches.push({ pitch, at: start });
                 // 打击乐尚未建模，但普通音符仍须推进游标以保持后续事件位置
                 if (instrumentAt(instrumentId, start).channel === 10) {
                     reportDiagnostic(diagnostics, "percussion", location);
@@ -420,8 +430,10 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
                     if (measureEnd.compare(cursor) < 0) measureEnd = cursor.clone();
                     continue;
                 }
-                if (pitch && !child(item, "pitch")) reportDiagnostic(diagnostics, "displayPitch",
-                    { ...location, element: "unpitched" });
+                if (pitch) {
+                    if (child(item, "pitch")) pitches.set(pitch, start);
+                    else reportDiagnostic(diagnostics, "displayPitch", { ...location, element: "unpitched" });
+                }
                 // lane 在首次遇到可保留事件时创建，纯打击乐轨不会留下空 lane
                 let lane = lanes.get(laneKey);
                 if (!lane) {
@@ -534,22 +546,33 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
             partTime.add(length);
             if (scoreEnd.compare(partTime) < 0) scoreEnd = partTime.clone();
         }
-        measureStarts.push(partTime.clone());
         for (const rest of multipleRests.slice(firstRest)) {
-            rest.end = measureStarts[rest.location.measureIndex - 1 + rest.count];
+            const endIndex = rest.location.measureIndex - 1 + rest.count;
+            rest.end = endIndex === measures.length ? partTime : partKey.measures[endIndex]?.at;
         }
         for (const groups of pendingGraces.values()) for (const group of groups) for (const pitch of group) {
+            pitches.delete(pitch);
             reportDiagnostic(diagnostics, "graceHost", { ...pitch.location, element: "grace" });
         }
-        transpositions.sort((left, right) => left.at.compare(right.at)).reverse();
-        for (const { pitch, at } of pitches) {
-            const change = transpositions.find(item => (!item.staff || item.staff === pitch.location.staff) && item.at.compare(at) <= 0);
-            if (change) transposePitch(pitch, change.chromatic, change.diatonic, change.octaves);
+        // backup 可让 XML 顺序晚于乐谱时间；同刻多次声明时保留最后读到的
+        for (const points of [partKey.staffCounts, partKey.transpositions, partKey.declarations]) {
+            points.sort((left, right) => left.at.compare(right.at));
+        }
+        partKeys.push(partKey);
+        const shifts = new Map<string, typeof partKey.transpositions>();
+        if (partKey.transpositions.length) for (const staff of partKey.staves) shifts.set(staff, forStaff(partKey.transpositions, staff));
+        for (const [pitch, at] of pitches) {
+            const staff = pitch.location.staff;
+            partKey.pitchedStaves.add(staff);
+            const timeline = shifts.get(staff);
+            const change = timeline && latestAt(timeline, at);
+            if (change) transposePitch(pitch, change);
         }
         for (const [event, id] of eventInstruments) event.program = instrumentAt(id, event.start).program;
         setBar(bars, partTime, "|||");
     }
 
+    const keys = resolveConcertKeys(partKeys, diagnostics);
     const laneList = [...lanes.values()];
     const { wedges, endings } = resolveRelations(wedgePoints, [...endingPoints.values()], diagnostics);
     // 只有房子没有音符时也要保留一条 lane 承载生成的端点
@@ -570,7 +593,7 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
             || Number(left.staff) - Number(right.staff)
             || Number(left.voice) - Number(right.voice)),
         meters: [...meters.values()].sort((left, right) => left.at.compare(right.at)),
-        keys: [...keys.values()].sort((left, right) => left.at.compare(right.at)),
+        keys,
         tempos: [...tempos.values()].sort((left, right) => left.at.compare(right.at)),
         repeats: [...repeats.values()].sort((left, right) => left.at.compare(right.at)),
         wedges,
@@ -583,41 +606,24 @@ function parseScore(root: MusicXmlElement, diagnostics: MusicXmlDiagnostic[]): P
     };
 }
 
-/** 将 MusicXML 的 fifths + mode 转成 jpFun 可表示的主音拼写 */
-function tonicName(key: KeyPoint) {
-    if (!Number.isSafeInteger(key.fifths) || key.fifths < -7 || key.fifths > 7) {
-        throw new RangeError("jpFun supports MusicXML key signatures from -7 to 7 fifths");
-    }
-    const mode = key.mode.toLowerCase();
-    if (mode === "minor" || mode === "aeolian") return MINOR_KEYS[key.fifths + 7];
-    if (mode === "major" || mode === "ionian") return MAJOR_KEYS[key.fifths + 7];
-    const modalDegree: Record<string, [number, number]> = {
-        dorian: [1, 2], phrygian: [2, 4], lydian: [3, 5], mixolydian: [4, 7], locrian: [6, 11],
-    };
-    const shift = modalDegree[mode];
-    if (!shift) throw new RangeError(`Unsupported MusicXML mode ${key.mode}`);
-    const major = MAJOR_KEYS[key.fifths + 7];
-    const letters = "CDEFGAB";
-    const letter = letters[(letters.indexOf(major[0]) + shift[0]) % letters.length];
-    const majorPitch = NoteNameMap[major[0]] + (major[1] === "#" ? 1 : major[1] === "b" ? -1 : 0);
-    const targetPitch = ((majorPitch + shift[1]) % 12 + 12) % 12;
-    const alteration = ((targetPitch - NoteNameMap[letter] + 18) % 12) - 6;
-    if (alteration < -1 || alteration > 1) throw new RangeError(`MusicXML mode ${key.mode} requires an unsupported tonic spelling`);
-    return letter + (alteration === 1 ? "#" : alteration === -1 ? "b" : "");
+function renderKey({ at, fifths, mode }: KeyPoint) {
+    const degree = MODES.indexOf(mode);
+    if (degree < 0) throw new RangeError(`Unsupported MusicXML mode ${mode}`);
+    const tonic = TONICS[7 + fifths + degree];
+    const alter = tonic[1] === "#" ? 1 : tonic[1] === "b" ? -1 : 0;
+    return { at, tonic, midi: 60 + NoteNameMap[tonic[0]] + alter };
 }
+type RenderKey = ReturnType<typeof renderKey>;
 
 function pointAt<T extends { at: Fraction }>(points: readonly T[], at: Fraction) {
-    const index = lowerBoundAt(points, at, point => point.at);
-    return index < points.length && points[index].at.equals(at)
-        ? points[index]
-        : points[Math.max(0, index - 1)];
+    return latestAt(points, at) ?? points[0];
 }
 
 /** 生成单个音高；octave=0 等有歧义的情况回退到显式 note */
 function pitchSource(
     pitch: Pitch,
     mode: PitchMode,
-    key: KeyPoint,
+    key: RenderKey,
     metadata: RenderMetadata,
     suffix = "",
 ) {
@@ -627,9 +633,7 @@ function pitchSource(
         token = renderAbsolutePitch(pitch.step, accidental, pitch.octave);
     } else {
         const midi = (pitch.octave + 1) * 12 + NoteNameMap[pitch.step] + pitch.alter;
-        const tonic = tonicName(key);
-        const tonicAlter = tonic[1] === "#" ? 1 : tonic[1] === "b" ? -1 : 0;
-        token = renderRelativePitch(midi - 60 - NoteNameMap[tonic[0]] - tonicAlter);
+        token = renderRelativePitch(midi - key.midi);
     }
     const label = metadata.labels.get(pitch);
     return `${token}${suffix}${label ? `@${label}` : ""}`;
@@ -639,7 +643,7 @@ function pitchSource(
 function eventSource(
     event: MusicEvent,
     mode: PitchMode,
-    key: KeyPoint,
+    key: RenderKey,
     metadata: RenderMetadata,
     diagnostics: MusicXmlDiagnostic[],
     suffix = "",
@@ -757,7 +761,7 @@ function renderBlocks(
     lane: Lane,
     pitchMode: PitchMode,
     score: ParsedScore,
-    keys: readonly KeyPoint[],
+    keys: readonly RenderKey[],
     adjustments: ReadonlyMap<string, RenderAdjustment>,
     programs: ReadonlyMap<string, number>,
     metadata: RenderMetadata,
@@ -1014,9 +1018,8 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagno
     const meters = score.meters.length === 0 || !score.meters[0].at.isZero()
         ? [{ at: new Fraction(), numerator: 4, denominator: 4 }, ...score.meters]
         : score.meters;
-    const keys = score.keys.length === 0 || !score.keys[0].at.isZero()
-        ? [{ at: new Fraction(), fifths: 0, mode: "major" }, ...score.keys]
-        : score.keys;
+    const keys = score.keys.map(renderKey);
+    if (!keys[0]?.at.isZero()) keys.unshift({ at: new Fraction(), tonic: "C", midi: 60 });
     const tempos = score.tempos.length === 0 || !score.tempos[0].at.isZero()
         ? [{ at: new Fraction(), bpm: 120 }, ...score.tempos]
         : score.tempos;
@@ -1033,7 +1036,7 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagno
         if (location) point.pendingLocations.push(location);
         adjustments.set(key, point);
     };
-    for (const item of keys.slice(1)) addAdjustment(scoreAdjustments, item.at, `@1(${tonicName(item)}4)`);
+    for (const item of keys.slice(1)) addAdjustment(scoreAdjustments, item.at, `@1(${item.tonic}4)`);
     for (const item of meters.slice(1)) addAdjustment(scoreAdjustments, item.at, `@meter(${item.numerator}, ${item.denominator})`);
     for (const item of tempos.slice(1)) addAdjustment(scoreAdjustments, item.at, `@tempo(${item.bpm})`, item.location);
     for (const item of score.repeats) {
@@ -1279,7 +1282,7 @@ function renderScore(score: ParsedScore, options: MusicXmlToJpFunOptions, diagno
         title: score.title,
         subtitle: score.subtitle,
         author: score.creator,
-        key: `${tonicName(keys[0])}4`,
+        key: `${keys[0].tonic}4`,
         meter: [meters[0].numerator, meters[0].denominator],
         tempo: tempos[0].bpm,
     });

@@ -22,6 +22,7 @@ Both functions and their types are also exported by `@jpfun/convert`.
 - MusicXML input is an already parsed root implementing `MusicXmlElement`. The host chooses its XML parser and handles malformed XML and `.mxl` decompression.
 - MIDI defaults to width-based line breaking (`barsPerLine: 0`); a positive value fixes the number of bars per line.
 - MusicXML returns `{ script, diagnostics }`. Inspect the diagnostics for omissions and approximations; an empty array is not a lossless guarantee.
+- MusicXML notes and key signatures are imported at concert pitch; for example, written D major for a B♭ clarinet becomes C major. jpFun has one key for the whole score: when staves disagree, the first staff in `<part-list>` order wins and a warning is reported. Hidden key signatures and staves without pitched notes are used only as a fallback.
 - `jpfun` is a peer dependency. Conversion never imports another package's private source files.
 
 ## Browser Scripts

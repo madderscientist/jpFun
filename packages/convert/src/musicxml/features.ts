@@ -6,7 +6,7 @@ import type {
     MusicXmlArpeggio, MusicXmlDiagnostic, MusicXmlDirectionPoint,
     MusicXmlEvent, MusicXmlPitch, MusicXmlRepeatPoint, MusicXmlRepeatSymbol, ParsedMusicXmlScore,
 } from "./model.js";
-import { NoteNameMap, SHARP_NOTE_NAMES } from "jpfun";
+import { NoteNameMap, SHARP_NOTE_NAMES, type Fraction } from "jpfun";
 
 /** 统一两种 MusicXML 根结构中的小节内容与外层小节容器 */
 export interface MusicXmlMeasureSource {
@@ -46,6 +46,7 @@ const DIAGNOSTICS = {
     dynamicHost: ["UNATTACHED_CONTENT", "Dynamic {value} has no target voice and was omitted."],
     directionOutput: ["UNATTACHED_CONTENT", "Direction mark has no generated output position and was omitted."],
     tempoReplaced: ["UNATTACHED_CONTENT", "Tempo {value} was replaced by a different tempo at the same time and was omitted."],
+    keyConflict: ["APPROXIMATED", "Conflicting concert key signature; the key from part {value} was retained."],
     arpeggioOutput: ["UNSUPPORTED_ELEMENT", "Arpeggiate mark requires at least two pitches in one event and was omitted."],
     multipleRest: ["APPROXIMATED", "Multiple-rest grouping could not be preserved without discarding musical content; individual rests were retained."],
     textHost: ["UNATTACHED_CONTENT", "Text {value} has no target event and was omitted."],
@@ -224,7 +225,28 @@ export function parsePitch(note: MusicXmlElement, location: MusicXmlPitch["locat
     };
 }
 
-export function transposePitch(pitch: MusicXmlPitch, chromatic: number, diatonic: number | undefined, octaves: number) {
+/** 按时间排序的序列中最后一项 at <= 查询时间；同刻多项时取最后一项。 */
+export function latestAt<T extends { at: Fraction }>(items: readonly T[], at: Fraction): T | undefined {
+    let lo = 0, hi = items.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (items[mid].at.compare(at) <= 0) lo = mid + 1;
+        else hi = mid;
+    }
+    return items[lo - 1];
+}
+
+export function readTransposition(element: MusicXmlElement, at: Fraction) {
+    const chromatic = number(element, "chromatic");
+    const diatonic = child(element, "diatonic") ? number(element, "diatonic") : undefined;
+    const octaves = number(element, "octave-change", 0);
+    if (![chromatic, octaves, diatonic ?? 0].every(Number.isSafeInteger) || child(element, "double")) {
+        throw new RangeError("jpFun requires integer MusicXML transposition without octave doubling");
+    }
+    return { at, chromatic, diatonic, octaves };
+}
+
+export function transposePitch(pitch: MusicXmlPitch, { chromatic, diatonic, octaves }: ReturnType<typeof readTransposition>) {
     const midi = (pitch.octave + 1) * 12 + NoteNameMap[pitch.step] + pitch.alter + chromatic + octaves * 12;
     if (diatonic === undefined) {
         const spelling = SHARP_NOTE_NAMES[((midi % 12) + 12) % 12];
