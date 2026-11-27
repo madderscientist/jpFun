@@ -1,8 +1,8 @@
 import { ASTNodeBase, FunctionArgs, SourceSpan, ParserContext, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
 import { DEFAULT_KEY, TemporalNodeBase } from "../temporal.js";
-import type { LayoutBox } from "../../layout/types.js";
-import type { Painter } from "../../render/types.js";
+import type { LayoutBox, LayoutPrepareContext } from "../../layout/types.js";
+import type { Painter, TextStyle } from "../../render/types.js";
 import { WarningDiagnostic } from "../../diagnostic.js";
 import type { PlaybackEmitter, PlaybackOrigin } from "../../playback/types.js";
 
@@ -33,10 +33,17 @@ class DashFunction extends ASTFunctionNode {
     };
 
     size: number;
+    /** 与数字音符相同的测量样式，盒宽由此决定 */
+    numberStyle: TextStyle;
 
     constructor(span: SourceSpan, _args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
         this.size = ctx.variables.fontsize;
+        this.numberStyle = {
+            fontSize: this.size,
+            fontFamily: ctx.variables.numberfont,
+            fontWeight: ctx.variables.numberweight,
+        };
     }
 
     override loweringEnter() {
@@ -54,8 +61,6 @@ class DashTemporalNode extends TemporalNodeBase {
     declare ast: DashFunction;
     declare box: LayoutBox;
 
-    private lineWidth = 0;
-
     constructor(ast: DashFunction) {
         super();
         this.ast = ast;
@@ -64,15 +69,13 @@ class DashTemporalNode extends TemporalNodeBase {
         this.initLayoutBox();
     }
 
-    override prepareLayout() {
+    override prepareLayout(context: LayoutPrepareContext) {
         const size = this.ast.size;
-        this.lineWidth = size * 0.42;
-
-        // dash 与数字音符共享视觉中心和完整字号高度
+        // dash 与数字音符共享盒宽、视觉中心和完整字号高度，线在盒内居中
         // 线本身位于数字视觉中心，不使用极小的 glyph 高度作为轨道高度
-        this.box.w = this.lineWidth;
+        this.box.w = context.textMeasurer.measureText("0", this.ast.numberStyle).w;
         this.box.h = size;
-        this.box.anchor = this.lineWidth / 2;
+        this.box.anchor = this.box.w / 2;
         this.box.visualAxis = size * 0.5;
     }
 
@@ -119,11 +122,12 @@ class DashTemporalNode extends TemporalNodeBase {
     }
 
     override paint(painter: Painter) {
+        const w = this.ast.size * 0.42;
         const h = Math.max(1, this.ast.size * 0.1);
         painter.drawRect(
-            this.box.x,
+            this.box.x + this.box.anchor - w / 2,
             this.box.y + this.box.visualAxis - h / 2,
-            this.lineWidth,
+            w,
             h,
             { fill: "#000" },
         );
