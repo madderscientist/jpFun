@@ -96,6 +96,8 @@ class DynFunction extends ASTFunctionNode {
 ~~~
 端点须位于同一音轨、不同时间；变化量沿区间线性增加，叠加在每个音符原有力度上，并保持到下一个力度记号。本例从 \`a\` 到 \`b\` 渐强，终点增加 24 的力度。
 
+终点同一时刻有力度记号时，以该记号为目标线性过渡，不再叠加 \`dv\`。
+
 端点也可标在增时线上。终点没有力度时，取同轨、不晚于终点的最后一个原始力度作为保持基准；找不到时给出警告并仅绘制。增时线延续的音符保持起音时的力度。`,
         allowExtraArgs: false,
         args: [
@@ -148,6 +150,8 @@ class DynFunction extends ASTFunctionNode {
             });
         }
 
+        // 先结算没有终点记号的渐变；以记号为目标的渐变要从这些增量生效后的力度出发
+        const targeted: [DynAttachment, number][] = [];
         for (const dynamic of dynamics) {
             const track = tracks.get(dynamic.track)!;
             const { records, marks, runEnd } = track;
@@ -162,6 +166,13 @@ class DynFunction extends ASTFunctionNode {
                 ));
                 continue;
             }
+            const mark = marks[findRecordBoundary(marks, to, true) - 1];
+            if (mark?.host.t.equals(to)) {
+                // 同刻的记号与折叠成员先后不定，以终点最后取样的力度为目标
+                const sampled = records[afterEnd - 1];
+                targeted.push([dynamic, sampled.host.t.equals(to) ? sampled.velocity : mark.velocity]);
+                continue;
+            }
 
             // 保持到下一个力度记号（同值重写也算）或原始力度变化（兼顾其他写入力度的函数）
             let stopIndex = runEnd[afterEnd - 1];
@@ -170,6 +181,14 @@ class DynFunction extends ASTFunctionNode {
             if (nextMark) stopIndex = Math.min(stopIndex, findRecordBoundary(records, nextMark.host.t));
             addRamp(track, dynamic, endStart, dynamic.dv);
             addIncrement(track, endStart, stopIndex, dynamic.dv);
+        }
+        for (const track of tracks.values()) settle(track);
+
+        for (const [dynamic, target] of targeted) {
+            const track = tracks.get(dynamic.track)!;
+            const last = findRecordBoundary(track.records, dynamic.toHost.t) - 1;
+            if (last < 0) continue;
+            addRamp(track, dynamic, last + 1, target - track.records[last].velocity - track.increments[last]);
         }
         for (const track of tracks.values()) {
             settle(track);

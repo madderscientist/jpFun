@@ -41,11 +41,20 @@ test("dyn 按记谱时间线性叠加力度并在区间后保持，与区间内�
     ["1@a ^ $p 2 3@b 4 5 ^ $f @dyn(a,b,24)", "49 61 73 73 96"],
 ]));
 
-test("dyn 的保持在下一个力度记号处结束", () => expectVelocities([
+test("dyn 的保持在下一个力度记号处结束，终点记号作为渐变目标", () => expectVelocities([
     // 同值重写也结束保持
     ["1@a ^ $p 2 3 4@b @dyn(a,b,32) | 5 ^ $p 6", "49 60 70 81 49 49"],
     // 记号做宿主时，同刻挂在其上的音不再保持
     ["1@a ^ $p 2 3 4@b @dyn(a,b,32) | $p ^ 5 6", "49 60 70 81 49 49"],
+    ["1@a ^ $p 2 3 4@b ^ $f 5 @dyn(a,b,48)", "49 65 80 96 96"],
+    ["1@a ^ $p 2 3 $f 4@b 5 @dyn(a,b,48)", "49 65 80 96 96"],
+    // 目标渐变从此前保持后的实际力度出发
+    ["1@a ^ $p 2@b 3@c 4 5@d ^ $p @dyn(a,b,32) @dyn(c,d,-32)", "49 81 81 65 49"],
+    ["1@a ^ $p 2@b 3@c 4 5@d ^ $p @dyn(c,d,-32) @dyn(a,b,32)", "49 81 81 65 49"],
+    // 起点取限幅后的可听力度
+    ["1@a ^ $f 2@b 3@c 4 5@d ^ $p @dyn(a,b,80) @dyn(c,d,-40)", "96 127 127 88 49"],
+    // 同刻多个记号以实际生效的为目标
+    ["1@a ^ $p 2 3 4@b ^ $f ^ $p 5 @dyn(a,b,48)", "49 65 80 96 96"],
     ["1@a 2@b @dyn(a,b,0.4999999)", "80 80"],
 ]));
 
@@ -98,6 +107,9 @@ test("dyn 找不到此前同轨力度时给出诊断并保留图形", () => {
         assert(playedNotes(compilePlayback(result.lowering)).every(note => note.velocity === 80),
             "future notes and other tracks must not supply a baseline or receive an increment");
     }
+    const targeted = compileScore(`-@a -@b ^ $f 1 @dyn(a,b,20)`);
+    assert(targeted.diagnostics.filter(item => item.code === "W_DYN_NO_VELOCITY").length === 1,
+        "an end mark without any earlier snapshot must still warn");
 });
 
 test("dyn 覆盖折叠的和弦与倚音成员", () => {
@@ -110,8 +122,8 @@ test("dyn 覆盖折叠的和弦与倚音成员", () => {
     const grace = playedNotes(compilePlayback(lower(`2>1@a 3 4@b @dyn(a,b,20)`)));
     assert(grace.filter(note => note.start.compare(1) < 0).every(note => note.velocity === 80)
         && grace.at(-1)?.velocity === 100, "grace and host members projected to the start must receive zero delta");
-    // 带力度记号的终点倚音决定区间后的保持力度
-    expectVelocities([[`1@a {2 $p}>3@b 4 5 ^ $f @dyn(a,b,20)`, "80 100 69 69 96"]]);
+    // 终点倚音里的力度记号是渐变目标；早于记号取样的倚音保持原力度
+    expectVelocities([[`1@a {2 $p}>3@b 4 5 ^ $f @dyn(a,b,20)`, "80 80 49 49 96"]]);
 });
 
 test("dyn 在反复中重放同一曲线，多条声明按加法组合", () => expectVelocities([
