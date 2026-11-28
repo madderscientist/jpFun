@@ -219,7 +219,7 @@ test("voice category fonts restore after local settings", () => {
 });
 
 test("tempo and page measure and paint the same frozen TextStyle", () => {
-    const source = '@set(font="Wide") @page(400px, 120px, 20px, 32px, 20px, 20px, 10px, 5px, "page 1", "(1)", "Page") @tempo(96, 19px) 1 @br() 2 @br() 3 @br() 4';
+    const source = '@set(font="Wide") @set(br.gap=10px, br.minGap=5px) @page(400px, 120px, 20px, 32px, 20px, 20px, "page 1", "(1)", "Page") @tempo(96, 19px) 1 @br() 2 @br() 3 @br() 4';
     const { compiled, wasMeasured } = compileMeasured(source, text => text.length * 12);
     const commands = textsOf(compiled.layout).filter(command => command.text.startsWith("page ") || command.text === "= 96");
     ok(commands.length >= 3);

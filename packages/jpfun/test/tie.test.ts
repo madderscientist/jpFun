@@ -159,7 +159,7 @@ test("跨系统连音线按首、中、尾分段绘制", () => {
     deepStrictEqual(commandsOfKind(`1@a @br() 2 @br() 3@b @tie(a,b)`, "path").map(opsOf),
         ["M,Q,L,L,L,Q,Z", "M,L,L,L,Z", "M,L,Q,Q,L,Z"]);
 
-    const emptyMiddle = layoutOf(`1@a @br(2) 2@b @tie(a,b)`);
+    const emptyMiddle = layoutOf(`1@a @br() @br() 2@b @tie(a,b)`);
     const emptyMiddlePaths = tiePaths(emptyMiddle.attachments[0]);
     assert(emptyMiddle.lineCount === 3 && emptyMiddlePaths.length === 3,
         "a tie spanning br(2) must preserve its empty middle system and still emit three segments");
@@ -244,7 +244,7 @@ test("跨轨连音线只占用主体上方，不撑开两条轨之间的间距",
 
 test("跨越空谱面行的连音线只占自己的带宽", () => {
     // 空行没有主体可以让出下半截，此时整段弧带就是它自己的全部占用
-    const middle = layoutOf(`@page(gap=0px) 1@a @br(3) 2@b @tie(a,b)`).attachments[0].regions
+    const middle = layoutOf(`@set(br.gap=0px) 1@a @br() @br() @br() 2@b @tie(a,b)`).attachments[0].regions
         .filter(region => region.line === 1 || region.line === 2)
         .sort((left, right) => left.y - right.y);
     assert(middle.length === 2 && nearly(middle[1].y - middle[0].y, middle[0].h),
@@ -253,7 +253,7 @@ test("跨越空谱面行的连音线只占自己的带宽", () => {
 
 test("跨页连音线每个逻辑系统一段，几何保持有限", () => {
     const layout = layoutOf(`
-@page(width=200px, height=80px, top=10px, bottom=10px, left=20px, right=20px, gap=5px)
+@page(width=200px, height=80px, top=10px, bottom=10px, left=20px, right=20px) @set(br.gap=5px)
 1@a @br() 2 @br() 3 @br() 4@b @tie(a,b)
 `);
     const tie = layout.attachments[0];
@@ -282,7 +282,7 @@ test("普通连音线与八度点借用行间留白不拉大行距，超高外�
     for (const [source, minGap] of [
         [`1 2 3 4 @br() 1 ^ @symbol(fermata, 0.6em) 2 3 4`, 7.2],
         [`N: 1 2 3\n\nN: 1 2 3^4`, 7.2],
-        [`@page(gap=1em, minGap=0.8em)\nN: 1 2 3\n\nN: 1 2 3^4`, 18 * 0.8],
+        [`@set(br.gap=1em, br.minGap=0.8em)\nN: 1 2 3\n\nN: 1 2 3^4`, 18 * 0.8],
     ] as const) {
         const top = Math.min(...layoutOf(source).objects.filter(n => n.layoutLine === 1 && !n.T.isZero()).map(n => n.box.y));
         assert(nearly(top - line0Bottom, minGap), `${source} must keep ${minGap}px minGap`);

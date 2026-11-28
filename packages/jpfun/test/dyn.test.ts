@@ -208,7 +208,7 @@ test("dyn 使用最终端点位置并跨行连续绘制", () => {
         && nearly(middle.lines[2].x2, middleRight),
     "a middle segment may extend a quarter size left of its first timed host");
 
-    const blank = hairpin(`1@a @br(2) 2@b @dyn(a,b,20)`);
+    const blank = hairpin(`1@a @br() @br() 2@b @dyn(a,b,20)`);
     assert(blank.attachment.regions.length === 2,
         "a hairpin must not invent a segment on an empty middle line");
 

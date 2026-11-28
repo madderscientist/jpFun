@@ -3,6 +3,7 @@ import type { Track, TrackGroup, TrackPlacement } from "../lowering/track.js";
 import {
     ANCHOR_KEY,
     isVisualTemporalNode,
+    type TemporalAddon,
     type TemporalNodeBase,
     type VisualTemporalNode,
 } from "../functions/temporal.js";
@@ -59,7 +60,8 @@ interface LineExtents {
     attachmentExtents: Map<Track, Extent>;
 }
 
-interface LayoutLine extends LineExtents {
+/** breakBefore 为本行与上一行的间距，同列多个换行已逐项取较大值 */
+interface LayoutLine extends LineExtents, Pick<TemporalAddon, "breakBefore"> {
     /** lowering 的结果只保留看得见的列 */
     columns: VisualTemporalNode[][];
 }
@@ -293,22 +295,24 @@ export function layoutDocument(
     /** 按当前主体与 attachment 占用求轴、分页并放置所有主体，返回本轮的附件上下文 */
     const placeVertically = () => {
         const heights: number[] = [];
-        const headrooms: number[] = [];
+        const gaps: number[] = [];
         const axes = lines.map((line, i) => {
             const solved = solveVerticalAxes(line, result.rootTrack, rowGaps[i]);
             heights.push(solved.height);
+            // 行顶高出主旋律上沿（基线 - 半字高）的外扩先借用行距，再保留 minGap
             let top = Infinity;
             for (const column of line.columns) {
                 for (const node of column) {
                     top = Math.min(top, (solved.axes.get(node.track) ?? 0) - node.ast.size / 2);
                 }
             }
-            headrooms.push(top < Infinity ? top : 0);
+            const { gap = 0, minGap = 0 } = line.breakBefore ?? {};
+            gaps.push(Math.max(gap - (top < Infinity ? Math.max(0, top) : 0), Math.min(gap, minGap)));
             return solved.axes;
         });
         let lineTops: number[];
         try {
-            ({ pages, lineTops } = paginateLayoutLines(heights, page, pageBreaks, headrooms));
+            ({ pages, lineTops } = paginateLayoutLines(heights, page, pageBreaks, gaps));
         } catch (error) {
             if (!(error instanceof PageLayoutError)) throw error;
             // 用溢出的元素的 span 构成 Error
@@ -452,6 +456,8 @@ function splitLayoutLines(result: LoweringResult) {
             if (pageBreak !== undefined) {
                 pageBreaks[lines.length] = (pageBreaks[lines.length] ?? true) && pageBreak;
             }
+            const brk = node.addon?.breakBefore, prev = currentLine.breakBefore;
+            if (brk) currentLine.breakBefore = prev ? { gap: Math.max(prev.gap, brk.gap), minGap: Math.max(prev.minGap, brk.minGap) } : brk;
             if (isVisualTemporalNode(node)) visibleColumn.push(node);
         }
         if (visibleColumn.length) currentLine.columns.push(visibleColumn);

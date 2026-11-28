@@ -176,7 +176,7 @@ test("voice connectors use the same finite paths in SVG and Canvas", () => {
 
 test("分页 SVG 与 Canvas 保持纸张尺寸、内容归属和页面原点", () => {
     const twoPageLayout = layoutOf(`
-@page(width=200px, height=80px, top=10px, bottom=10px, left=20px, right=20px, gap=5px)
+@page(width=200px, height=80px, top=10px, bottom=10px, left=20px, right=20px) @set(br.gap=5px)
 1 @br() 2 @br() 3 @br() 4
 `);
     const pages = renderLayoutPagesToSvg(twoPageLayout);

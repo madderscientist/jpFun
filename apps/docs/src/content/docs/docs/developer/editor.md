@@ -17,7 +17,7 @@ sidebar:
 import { analyzeScoreSyntax } from "jpfun";
 import { parameterDocAt } from "@jpfun/editor-tools/language";
 
-const source = "@br(2)";
+const source = "@br(2em)";
 const { syntax } = analyzeScoreSyntax(source);
 const info = parameterDocAt(source, syntax, 4);
 ```
@@ -119,7 +119,7 @@ playground 在执行前确认编译结果未过期，候选源码编译成功后
    - **固定小节数**：指定 `barsPerLine > 0` 时，每隔固定数量的合法小节切点断行。
 3. **跨行合并与分段屏障**：
    - 相邻系统无需歌词行数同构即可直接拉平重切；缺省或无词段落按音符槽自动补 `@` 对齐。
-   - 遇到 `@page`、`@head`、`@pagebreak`、`@br(2+)`、顶层 `@set`、注释 `%`、无小节线的独立说明行、终止线 `|||`、声部数或连谱号拓扑变化、前段声部时长未对齐，或后段出现新的不同组名/声部名/词行名时自动停止合并，分段独立重排。
+   - 遇到 `@page`、`@head`、`@pagebreak`、带参数或连写的 `@br`、顶层 `@set`、注释 `%`、无小节线的独立说明行、终止线 `|||`、声部数或连谱号拓扑变化、前段声部时长未对齐，或后段出现新的不同组名/声部名/词行名时自动停止合并，分段独立重排。
    - 显式传入 `gap` / `minGap` 的 `@voices(...)` 及含局部 `@set(...)` 的声部块原样保留，不强转语法糖以免丢失局部参数。
 
 ### 简要实现方案

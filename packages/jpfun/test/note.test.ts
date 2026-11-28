@@ -318,7 +318,7 @@ test("tempo 与 key 自己上谱，set 纯词法，不可见事件不分配布�
     assert(invisibleStateEvents.every(event => event.box === undefined && event.springConfig === undefined
         && event.ports === undefined && event.decorations === undefined),
     "invisible state events must not allocate box, springs, ports or decorations");
-    strictAssert.deepEqual(invisibleStateEvents.map(event => event.addon), [undefined, { breakBefore: 1 }],
+    strictAssert.deepEqual(invisibleStateEvents.map(event => event.addon), [undefined, { breakBefore: { gap: 18, minGap: 7.2 } }],
         "only the boundary control needs addon; an ordinary program state event must not allocate it");
 });
 

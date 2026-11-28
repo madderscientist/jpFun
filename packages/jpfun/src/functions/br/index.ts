@@ -1,10 +1,10 @@
-import { ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass } from "../ASTtypes.js";
+import { ASTNodeBase, FunctionArgs, SourceSpan, ASTFunctionNode, ASTFunctionClass, type LengthValue } from "../ASTtypes.js";
 import { ParserContext, skipSpaces, skipSpacesBack } from "../../parser/parserContext.js";
 import { TemporalNodeBase } from "../temporal.js";
 import type { LoweringContext } from "../../lowering/loweringContext.js";
 import type { LoweringResult } from "../../lowering/types.js";
 import { GrammarCallNodeTyped } from "../../parser/grammarType.js";
-import { Diagnostic, WarningDiagnostic } from "../../diagnostic.js";
+import { Diagnostic } from "../../diagnostic.js";
 import { Fraction } from "../../fraction.js";
 
 class BrFunction extends ASTFunctionNode {
@@ -13,19 +13,26 @@ class BrFunction extends ASTFunctionNode {
         description: "换行",
         details: `\
 ~~~jpfun
-1 2 @br() 3 4
+@set(br.gap=1.5em)
+1 2 @br() 3 4 @br(3em) 5 6
 ~~~
 
-\`@br()\` 换到下一行，\`@br(2)\` 空出一行再继续
+\`@br()\` 换到下一行，连写 \`@br() @br()\` 叠加两段行距；用 \`@set(br.gap=...)\` 设置后续默认行距
 
 **简写**：仅在顶层，连续至少两个换行表示换行`,
         allowExtraArgs: false,
         args: [
             {
-                name: "offset",
-                description: "后续内容偏移的谱面行数，2 表示空出一行再继续",
-                type: "number" as const,
-                default: 1,
+                name: "gap",
+                description: "上一行下沿到下一行主旋律上沿的标准间距；下一行顶部外扩记号优先借用这段间距",
+                type: "length" as const,
+                default: { value: 1, unit: "em" as const },
+            },
+            {
+                name: "minGap",
+                description: "顶部外扩记号借用间距后，与上一行保留的最小间距",
+                type: "length" as const,
+                default: { value: 0.4, unit: "em" as const },
             },
         ],
     };
@@ -47,14 +54,14 @@ class BrFunction extends ASTFunctionNode {
         return { next, node };
     }
 
-    readonly offset: number;
+    readonly lineGap;
 
     override loweringEnter(ctx: LoweringContext) {
         ctx.deferFinalize(BrFunction.loweringFinalize);
         const br = new TemporalNodeBase();
         br.ast = this;
         br.mergeKey = -1;
-        br.addon = { breakBefore: this.offset };
+        br.addon = { breakBefore: this.lineGap };
         return [br];
     }
 
@@ -67,7 +74,7 @@ class BrFunction extends ASTFunctionNode {
         let latestNode: TemporalNodeBase | null = null;
 
         for (const column of result.columns) {
-            if (latestNode && latestEnd.compare(column.t) > 0 && column.some(node => (node.addon?.breakBefore ?? 0) > 0)) {
+            if (latestNode && latestEnd.compare(column.t) > 0 && column.some(node => node.addon?.breakBefore)) {
                 throw Diagnostic.error.BreakInsideEvent(latestNode.ast.sourceSpan);
             }
 
@@ -84,19 +91,11 @@ class BrFunction extends ASTFunctionNode {
 
     constructor(span: SourceSpan, args: FunctionArgs, ctx: ParserContext, parent: ASTNodeBase | null = null) {
         super(span, parent);
-        const [offset] = this.getArgValue(args, ctx) as [number];
-        this.offset = Number.isFinite(offset) ? Math.max(1, Math.floor(offset)) : 1;
-        if (this.offset !== offset) {
-            ctx.diagnostics.push(new WarningDiagnostic(
-                "W_BR_OFFSET",
-                "@br 的 offset 必须是大于等于 1 的整数，已被修正为 {offset}",
-                this.sourceSpan,
-                { offset: this.offset },
-            ));
-        }
+        const [gap, minGap] = (this.getArgValue(args, ctx) as LengthValue[]).map(value => ctx.length2px(value));
+        this.lineGap = { gap, minGap };
     }
 
-    override toString() { return `@br(${this.offset})`; }
+    override toString() { return `@br(gap=${this.lineGap.gap}px, minGap=${this.lineGap.minGap}px)`; }
 }
 
 export const BrNode = BrFunction satisfies ASTFunctionClass;

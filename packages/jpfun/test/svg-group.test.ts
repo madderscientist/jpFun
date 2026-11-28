@@ -69,7 +69,7 @@ function recordPages(source: string) {
     return { layout, recordings };
 }
 
-const PAGED = "@page(width=200px, height=70px, top=10px, bottom=10px, left=20px, right=20px, gap=5px)";
+const PAGED = "@page(width=200px, height=70px, top=10px, bottom=10px, left=20px, right=20px) @set(br.gap=5px)";
 
 test("时值对象的 kind 默认取函数主名，糖语法与别名不影响", () => {
     const kinds = (source: string) => compileValid(source).layout.objects.map(node => node.kind);
@@ -143,7 +143,7 @@ test("跨页对象在每页各输出一个组", () => {
         "note(text:4) tie(path)",
     ]);
 
-    const numbered = "@page(width=200px, height=90px, top=10px, bottom=20px, left=20px, right=20px, gap=5px, numbering=\"1 / 1\")\n"
+    const numbered = "@page(width=200px, height=90px, top=10px, bottom=20px, left=20px, right=20px, numbering=\"1 / 1\") @set(br.gap=5px)\n"
         + "1 @br() 2 @br() 3 @br() 4 @br() 5 @br() 6";
     deepStrictEqual(svgShapes(numbered), [
         "note(text:1) note(text:2) page-number(text:1 / 3)",
@@ -193,7 +193,7 @@ test("SvgPainter 递归删除空组、忽略多余的 endGroup 并转义 kind", 
 });
 
 test("分页录制后回放与直接导出 SVG 一致", () => {
-    const source = "@page(width=200px, height=90px, top=10px, bottom=20px, left=20px, right=20px, gap=5px, numbering=\"1 / 1\")\n"
+    const source = "@page(width=200px, height=90px, top=10px, bottom=20px, left=20px, right=20px, numbering=\"1 / 1\") @set(br.gap=5px)\n"
         + "{2/ 3/}>1/ 4/ @arp({1 ^ 3 ^ 5}) @br() #2'./ 1@a 8 @br() @voice({1 2}, , \"甲 乙\") @br() 5@b @tie(a,b)";
     const { layout, recordings } = recordPages(source);
     const bounds = layoutPageBounds(layout);

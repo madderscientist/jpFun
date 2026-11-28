@@ -139,7 +139,7 @@ class FoldFunction extends ASTFunctionNode {
             for (const content of this.children) {
                 const columns = ctx.trackedEvents(content, new Fraction(), track);
                 const member = columns.length === 1 && columns[0].length === 1 ? columns[0][0] : undefined;
-                if (!member || !isVisualTemporalNode(member) || (member.addon?.breakBefore ?? 0) > 0) {
+                if (!member || !isVisualTemporalNode(member) || member.addon?.breakBefore) {
                     throw new ErrorDiagnostic(
                         "E_UP_INVALID_CHILD",
                         "@up 的每个参数必须恰好产生一个可见 Temporal，且不能换行或包含多声部结构",

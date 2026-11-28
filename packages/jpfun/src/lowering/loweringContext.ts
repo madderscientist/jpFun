@@ -105,15 +105,10 @@ export class LoweringContext {
      * 固化谱面行号、时间状态和最终时长
      */
     private solidifyColumns(columns: TimeColumn[], duration: Fraction) {
-        // 同时刻跨轨的 br 已经合成一列，所以取最大；同轨连写仍是多个列，因而累加
+        // 同时刻跨轨的 br 已经合成一列，只换一行；同轨连写仍是多个列，因而累加
         let line = 0;
         for (const column of columns) {
-            let offset = 0;
-            for (const node of column) {
-                const requested = node.addon?.breakBefore ?? 0;
-                if (requested > offset) offset = requested;
-            }
-            line += offset;
+            if (column.some(node => node.addon?.breakBefore)) line++;
             // 换行列本身归属于换行之后的那一行
             column.layoutLine = line;
         }

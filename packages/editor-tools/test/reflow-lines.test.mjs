@@ -283,4 +283,9 @@ test("distinct named sections, silent named lyric rows, custom gap, local @set, 
     assert.deepEqual(playbackSignature(partialSel.nextCompiled.lowering), playbackSignature(partialSel.compiled.lowering));
 });
 
-
+test("breaks with explicit gaps or forming blank lines are reflow barriers", () => {
+    assert.equal(runReflow("1 2 |\n\n3 4 |", { barsPerLine: 2 }).next, "1 2 | 3 4 |");
+    for (const source of ["1 2 | @br() @br() 3 4 |", "1 2 | @br(2em) 3 4 |", "N: 1 2 |\n@br(gap=3em)\nN: 3 4 |"]) {
+        assert.deepEqual(runReflow(source, { barsPerLine: 2 }).edits, [], source);
+    }
+});

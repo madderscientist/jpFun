@@ -157,7 +157,7 @@ test("短区间不缩小标签或移动端点，容不下虚线时不绘制或�
 test("跨行含空白行续画，首尾标记不重复，后声明的八度号向外避让", () => {
     for (const shift of [2, -3]) {
         const { layout, attachment, commands } = ottavaCommands(
-            `1@a @br(2) | 2@b @ottava(a,b,${shift}) @ottava(a,b,${shift})`);
+            `1@a @br() @br() | 2@b @ottava(a,b,${shift}) @ottava(a,b,${shift})`);
         // 跨行中间空行也要续画，续行不重复标数字，换行边界不画折钩
         assert(attachment.regions.length === 3 && commands.filter(command => command.kind === "text").length === 1,
             "跨行续画");

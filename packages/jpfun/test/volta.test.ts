@@ -220,7 +220,7 @@ test("跨谱面行时逐行补满，只有真正的首尾下折", () => {
         `换行断点处不下折，竖线只应有首末两条，实际 ${vertical.length}`);
 
     // 中间整行空白时没有主体可参照，仍要补上这一段；后声明的房子在这一行也排在外层
-    const [inner, outer] = layoutOf(`1@a @br(2) 2@b @volta(a,b,1) @volta(a,b,1)`).attachments;
+    const [inner, outer] = layoutOf(`1@a @br() @br() 2@b @volta(a,b,1) @volta(a,b,1)`).attachments;
     assert(inner.regions.length === 3 && outer.regions.length === 3, "空白行也要补一段");
     assert(inner.regions[1].w > inner.regions[0].w && inner.regions[1].w > inner.regions[2].w,
         "空白中间行仍应回退到完整内容区宽度");

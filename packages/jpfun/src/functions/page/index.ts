@@ -73,11 +73,11 @@ class PageFunction extends ASTFunctionNode {
 ~~~jpfun
 @page(
     width=794px, height=1123px, top=48px, bottom=48px,
-    left=40px, right=40px, gap=1em, minGap=0.4em, fillRatio=0.5,
+    left=40px, right=40px, fillRatio=0.5,
     numbering="1/1", barNumbering="(1)"
 )
 ~~~
-页边距和行距须非负；左右边距之和须小于页宽，固定页高时上下边距之和须小于页高。`,
+页边距须非负；左右边距之和须小于页宽，固定页高时上下边距之和须小于页高。行距由 \`@br\` 的 \`gap\`、\`minGap\` 设置。`,
         allowExtraArgs: false,
         args: [
             { name: "width", description: "页面宽度，须大于左右页边距之和", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.width) },
@@ -86,8 +86,6 @@ class PageFunction extends ASTFunctionNode {
             { name: "bottom", description: "页面下边距，启用页码时至少为 `16px`", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.marginBottom) },
             { name: "left", description: "页面左边距", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.marginLeft) },
             { name: "right", description: "页面右边距", type: "length" as const, default: px(DEFAULT_PAGE_CONFIG.marginRight) },
-            { name: "gap", description: "谱面行主旋律之间的标准间距", type: "length" as const, default: { value: 1, unit: "em" as const } },
-            { name: "minGap", description: "行间保留的最小间距", type: "length" as const, default: { value: 0.4, unit: "em" as const } },
             { name: "numbering", description: "页码格式，空值隐藏；`1`：当前页，`1/1`：显示当前页/总页数", type: "string" as const, default: "" },
             { name: "barNumbering", description: "行首小节号格式，默认空值隐藏；`1` 显示当前小节号，`(1)` 显示带括号的小节号", type: "string" as const, default: "" },
             { name: "font", description: "页码/小节号字体，空值沿用当前字体设置", type: "string" as const, default: "" },
@@ -131,21 +129,20 @@ class PageFunction extends ASTFunctionNode {
         ctx.documentDeclarations["page"] = true;
 
         const [
-            w, h, t, b, l, r, g, mg, numbering, barNumbering, font, fillRatio,
+            w, h, t, b, l, r, numbering, barNumbering, font, fillRatio,
         ] = this.getArgValue(args, ctx) as [
-            LengthValue, LengthValue, LengthValue, LengthValue,
-            LengthValue, LengthValue, LengthValue, LengthValue,
+            LengthValue, LengthValue, LengthValue, LengthValue, LengthValue, LengthValue,
             string, string, string, number,
         ];
         this.font = font || ctx.variables.font;
-        const [width, height, top, bottom, left, right, gap, minGap] =
-            [w, h, t, b, l, r, g, mg].map(value => ctx.length2px(value));
+        const [width, height, top, bottom, left, right] =
+            [w, h, t, b, l, r].map(value => ctx.length2px(value));
         if (!Number.isFinite(width) || width <= 0)
             throw new ErrorDiagnostic("E_INVALID_PAGE_CONFIG", "@page 的 width 必须是正有限长度", sourceSpan);
         if (!Number.isFinite(height))
             throw new ErrorDiagnostic("E_INVALID_PAGE_CONFIG", "@page 的 height 必须是有限长度；小于等于 0 表示不自动分页", sourceSpan);
-        if ([top, bottom, left, right, gap, minGap].some(value => !Number.isFinite(value) || value < 0))
-            throw new ErrorDiagnostic("E_INVALID_PAGE_CONFIG", "@page 的边距、gap 和 minGap 必须是非负有限长度", sourceSpan);
+        if ([top, bottom, left, right].some(value => !Number.isFinite(value) || value < 0))
+            throw new ErrorDiagnostic("E_INVALID_PAGE_CONFIG", "@page 的边距必须是非负有限长度", sourceSpan);
         if (left + right >= width)
             throw new ErrorDiagnostic("E_INVALID_PAGE_CONFIG", "@page 的左右边距没有留下可用内容宽度", sourceSpan);
         if (height > 0 && top + bottom >= height)
@@ -165,8 +162,6 @@ class PageFunction extends ASTFunctionNode {
             marginBottom: bottom,
             marginLeft: left,
             marginRight: right,
-            lineGap: gap,
-            minLineGap: minGap,
             fillRatio,
         });
         this.numbering = numbering;
@@ -190,8 +185,8 @@ class PageFunction extends ASTFunctionNode {
 
     override toString() {
         if (!this.config) return "@page()";
-        const { width, height, marginTop, marginBottom, marginLeft, marginRight, lineGap, minLineGap, fillRatio } = this.config;
-        return `@page(width=${width}px, height=${Number.isFinite(height) ? height : 0}px, top=${marginTop}px, bottom=${marginBottom}px, left=${marginLeft}px, right=${marginRight}px, gap=${lineGap}px, minGap=${minLineGap}px, numbering=${quoteSourceString(this.numbering)}, barNumbering=${quoteSourceString(this.barNumbering)}, font=${quoteSourceString(this.font)}, fillRatio=${fillRatio})`;
+        const { width, height, marginTop, marginBottom, marginLeft, marginRight, fillRatio } = this.config;
+        return `@page(width=${width}px, height=${Number.isFinite(height) ? height : 0}px, top=${marginTop}px, bottom=${marginBottom}px, left=${marginLeft}px, right=${marginRight}px, numbering=${quoteSourceString(this.numbering)}, barNumbering=${quoteSourceString(this.barNumbering)}, font=${quoteSourceString(this.font)}, fillRatio=${fillRatio})`;
     }
 }
 

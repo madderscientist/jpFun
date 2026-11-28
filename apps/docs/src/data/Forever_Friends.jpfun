@@ -1,10 +1,9 @@
 @page(
   width=795px, height=0px,
   top=50px, bottom=80px, left=72px, right=72px,
-  numbering="jpFun 制谱", barNumbering="(1)  ",
-  minGap=0.7em
+  numbering="jpFun 制谱", barNumbering="(1)  "
 )
-@set(font="'Times New Roman', KaiTi, STKaiti, serif")
+@set(font="'Times New Roman', KaiTi, STKaiti, serif", br.minGap=0.7em)
 H.title: Forever Friends
 H.subtitle: 动画电影《升空的焰火，从下面看还是从侧面看?》插曲
 H.author: Remedios  作曲

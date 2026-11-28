@@ -52,7 +52,7 @@ test("pagebreak and pb preserve options through ESM and IIFE entry points", asyn
       assert.equal(result.layout.pages.length, 2);
       const control = result.lowering.columns.flat().find(node => node.addon?.pageBreakBefore !== undefined);
       assert.equal(control?.addon?.pageBreakBefore, false);
-      assert.equal(control?.addon?.breakBefore, 1);
+      assert.equal(control?.addon?.breakBefore?.gap, 0);
     }
   }
 });

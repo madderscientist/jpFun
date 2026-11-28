@@ -33,13 +33,13 @@ class TemporalNodeBase {
 
 ```ts
 interface TemporalAddon {
-    breakBefore?: number;    // 当前列之前的换行偏移，缺省为 0
+    breakBefore?: LineGap;   // 当前列之前换一行，值为与上一行的 { gap, minGap }
     pageBreakBefore?: boolean; // 当前行之前换页；布尔值指定上一页是否分配余白
     [key: `@${string}`]: unknown;
 }
 ```
 
-核心读取明确的通用字段；函数私有语义继续使用 `functionAddonKey` 生成的 `@主函数名`，读取时需收窄 `unknown`。`pageBreakBefore=false` 仍表示换页，必须用 `!== undefined` 判断是否存在。换页控制同时声明 `breakBefore=1`，以复用换行、合列和持续事件校验。
+核心读取明确的通用字段；函数私有语义继续使用 `functionAddonKey` 生成的 `@主函数名`，读取时需收窄 `unknown`。`pageBreakBefore=false` 仍表示换页，必须用 `!== undefined` 判断是否存在。换页控制同时声明行距为 0 的 `breakBefore`，以复用换行、合列和持续事件校验。
 
 复合节点在 Lowering 时接管宿主的语义；布局时通过 `transferFunctionAddons` 只向内部宿主转移 `@` 键，核心边界声明留在全局事件上。不能在折叠内部换行的成员，在清空或转交 addon 之前完成校验。
 
@@ -125,7 +125,7 @@ type TimeFlowModel =
 `head` 的首边界收集本轮成员，并为三个槽创建测量策略。测量状态也属于本轮，不能在多次 Lowering 之间共享。
 
 ### 3. 固化行号和时间状态
-递归完成后，`solidifyColumns` 先处理 `addon.breakBefore` 请求并写入最终 `layoutLine`：同列取最大偏移，同轨连续列累加。随后按列调用 `onTimeState(state)`。
+递归完成后，`solidifyColumns` 先处理 `addon.breakBefore` 请求并写入最终 `layoutLine`：同列只换一行，同轨连续列累加。随后按列调用 `onTimeState(state)`。
 
 这一步需要等到锚点归并完成，因为归并可能调整事件时间。`solidifyColumns` 在进入每列前将全局基础速度原地写入 `TimeColumn.bpm`，调性、力度、音色等节点与音轨状态则在 `onTimeState` 中从共享状态读取并保存到 Temporal；AST 不参与这次状态更新。
 

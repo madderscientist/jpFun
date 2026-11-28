@@ -198,7 +198,7 @@ class GraceFunction extends ASTFunctionNode {
             );
         }
         const events = columns.flat();
-        if (!events.some(isVisualTemporalNode) || events.some(event => (event.addon?.breakBefore ?? 0) > 0)) {
+        if (!events.some(isVisualTemporalNode) || events.some(event => event.addon?.breakBefore)) {
             throw new ErrorDiagnostic(
                 "E_GRACE_INVALID_CONTENT",
                 "@grace 的倚音至少产生一个可见对象，且不能换行",

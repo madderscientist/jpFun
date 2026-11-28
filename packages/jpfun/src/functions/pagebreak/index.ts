@@ -40,7 +40,8 @@ class PageBreakFunction extends ASTFunctionNode {
         const node = new TemporalNodeBase();
         node.ast = this;
         node.mergeKey = -1;
-        node.addon = { breakBefore: 1, pageBreakBefore: this.justify };
+        // 新页首行没有行距
+        node.addon = { breakBefore: { gap: 0, minGap: 0 }, pageBreakBefore: this.justify };
         return [node];
     }
 

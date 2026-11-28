@@ -89,7 +89,7 @@ test("insertion slot after a line break follows the next line onto the next page
     const trailingIndex = createScoreEditIndex("1 @br()", trailing);
     const first = trailingIndex.streamTargets[0];
     assert.equal(trailingIndex.defaultInsertSlot.region.x, DEFAULT_PAGE_CONFIG.marginLeft);
-    assert.equal(trailingIndex.defaultInsertSlot.region.y, first.region.y + first.region.h + DEFAULT_PAGE_CONFIG.lineGap);
+    assert.equal(trailingIndex.defaultInsertSlot.region.y, first.region.y + first.region.h + 18);
 });
 
 test("selecting existing note modifies pitch with advance, octave, accidental, rhythm, and shared div splitting", () => {

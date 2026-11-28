@@ -36,20 +36,24 @@ test("br 在 lowering 阶段就固化行号，并把文档切成两个系统", (
     assert(objects[2].box.y > objects[0].box.y + objects[0].box.h, "the second system must be below the first system");
 });
 
-test("br 的偏移参数保留空行，0 被修正并报警", () => {
-    const offset = compileScore(`1 @br(2) 2`).layout;
-    assert(offset.lineCount === 3, "br(2) must preserve one empty intermediate line");
-    deepStrictEqual(offset.objects.map(node => node.layoutLine), [0, 2]);
+test("br 只换一行，行距由 gap 单处覆盖、@set 设置后续默认", () => {
+    assert(layoutOf(`1 @br(2) 2`).lineCount === 2, "a positional br argument is a gap, not a line offset");
+    const { objects } = layoutOf(`@set(br.gap=5px) 1 @br() 2 @br(20px) 3 @set(br.gap=12px) @br() 4 @br(-3px) 5`);
+    deepStrictEqual(objects.slice(1).map((node, i) => Math.round(node.box.y - objects[i].box.y - objects[i].box.h)), [5, 20, 12, -3],
+        "gap must override one break, @set must change later defaults, and negative gaps overlap lines");
 
-    const zero = compileScore(`1 @br(0) 2`);
-    assert(zero.diagnostics.some(item => item.code === "W_BR_OFFSET"), "br(0) must report that its offset was corrected");
-    assert(zero.layout.lineCount === 2, "br(0) must be corrected to br(1)");
-    deepStrictEqual(zero.layout.objects.map(node => node.layoutLine), [0, 1]);
+    const lineTwoY = (source: string) => layoutOf(source).objects.find(node => node.layoutLine === 1)!.box.y;
+    assert(nearly(lineTwoY(`@stack({1 @br(gap=8px) 2}, {3 @br(gap=15px) 4})`), lineTwoY(`@stack({1 @br(gap=15px) 2}, {3 @br(gap=15px) 4})`)),
+        "simultaneous breaks must use the larger gap");
+
+    const em = lower(`@set(fontsize=30) @set(br.gap=1em, br.minGap=0.5em) 1 @br() 2`).columns.flat()
+        .find(node => node.addon?.breakBefore)?.addon?.breakBefore;
+    deepStrictEqual(em, { gap: 30, minGap: 15 }, "em must resolve with the font size at the br call");
 });
 
 test("并行轨的同时刻 br 归并成一列，只换一次行；跨越换行点的持续事件报错", () => {
     const lowered = lower(`@stack({1 @br() 2}, {3 @br() 4})`);
-    assert(lowered.columns.filter(column => column.some(node => (node.addon?.breakBefore ?? 0) > 0)).length === 1,
+    assert(lowered.columns.filter(column => column.some(node => node.addon?.breakBefore)).length === 1,
         "simultaneous parallel br controls must merge into one column");
     const parallel = layoutDocument(lowered, layoutContext);
     assert(parallel.lineCount === 2, "simultaneous br controls on different tracks must break the score only once");
@@ -89,35 +93,29 @@ test("默认页面与配置归一化", () => {
 });
 
 test("非法页面参数指向它的声明，非正高度固化为无限", () => {
-    const invalidPageSource = `@page(width=-1px, gap=5px) 1 @br() 2`;
+    const invalidPageSource = `@page(width=-1px, top=5px) 1 @br() 2`;
     const invalidPageDiagnostic = expectCompileError(invalidPageSource, "E_INVALID_PAGE_CONFIG");
     assert(invalidPageSource.slice(invalidPageDiagnostic.span.start, invalidPageDiagnostic.span.end)
-        === "@page(width=-1px, gap=5px)", "an invalid page diagnostic must point to the page declaration");
+        === "@page(width=-1px, top=5px)", "an invalid page diagnostic must point to the page declaration");
 
     for (const source of [
         `@page(top=-1px) 1`,
-        `@page(gap=-1px) 1`,
-        `@page(minGap=-1px) 1`,
         `@page(bottom=15px, numbering="1") 1`,
     ]) {
         expectCompileError(source, "E_INVALID_PAGE_CONFIG");
     }
 
-    const naturalPages = compileValid(`@page(gap=5px) 1 @br() 2`).layout.pages;
+    const naturalPages = compileValid(`@set(br.gap=5px) 1 @br() 2`).layout.pages;
     for (const height of ["0px", "-1px", "-1em"]) {
-        const result = compileValid(`@page(height=${height}, gap=5px) 1 @br() 2`);
+        const result = compileValid(`@page(height=${height}) @set(br.gap=5px) 1 @br() 2`);
         assert(result.lowering.page?.height === Infinity, "a non-positive page height must solidify as Infinity");
         deepStrictEqual(result.layout.pages, naturalPages, "a non-positive page height must use natural-height layout");
     }
-
-    const emPageResult = compileScore(`@set(fontsize=30) @page(gap=1em, minGap=0.5em) 1`);
-    assert(emPageResult.lowering.page?.lineGap === 30 && emPageResult.lowering.page?.minLineGap === 15,
-        "page gap and minGap em must solidify using the parse-time font size");
 });
 
 test("有限高度的页面把系统分页并分配行间距", () => {
     const paged = layoutOf(`
-@page(width=200px, height=80px, top=10px, bottom=10px, left=20px, right=20px, gap=5px)
+@page(width=200px, height=80px, top=10px, bottom=10px, left=20px, right=20px) @set(br.gap=5px)
 1 @br() 2 @br() 3 @br() 4
 `);
     deepStrictEqual(paged.pages.map(page => [page.lineStart, page.lineEnd]), [[0, 2], [2, 4]]);
@@ -135,7 +133,7 @@ test("有限高度的页面把系统分页并分配行间距", () => {
     assert(nearly(lastPageGap, 5), "the final page must retain the configured minimum system gap");
 
     const singlePerPage = layoutOf(`
-@page(width=200px, height=50px, top=10px, bottom=10px, left=20px, right=20px, gap=5px)
+@page(width=200px, height=50px, top=10px, bottom=10px, left=20px, right=20px) @set(br.gap=5px)
 1 @br() 2
 `);
     assert(singlePerPage.pages.length === 2, "the sample must place one system on each page");
@@ -178,7 +176,7 @@ test("页码单个占位符显示当前页，多个占位符的末尾显示总�
     ] as const) {
         const { layout } = compileValid(`
 @page(width=200px, height=90px, top=10px, bottom=20px,
-    left=20px, right=20px, gap=5px, numbering="${pattern}")
+    left=20px, right=20px, numbering="${pattern}") @set(br.gap=5px)
 1 @br() 2 @br() 3 @br() 4 @br() 5 @br() 6
 `);
         deepStrictEqual(attachmentCommands(layout.attachments[0])
@@ -189,7 +187,7 @@ test("页码单个占位符显示当前页，多个占位符的末尾显示总�
 
 test("页码是 @page 自己注册的 attachment，逐页浮在下边距带内", () => {
     const paged = layoutOf(`
-@page(width=200px, height=90px, top=10px, bottom=20px, left=20px, right=20px, gap=5px, numbering="1 / 1")
+@page(width=200px, height=90px, top=10px, bottom=20px, left=20px, right=20px, numbering="1 / 1") @set(br.gap=5px)
 1 @br() 2 @br() 3 @br() 4 @br() 5 @br() 6
 `);
     assert(paged.attachments.length === 1, "numbering must contribute exactly one attachment");
@@ -287,7 +285,7 @@ test("pb 自动换行换页，不绘制内容也不改变播放时间", () => {
     const result = compileValid(source);
     const control = result.lowering.columns.flat().find(node => node.addon?.pageBreakBefore !== undefined);
     assert(control && !isVisualTemporalNode(control) && control.T.isZero(), "pb must be an invisible zero-duration control");
-    assert(control.addon?.breakBefore === 1 && control.layoutLine === 1, "pb must use the existing line offset");
+    assert(control.addon?.breakBefore && control.layoutLine === 1, "pb must use the existing line break");
     assert(!("breakBefore" in control) && !("pageBreakBefore" in control), "boundary declarations must live only in addon");
     assert(control.ast.toString(source) === "@pagebreak(justify=true)", "pb must serialize using the primary name");
     deepStrictEqual(result.layout.objects.map(node => node.layoutLine), [0, 0, 1, 1]);
@@ -310,21 +308,22 @@ test("pb 自动换行换页，不绘制内容也不改变播放时间", () => {
 });
 
 test("分页器强制封页精确复用原来的空间分配，false 保留最小行距", () => {
-    const page = normalizePageConfig({ height: 100, marginTop: 10, marginBottom: 10, lineGap: 5 });
+    const page = normalizePageConfig({ height: 100, marginTop: 10, marginBottom: 10 });
+    const gaps = [5, 5, 5, 5];
     for (const justify of [true, false]) {
-        const result = paginateLayoutLines([10, 10, 10, 10], page, [undefined, undefined, justify]);
+        const result = paginateLayoutLines([10, 10, 10, 10], page, [undefined, undefined, justify], gaps);
         deepStrictEqual(result.lineTops, [10, justify ? 52.5 : 25, 110, 125]);
         deepStrictEqual(result.pages.map(item => [item.lineStart, item.lineEnd]), [[0, 2], [2, 4]]);
     }
 
     const natural = { ...page, height: Infinity };
     for (const justify of [true, false]) {
-        const result = paginateLayoutLines([10, 10, 10], natural, [undefined, undefined, justify]);
+        const result = paginateLayoutLines([10, 10, 10], natural, [undefined, undefined, justify], gaps);
         deepStrictEqual(result.lineTops, [10, 25, 55]);
         deepStrictEqual(result.pages.map(item => item.bounds.h), [45, 30]);
     }
 
-    const overflow = paginateLayoutLines([40, 40, 10], page, [undefined, false]);
+    const overflow = paginateLayoutLines([40, 40, 10], page, [undefined, false], gaps);
     deepStrictEqual(overflow.pages.map(item => [item.lineStart, item.lineEnd]), [[0, 1], [1, 3]]);
     deepStrictEqual(overflow.lineTops, [10, 110, 155]);
 });
@@ -332,7 +331,7 @@ test("分页器强制封页精确复用原来的空间分配，false 保留最�
 test("pb 的 justify 开关控制当前页，末页仍保持自然行距", () => {
     for (const justify of [true, false]) {
         const { layout } = compileValid(`
-@page(height=200px, top=10px, bottom=10px, gap=5px)
+@page(height=200px, top=10px, bottom=10px) @set(br.gap=5px)
 1 @br() 2 @pb(justify=${justify}) 3 @br() 4`);
         assert(layout.pages.length === 2, "the explicit boundary must close the underfilled first page");
         const [first, second, third, fourth] = layout.objects;
@@ -354,7 +353,7 @@ test("pb 严格保留空白页、并行归并，并包含在分页绘制中", ()
         ["@stack({1 @pb() 2}, {3 @pb(false) 4})", 2],
         ["@stack({1 @pb() 2 3}, {4 5 @pb() 6})", 3],
     ] as const) {
-        const { layout } = compileValid(`@page(height=200px, top=10px, bottom=10px, gap=5px) ${source}`);
+        const { layout } = compileValid(`@page(height=200px, top=10px, bottom=10px) @set(br.gap=5px) ${source}`);
         assert(layout.pages.length === expected, `${source} must produce ${expected} pages`);
     }
 

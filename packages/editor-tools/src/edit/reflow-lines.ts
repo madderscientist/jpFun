@@ -332,6 +332,10 @@ function formatRelation(src: string, masked: string, rel: ASTFunctionNode, epLab
     return slicePatched(src, rel.sourceSpan.start, rel.sourceSpan.end, argPatches).trim();
 }
 
+/** 显式传参（自定义行距）或紧跟上一次换行（空行）的 br 不能被重排改写 */
+const isFixedBreak = (masked: string, node: ASTNodeBase, repeated: boolean) => repeated
+    || masked[node.sourceSpan.start] === "@" && Boolean(readCall(masked, node.sourceSpan.start, node.sourceSpan.end)?.args.length);
+
 function extractStream(
     src: string,
     masked: string,
@@ -341,11 +345,11 @@ function extractStream(
     initJe = 0,
 ) {
     const pieces: RawPiece[] = [], rels: ASTFunctionNode[] = [];
-    let cur = startT.clone(), maxEnd = startT.clone(), je = initJe, blocked = false;
+    let cur = startT.clone(), maxEnd = startT.clone(), je = initJe, blocked = false, lastBr = -1;
 
     for (let i = 0; i < items.length; i++) {
         const item = items[i], name = callNameOf(item);
-        if (name === "br") { if (((item as ASTFunctionNode & { offset?: number }).offset ?? 1) >= 2) blocked = true; continue; }
+        if (name === "br") { if (isFixedBreak(masked, item, lastBr === pieces.length)) blocked = true; lastBr = pieces.length; continue; }
         if (name === "pagebreak") { blocked = true; continue; }
         if (name && isRelationKind(name) && name !== "tuplet") { rels.push(item as ASTFunctionNode); continue; }
         if (item instanceof ASTLabelNode) { pieces.at(-1)?.labels.push(item); continue; }
@@ -396,7 +400,7 @@ function extractSystems(src: string, compiled: CompileScoreResult, comments: rea
     const { maskedSource: masked } = compiled, top = compiled.ast.content;
     const lyricObjs: VisualTemporalNode[] = compiled.layout.objects.filter(o => Boolean(o.ports?.["lyric"]));
     const systems: SystemInfo[] = [], gapsOk: boolean[] = [];
-    let barrier = false, topJe = 0;
+    let barrier = false, topJe = 0, lastBr = -1;
 
     const push = (sys: SystemInfo, prevEnd: number) => {
         if (systems.length) gapsOk.push(!barrier && !hasComment(comments, prevEnd, sys.span.start) && !systems.at(-1)!.finalBar);
@@ -407,7 +411,7 @@ function extractSystems(src: string, compiled: CompileScoreResult, comments: rea
     for (let i = 0; i < top.length;) {
         const node = top[i], name = callNameOf(node);
         if (node instanceof ASTTextNode && !src.slice(node.sourceSpan.start, node.sourceSpan.end).trim()) { i++; continue; }
-        if (name === "br") { if (((node as ASTFunctionNode & { offset?: number }).offset ?? 1) >= 2) barrier = true; i++; continue; }
+        if (name === "br") { if (isFixedBreak(masked, node, lastBr === systems.length)) barrier = true; lastBr = systems.length; i++; continue; }
         if (BARRIER_CALLS.has(name)) { barrier = true; i++; continue; }
 
         if (node instanceof VoiceFunction || node instanceof VoicesFunction) {

@@ -27,8 +27,6 @@ export const DEFAULT_PAGE_CONFIG: Readonly<PageConfig> = {
     marginBottom: 48,
     marginLeft: 40,
     marginRight: 40,
-    lineGap: 18,
-    minLineGap: 7.2,
     fillRatio: 0.5,
 };
 
@@ -44,8 +42,6 @@ export function normalizePageConfig(source: Partial<PageConfig> = {}): PageConfi
         marginBottom: Math.max(0, source.marginBottom ?? DEFAULT_PAGE_CONFIG.marginBottom),
         marginLeft: Math.max(0, source.marginLeft ?? DEFAULT_PAGE_CONFIG.marginLeft),
         marginRight: Math.max(0, source.marginRight ?? DEFAULT_PAGE_CONFIG.marginRight),
-        lineGap: Math.max(0, source.lineGap ?? DEFAULT_PAGE_CONFIG.lineGap),
-        minLineGap: Math.max(0, source.minLineGap ?? DEFAULT_PAGE_CONFIG.minLineGap),
         fillRatio: source.fillRatio ?? DEFAULT_PAGE_CONFIG.fillRatio,
     };
 
@@ -56,16 +52,8 @@ export function normalizePageConfig(source: Partial<PageConfig> = {}): PageConfi
         throw new Error(`Page height must be positive or Infinity, got ${page.height}`);
     }
 
-    const values = [
-        page.marginTop,
-        page.marginBottom,
-        page.marginLeft,
-        page.marginRight,
-        page.lineGap,
-        page.minLineGap,
-    ];
-    if (values.some(value => !Number.isFinite(value))) {
-        throw new Error("Page margins and line gap must be finite non-negative numbers");
+    if (![page.marginTop, page.marginBottom, page.marginLeft, page.marginRight].every(Number.isFinite)) {
+        throw new Error("Page margins must be finite non-negative numbers");
     }
 
     const contentWidth = page.width - page.marginLeft - page.marginRight;
@@ -83,17 +71,15 @@ export function normalizePageConfig(source: Partial<PageConfig> = {}): PageConfi
 /**
  * 把已经测好自然高度的谱面行分页，并给出每行的全局顶部坐标。
  * pageBreaks 按行号索引：undefined 不强制换页，true/false 强制换页并指定上一页是否拉伸。
- * headrooms 按行号索引：每行顶部高出主旋律上沿（基线 - 半字高）的外扩高度，优先借用上一行下方的行距留白。
+ * gaps 按行号索引：该行完整盒与上一行完整盒之间的自然间距，缺省为 0；页首行忽略。
  */
 export function paginateLayoutLines(
     heights: readonly number[],
     page: PageConfig,
     pageBreaks: readonly (boolean | undefined)[] = [],
-    headrooms: readonly number[] = [],
+    gaps: readonly number[] = [],
 ): { pages: DocumentLayoutPage[]; lineTops: number[] } {
     const availableHeight = page.height - page.marginTop - page.marginBottom;
-    const floor = Math.min(page.lineGap, page.minLineGap);
-    const gapBefore = (line: number) => Math.max(page.lineGap - Math.max(0, headrooms[line] ?? 0), floor);
     const pages: DocumentLayoutPage[] = [];
     const lineTops = new Array<number>(heights.length).fill(0);
     let pageTop = 0;
@@ -109,7 +95,7 @@ export function paginateLayoutLines(
 
         for (let i = start; i < end; i++) {
             lineTops[i] = lineTop;
-            lineTop += heights[i] + (i + 1 < end ? gapBefore(i + 1) + share : 0);
+            lineTop += heights[i] + (i + 1 < end ? (gaps[i + 1] ?? 0) + share : 0);
         }
 
         const height = Number.isFinite(page.height)
@@ -132,16 +118,16 @@ export function paginateLayoutLines(
     };
 
     for (let i = 0; i < heights.length; i++) {
-        const height = heights[i];
+        const height = heights[i], gap = gaps[i] ?? 0;
         if (Number.isFinite(page.height) && height > availableHeight + 1e-6) {
             throw new PageLayoutError(i, height, availableHeight);
         }
 
         // 强制边界与自然溢出统一封页；无限页高不分配余白
-        if (i > start && (pageBreaks[i] !== undefined || Number.isFinite(page.height) && used + gapBefore(i) + height > availableHeight + 1e-6)) {
+        if (i > start && (pageBreaks[i] !== undefined || Number.isFinite(page.height) &&         used + gap + height > availableHeight + 1e-6)) {
             closePage(i, Number.isFinite(page.height) && (pageBreaks[i] ?? true));
         }
-        used += (i > start ? gapBefore(i) : 0) + height;
+                used += (i > start ? gap : 0) + height;
     }
 
     if (heights.length > start) closePage(heights.length, false);

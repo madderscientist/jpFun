@@ -213,44 +213,48 @@ function resolvePostGroupInsertOffset(ast: ASTNodeBase, fallbackEnd: number, spa
     return end;
 }
 
-/** 统计指定源码偏移区间内出现的换行节点（`\n\n` 或 `@br`），供插入槽定位到下一行行首 */
-function findBreaksBetween(compiled: CompileScoreResult, fromOffset: number, toOffset: number): { count: number; lastSpan: SourceSpan | null } {
-    let count = 0;
+/** 统计指定源码偏移区间内出现的换行节点（`\n\n` 或 `@br`）及其标准行距之和，供插入槽定位到下一行行首 */
+function findBreaksBetween(compiled: CompileScoreResult, fromOffset: number, toOffset: number) {
+    let count = 0, gap = 0;
     let lastSpan: SourceSpan | null = null;
     const seen = new Set<ASTNodeBase>();
     for (const column of compiled.lowering.columns) {
+        // 同列的并行换行只换一行，行距取较大值
+        let columnGap = -1;
         for (const node of column) {
             if (seen.has(node.ast) || callNameOf(node.ast) !== "br") continue;
             if (node.ast.sourceSpan.start < fromOffset || node.ast.sourceSpan.end > toOffset) continue;
             seen.add(node.ast);
-            count += Number(node.addon?.breakBefore) || 1;
+            columnGap = Math.max(columnGap, node.addon?.breakBefore?.gap ?? 0);
             if (!lastSpan || node.ast.sourceSpan.end > lastSpan.end) lastSpan = { ...node.ast.sourceSpan };
         }
+        if (columnGap >= 0) { count++; gap += columnGap; }
     }
-    return { count, lastSpan };
+    return { count, gap, lastSpan };
 }
 
 /**
  * 根据前驱元素区域与换行次数，计算 `[+]` 插入槽在谱面页面坐标系中的矩形框；
  * 换行后若已知新行首元素区域 `lineRegion`，直接对齐到该行（可能已翻到下一页），否则按行距估算
  */
-function computeInsertSlotGeometry(compiled: CompileScoreResult, afterRegion: Rect | null, lineBreaks = 0, lineRegion?: Rect): Rect {
+function computeInsertSlotGeometry(compiled: CompileScoreResult, afterRegion: Rect | null, breaks: { count: number; gap: number }, lineRegion?: Rect): Rect {
     const boxW = 17, boxH = 24;
     const pages = layoutPageBounds(compiled.layout);
+    const lineBreaks = breaks.count;
     const nextLine = lineBreaks > 0 ? lineRegion : undefined;
     const anchor = nextLine ?? afterRegion;
     const pageConfig = normalizePageConfig(compiled.lowering.page);
     const page = (anchor && pages.find(p => anchor.y >= p.y && anchor.y <= p.y + p.h))
         ?? pages[0] ?? { x: 0, y: 0, w: pageConfig.width, h: 200 };
-    const { marginLeft: left, marginTop: top, lineGap } = pageConfig;
+    const { marginLeft: left, marginTop: top } = pageConfig;
 
     if (nextLine) return { x: page.x + left, y: nextLine.y + (nextLine.h - boxH) / 2, w: boxW, h: boxH };
     if (afterRegion) {
         return lineBreaks > 0
-            ? { x: page.x + left, y: afterRegion.y + afterRegion.h + lineGap * lineBreaks, w: boxW, h: boxH }
+            ? { x: page.x + left, y: afterRegion.y + afterRegion.h + breaks.gap, w: boxW, h: boxH }
             : { x: afterRegion.x + afterRegion.w + 8, y: afterRegion.y + (afterRegion.h - boxH) / 2, w: boxW, h: boxH };
     }
-    return { x: page.x + left, y: page.y + top + (lineBreaks > 0 ? (boxH + lineGap) * lineBreaks : 0), w: boxW, h: boxH };
+    return { x: page.x + left, y: page.y + top + boxH * lineBreaks + breaks.gap, w: boxW, h: boxH };
 }
 
 /** 扫描 `offset` 之前的谱面时间列，计算该插入点生效的拍号以及前驱元素所在音轨当前小节已消耗/剩余拍数 */
@@ -315,7 +319,7 @@ export function insertSlotAfter(
         return {
             insertAt: clamped,
             afterSpan,
-            region: computeInsertSlotGeometry(compiled, prev ? prev.region : null, breaks.count),
+            region: computeInsertSlotGeometry(compiled, prev ? prev.region : null, breaks),
             ...computeMeterStateAtOffset(compiled, clamped, prev),
         };
     }
@@ -325,7 +329,7 @@ export function insertSlotAfter(
     return {
         insertAt,
         afterSpan: breaks.lastSpan ?? matched.span,
-        region: computeInsertSlotGeometry(compiled, matched.region, breaks.count, nextStream?.region),
+        region: computeInsertSlotGeometry(compiled, matched.region, breaks, nextStream?.region),
         ...computeMeterStateAtOffset(compiled, insertAt, matched),
     };
 }
@@ -464,7 +468,7 @@ export function createScoreEditIndex(source: string, compiled: CompileScoreResul
         defaultInsertSlot: {
             insertAt: defaultInsertAt,
             afterSpan: trailingBreaks.lastSpan ?? (lastMusical ? lastMusical.span : null),
-            region: computeInsertSlotGeometry(compiled, lastMusical ? lastMusical.region : null, trailingBreaks.count),
+            region: computeInsertSlotGeometry(compiled, lastMusical ? lastMusical.region : null, trailingBreaks),
             ...computeMeterStateAtOffset(compiled, defaultInsertAt, lastMusical),
         },
     };

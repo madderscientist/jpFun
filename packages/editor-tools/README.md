@@ -24,7 +24,7 @@ Keep your existing ECMAScript library target if different. This only supplies ty
 import { analyzeScoreSyntax, compileScore } from "jpfun";
 import { functionDoc, functionNodeAt, parameterDocAt } from "@jpfun/editor-tools/language";
 
-const source = "@br(2)";
+const source = "@br(2em)";
 const { syntax } = analyzeScoreSyntax(source);
 const parameter = parameterDocAt(source, syntax, 4);
 const compiled = compileScore(source);

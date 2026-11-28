@@ -90,15 +90,15 @@ place(root, -ext.top)
 
 - **声部间距（`@voices(gap=0.75em, minGap=0.2em)`）**：相邻声部 $i-1$ 与 $i$ 的视觉轴间距为：
   $$\Delta y = \text{ext}_{i-1}.\text{bottom} + \max(\text{gap} + \text{size}/2,\ \text{minClearance} - \text{ext}_i.\text{top})$$
-- **谱面行距（`@page(gap=1em, minGap=0.4em)`）**：设第 $i$ 行顶部高出最高主旋律上沿的外扩量为 $\text{headroom}_i = \min(\text{axis} - \text{size}/2)$，则该行与上一行完整盒之间的实际间距为：
-  $$\text{gap}_i = \max(\text{lineGap} - \text{headroom}_i,\ \text{minClearance})$$
-  外扩量不超过 $\text{lineGap} - \text{minClearance}$ 时，两行主旋律间距保持为 `lineGap`。
+- **谱面行距（`@br(gap=1em, minGap=0.4em)`，由本行之前的换行决定，同列取较大值）**：设第 $i$ 行顶部高出最高主旋律上沿的外扩量为 $\text{headroom}_i = \min(\text{axis} - \text{size}/2)$，则该行与上一行完整盒之间的实际间距为：
+  $$\text{gap}_i = \max(\text{gap} - \text{headroom}_i,\ \text{minClearance})$$
+  外扩量不超过 $\text{gap} - \text{minClearance}$ 时，上一行下沿到本行主旋律上沿保持为 `gap`。
 
 行高按整行一维区间求解，不利用横向空隙交错压缩。没有主体的行也可以由 attachment 通过 `line + track` 申请高度。
 
 ### 分页
 
-`page.ts` 只接收每行高度、强制分页标记和顶部外扩，返回页面边界和每行顶部，不读取 Track 或具体对象：
+`page.ts` 只接收每行高度、强制分页标记和上式算出的行间距，返回页面边界和每行顶部，不读取 Track 或具体对象：
 - 首行上沿与末行下沿按完整高度贴合上下边距；排满的非末页把剩余高度均分到各系统下方，末页保留自然行距。
 - `@pagebreak(justify=true)`（`@pb`）产生不可见控制事件，复用换行的合列规则；`justify=false` 时上一页不拉伸，同一边界多次声明时 `false` 优先。
 - `height <= 0` 表示无限页高：仍遵守强制分页，但不拉伸。

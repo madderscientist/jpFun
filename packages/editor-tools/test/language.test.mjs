@@ -5,10 +5,10 @@ import { completionsAt, labelJumpAt, labelSymbolAt, parameterCompletionEdit, par
 
 test("parameter help handles incomplete, named and nested calls", () => {
     for (const [source, position, parameter] of [
-        ["@br(", 4, "offset"],
+        ["@br(", 4, "gap"],
         ["@page(width=120px, height=200px)", 15, "width"],
         ["@page(width=120px, height=200px)", 28, "height"],
-        ["@up(1, @br(2))", 12, "offset"],
+        ["@up(1, @br(2em))", 12, "gap"],
         ["@set(fontsize=20px)", 10, "18px"],
         ["@set(n.octave=5)", 14, "@note"],
     ]) {
