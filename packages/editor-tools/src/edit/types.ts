@@ -174,7 +174,7 @@ export type ScoreEditAction =
     | { readonly type: "set-bar"; readonly barType: number; readonly slot?: ScoreInsertSlot }
     | { readonly type: "insert-line-break"; readonly slot?: ScoreInsertSlot }
     | { readonly type: "set-meter"; readonly numerator: number; readonly denominator: number; readonly slot?: ScoreInsertSlot }
-    | { readonly type: "reflow-bars" }
+    | { readonly type: "reflow-bars"; readonly slot?: ScoreInsertSlot }
     | { readonly type: "reflow-lines"; readonly barsPerLine?: number; readonly textMeasurer?: TextMeasurer }
     | { readonly type: "set-key"; readonly tonality: string; readonly slot?: ScoreInsertSlot }
     | { readonly type: "set-tempo"; readonly bpm: number; readonly slot?: ScoreInsertSlot }

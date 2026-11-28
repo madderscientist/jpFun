@@ -247,13 +247,11 @@ function deleteRelationCallAndOrphanLabels(
 /**
  * 按当前拍号重排后续普通单小节线 `|`（保留双小节线 `||`、终止线 `|||` 与反复记号作为硬锚点，且不拆散 `@tuplet`）
  *
- * 只重排拍号后首个音符所在的音轨（单声部即主轨，多声部为第一个声部），其余音轨的小节线保持不变。
+ * 以 `anchor`（选中目标起点或插入位置）之前最近的拍号为准；只重排拍号后首个音符所在的音轨（单声部即主轨，多声部为第一个声部），其余音轨的小节线保持不变。
  */
-function reflowBarsForCurrentMeter(source: string, index: ScoreEditIndex, anchorSpan?: SourceSpan | null): SourceEdit[] {
+function reflowBarsForCurrentMeter(source: string, index: ScoreEditIndex, anchor: number): SourceEdit[] {
     const meters = index.streamTargets.filter((t): t is MeterEditTarget => t.kind === "meter");
-    const active = (anchorSpan && meters.find(m => m.span.start <= anchorSpan.start && m.span.end >= anchorSpan.end))
-        ?? meters.find(m => !anchorSpan || m.span.start <= anchorSpan.start)
-        ?? meters[0];
+    const active = [...meters].reverse().find(m => m.span.start <= anchor) ?? meters[0];
     if (!active || active.numerator <= 0 || active.denominator <= 0) return [];
 
     const measureDuration = new Fraction(active.numerator * 4, active.denominator);
@@ -482,7 +480,8 @@ export function applyScoreEditAction(
         }
 
         case "reflow-bars": {
-            const edits = reflowBarsForCurrentMeter(source, index, target?.span);
+            const anchor = target ? target.span.start : (action.slot ?? index.defaultInsertSlot).insertAt;
+            const edits = reflowBarsForCurrentMeter(source, index, anchor);
             return {
                 edits,
                 nextMode: target ? "select" : "insert",

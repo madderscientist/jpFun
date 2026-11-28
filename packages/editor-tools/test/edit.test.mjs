@@ -249,6 +249,24 @@ test("barline reflow only rewrites the track of the first note after the meter",
     }
 });
 
+test("barline reflow uses the nearest preceding meter of the selection or insert slot", () => {
+    const source = "@meter(2,4) 1 2 3 4 @meter(3,4) 5 6 7 1 2 3";
+    const first = "@meter(2,4) 1 2 | 3 4 | @meter(3,4) 5 6 7 1 2 3";
+    const second = "@meter(2,4) 1 2 3 4 @meter(3,4) 5 6 7 | 1 2 3 |";
+    const compiled = compileScore(source);
+    const reflowAfter = n => index => ({ type: "reflow-bars", slot: insertSlotAfter(source, compiled, index, index.streamTargets[n].span) });
+    // 只重排锚点所在的拍号段，另一段保持原样
+    for (const [target, action, expected] of [
+        // 选中态：选 `5` 用 3/4，选 `4` 用 2/4
+        [6, { type: "reflow-bars" }, second],
+        [4, { type: "reflow-bars" }, first],
+        // 插入态：以插入槽为锚点；`4` 之后仍属 2/4，`@meter(3,4)` 之后属 3/4；无槽时取谱尾默认槽
+        [null, reflowAfter(4), first],
+        [null, reflowAfter(5), second],
+        [null, { type: "reflow-bars" }, second],
+    ]) assert.equal(runEdit(source, target, action).nextSource, expected);
+});
+
 test("span mapping absorbs the replacement text of partially overlapping edits", () => {
     const span = { start: 5, end: 10 };
     assert.deepEqual(mapSpanThroughEdits(span, [{ span: { start: 3, end: 7 }, text: "" }]), { start: 3, end: 6 });
