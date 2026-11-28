@@ -1,6 +1,6 @@
 {
   "name": "@jpfun/convert",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MIDI JSON and MusicXML conversion to jpFun source",
   "type": "module",
   "main": "./dist/index.js",
@@ -30,7 +30,7 @@
   "peerDependencies": { "jpfun": "workspace:^" },
   "devDependencies": {
     "jpfun": "workspace:*",
-    "@types/node": "^26.5.1",
+    "@types/node": "^26.6.11",
     "@xmldom/xmldom": "^0.9.12",
     "esbuild": "^0.28.2",
     "tsx": "^4.23.13",

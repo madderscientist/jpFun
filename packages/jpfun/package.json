@@ -1,6 +1,6 @@
 {
   "name": "jpfun",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "A functional numbered musical notation typesetting engine",
   "type": "module",
   "main": "./dist/index.js",
@@ -55,7 +55,7 @@
   "author": "madderscientist",
   "license": "Apache-2.0",
   "devDependencies": {
-    "@types/node": "^26.5.1",
+    "@types/node": "^26.6.11",
     "esbuild": "^0.28.2",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
