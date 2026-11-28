@@ -613,8 +613,8 @@ export function convertMidiJsonToJpFun(
         if (!track || typeof track !== "object" || typeof track.name !== "string") {
             throw new TypeError(`tracks[${trackIndex}] must contain a string name`);
         }
-        expectSafeInteger(track.channel, `tracks[${trackIndex}].channel`, 0, 15);
-        if (track.channel === 9) continue;
+        expectSafeInteger(track.channel, `tracks[${trackIndex}].channel`, 0);
+        if (track.channel % 16 === 9) continue;
         expectArray(track.notes, `tracks[${trackIndex}].notes`);
         expectArray(track.instruments, `tracks[${trackIndex}].instruments`);
         for (const [index, item] of track.instruments.entries()) {

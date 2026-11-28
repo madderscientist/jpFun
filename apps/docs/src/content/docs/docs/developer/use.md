@@ -197,7 +197,7 @@ console.log(plan.durationSeconds);
 
 ## 导入 MIDI
 
-先安装 `jpfun` 和 `@jpfun/convert`。`midiJsonToJpFun` 接收满足 `MidiJson` 接口的数据并生成可继续编辑的 jpFun 源码；[midi.js](https://madderscientist.github.io/noteDigger/lib/midi.js) 的 `JSON()` 结果符合这一接口，也可以使用其他解析器并适配为相同结构。MIDI 字节解析属于应用边界，不进入这两个 npm 包：
+先安装 `jpfun` 和 `@jpfun/convert`。`midiJsonToJpFun` 接收满足 `MidiJson` 接口的数据并生成可继续编辑的 jpFun 源码；[midi.js](https://madderscientist.github.io/noteDigger/lib/midi.js) 的 `JSON()` 结果符合这一接口，也可以使用其他解析器并适配为相同结构，其中每轨的 `channel` 须为真实的零基 MIDI 通道（多端口时加 `16 × 端口`）。MIDI 字节解析属于应用边界，不进入这两个 npm 包：
 
 ```ts
 import { midiJsonToJpFun } from "@jpfun/convert/midi";
@@ -215,7 +215,7 @@ const source = midiJsonToJpFun(parsedMidiJson, {
 - `barsPerLine` 默认为 `0`，表示依据真实排版宽度自动换行；正整数表示每行固定小节数。
 - `title` 覆盖 MIDI 文件头中的名称。
 
-转换器会保留音符、和弦、重叠声部、轨道名、速度、拍号和 MIDI program，并识别常见的 3:2 四分、八分与十六分三连音。鼓通道以及控制器、弯音等目前不会进入生成的源码。
+转换器会保留音符、和弦、重叠声部、轨道名、速度、拍号和 MIDI program，并识别常见的 3:2 四分、八分与十六分三连音。鼓通道（`channel % 16 === 9`，即 MIDI 通道 10）整轨跳过，控制器、弯音等目前也不会进入生成的源码。
 
 ## 导入 MusicXML
 

@@ -367,6 +367,15 @@ test("MIDI program 按原轨切换且 channel 10 整轨跳过", () => {
     assert(!pianoSource.includes("@program("), `默认钢琴音色不应重复输出 @program(0)：${pianoSource}`);
 });
 
+test("多端口 MIDI channel 按 channel % 16 判断打击乐", () => {
+    const input = midi([[note(0, 480, 60)], [note(0, 480, 36)]], { names: ["Lead", "Drums"] });
+    input.tracks[0].channel = 16;
+    input.tracks[1].channel = 25;
+    const source = midiJsonToJpFun(input, { barsPerLine: 4 });
+    assert(!source.includes("Drums") && playedNotes(compilePlayback(lower(source))).map(item => item.midi).join() === "60",
+        `端口 1 的旋律轨应保留、鼓轨应跳过：${source}`);
+});
+
 test("转换不修改输入，标题保留，未支持字段不影响输出", () => {
     const input = midi([[note(0, 480, 60, 12)]]);
     input.header.name = "Title % A";

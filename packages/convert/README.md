@@ -19,6 +19,7 @@ Both functions and their types are also exported by `@jpfun/convert`.
 ## Input Boundary
 
 - MIDI input must match `MidiJson`, the structure produced by midi.js `JSON()`. Any parser or adapter producing that structure can be used. This package does not depend on midi.js, parse MIDI bytes, fetch remote scripts, or read files.
+- `tracks[].channel` must be the track's real zero-based MIDI channel, plus `16 × port` for multi-port files. Tracks with `channel % 16 === 9` (MIDI channel 10) are skipped as percussion.
 - MusicXML input is an already parsed root implementing `MusicXmlElement`. The host chooses its XML parser and handles malformed XML and `.mxl` decompression.
 - MIDI defaults to width-based line breaking (`barsPerLine: 0`); a positive value fixes the number of bars per line.
 - MusicXML returns `{ script, diagnostics }`. Inspect the diagnostics for omissions and approximations; an empty array is not a lossless guarantee.

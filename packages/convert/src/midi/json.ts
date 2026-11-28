@@ -18,6 +18,7 @@ export interface MidiJsonInstrument {
 }
 
 export interface MidiJsonTrack {
+    /** 真实 MIDI 通道（零基），多端口时加 16 × 端口；`channel % 16 === 9` 为打击乐 */
     channel: number;
     name: string;
     controlChanges: readonly MidiJsonControlChange[];
