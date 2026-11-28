@@ -102,25 +102,34 @@ test("percussion timbre registration is idempotent and hidden from the program m
     assert.ok(wave[0].d < 0.01);
 });
 
-test("playback recovers after an initial compile failure and preserves a paused plan", async context => {
-    class ElementStub extends EventTarget {
-        dataset = {};
-        value = "";
-        textContent = "";
-        append() {}
-        replaceChildren() {}
-        setAttribute() {}
-        matches() { return false; }
-    }
+class ElementStub extends EventTarget {
+    dataset = {};
+    attributes = {};
+    value = "";
+    textContent = "";
+    append() {}
+    replaceChildren() {}
+    setAttribute(name, value) { this.attributes[name] = value; }
+    matches() { return false; }
+}
+
+const tick = () => new Promise(resolve => setImmediate(resolve));
+
+function controllerFor(context) {
     const documentBefore = globalThis.document;
     const elements = new Map();
+    const created = [];
     globalThis.document = {
         ...documentBefore,
         querySelector(selector) {
             if (!elements.has(selector)) elements.set(selector, new ElementStub());
             return elements.get(selector);
         },
-        createElement: () => new ElementStub(),
+        createElement() {
+            const element = new ElementStub();
+            created.push(element);
+            return element;
+        },
     };
     window.cancelAnimationFrame = () => {};
     window.requestAnimationFrame = () => 1;
@@ -128,7 +137,12 @@ test("playback recovers after an initial compile failure and preserves a paused 
         requestPlan: () => false, showDiagnostics() {}, getFileName: () => "score.jpfun", onScorePosition() {},
     });
     context.after(() => { controller.destroy(); globalThis.document = documentBefore; });
-    const tick = () => new Promise(resolve => setImmediate(resolve));
+    const control = label => created.findLast(element => element.attributes["aria-label"] === label);
+    return { controller, elements, control };
+}
+
+test("playback recovers after an initial compile failure and preserves a paused plan", async context => {
+    const { controller, elements } = controllerFor(context);
     const toggle = document.querySelector("#playbackToggle");
     controller.setActive(true);
     await tick();
@@ -145,6 +159,19 @@ test("playback recovers after an initial compile failure and preserves a paused 
     toggle.dispatchEvent(new Event("click"));
     await tick();
     assert.ok(synth.calls.length > starts);
+});
+
+test("mixer settings survive re-planning, even after a voice is briefly removed", async context => {
+    const { controller, control } = controllerFor(context);
+    controller.setActive(true);
+    await tick();
+    controller.setPlan(planOf("@stack({1}, {2})"));
+    await tick();
+    control("声部 2 乐器").value = "41";
+    control("声部 2 乐器").dispatchEvent(new Event("change"));
+    controller.setPlan(planOf("1"));
+    controller.setPlan(planOf("@stack({1}, {2})"));
+    assert.equal(control("声部 2 乐器").value, "41");
 });
 
 test("pause cancels audio startup without discarding the plan", async context => {

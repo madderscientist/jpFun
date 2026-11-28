@@ -58,6 +58,8 @@ export function createPlaybackController(options: PlaybackControllerOptions): Pl
 
     let isActive = false;
     let plan: PlaybackPlan | null = null;
+    // 按声部序号保存，跨演奏计划保留；编辑中途声部变少时也不丢弃多出的设置
+    const savedSettings: PlaybackTrackSettings[] = [];
     let settings: PlaybackTrackSettings[] = [];
     let instruments: readonly string[] = ["Acoustic Grand Piano"];
     let frame: number | undefined;
@@ -327,13 +329,10 @@ export function createPlaybackController(options: PlaybackControllerOptions): Pl
         setPlan(nextPlan) {
             showProgress = false;
             plan = nextPlan;
-            settings = Array.from({ length: plan.tracks.length }, () => ({
-                program: 0,
-                overrideProgram: false,
-                volume: 100,
-                muted: false,
-                solo: false,
-            }));
+            while (savedSettings.length < plan.tracks.length) {
+                savedSettings.push({ program: 0, overrideProgram: false, volume: 100, muted: false, solo: false });
+            }
+            settings = savedSettings.slice(0, plan.tracks.length);
             player.setPlan(plan, settings);
             if (audioAvailable === true) renderMixer();
             if (audioAvailable === true) showPlanStatus();
